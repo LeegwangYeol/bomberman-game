@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Phaser from 'phaser';
-import GameScene from '../game/GameScene';
+import GameScene, { PlayerStats } from '../game/GameScene';
 import nipplejs from 'nipplejs';
-import { Bomb, Flame, Gamepad2, Sparkles, Keyboard, Smartphone } from 'lucide-react';
+import { Bomb, Flame, Gamepad2, Sparkles, Keyboard, Smartphone, Zap, Shield, Trophy } from 'lucide-react';
 
 // Extend window to hold mobile & unified input state for Phaser to read easily
 export interface MobileInputState {
@@ -13,6 +13,7 @@ export interface MobileInputState {
   left: boolean;
   right: boolean;
   bomb: boolean;
+  dash: boolean;
 }
 
 declare global {
@@ -27,6 +28,21 @@ export default function BombermanGame() {
   const phaserGameRef = useRef<Phaser.Game | null>(null);
   const [isMobile, setIsMobile] = useState(false);
 
+  // Real-time Player Stats updated via Phaser game.events
+  const [stats, setStats] = useState<PlayerStats>({
+    speed: 150,
+    speedLevel: 1,
+    maxBombs: 1,
+    activeBombs: 0,
+    bombPower: 2,
+    hasKick: false,
+    hasShield: false,
+    dashCooldownRemaining: 0,
+    itemsCollected: { speedUp: 0, bombUp: 0, fireUp: 0, kick: 0, shield: 0 },
+    score: 0,
+    isGameOver: false,
+  });
+
   useEffect(() => {
     // Check if mobile based on touch support or screen size
     const checkMobile = () => {
@@ -40,13 +56,13 @@ export default function BombermanGame() {
     window.addEventListener('resize', checkMobile);
 
     // Initialize global input state
-    window.mobileInput = { up: false, down: false, left: false, right: false, bomb: false };
+    window.mobileInput = { up: false, down: false, left: false, right: false, bomb: false, dash: false };
 
-    // Keyboard controls (Arrow keys + WASD + Spacebar)
+    // Keyboard controls (Arrow keys + WASD + Spacebar + Shift/E)
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!window.mobileInput) return;
       const key = e.key.toLowerCase();
-      if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(key) || e.code === 'Space') {
+      if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'shift', 'e'].includes(key) || e.code === 'Space') {
         e.preventDefault();
       }
 
@@ -56,6 +72,9 @@ export default function BombermanGame() {
       if (key === 'd' || key === 'arrowright') window.mobileInput.right = true;
       if (key === ' ' || e.code === 'Space') {
         window.mobileInput.bomb = true;
+      }
+      if (key === 'shift' || key === 'e') {
+        window.mobileInput.dash = true;
       }
     };
 
@@ -69,10 +88,15 @@ export default function BombermanGame() {
       if (key === ' ' || e.code === 'Space') {
         window.mobileInput.bomb = false;
       }
+      if (key === 'shift' || key === 'e') {
+        window.mobileInput.dash = false;
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+
+    let handleStatsUpdate: ((newStats: PlayerStats) => void) | null = null;
 
     if (typeof window !== 'undefined' && gameRef.current && !phaserGameRef.current) {
       const config: Phaser.Types.Core.GameConfig = {
@@ -95,7 +119,14 @@ export default function BombermanGame() {
         backgroundColor: '#1e293b',
       };
 
-      phaserGameRef.current = new Phaser.Game(config);
+      const phaserGame = new Phaser.Game(config);
+      phaserGameRef.current = phaserGame;
+
+      // Event listener bridge for real-time stats
+      handleStatsUpdate = (newStats: PlayerStats) => {
+        setStats(newStats);
+      };
+      phaserGame.events.on('stats-update', handleStatsUpdate);
     }
 
     return () => {
@@ -103,6 +134,9 @@ export default function BombermanGame() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       if (phaserGameRef.current) {
+        if (handleStatsUpdate) {
+          phaserGameRef.current.events.off('stats-update', handleStatsUpdate);
+        }
         phaserGameRef.current.destroy(true);
         phaserGameRef.current = null;
       }
@@ -149,10 +183,21 @@ export default function BombermanGame() {
     }
   };
 
+  const handleDashPress = () => {
+    if (window.mobileInput) {
+      window.mobileInput.dash = true;
+      setTimeout(() => {
+        if (window.mobileInput) {
+          window.mobileInput.dash = false;
+        }
+      }, 100);
+    }
+  };
+
   return (
-    <div className="relative flex flex-col justify-between items-center w-full min-h-screen bg-gradient-to-b from-slate-950 via-gray-900 to-slate-950 text-white overflow-hidden select-none px-2 py-3 sm:px-4 sm:py-4">
+    <div className="relative flex flex-col justify-between items-center w-full min-h-screen bg-gradient-to-b from-slate-950 via-gray-900 to-slate-950 text-white overflow-hidden select-none px-2 py-2 sm:px-4 sm:py-3">
       {/* Retro Arcade Cabinet Header / Marquee */}
-      <header className="w-full max-w-4xl flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 rounded-xl bg-slate-900/90 backdrop-blur-md border border-slate-700/60 shadow-[0_0_20px_rgba(59,130,246,0.15)] z-20">
+      <header className="w-full max-w-4xl flex flex-wrap items-center justify-between gap-2 px-4 py-2 rounded-xl bg-slate-900/90 backdrop-blur-md border border-slate-700/60 shadow-[0_0_20px_rgba(59,130,246,0.15)] z-20">
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-gradient-to-br from-amber-500 via-orange-600 to-rose-600 shadow-[0_0_12px_rgba(245,158,11,0.5)] border border-amber-300/40">
             <Bomb className="w-6 h-6 text-white drop-shadow-md animate-pulse" />
@@ -168,7 +213,7 @@ export default function BombermanGame() {
             </div>
             <p className="text-[11px] text-slate-400 flex items-center gap-1.5">
               <Gamepad2 className="w-3 h-3 text-emerald-400" />
-              <span>Stage 1 • Dodge tracking enemies & blast blocks!</span>
+              <span>Dodge enemies, gather power-ups & blast blocks!</span>
             </p>
           </div>
         </div>
@@ -179,29 +224,116 @@ export default function BombermanGame() {
           <div className="hidden md:flex items-center gap-2 text-xs text-slate-300 bg-slate-950/80 border border-slate-800 px-3 py-1.5 rounded-lg shadow-inner">
             <Keyboard className="w-4 h-4 text-cyan-400" />
             <span className="flex items-center gap-1 font-mono">
-              <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded text-amber-300 text-[11px] shadow-sm">Arrow Keys</kbd>
-              <span className="text-slate-500">/</span>
               <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded text-amber-300 text-[11px] shadow-sm">WASD</kbd>
-              <span className="text-slate-400 ml-0.5">Move</span>
+              <span className="text-slate-400 text-[11px]">Move</span>
             </span>
             <span className="text-slate-600">•</span>
             <span className="flex items-center gap-1 font-mono">
-              <kbd className="px-2 py-0.5 bg-slate-800 border border-slate-600 rounded text-rose-300 text-[11px] shadow-sm">Spacebar</kbd>
-              <span className="text-slate-400 ml-0.5">Plant Bomb</span>
+              <kbd className="px-2 py-0.5 bg-slate-800 border border-slate-600 rounded text-rose-300 text-[11px] shadow-sm">Space</kbd>
+              <span className="text-slate-400 text-[11px]">Bomb</span>
+            </span>
+            <span className="text-slate-600">•</span>
+            <span className="flex items-center gap-1 font-mono">
+              <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded text-cyan-300 text-[11px] shadow-sm">Shift/E</kbd>
+              <span className="text-slate-400 text-[11px]">Dash</span>
             </span>
           </div>
 
           {/* Mobile Badge */}
           <div className="flex md:hidden items-center gap-1.5 text-xs text-cyan-300 bg-cyan-950/40 border border-cyan-700/50 px-2.5 py-1 rounded-lg">
             <Smartphone className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Touch Controls Active</span>
+            <span>Touch Controls</span>
           </div>
         </div>
       </header>
 
+      {/* Real-Time Retro Arcade HUD Bar */}
+      <section className="w-full max-w-4xl flex flex-wrap items-center justify-between gap-2 px-3 py-2 my-1 rounded-xl bg-slate-900/80 backdrop-blur-md border border-slate-800 shadow-md z-20">
+        {/* Core Gauges: Bombs, Fire, Speed */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Bombs Gauge */}
+          <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-950/90 border border-rose-900/60 shadow-inner">
+            <Bomb className="w-4 h-4 text-rose-400 animate-pulse" />
+            <div className="flex flex-col">
+              <span className="text-[8px] font-mono uppercase tracking-wider text-slate-400">BOMBS</span>
+              <span className="text-xs font-mono font-bold text-amber-300">
+                {stats.activeBombs} <span className="text-slate-500">/</span> {stats.maxBombs}
+              </span>
+            </div>
+          </div>
+
+          {/* Fire Power Gauge */}
+          <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-950/90 border border-orange-900/60 shadow-inner">
+            <Flame className="w-4 h-4 text-orange-400" />
+            <div className="flex flex-col">
+              <span className="text-[8px] font-mono uppercase tracking-wider text-slate-400">FIRE</span>
+              <span className="text-xs font-mono font-bold text-orange-400">
+                Lv. {stats.bombPower}
+              </span>
+            </div>
+          </div>
+
+          {/* Speed Gauge */}
+          <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-950/90 border border-cyan-900/60 shadow-inner">
+            <Zap className="w-4 h-4 text-cyan-400" />
+            <div className="flex flex-col">
+              <span className="text-[8px] font-mono uppercase tracking-wider text-slate-400">SPEED</span>
+              <span className="text-xs font-mono font-bold text-cyan-300">
+                {stats.speed} <span className="text-[10px] text-slate-500 font-normal">px/s (Lv. {stats.speedLevel})</span>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Skills & Perks Badges: Dash, Kick, Shield */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Dash Skill */}
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-950/90 border border-slate-800 shadow-inner">
+            <span className="text-xs">💨</span>
+            <div className="flex flex-col">
+              <span className="text-[8px] font-mono uppercase tracking-wider text-slate-400">DASH</span>
+              <span className={`text-[11px] font-mono font-bold ${stats.dashCooldownRemaining === 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {stats.dashCooldownRemaining === 0 ? 'READY' : `${(stats.dashCooldownRemaining / 1000).toFixed(1)}s`}
+              </span>
+            </div>
+          </div>
+
+          {/* Kick Skill */}
+          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border shadow-inner ${stats.hasKick ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300' : 'bg-slate-950/50 border-slate-800/80 text-slate-500'}`}>
+            <span className="text-xs">👟</span>
+            <div className="flex flex-col">
+              <span className="text-[8px] font-mono uppercase tracking-wider">KICK</span>
+              <span className="text-[10px] font-mono font-bold">{stats.hasKick ? 'ACTIVE' : 'LOCKED'}</span>
+            </div>
+          </div>
+
+          {/* Shield */}
+          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border shadow-inner ${stats.hasShield ? 'bg-amber-950/40 border-amber-500/50 text-amber-300' : 'bg-slate-950/50 border-slate-800/80 text-slate-500'}`}>
+            <Shield className={`w-3.5 h-3.5 ${stats.hasShield ? 'text-amber-400 animate-pulse' : 'text-slate-600'}`} />
+            <div className="flex flex-col">
+              <span className="text-[8px] font-mono uppercase tracking-wider">SHIELD</span>
+              <span className="text-[10px] font-mono font-bold">{stats.hasShield ? 'ACTIVE' : 'OFF'}</span>
+            </div>
+          </div>
+
+          {/* Items Collected Summary (Desktop) */}
+          <div className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-950/80 border border-slate-800 text-[11px] font-mono text-slate-300">
+            <span title="Speed Up">⚡{stats.itemsCollected.speedUp}</span>
+            <span title="Bomb Up">💣{stats.itemsCollected.bombUp}</span>
+            <span title="Fire Up">🔥{stats.itemsCollected.fireUp}</span>
+          </div>
+
+          {/* Score Display */}
+          <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-950/30 border border-amber-500/40 text-amber-300 font-mono text-xs font-bold shadow-[0_0_8px_rgba(245,158,11,0.2)]">
+            <Trophy className="w-3.5 h-3.5 text-amber-400" />
+            <span>{stats.score.toString().padStart(6, '0')}</span>
+          </div>
+        </div>
+      </section>
+
       {/* Arcade Cabinet Screen Framing */}
-      <main className="relative flex-1 flex items-center justify-center w-full max-w-4xl py-2 my-auto">
-        <div className="relative w-full max-h-[72vh] sm:max-h-[76vh] flex items-center justify-center p-2 sm:p-3 rounded-2xl bg-gradient-to-b from-slate-800 via-slate-900 to-black border-4 border-slate-700/70 shadow-[0_0_35px_rgba(59,130,246,0.25),0_0_70px_rgba(168,85,247,0.15)] ring-1 ring-white/10">
+      <main className="relative flex-1 flex items-center justify-center w-full max-w-4xl py-1 my-auto">
+        <div className="relative w-full max-h-[70vh] sm:max-h-[74vh] flex items-center justify-center p-2 sm:p-3 rounded-2xl bg-gradient-to-b from-slate-800 via-slate-900 to-black border-4 border-slate-700/70 shadow-[0_0_35px_rgba(59,130,246,0.25),0_0_70px_rgba(168,85,247,0.15)] ring-1 ring-white/10">
           {/* Corner Rivet Screws */}
           <div className="absolute top-2 left-2 w-2.5 h-2.5 rounded-full bg-slate-600 border border-slate-400/40 shadow-inner" />
           <div className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-slate-600 border border-slate-400/40 shadow-inner" />
@@ -218,7 +350,7 @@ export default function BombermanGame() {
       </main>
 
       {/* Footer / Status Marquee */}
-      <footer className="w-full max-w-4xl flex items-center justify-between px-4 py-1.5 text-xs text-slate-400 z-10">
+      <footer className="w-full max-w-4xl flex items-center justify-between px-4 py-1 text-xs text-slate-400 z-10">
         <div className="flex items-center gap-2">
           <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
           <span className="font-mono text-emerald-400 font-semibold tracking-wider">CREDIT 01</span>
@@ -233,28 +365,45 @@ export default function BombermanGame() {
 
       {/* Mobile Controls Overlay */}
       {isMobile && (
-        <div className="fixed bottom-4 left-0 w-full px-6 pb-2 flex justify-between items-end z-50 pointer-events-none">
+        <div className="fixed bottom-3 left-0 w-full px-5 pb-2 flex justify-between items-end z-50 pointer-events-none">
           {/* Virtual Joystick Plate */}
           <div className="pointer-events-auto flex flex-col items-center gap-1">
             <div 
               ref={joystickRef} 
-              className="relative w-32 h-32 bg-slate-900/70 backdrop-blur-md rounded-full border-2 border-cyan-400/40 shadow-[0_0_20px_rgba(6,182,212,0.3)] touch-none"
+              className="relative w-28 h-28 sm:w-32 sm:h-32 bg-slate-900/70 backdrop-blur-md rounded-full border-2 border-cyan-400/40 shadow-[0_0_20px_rgba(6,182,212,0.3)] touch-none"
             />
-            <span className="text-[10px] font-mono uppercase tracking-widest text-cyan-400/80">Move Stick</span>
+            <span className="text-[9px] font-mono uppercase tracking-widest text-cyan-400/80">Move Stick</span>
           </div>
           
-          {/* Bomb Button */}
-          <div className="pointer-events-auto flex flex-col items-center gap-1">
-            <button 
-              type="button"
-              onPointerDown={handleBombPress}
-              aria-label="Plant Bomb"
-              className="w-24 h-24 sm:w-28 sm:h-28 bg-gradient-to-tr from-rose-600 via-red-500 to-amber-500 rounded-full border-4 border-red-900 shadow-[0_0_25px_rgba(239,68,68,0.7),inset_0_3px_6px_rgba(255,255,255,0.4)] flex flex-col items-center justify-center active:scale-95 active:brightness-90 transition-all select-none touch-none cursor-pointer"
-            >
-              <Bomb size={36} className="text-white drop-shadow-md" />
-              <span className="text-xs font-black tracking-wider text-white drop-shadow">BOMB</span>
-            </button>
-            <span className="text-[10px] font-mono uppercase tracking-widest text-rose-400/80">Plant Bomb</span>
+          {/* Action Buttons: DASH + BOMB */}
+          <div className="pointer-events-auto flex items-end gap-3">
+            {/* Dash Button */}
+            <div className="flex flex-col items-center gap-1">
+              <button 
+                type="button"
+                onPointerDown={handleDashPress}
+                aria-label="Dash"
+                className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-tr from-cyan-600 via-blue-500 to-indigo-600 rounded-full border-3 border-cyan-900 shadow-[0_0_20px_rgba(6,182,212,0.6),inset_0_3px_6px_rgba(255,255,255,0.4)] flex flex-col items-center justify-center active:scale-95 active:brightness-90 transition-all select-none touch-none cursor-pointer"
+              >
+                <Zap size={24} className="text-white drop-shadow-md" />
+                <span className="text-[9px] font-black tracking-wider text-white drop-shadow">DASH</span>
+              </button>
+              <span className="text-[9px] font-mono uppercase tracking-widest text-cyan-400/80">Dash</span>
+            </div>
+
+            {/* Bomb Button */}
+            <div className="flex flex-col items-center gap-1">
+              <button 
+                type="button"
+                onPointerDown={handleBombPress}
+                aria-label="Plant Bomb"
+                className="w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-tr from-rose-600 via-red-500 to-amber-500 rounded-full border-4 border-red-900 shadow-[0_0_25px_rgba(239,68,68,0.7),inset_0_3px_6px_rgba(255,255,255,0.4)] flex flex-col items-center justify-center active:scale-95 active:brightness-90 transition-all select-none touch-none cursor-pointer"
+              >
+                <Bomb size={30} className="text-white drop-shadow-md" />
+                <span className="text-[10px] font-black tracking-wider text-white drop-shadow">BOMB</span>
+              </button>
+              <span className="text-[9px] font-mono uppercase tracking-widest text-rose-400/80">Plant</span>
+            </div>
           </div>
         </div>
       )}

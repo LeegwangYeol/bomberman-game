@@ -1,7 +1,7 @@
-# BRIEFING — 2026-09-15T01:21:27Z
+# BRIEFING — 2026-09-15T04:11:15Z
 
 ## Mission
-Oversee refinement of Bomberman prototype (smooth player movement/corner-sliding, lively enemy AI states/visuals, dynamic pulsing bomb tweens/explosions) via teamwork_preview_orchestrator swarm, followed by independent victory audit.
+Oversee implementation of directional character animations, advanced enemy behaviors (bomb placement, name tags), and dynamic gameplay mechanics (items, skills, map gimmicks) into the Bomberman codebase via teamwork_preview_orchestrator swarm, followed by independent victory audit.
 
 ## 🔒 My Identity
 - Archetype: sentinel
@@ -10,6 +10,8 @@ Oversee refinement of Bomberman prototype (smooth player movement/corner-sliding
 - Victory Auditor: d1360e22-809f-484f-b636-2f4a08035044
 - Orchestrator (Refinement): 5ba8d8e8-7e3d-47e7-b8f4-049c5ea9cdec
 - Victory Auditor (Refinement): c84ee1b7-c0c0-47fe-8971-14c6ac54eba3
+- Orchestrator (Mechanics): 44588999-8c10-421d-bf21-ce8f01b21f6e
+- Victory Auditor (Mechanics): e76692be-6fc2-45cf-86f9-451fc31c9525
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
@@ -19,11 +21,12 @@ Oversee refinement of Bomberman prototype (smooth player movement/corner-sliding
 - Monitor progress and liveness via crons
 - Clean up all crons and subagents upon completion
 - Refinement acceptance: corner-sliding/physics body adjustments, lively enemy visual AI states, pulsing bomb tweens, clean build
+- Mechanics acceptance: directional character animations (up/down/left/right), enemy bomb placement & name tags, 3+ collectible power-ups (speed, bombs, radius), dynamic gimmicks/skills, HUD reflection, 0 build errors
 
 ## User Context
-- **Last user request**: Refine Bomberman prototype to fix player movement snagging on walls, and drastically improve liveliness/animations of enemies and bombs with a large team of agents.
+- **Last user request**: Implement directional character animations, advanced enemy behaviors (bomb placement, name tags), and dynamic gameplay mechanics (items, skills, map gimmicks) into the Bomberman codebase using a very large team of agents.
 - **Pending clarifications**: none
-- **Delivered results**: Smooth player movement with corner-sliding & tuned hitboxes, lively 7-state enemy visual AI with overhead companion indicators & squashing/waddling tweens & death particles, 3-stage accelerating pulsing bomb tweens & 6-layer explosion impacts. 70/70 automated tests passing, 0 lint errors, clean Turbopack build, independently verified by Victory Auditor (VICTORY CONFIRMED).
+- **Delivered results**: Directional character animations (120x160 spritesheet, 4-directional walk cycles, idle direction retention), advanced enemy AI (strategic bomb placement with suicide-prevention escape BFS, 2-tier overhead name tags/badges), dynamic gameplay mechanics (5 power-ups with 45% drop rate, Dash skill with i-frames, Bomb Kick sliding, Conveyor belts, Teleport portals), and arcade React HUD bridge. 154/154 automated tests passing across 11 suites, 0 lint errors, clean Turbopack build, independently verified by Victory Auditor (VICTORY CONFIRMED).
 
 ## Project Status
 - **Phase**: complete
@@ -33,17 +36,18 @@ Oversee refinement of Bomberman prototype (smooth player movement/corner-sliding
 ## Victory Audit Status
 - **Triggered**: yes
 - **Verdict**: VICTORY CONFIRMED
-- **Auditor ID**: c84ee1b7-c0c0-47fe-8971-14c6ac54eba3
+- **Auditor ID**: e76692be-6fc2-45cf-86f9-451fc31c9525
 - **Retry count**: 0
 
 ## Artifact Index
 - /Users/user/src/bomberman/ORIGINAL_REQUEST.md — Authoritative user request (root)
 - /Users/user/src/bomberman/.agents/ORIGINAL_REQUEST.md — Authoritative user request (.agents)
 - /Users/user/src/bomberman/COLLABORATION.md — Claude collaboration guide
-- /Users/user/src/bomberman/src/game/GameScene.ts — Phaser GameScene with corner-sliding, enemy visuals, and bomb tweens
-- /Users/user/src/bomberman/src/game/pathfinding.ts — BFS pathfinding and enemy combat AI
-- /Users/user/src/bomberman/src/components/BombermanGame.tsx — Arcade UI and controls
-- /Users/user/src/bomberman/tests/bomb_lifecycle.test.mjs — Comprehensive bomb lifecycle tests
-- /Users/user/src/bomberman/tests/player_movement_stress.test.mjs — Corner-sliding & movement stress tests
-- /Users/user/src/bomberman/.agents/orchestrator_refine/handoff.md — Orchestrator completion report
-- /Users/user/src/bomberman/.agents/victory_auditor_refine/handoff.md — Victory Auditor report (VICTORY CONFIRMED)
+- /Users/user/src/bomberman/src/game/GameScene.ts — Phaser GameScene with animations, enemy AI, items, and gimmicks
+- /Users/user/src/bomberman/src/game/pathfinding.ts — BFS pathfinding, blast calculation & enemy escape routing
+- /Users/user/src/bomberman/src/game/gameplay_mechanics.ts — Item drop tables, stat mutators, and skills/gimmicks engine
+- /Users/user/src/bomberman/src/components/BombermanGame.tsx — Arcade React HUD and controls
+- /Users/user/src/bomberman/.agents/orchestrator_mechanics/handoff.md — Orchestrator completion report
+- /Users/user/src/bomberman/.agents/victory_auditor_mechanics/handoff.md — Victory Auditor report (VICTORY CONFIRMED)
+
+

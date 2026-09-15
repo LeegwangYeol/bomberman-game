@@ -78,3 +78,32 @@ Make the bombs feel much more dynamic and dangerous. Add pulsing/scaling animati
 - [ ] Bombs use a tween to pulse/scale up and down while ticking.
 - [ ] The game builds successfully with 0 errors (`npm run build`).
 
+## Follow-up — 2026-09-15T04:11:15Z
+
+Implement directional character animations, advanced enemy behaviors (bomb placement, name tags), and dynamic gameplay mechanics (items, skills, map gimmicks) into the Bomberman codebase. Use a very large team of agents to thoroughly develop, test, and audit these massive additions.
+
+Working directory: /Users/user/src/bomberman
+Integrity mode: demo
+
+## Requirements
+
+### R1. Directional Character Animations
+Implement fluid directional animations (up, down, left, right) for the player character using proper sprite sheets or distinct directional assets, so the character actively looks where they are moving. Ensure transitions are buttery smooth.
+
+### R2. Advanced Enemy Behavior & UI
+Upgrade enemy AI so they can strategically place bombs to trap the player. Add distinct name tags hovering over enemies to give them identity.
+
+### R3. Dynamic Gameplay (Items, Skills, Gimmicks)
+Introduce core Bomberman items (power-ups like Speed Up, Bomb Up, Fire Up) that drop from destroyed blocks. Add player skills and dynamic map gimmicks (e.g., conveyor belts, portals). Update the HUD/UI to display collected items, stats, and active skills.
+
+## Acceptance Criteria
+
+### Verification
+- [ ] The player sprite updates its visual frame/animation based on the current movement direction (up, down, left, right).
+- [ ] Enemies have logic to place bombs, and those bombs detonate and interact with the world normally.
+- [ ] Enemies render a text label (name tag) above their sprites.
+- [ ] At least 3 distinct power-up items can be collected by the player, dynamically updating their stats (speed, bomb limit, blast radius).
+- [ ] The game HUD correctly reflects the player's current item stats and skills.
+- [ ] The game builds successfully with 0 errors (`npm run build`).
+
+

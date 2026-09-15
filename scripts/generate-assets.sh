@@ -11,7 +11,7 @@ mkdir -p "$TARGET_DIR"
 
 # 1. Player: Cute white bomber with blue suit and pink pom-pom
 cat << 'SVG' > "$TEMP_DIR/player.svg"
-<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="160" viewBox="0 0 120 160">
   <defs>
     <radialGradient id="pom" cx="35%" cy="35%" r="65%">
       <stop offset="0%" stop-color="#ff99bb"/>
@@ -27,30 +27,202 @@ cat << 'SVG' > "$TEMP_DIR/player.svg"
       <stop offset="100%" stop-color="#cbd5e1"/>
     </linearGradient>
   </defs>
-  <!-- Shadow -->
-  <ellipse cx="20" cy="37" rx="14" ry="3" fill="rgba(0,0,0,0.25)"/>
-  <!-- Feet -->
-  <ellipse cx="14" cy="35" rx="5" ry="3.5" fill="#ef4444"/>
-  <ellipse cx="26" cy="35" rx="5" ry="3.5" fill="#ef4444"/>
-  <!-- Body (Blue suit) -->
-  <rect x="11" y="22" width="18" height="13" rx="5" fill="url(#bodyGrad)" stroke="#1e3a8a" stroke-width="1.2"/>
-  <rect x="13" y="28" width="14" height="3" fill="#1e293b"/>
-  <rect x="18" y="27.5" width="4" height="4" fill="#fbbf24"/>
-  <!-- Pom-pom antenna -->
-  <rect x="18.5" y="2" width="3" height="6" fill="#64748b" rx="1"/>
-  <circle cx="20" cy="4" r="4" fill="url(#pom)" stroke="#be123c" stroke-width="1"/>
-  <!-- Head (White helmet) -->
-  <rect x="7" y="6" width="26" height="20" rx="9" fill="url(#headGrad)" stroke="#334155" stroke-width="1.5"/>
-  <!-- Face visor / opening -->
-  <rect x="11" y="10" width="18" height="13" rx="6" fill="#ffe4e6" stroke="#fb7185" stroke-width="1"/>
-  <!-- Eyes (cute anime-style dots with twinkle) -->
-  <ellipse cx="15.5" cy="16" rx="2" ry="3" fill="#0f172a"/>
-  <circle cx="15" cy="15" r="0.8" fill="#ffffff"/>
-  <ellipse cx="24.5" cy="16" rx="2" ry="3" fill="#0f172a"/>
-  <circle cx="24" cy="15" r="0.8" fill="#ffffff"/>
-  <!-- Blush -->
-  <ellipse cx="13" cy="19" rx="2" ry="1.2" fill="#f43f5e" opacity="0.6"/>
-  <ellipse cx="27" cy="19" rx="2" ry="1.2" fill="#f43f5e" opacity="0.6"/>
+
+  <!-- ================= ROW 0: DOWN (Frames 0, 1, 2) ================= -->
+  <!-- Frame 0: Down Idle -->
+  <g transform="translate(0,0)">
+    <ellipse cx="20" cy="37" rx="14" ry="3" fill="rgba(0,0,0,0.25)"/>
+    <ellipse cx="14" cy="35" rx="5" ry="3.5" fill="#ef4444"/>
+    <ellipse cx="26" cy="35" rx="5" ry="3.5" fill="#ef4444"/>
+    <rect x="11" y="22" width="18" height="13" rx="5" fill="url(#bodyGrad)" stroke="#1e3a8a" stroke-width="1.2"/>
+    <rect x="13" y="28" width="14" height="3" fill="#1e293b"/>
+    <rect x="18" y="27.5" width="4" height="4" fill="#fbbf24"/>
+    <rect x="18.5" y="2" width="3" height="6" fill="#64748b" rx="1"/>
+    <circle cx="20" cy="4" r="4" fill="url(#pom)" stroke="#be123c" stroke-width="1"/>
+    <rect x="7" y="6" width="26" height="20" rx="9" fill="url(#headGrad)" stroke="#334155" stroke-width="1.5"/>
+    <rect x="11" y="10" width="18" height="13" rx="6" fill="#ffe4e6" stroke="#fb7185" stroke-width="1"/>
+    <ellipse cx="15.5" cy="16" rx="2" ry="3" fill="#0f172a"/>
+    <circle cx="15" cy="15" r="0.8" fill="#ffffff"/>
+    <ellipse cx="24.5" cy="16" rx="2" ry="3" fill="#0f172a"/>
+    <circle cx="24" cy="15" r="0.8" fill="#ffffff"/>
+    <ellipse cx="13" cy="19" rx="2" ry="1.2" fill="#f43f5e" opacity="0.6"/>
+    <ellipse cx="27" cy="19" rx="2" ry="1.2" fill="#f43f5e" opacity="0.6"/>
+  </g>
+  <!-- Frame 1: Down Walk 1 -->
+  <g transform="translate(40,0)">
+    <ellipse cx="20" cy="37" rx="14" ry="3" fill="rgba(0,0,0,0.25)"/>
+    <ellipse cx="13" cy="33" rx="5.5" ry="4" fill="#dc2626"/>
+    <ellipse cx="27" cy="36" rx="4.5" ry="3" fill="#b91c1c"/>
+    <rect x="11" y="21.5" width="18" height="13" rx="5" fill="url(#bodyGrad)" stroke="#1e3a8a" stroke-width="1.2"/>
+    <rect x="13" y="27.5" width="14" height="3" fill="#1e293b"/>
+    <rect x="18" y="27" width="4" height="4" fill="#fbbf24"/>
+    <rect x="18" y="1.5" width="3" height="6" fill="#64748b" rx="1"/>
+    <circle cx="19.5" cy="3.5" r="4" fill="url(#pom)" stroke="#be123c" stroke-width="1"/>
+    <rect x="7" y="5.5" width="26" height="20" rx="9" fill="url(#headGrad)" stroke="#334155" stroke-width="1.5"/>
+    <rect x="11" y="9.5" width="18" height="13" rx="6" fill="#ffe4e6" stroke="#fb7185" stroke-width="1"/>
+    <ellipse cx="15.5" cy="15.5" rx="2" ry="3" fill="#0f172a"/>
+    <circle cx="15" cy="14.5" r="0.8" fill="#ffffff"/>
+    <ellipse cx="24.5" cy="15.5" rx="2" ry="3" fill="#0f172a"/>
+    <circle cx="24" cy="14.5" r="0.8" fill="#ffffff"/>
+    <ellipse cx="13" cy="18.5" rx="2" ry="1.2" fill="#f43f5e" opacity="0.6"/>
+    <ellipse cx="27" cy="18.5" rx="2" ry="1.2" fill="#f43f5e" opacity="0.6"/>
+  </g>
+  <!-- Frame 2: Down Walk 2 -->
+  <g transform="translate(80,0)">
+    <ellipse cx="20" cy="37" rx="14" ry="3" fill="rgba(0,0,0,0.25)"/>
+    <ellipse cx="13" cy="36" rx="4.5" ry="3" fill="#b91c1c"/>
+    <ellipse cx="27" cy="33" rx="5.5" ry="4" fill="#dc2626"/>
+    <rect x="11" y="21.5" width="18" height="13" rx="5" fill="url(#bodyGrad)" stroke="#1e3a8a" stroke-width="1.2"/>
+    <rect x="13" y="27.5" width="14" height="3" fill="#1e293b"/>
+    <rect x="18" y="27" width="4" height="4" fill="#fbbf24"/>
+    <rect x="19" y="1.5" width="3" height="6" fill="#64748b" rx="1"/>
+    <circle cx="20.5" cy="3.5" r="4" fill="url(#pom)" stroke="#be123c" stroke-width="1"/>
+    <rect x="7" y="5.5" width="26" height="20" rx="9" fill="url(#headGrad)" stroke="#334155" stroke-width="1.5"/>
+    <rect x="11" y="9.5" width="18" height="13" rx="6" fill="#ffe4e6" stroke="#fb7185" stroke-width="1"/>
+    <ellipse cx="15.5" cy="15.5" rx="2" ry="3" fill="#0f172a"/>
+    <circle cx="15" cy="14.5" r="0.8" fill="#ffffff"/>
+    <ellipse cx="24.5" cy="15.5" rx="2" ry="3" fill="#0f172a"/>
+    <circle cx="24" cy="14.5" r="0.8" fill="#ffffff"/>
+    <ellipse cx="13" cy="18.5" rx="2" ry="1.2" fill="#f43f5e" opacity="0.6"/>
+    <ellipse cx="27" cy="18.5" rx="2" ry="1.2" fill="#f43f5e" opacity="0.6"/>
+  </g>
+
+  <!-- ================= ROW 1: UP / BACK (Frames 3, 4, 5) ================= -->
+  <!-- Frame 3: Up Idle -->
+  <g transform="translate(0,40)">
+    <ellipse cx="20" cy="37" rx="14" ry="3" fill="rgba(0,0,0,0.25)"/>
+    <ellipse cx="14" cy="35" rx="5" ry="3.5" fill="#ef4444"/>
+    <ellipse cx="26" cy="35" rx="5" ry="3.5" fill="#ef4444"/>
+    <rect x="11" y="22" width="18" height="13" rx="5" fill="url(#bodyGrad)" stroke="#1e3a8a" stroke-width="1.2"/>
+    <rect x="11" y="28" width="18" height="3" fill="#1e293b"/>
+    <rect x="18.5" y="2" width="3" height="6" fill="#64748b" rx="1"/>
+    <circle cx="20" cy="4" r="4" fill="url(#pom)" stroke="#be123c" stroke-width="1"/>
+    <rect x="7" y="6" width="26" height="20" rx="9" fill="url(#headGrad)" stroke="#334155" stroke-width="1.5"/>
+    <path d="M 10 12 Q 20 8 30 12" stroke="#ffffff" stroke-width="1.8" fill="none" opacity="0.7" stroke-linecap="round"/>
+  </g>
+  <!-- Frame 4: Up Walk 1 -->
+  <g transform="translate(40,40)">
+    <ellipse cx="20" cy="37" rx="14" ry="3" fill="rgba(0,0,0,0.25)"/>
+    <ellipse cx="13" cy="33" rx="5.5" ry="4" fill="#dc2626"/>
+    <ellipse cx="27" cy="36" rx="4.5" ry="3" fill="#b91c1c"/>
+    <rect x="11" y="21.5" width="18" height="13" rx="5" fill="url(#bodyGrad)" stroke="#1e3a8a" stroke-width="1.2"/>
+    <rect x="11" y="27.5" width="18" height="3" fill="#1e293b"/>
+    <rect x="18" y="1.5" width="3" height="6" fill="#64748b" rx="1"/>
+    <circle cx="19.5" cy="3.5" r="4" fill="url(#pom)" stroke="#be123c" stroke-width="1"/>
+    <rect x="7" y="5.5" width="26" height="20" rx="9" fill="url(#headGrad)" stroke="#334155" stroke-width="1.5"/>
+    <path d="M 10 11.5 Q 20 7.5 30 11.5" stroke="#ffffff" stroke-width="1.8" fill="none" opacity="0.7" stroke-linecap="round"/>
+  </g>
+  <!-- Frame 5: Up Walk 2 -->
+  <g transform="translate(80,40)">
+    <ellipse cx="20" cy="37" rx="14" ry="3" fill="rgba(0,0,0,0.25)"/>
+    <ellipse cx="13" cy="36" rx="4.5" ry="3" fill="#b91c1c"/>
+    <ellipse cx="27" cy="33" rx="5.5" ry="4" fill="#dc2626"/>
+    <rect x="11" y="21.5" width="18" height="13" rx="5" fill="url(#bodyGrad)" stroke="#1e3a8a" stroke-width="1.2"/>
+    <rect x="11" y="27.5" width="18" height="3" fill="#1e293b"/>
+    <rect x="19" y="1.5" width="3" height="6" fill="#64748b" rx="1"/>
+    <circle cx="20.5" cy="3.5" r="4" fill="url(#pom)" stroke="#be123c" stroke-width="1"/>
+    <rect x="7" y="5.5" width="26" height="20" rx="9" fill="url(#headGrad)" stroke="#334155" stroke-width="1.5"/>
+    <path d="M 10 11.5 Q 20 7.5 30 11.5" stroke="#ffffff" stroke-width="1.8" fill="none" opacity="0.7" stroke-linecap="round"/>
+  </g>
+
+  <!-- ================= ROW 2: SIDE / RIGHT (Frames 6, 7, 8) ================= -->
+  <!-- Frame 6: Side Idle -->
+  <g transform="translate(0,80)">
+    <ellipse cx="20" cy="37" rx="13" ry="3" fill="rgba(0,0,0,0.25)"/>
+    <ellipse cx="17" cy="35.5" rx="5" ry="3" fill="#b91c1c"/>
+    <ellipse cx="23" cy="35" rx="5.5" ry="3.5" fill="#ef4444"/>
+    <rect x="12" y="22" width="16" height="13" rx="5" fill="url(#bodyGrad)" stroke="#1e3a8a" stroke-width="1.2"/>
+    <rect x="14" y="28" width="14" height="3" fill="#1e293b"/>
+    <rect x="24" y="27.5" width="3.5" height="4" fill="#fbbf24"/>
+    <rect x="16.5" y="2" width="3" height="6" fill="#64748b" rx="1" transform="rotate(-8, 18, 5)"/>
+    <circle cx="17" cy="3.5" r="4" fill="url(#pom)" stroke="#be123c" stroke-width="1"/>
+    <rect x="7" y="6" width="26" height="20" rx="9" fill="url(#headGrad)" stroke="#334155" stroke-width="1.5"/>
+    <path d="M 17 10 L 29 10 Q 33 16 29 23 L 17 23 Q 15 16 17 10 Z" fill="#ffe4e6" stroke="#fb7185" stroke-width="1"/>
+    <ellipse cx="24" cy="16" rx="2.2" ry="3.2" fill="#0f172a"/>
+    <circle cx="24.5" cy="15" r="0.9" fill="#ffffff"/>
+    <ellipse cx="26" cy="19" rx="1.8" ry="1.1" fill="#f43f5e" opacity="0.6"/>
+  </g>
+  <!-- Frame 7: Side Walk 1 -->
+  <g transform="translate(40,80)">
+    <ellipse cx="20" cy="37" rx="13" ry="3" fill="rgba(0,0,0,0.25)"/>
+    <ellipse cx="13" cy="35" rx="4.5" ry="3" fill="#b91c1c"/>
+    <ellipse cx="27" cy="34" rx="5.5" ry="3.5" fill="#dc2626"/>
+    <rect x="12" y="21.5" width="16" height="13" rx="5" fill="url(#bodyGrad)" stroke="#1e3a8a" stroke-width="1.2"/>
+    <rect x="14" y="27.5" width="14" height="3" fill="#1e293b"/>
+    <rect x="24" y="27" width="3.5" height="4" fill="#fbbf24"/>
+    <rect x="16.5" y="1.5" width="3" height="6" fill="#64748b" rx="1" transform="rotate(-12, 18, 5)"/>
+    <circle cx="16" cy="3" r="4" fill="url(#pom)" stroke="#be123c" stroke-width="1"/>
+    <rect x="7" y="5.5" width="26" height="20" rx="9" fill="url(#headGrad)" stroke="#334155" stroke-width="1.5"/>
+    <path d="M 17 9.5 L 29 9.5 Q 33 15.5 29 22.5 L 17 22.5 Q 15 15.5 17 9.5 Z" fill="#ffe4e6" stroke="#fb7185" stroke-width="1"/>
+    <ellipse cx="24" cy="15.5" rx="2.2" ry="3.2" fill="#0f172a"/>
+    <circle cx="24.5" cy="14.5" r="0.9" fill="#ffffff"/>
+    <ellipse cx="26" cy="18.5" rx="1.8" ry="1.1" fill="#f43f5e" opacity="0.6"/>
+  </g>
+  <!-- Frame 8: Side Walk 2 -->
+  <g transform="translate(80,80)">
+    <ellipse cx="20" cy="37" rx="13" ry="3" fill="rgba(0,0,0,0.25)"/>
+    <ellipse cx="26" cy="36" rx="4.5" ry="3" fill="#b91c1c"/>
+    <ellipse cx="15" cy="33.5" rx="5.5" ry="3.5" fill="#dc2626"/>
+    <rect x="12" y="21.5" width="16" height="13" rx="5" fill="url(#bodyGrad)" stroke="#1e3a8a" stroke-width="1.2"/>
+    <rect x="14" y="27.5" width="14" height="3" fill="#1e293b"/>
+    <rect x="24" y="27" width="3.5" height="4" fill="#fbbf24"/>
+    <rect x="16.5" y="1.5" width="3" height="6" fill="#64748b" rx="1" transform="rotate(-4, 18, 5)"/>
+    <circle cx="17.5" cy="3" r="4" fill="url(#pom)" stroke="#be123c" stroke-width="1"/>
+    <rect x="7" y="5.5" width="26" height="20" rx="9" fill="url(#headGrad)" stroke="#334155" stroke-width="1.5"/>
+    <path d="M 17 9.5 L 29 9.5 Q 33 15.5 29 22.5 L 17 22.5 Q 15 15.5 17 9.5 Z" fill="#ffe4e6" stroke="#fb7185" stroke-width="1"/>
+    <ellipse cx="24" cy="15.5" rx="2.2" ry="3.2" fill="#0f172a"/>
+    <circle cx="24.5" cy="14.5" r="0.9" fill="#ffffff"/>
+    <ellipse cx="26" cy="18.5" rx="1.8" ry="1.1" fill="#f43f5e" opacity="0.6"/>
+  </g>
+
+  <!-- ================= ROW 3: DEFEAT / STUN (Frames 9, 10, 11) ================= -->
+  <!-- Frame 9: Dizzy X-Eyes -->
+  <g transform="translate(0,120)">
+    <ellipse cx="20" cy="37" rx="14" ry="3" fill="rgba(0,0,0,0.25)"/>
+    <ellipse cx="14" cy="35" rx="5" ry="3.5" fill="#ef4444"/>
+    <ellipse cx="26" cy="35" rx="5" ry="3.5" fill="#ef4444"/>
+    <rect x="11" y="22" width="18" height="13" rx="5" fill="url(#bodyGrad)" stroke="#1e3a8a" stroke-width="1.2"/>
+    <rect x="13" y="28" width="14" height="3" fill="#1e293b"/>
+    <rect x="18" y="27.5" width="4" height="4" fill="#fbbf24"/>
+    <rect x="18.5" y="2" width="3" height="6" fill="#64748b" rx="1"/>
+    <circle cx="20" cy="4" r="4" fill="url(#pom)" stroke="#be123c" stroke-width="1"/>
+    <rect x="7" y="6" width="26" height="20" rx="9" fill="url(#headGrad)" stroke="#334155" stroke-width="1.5"/>
+    <rect x="11" y="10" width="18" height="13" rx="6" fill="#ffe4e6" stroke="#fb7185" stroke-width="1"/>
+    <path d="M 13 14 L 17 18 M 17 14 L 13 18" stroke="#0f172a" stroke-width="1.5" stroke-linecap="round"/>
+    <path d="M 23 14 L 27 18 M 27 14 L 23 18" stroke="#0f172a" stroke-width="1.5" stroke-linecap="round"/>
+    <ellipse cx="13" cy="20" rx="2" ry="1.2" fill="#f43f5e" opacity="0.6"/>
+    <ellipse cx="27" cy="20" rx="2" ry="1.2" fill="#f43f5e" opacity="0.6"/>
+  </g>
+  <!-- Frame 10: Squashed Impact -->
+  <g transform="translate(40,120)">
+    <ellipse cx="20" cy="37" rx="15" ry="3" fill="rgba(0,0,0,0.25)"/>
+    <ellipse cx="12" cy="36" rx="6" ry="3" fill="#ef4444"/>
+    <ellipse cx="28" cy="36" rx="6" ry="3" fill="#ef4444"/>
+    <rect x="9" y="24" width="22" height="11" rx="5" fill="url(#bodyGrad)" stroke="#1e3a8a" stroke-width="1.2"/>
+    <rect x="11" y="29" width="18" height="3" fill="#1e293b"/>
+    <rect x="18" y="28.5" width="4" height="4" fill="#fbbf24"/>
+    <rect x="18.5" y="5" width="3" height="6" fill="#64748b" rx="1"/>
+    <circle cx="20" cy="7" r="4" fill="url(#pom)" stroke="#be123c" stroke-width="1"/>
+    <rect x="6" y="9" width="28" height="17" rx="8" fill="url(#headGrad)" stroke="#334155" stroke-width="1.5"/>
+    <rect x="10" y="12" width="20" height="11" rx="5" fill="#ffe4e6" stroke="#fb7185" stroke-width="1"/>
+    <path d="M 13 15 L 17 19 M 17 15 L 13 19" stroke="#0f172a" stroke-width="1.5" stroke-linecap="round"/>
+    <path d="M 23 15 L 27 19 M 27 15 L 23 19" stroke="#0f172a" stroke-width="1.5" stroke-linecap="round"/>
+  </g>
+  <!-- Frame 11: Spiral Dizzy -->
+  <g transform="translate(80,120)">
+    <ellipse cx="20" cy="37" rx="14" ry="3" fill="rgba(0,0,0,0.25)"/>
+    <ellipse cx="13" cy="35" rx="5" ry="3.5" fill="#ef4444"/>
+    <ellipse cx="27" cy="35" rx="5" ry="3.5" fill="#ef4444"/>
+    <rect x="11" y="22" width="18" height="13" rx="5" fill="url(#bodyGrad)" stroke="#1e3a8a" stroke-width="1.2"/>
+    <rect x="13" y="28" width="14" height="3" fill="#1e293b"/>
+    <rect x="18" y="27.5" width="4" height="4" fill="#fbbf24"/>
+    <rect x="18.5" y="2" width="3" height="6" fill="#64748b" rx="1"/>
+    <circle cx="20" cy="4" r="4" fill="url(#pom)" stroke="#be123c" stroke-width="1"/>
+    <rect x="7" y="6" width="26" height="20" rx="9" fill="url(#headGrad)" stroke="#334155" stroke-width="1.5"/>
+    <rect x="11" y="10" width="18" height="13" rx="6" fill="#ffe4e6" stroke="#fb7185" stroke-width="1"/>
+    <path d="M 14 16 Q 16 14 16 16 Q 16 18 14 18" stroke="#0f172a" stroke-width="1.5" fill="none"/>
+    <path d="M 24 16 Q 26 14 26 16 Q 26 18 24 18" stroke="#0f172a" stroke-width="1.5" fill="none"/>
+  </g>
 </svg>
 SVG
 
@@ -298,6 +470,8 @@ for svg in "$TEMP_DIR"/*.svg; do
   name=$(basename "$svg" .svg)
   if [ "$name" = "background" ]; then
     sips -s format png -z 600 800 "$svg" --out "$TARGET_DIR/${name}.png" >/dev/null
+  elif [ "$name" = "player" ]; then
+    sips -s format png -z 160 120 "$svg" --out "$TARGET_DIR/${name}.png" >/dev/null
   else
     sips -s format png -z 40 40 "$svg" --out "$TARGET_DIR/${name}.png" >/dev/null
   fi
