@@ -51,3 +51,30 @@ Implement these features directly into the `GameScene.ts` and `BombermanGame.tsx
 - [ ] Real image assets are loaded in the Phaser `preload()` function and used for all game entities (player, enemies, bombs, backgrounds).
 - [ ] Enemy update logic includes tracking the player's position and executing an attack.
 - [ ] The game compiles successfully (`npm run build` exits with code 0).
+
+## Follow-up — 2026-09-15T01:21:27Z
+
+Refine the Bomberman prototype to fix player movement snagging on walls, and drastically improve the liveliness/animations of enemies and bombs. Use a large team of agents to modify the codebase and thoroughly test the fixes.
+
+Working directory: /Users/user/src/bomberman
+Integrity mode: demo
+
+## Requirements
+
+### R1. Smooth Player Movement
+Fix the issue where the player snags or gets stuck on walls when moving vertically or turning corners. Implement corner-sliding logic or adjust the physics bounding boxes to ensure fluid, seamless movement through grid corridors.
+
+### R2. Lively Enemies
+Enhance enemy AI and visual feedback so they feel alive and purposeful. Add distinct states (idle, moving, hunting) with corresponding animations, particle effects, or clear visual intent indicators.
+
+### R3. Dynamic Bomb Animations
+Make the bombs feel much more dynamic and dangerous. Add pulsing/scaling animations (ticking effect) before they explode, and improve the visual impact of the explosion itself.
+
+## Acceptance Criteria
+
+### Verification
+- [ ] Player physics bodies are adjusted or corner-sliding is implemented so the player no longer gets stuck when sliding past walls.
+- [ ] Enemies display visual changes (e.g., animations or dynamic scaling) based on their current AI state.
+- [ ] Bombs use a tween to pulse/scale up and down while ticking.
+- [ ] The game builds successfully with 0 errors (`npm run build`).
+

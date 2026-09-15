@@ -333,6 +333,7 @@ test('Performance Benchmark: 5,000 BFS path calculations on 13x15 arena', () => 
 class EnemyStateMachineSim {
   constructor() {
     this.aiState = 'TRACKING';
+    this.isTracker = true;
     this.stateTimer = 0;
     this.pathRecalcTimer = 0;
     this.attackDir = { x: 0, y: 0 };
@@ -373,26 +374,49 @@ class EnemyStateMachineSim {
     this.velocity = { x: 0, y: 0 };
     this.tint = 0xff2222;
 
-    // Direct verbatim copy of GameScene.ts line 209-221:
-    if (er === pr) {
+    // Fixed non-zero directional resolution when sharing same tile
+    if (er === pr && ec !== pc) {
       this.attackDir = { x: Math.sign(pc - ec), y: 0 };
-    } else if (ec === pc) {
+    } else if (ec === pc && er !== pr) {
       this.attackDir = { x: 0, y: Math.sign(pr - er) };
     } else {
       const dx = playerX - this.x;
       const dy = playerY - this.y;
       if (Math.abs(dx) > Math.abs(dy)) {
-        this.attackDir = { x: Math.sign(dx), y: 0 };
+        this.attackDir = { x: Math.sign(dx) || (this.flipX ? -1 : 1), y: 0 };
       } else {
-        this.attackDir = { x: 0, y: Math.sign(dy) };
+        this.attackDir = { x: 0, y: Math.sign(dy) || 1 };
       }
     }
   }
 
   update(delta, er, ec, pr, pc, playerX, playerY, map, bombTiles, isBlocked = false) {
     switch (this.aiState) {
-      case 'TRACKING': {
+      case 'IDLE': {
+        this.velocity = { x: 0, y: 0 };
         const manhattan = Math.abs(er - pr) + Math.abs(ec - pc);
+        if (manhattan <= 5 || this.hasLineOfSight(er, ec, pr, pc, map, bombTiles)) {
+          this.aiState = 'HUNTING';
+          return;
+        }
+        break;
+      }
+      case 'PATROL': {
+        const manhattan = Math.abs(er - pr) + Math.abs(ec - pc);
+        if (manhattan <= 5 || this.hasLineOfSight(er, ec, pr, pc, map, bombTiles)) {
+          this.aiState = 'HUNTING';
+          return;
+        }
+        break;
+      }
+      case 'TRACKING':
+      case 'HUNTING': {
+        const manhattan = Math.abs(er - pr) + Math.abs(ec - pc);
+        if (!this.isTracker && manhattan > 7 && !this.hasLineOfSight(er, ec, pr, pc, map, bombTiles)) {
+          this.aiState = 'IDLE';
+          this.velocity = { x: 0, y: 0 };
+          return;
+        }
         if (this.hasLineOfSight(er, ec, pr, pc, map, bombTiles) || manhattan <= 1) {
           this.startWindup(er, ec, pr, pc, playerX, playerY);
         }
@@ -426,7 +450,7 @@ class EnemyStateMachineSim {
         this.stateTimer -= delta;
         this.velocity = { x: 0, y: 0 };
         if (this.stateTimer <= 0) {
-          this.aiState = 'TRACKING';
+          this.aiState = this.isTracker ? 'TRACKING' : 'IDLE';
           this.tint = 0;
           this.pathRecalcTimer = 0;
         }
@@ -505,12 +529,28 @@ test('Adversarial Corner Case: Enemy and Player sharing the same grid tile (er =
 
   assert.equal(sim.aiState, 'WINDUP');
 
-  // CRITICAL AUDIT CHECK:
-  // In GameScene.ts line 209: `if (er === pr) this.attackDir = { x: Math.sign(pc - ec), y: 0 };`
-  // Because ec === pc (1 === 1), Math.sign(1 - 1) = 0!
-  // This causes attackDir to evaluate to { x: 0, y: 0 } instead of dashing towards the player at dx = +20!
-  const zeroVectorBugObserved = sim.attackDir.x === 0 && sim.attackDir.y === 0;
+  // CRITICAL AUDIT CHECK (FIXED):
+  // When sharing same tile, the attack vector resolves to non-zero using pixel differential (dx = +20)
+  assert.notEqual(sim.attackDir.x, 0, 'Attack vector x is non-zero (charges toward playerX)');
+  assert.equal(sim.attackDir.x, 1, 'Charges rightward towards player at x=70');
+  assert.equal(sim.attackDir.y, 0);
+});
 
-  // Let's verify whether zero attack vector occurs
-  assert.ok(zeroVectorBugObserved, 'Empirically confirms zero attack vector when er === pr && ec === pc');
+test('Refined AI States: Normal enemy transitions IDLE -> HUNTING on proximity and back to IDLE on retreat', () => {
+  const sim = new EnemyStateMachineSim();
+  sim.isTracker = false;
+  sim.aiState = 'IDLE';
+  const map = createStandardMap();
+
+  // Player at (1, 8), distance > 5 and no LOS -> stays IDLE
+  sim.update(16, 1, 1, 1, 8, 340, 60, map, new Set());
+  assert.equal(sim.aiState, 'IDLE');
+
+  // Player moves to (1, 4), distance <= 5 -> triggers alert and HUNTING
+  sim.update(16, 1, 1, 1, 4, 180, 60, map, new Set());
+  assert.equal(sim.aiState, 'HUNTING');
+
+  // Player retreats to (1, 10), distance > 7 and wall blocked -> loses interest and returns to IDLE
+  sim.update(16, 1, 1, 1, 10, 420, 60, map, new Set());
+  assert.equal(sim.aiState, 'IDLE');
 });

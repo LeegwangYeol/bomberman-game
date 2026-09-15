@@ -21,27 +21,34 @@ export { findPathBFS };
 export type { GridCoord };
 
 export enum EnemyState {
+  IDLE = 'IDLE',
+  PATROL = 'PATROL',
   TRACKING = 'TRACKING',
+  HUNTING = 'HUNTING',
   WINDUP = 'WINDUP',
   ATTACK = 'ATTACK',
   COOLDOWN = 'COOLDOWN',
 }
 
 /**
- * Intelligent Enemy Sprite with 4-Stage Attack State Machine and Corridor Snapping.
+ * Intelligent Enemy Sprite with Dynamic Visual AI States, Tweens, Indicators & Corridor Snapping.
  */
 export class Enemy extends Phaser.Physics.Arcade.Sprite {
-  public aiState: EnemyState = EnemyState.TRACKING;
+  public aiState: EnemyState = EnemyState.PATROL;
   public isTracker: boolean;
 
   private stateTimer: number = 0;
   private pathRecalcTimer: number = 0;
+  private particleTimer: number = 0;
   private currentPath: GridCoord[] = [];
   private targetTile: GridCoord | null = null;
 
   private attackDir: { x: number; y: number } = { x: 0, y: 0 };
   private baseSpeed: number = 75;
-  private chargeSpeed: number = 200;
+  private chargeSpeed: number = 220;
+
+  // Visual companion indicator
+  private indicator!: Phaser.GameObjects.Text;
 
   constructor(
     scene: Phaser.Scene,
@@ -58,7 +65,180 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     this.setCollideWorldBounds(true);
     this.setDepth(9);
-    (this.body as Phaser.Physics.Arcade.Body)?.setSize(28, 28).setOffset(6, 6);
+    (this.body as Phaser.Physics.Arcade.Body)?.setSize(24, 24).setOffset(8, 8);
+
+    // Create intent indicator text above enemy head
+    this.indicator = scene.add.text(x, y - 24, '', {
+      fontSize: '15px',
+      fontStyle: 'bold',
+      fontFamily: 'monospace, Arial, sans-serif',
+      color: '#FFD700',
+      stroke: '#000000',
+      strokeThickness: 3,
+    });
+    this.indicator.setOrigin(0.5, 0.5);
+    this.indicator.setDepth(15);
+    this.indicator.setVisible(false);
+
+    // Initialize initial state
+    this.changeState(isTracker ? EnemyState.TRACKING : EnemyState.PATROL);
+  }
+
+  public changeState(newState: EnemyState) {
+    if (this.aiState === newState) return;
+    this.stopStateTweens();
+    this.aiState = newState;
+    this.applyStateVisuals(newState);
+  }
+
+  private stopStateTweens() {
+    if (this.scene) {
+      this.scene.tweens.killTweensOf(this);
+      if (this.indicator) {
+        this.scene.tweens.killTweensOf(this.indicator);
+      }
+    }
+    this.setScale(1, 1);
+    this.setAngle(0);
+    if (this.indicator && this.indicator.active) {
+      this.indicator.setAngle(0);
+      this.indicator.setScale(1);
+    }
+  }
+
+  private applyStateVisuals(state: EnemyState) {
+    if (!this.active || !this.scene) return;
+
+    switch (state) {
+      case EnemyState.IDLE:
+        this.clearTint();
+        this.indicator.setText('...');
+        this.indicator.setStyle({ color: '#94a3b8', stroke: '#0f172a', strokeThickness: 2 });
+        this.indicator.setVisible(true);
+        this.indicator.setScale(1);
+
+        // Breathing squash & stretch
+        this.scene.tweens.add({
+          targets: this,
+          scaleX: 1.07,
+          scaleY: 0.93,
+          duration: 550,
+          yoyo: true,
+          repeat: -1,
+          ease: 'Sine.easeInOut',
+        });
+        break;
+
+      case EnemyState.PATROL:
+        this.clearTint();
+        this.indicator.setVisible(false);
+
+        // Walking waddle
+        this.scene.tweens.add({
+          targets: this,
+          angle: { from: -6, to: 6 },
+          duration: 170,
+          yoyo: true,
+          repeat: -1,
+          ease: 'Sine.easeInOut',
+        });
+        break;
+
+      case EnemyState.TRACKING:
+      case EnemyState.HUNTING:
+        this.setTint(this.isTracker ? 0xffbbbb : 0xffddaa);
+        this.indicator.setText('!');
+        this.indicator.setStyle({ color: '#FFD700', stroke: '#7f1d1d', strokeThickness: 3 });
+        this.indicator.setVisible(true);
+
+        // Alert bounce pop-in
+        this.indicator.setScale(0);
+        this.scene.tweens.add({
+          targets: this.indicator,
+          scale: 1.15,
+          duration: 220,
+          ease: 'Back.easeOut',
+        });
+
+        // Fast sprint waddle
+        this.scene.tweens.add({
+          targets: this,
+          angle: { from: -10, to: 10 },
+          duration: 110,
+          yoyo: true,
+          repeat: -1,
+          ease: 'Sine.easeInOut',
+        });
+        break;
+
+      case EnemyState.WINDUP:
+        this.setTint(0xff2222);
+        this.indicator.setText('⚠️');
+        this.indicator.setStyle({ color: '#ff4444', stroke: '#000000', strokeThickness: 2 });
+        this.indicator.setVisible(true);
+
+        // High frequency telegraph shiver & spring compression
+        this.scene.tweens.add({
+          targets: this,
+          scaleX: 0.86,
+          scaleY: 1.14,
+          duration: 50,
+          yoyo: true,
+          repeat: -1,
+        });
+        break;
+
+      case EnemyState.ATTACK: {
+        this.setTint(0xff8800);
+        this.indicator.setText('⚡');
+        this.indicator.setVisible(true);
+
+        // Stretched sprint in attack direction
+        const isHoriz = Math.abs(this.attackDir.x) > Math.abs(this.attackDir.y);
+        this.setScale(isHoriz ? 1.3 : 0.82, isHoriz ? 0.82 : 1.3);
+        break;
+      }
+
+      case EnemyState.COOLDOWN:
+        this.setTint(0x88bbff);
+        this.indicator.setText('💫');
+        this.indicator.setVisible(true);
+
+        // Dizzy rotating stars
+        this.scene.tweens.add({
+          targets: this.indicator,
+          angle: 360,
+          duration: 900,
+          repeat: -1,
+        });
+
+        // Squashed pancake bounce
+        this.scene.tweens.add({
+          targets: this,
+          scaleX: 1.22,
+          scaleY: 0.78,
+          duration: 280,
+          yoyo: true,
+          repeat: -1,
+          ease: 'Sine.easeInOut',
+        });
+        break;
+    }
+  }
+
+  private spawnParticle(x: number, y: number, radius: number, color: number, alpha: number) {
+    if (!this.scene) return;
+    const dot = this.scene.add.circle(x, y, radius, color, alpha);
+    dot.setDepth(8);
+    this.scene.tweens.add({
+      targets: dot,
+      alpha: 0,
+      scale: 0.3,
+      duration: 220,
+      onComplete: () => {
+        dot.destroy();
+      },
+    });
   }
 
   public updateAI(
@@ -73,13 +253,44 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       return;
     }
 
+    // Sync companion indicator position
+    if (this.indicator && this.indicator.active) {
+      this.indicator.setPosition(this.x, this.y - 24);
+    }
+
+    // Spawn walking dust or charge smoke particles
+    this.particleTimer -= delta;
+    if (this.particleTimer <= 0 && this.scene) {
+      if (this.aiState === EnemyState.ATTACK) {
+        this.particleTimer = 65;
+        this.spawnParticle(this.x, this.y + 6, 4, 0xffaa44, 0.7);
+      } else if (
+        this.aiState === EnemyState.PATROL ||
+        this.aiState === EnemyState.TRACKING ||
+        this.aiState === EnemyState.HUNTING
+      ) {
+        const body = this.body as Phaser.Physics.Arcade.Body | null;
+        if (body && (Math.abs(body.velocity.x) > 10 || Math.abs(body.velocity.y) > 10)) {
+          this.particleTimer = 220;
+          this.spawnParticle(this.x, this.y + 12, 3, 0xffffff, 0.5);
+        }
+      }
+    }
+
     const enemyR = Math.floor(this.y / TILE_SIZE);
     const enemyC = Math.floor(this.x / TILE_SIZE);
     const playerR = Math.floor(player.y / TILE_SIZE);
     const playerC = Math.floor(player.x / TILE_SIZE);
 
     switch (this.aiState) {
+      case EnemyState.IDLE:
+        this.handleIdle(delta, enemyR, enemyC, playerR, playerC, player, map, bombTiles);
+        break;
+      case EnemyState.PATROL:
+        this.handlePatrol(delta, enemyR, enemyC, playerR, playerC, player, map, bombTiles);
+        break;
       case EnemyState.TRACKING:
+      case EnemyState.HUNTING:
         this.handleTracking(delta, enemyR, enemyC, playerR, playerC, player, map, bombTiles);
         break;
       case EnemyState.WINDUP:
@@ -94,6 +305,115 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
   }
 
+  private handleIdle(
+    delta: number,
+    er: number,
+    ec: number,
+    pr: number,
+    pc: number,
+    _player: Phaser.Physics.Arcade.Sprite,
+    map: number[][],
+    bombTiles: Set<string>
+  ) {
+    this.setVelocity(0, 0);
+    const manhattan = Math.abs(er - pr) + Math.abs(ec - pc);
+
+    // If player is close or has line of sight, alert and switch to HUNTING
+    if (manhattan <= 5 || this.hasLineOfSight(er, ec, pr, pc, map, bombTiles)) {
+      this.changeState(EnemyState.HUNTING);
+      return;
+    }
+
+    this.stateTimer -= delta;
+    if (this.stateTimer <= 0) {
+      // Pick an adjacent open tile to patrol
+      const candidates: GridCoord[] = [];
+      const neighbors = [
+        { r: er - 1, c: ec },
+        { r: er + 1, c: ec },
+        { r: er, c: ec - 1 },
+        { r: er, c: ec + 1 },
+      ];
+      for (const n of neighbors) {
+        if (
+          n.r >= 0 && n.r < ROWS && n.c >= 0 && n.c < COLS &&
+          map[n.r][n.c] === TILE_EMPTY &&
+          !bombTiles.has(`${n.r},${n.c}`)
+        ) {
+          candidates.push(n);
+        }
+      }
+
+      if (candidates.length > 0) {
+        this.targetTile = candidates[Math.floor(Math.random() * candidates.length)];
+        this.currentPath = [this.targetTile];
+        this.changeState(EnemyState.PATROL);
+      } else {
+        this.stateTimer = 1000;
+      }
+    }
+  }
+
+  private handlePatrol(
+    _delta: number,
+    er: number,
+    ec: number,
+    pr: number,
+    pc: number,
+    _player: Phaser.Physics.Arcade.Sprite,
+    map: number[][],
+    bombTiles: Set<string>
+  ) {
+    const manhattan = Math.abs(er - pr) + Math.abs(ec - pc);
+
+    // Alert if player spotted
+    if (manhattan <= 5 || this.hasLineOfSight(er, ec, pr, pc, map, bombTiles)) {
+      this.changeState(EnemyState.HUNTING);
+      return;
+    }
+
+    if (!this.targetTile) {
+      this.changeState(EnemyState.IDLE);
+      this.stateTimer = 1000;
+      this.setVelocity(0, 0);
+      return;
+    }
+
+    const targetX = this.targetTile.c * TILE_SIZE + TILE_SIZE / 2;
+    const targetY = this.targetTile.r * TILE_SIZE + TILE_SIZE / 2;
+
+    const dx = targetX - this.x;
+    const dy = targetY - this.y;
+    const dist = Math.hypot(dx, dy);
+
+    if (dist < 4) {
+      this.targetTile = null;
+      this.changeState(EnemyState.IDLE);
+      this.stateTimer = 1000;
+      this.setVelocity(0, 0);
+    } else {
+      const patrolSpeed = 55;
+      if (Math.abs(dx) > Math.abs(dy)) {
+        const corridorY = this.targetTile.r * TILE_SIZE + TILE_SIZE / 2;
+        if (Math.abs(this.y - corridorY) < 6) {
+          this.y = corridorY;
+        }
+        this.setVelocity(Math.sign(dx) * patrolSpeed, 0);
+      } else {
+        const corridorX = this.targetTile.c * TILE_SIZE + TILE_SIZE / 2;
+        if (Math.abs(this.x - corridorX) < 6) {
+          this.x = corridorX;
+        }
+        this.setVelocity(0, Math.sign(dy) * patrolSpeed);
+      }
+
+      const body = this.body as Phaser.Physics.Arcade.Body | null;
+      if (body && Math.abs(body.velocity.x) > 5) {
+        this.setFlipX(body.velocity.x < 0);
+      }
+    }
+  }
+
   private handleTracking(
     delta: number,
     er: number,
@@ -105,6 +425,14 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     bombTiles: Set<string>
   ) {
     const manhattan = Math.abs(er - pr) + Math.abs(ec - pc);
+
+    // If normal enemy and player escaped far away (> 7 tiles and no LOS)
+    if (!this.isTracker && manhattan > 7 && !this.hasLineOfSight(er, ec, pr, pc, map, bombTiles)) {
+      this.changeState(EnemyState.IDLE);
+      this.stateTimer = 1000;
+      this.setVelocity(0, 0);
+      return;
+    }
 
     // Line of Sight or Proximity trigger
     if (this.hasLineOfSight(er, ec, pr, pc, map, bombTiles) || manhattan <= 1) {
@@ -139,20 +467,21 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.setVelocity(0, 0);
     } else {
       // Orthogonal waypoint snapping to eliminate corridor corner-snagging
+      const speed = this.aiState === EnemyState.HUNTING ? 85 : this.baseSpeed;
       if (Math.abs(dx) > Math.abs(dy)) {
         // Horizontal primary motion: snap orthogonal Y to corridor center
         const corridorY = this.targetTile.r * TILE_SIZE + TILE_SIZE / 2;
         if (Math.abs(this.y - corridorY) < 6) {
           this.y = corridorY;
         }
-        this.setVelocity(Math.sign(dx) * this.baseSpeed, 0);
+        this.setVelocity(Math.sign(dx) * speed, 0);
       } else {
         // Vertical primary motion: snap orthogonal X to corridor center
         const corridorX = this.targetTile.c * TILE_SIZE + TILE_SIZE / 2;
         if (Math.abs(this.x - corridorX) < 6) {
           this.x = corridorX;
         }
-        this.setVelocity(0, Math.sign(dy) * this.baseSpeed);
+        this.setVelocity(0, Math.sign(dy) * speed);
       }
 
       const body = this.body as Phaser.Physics.Arcade.Body | null;
@@ -200,23 +529,22 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     pc: number,
     player: Phaser.Physics.Arcade.Sprite
   ) {
-    this.aiState = EnemyState.WINDUP;
+    this.changeState(EnemyState.WINDUP);
     this.stateTimer = 450; // 450ms telegraph
     this.setVelocity(0, 0);
-    this.setTint(0xff2222); // Red warning tint
 
-    // Lock attack direction along corridor
-    if (er === pr) {
+    // FIXED: Non-zero directional resolution when sharing same tile
+    if (er === pr && ec !== pc) {
       this.attackDir = { x: Math.sign(pc - ec), y: 0 };
-    } else if (ec === pc) {
+    } else if (ec === pc && er !== pr) {
       this.attackDir = { x: 0, y: Math.sign(pr - er) };
     } else {
       const dx = player.x - this.x;
       const dy = player.y - this.y;
       if (Math.abs(dx) > Math.abs(dy)) {
-        this.attackDir = { x: Math.sign(dx), y: 0 };
+        this.attackDir = { x: Math.sign(dx) || (this.flipX ? -1 : 1), y: 0 };
       } else {
-        this.attackDir = { x: 0, y: Math.sign(dy) };
+        this.attackDir = { x: 0, y: Math.sign(dy) || 1 };
       }
     }
 
@@ -230,9 +558,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.setVelocity(0, 0);
 
     if (this.stateTimer <= 0) {
-      this.aiState = EnemyState.ATTACK;
+      this.changeState(EnemyState.ATTACK);
       this.stateTimer = 650; // Max attack dash duration
-      this.setTint(0xffaa00); // Orange charging tint
       this.setVelocity(
         this.attackDir.x * this.chargeSpeed,
         this.attackDir.y * this.chargeSpeed
@@ -252,10 +579,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     );
 
     if (this.stateTimer <= 0 || isBlocked) {
-      this.aiState = EnemyState.COOLDOWN;
+      this.changeState(EnemyState.COOLDOWN);
       this.stateTimer = 1200; // 1200ms recovery window
       this.setVelocity(0, 0);
-      this.setTint(0x88bbff); // Blue recovery tint
       if (isBlocked && this.scene) {
         this.scene.cameras.main.shake(80, 0.005);
       }
@@ -267,12 +593,36 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.setVelocity(0, 0);
 
     if (this.stateTimer <= 0) {
-      this.aiState = EnemyState.TRACKING;
-      this.clearTint();
+      this.changeState(this.isTracker ? EnemyState.TRACKING : EnemyState.IDLE);
+      this.stateTimer = this.isTracker ? 0 : 800;
       this.pathRecalcTimer = 0;
       this.currentPath = [];
       this.targetTile = null;
     }
+  }
+
+  public override destroy(fromScene?: boolean) {
+    this.stopStateTweens();
+    if (this.scene && this.active) {
+      for (let i = 0; i < 6; i++) {
+        const angle = (i / 6) * Math.PI * 2;
+        const spark = this.scene.add.circle(this.x, this.y, 4, 0xffe066, 0.9);
+        spark.setDepth(14);
+        this.scene.tweens.add({
+          targets: spark,
+          x: this.x + Math.cos(angle) * 20,
+          y: this.y + Math.sin(angle) * 20,
+          alpha: 0,
+          scale: 0.2,
+          duration: 260,
+          onComplete: () => spark.destroy(),
+        });
+      }
+    }
+    if (this.indicator && this.indicator.active) {
+      this.indicator.destroy();
+    }
+    super.destroy(fromScene);
   }
 }
 
@@ -330,7 +680,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.generateMap();
 
-    // Spawn player at depth 10 with physics size 28x28 (offset 6, 6)
+    // Spawn player at depth 10 with physics size 24x24 (offset 8, 8)
     this.player = this.physics.add.sprite(
       1 * TILE_SIZE + TILE_SIZE / 2,
       1 * TILE_SIZE + TILE_SIZE / 2,
@@ -338,9 +688,9 @@ export default class GameScene extends Phaser.Scene {
     );
     this.player.setCollideWorldBounds(true);
     this.player.setDepth(10);
-    (this.player.body as Phaser.Physics.Arcade.Body)?.setSize(28, 28).setOffset(6, 6);
+    (this.player.body as Phaser.Physics.Arcade.Body)?.setSize(24, 24).setOffset(8, 8);
 
-    // Spawn enemies at depth 9 with physics size 28x28 (offset 6, 6)
+    // Spawn enemies at depth 9 with physics size 24x24 (offset 8, 8)
     this.spawnEnemies(4);
 
     // Collisions
@@ -355,6 +705,17 @@ export default class GameScene extends Phaser.Scene {
     // Player hits enemy
     this.physics.add.overlap(this.player, this.enemies, () => {
       this.playerDie();
+    });
+
+    // Global explosion overlaps (replaces per-sprite overlap additions in spawnExplosion)
+    this.physics.add.overlap(this.player, this.explosions, () => {
+      this.playerDie();
+    });
+    this.physics.add.overlap(this.enemies, this.explosions, (enemyObj) => {
+      const target = enemyObj as Phaser.GameObjects.GameObject;
+      if (target.active) {
+        target.destroy();
+      }
     });
 
     // Keyboard Input
@@ -388,7 +749,7 @@ export default class GameScene extends Phaser.Scene {
 
         this.enemies.add(enemy);
         enemy.setDepth(9);
-        (enemy.body as Phaser.Physics.Arcade.Body)?.setSize(28, 28).setOffset(6, 6);
+        (enemy.body as Phaser.Physics.Arcade.Body)?.setSize(24, 24).setOffset(8, 8);
 
         spawned++;
       }
@@ -446,22 +807,9 @@ export default class GameScene extends Phaser.Scene {
     if (this.isGameOver || !this.player || !this.cursors) return;
 
     // Movement
-    const speed = 150;
-    this.player.setVelocity(0);
+    this.updatePlayerMovement();
 
     const mInput = window.mobileInput || { up: false, down: false, left: false, right: false, bomb: false };
-
-    if (this.cursors.left.isDown || mInput.left) {
-      this.player.setVelocityX(-speed);
-      this.player.setFlipX(true);
-    } else if (this.cursors.right.isDown || mInput.right) {
-      this.player.setVelocityX(speed);
-      this.player.setFlipX(false);
-    } else if (this.cursors.up.isDown || mInput.up) {
-      this.player.setVelocityY(-speed);
-    } else if (this.cursors.down.isDown || mInput.down) {
-      this.player.setVelocityY(speed);
-    }
 
     // Bomb placement
     if (Phaser.Input.Keyboard.JustDown(this.spaceKey) || mInput.bomb) {
@@ -489,6 +837,156 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * Smooth Corridor Centering and Corner-Sliding Movement Controller
+   */
+  private updatePlayerMovement() {
+    if (!this.player || !this.player.body) return;
+
+    const mInput = window.mobileInput || { up: false, down: false, left: false, right: false, bomb: false };
+    const left = Boolean(this.cursors?.left?.isDown || mInput.left);
+    const right = Boolean(this.cursors?.right?.isDown || mInput.right);
+    const up = Boolean(this.cursors?.up?.isDown || mInput.up);
+    const down = Boolean(this.cursors?.down?.isDown || mInput.down);
+
+    if (!left && !right && !up && !down) {
+      this.player.setVelocity(0, 0);
+      return;
+    }
+
+    const speed = 150;
+    const slideSpeed = 150;
+    const snapThreshold = 2;
+
+    const px = this.player.x;
+    const py = this.player.y;
+
+    const col = Math.floor(px / TILE_SIZE);
+    const row = Math.floor(py / TILE_SIZE);
+
+    const colCenterX = col * TILE_SIZE + TILE_SIZE / 2;
+    const rowCenterY = row * TILE_SIZE + TILE_SIZE / 2;
+
+    const diffX = px - colCenterX;
+    const diffY = py - rowCenterY;
+
+    // Fast check for tile passability avoiding walls, blocks, and other active bombs
+    const isPassable = (r: number, c: number): boolean => {
+      if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
+      if (this.map[r][c] !== TILE_EMPTY) return false;
+
+      let hasBomb = false;
+      this.bombs.getChildren().forEach((child) => {
+        const b = child as Phaser.Physics.Arcade.Sprite;
+        if (b.active) {
+          const br = Math.floor(b.y / TILE_SIZE);
+          const bc = Math.floor(b.x / TILE_SIZE);
+          if (br === r && bc === c) {
+            // Allow stepping off a bomb if player is currently on it
+            if (!(row === r && col === c)) {
+              hasBomb = true;
+            }
+          }
+        }
+      });
+      return !hasBomb;
+    };
+
+    // Directional intent
+    let wantX = 0;
+    let wantY = 0;
+    if (left && !right) wantX = -1;
+    else if (right && !left) wantX = 1;
+
+    if (up && !down) wantY = -1;
+    else if (down && !up) wantY = 1;
+
+    // Resolve dominant axis when multiple inputs are pressed
+    let primaryAxis: 'x' | 'y' = 'x';
+    if (wantX !== 0 && wantY !== 0) {
+      const xOpen = isPassable(row, col + wantX);
+      const yOpen = isPassable(row + wantY, col);
+
+      if (xOpen && !yOpen) {
+        primaryAxis = 'x';
+      } else if (yOpen && !xOpen) {
+        primaryAxis = 'y';
+      } else {
+        const timeX = wantX < 0 ? (this.cursors?.left?.timeDown ?? 0) : (this.cursors?.right?.timeDown ?? 0);
+        const timeY = wantY < 0 ? (this.cursors?.up?.timeDown ?? 0) : (this.cursors?.down?.timeDown ?? 0);
+        primaryAxis = timeY > timeX ? 'y' : 'x';
+      }
+    } else if (wantX !== 0) {
+      primaryAxis = 'x';
+    } else if (wantY !== 0) {
+      primaryAxis = 'y';
+    }
+
+    let vx = 0;
+    let vy = 0;
+
+    if (primaryAxis === 'x') {
+      vx = wantX * speed;
+      this.player.setFlipX(wantX < 0);
+
+      const nextCol = col + wantX;
+      const directOpen = isPassable(row, nextCol);
+
+      if (directOpen) {
+        // Phase 1: Corridor Centering
+        if (Math.abs(diffY) > snapThreshold) {
+          vy = -Math.sign(diffY) * slideSpeed;
+        } else {
+          this.player.y = rowCenterY;
+          vy = 0;
+        }
+      } else {
+        // Phase 2: Corner Rounding
+        const canRoundUp = diffY < -3 && isPassable(row - 1, col) && isPassable(row - 1, nextCol);
+        const canRoundDown = diffY > 3 && isPassable(row + 1, col) && isPassable(row + 1, nextCol);
+
+        if (canRoundUp) {
+          vy = -slideSpeed;
+        } else if (canRoundDown) {
+          vy = slideSpeed;
+        } else {
+          vy = 0;
+        }
+      }
+    } else {
+      vy = wantY * speed;
+
+      const nextRow = row + wantY;
+      const directOpen = isPassable(nextRow, col);
+
+      if (directOpen) {
+        // Phase 1: Corridor Centering
+        if (Math.abs(diffX) > snapThreshold) {
+          vx = -Math.sign(diffX) * slideSpeed;
+        } else {
+          this.player.x = colCenterX;
+          vx = 0;
+        }
+      } else {
+        // Phase 2: Corner Rounding
+        const canRoundLeft = diffX < -3 && isPassable(row, col - 1) && isPassable(nextRow, col - 1);
+        const canRoundRight = diffX > 3 && isPassable(row, col + 1) && isPassable(nextRow, col + 1);
+
+        if (canRoundLeft) {
+          vx = -slideSpeed;
+          this.player.setFlipX(true);
+        } else if (canRoundRight) {
+          vx = slideSpeed;
+          this.player.setFlipX(false);
+        } else {
+          vx = 0;
+        }
+      }
+    }
+
+    this.player.setVelocity(vx, vy);
+  }
+
   placeBomb() {
     if (this.isGameOver || this.activeBombs >= this.maxBombs) return;
 
@@ -511,34 +1009,98 @@ export default class GameScene extends Phaser.Scene {
 
     const bomb = this.bombs.create(centerX, centerY, 'bomb') as Phaser.Physics.Arcade.Sprite;
     bomb.setDepth(5);
-    (bomb.body as Phaser.Physics.Arcade.Body)?.setSize(36, 36).setOffset(2, 2);
+    (bomb.body as Phaser.Physics.Arcade.Body)?.setSize(32, 32).setOffset(4, 4);
     (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(true);
 
-    // Pulse animation while ticking
-    this.tweens.add({
+    // Multi-stage accelerating pulse tween chain (Total duration = 2000ms)
+    const tweenChain = this.tweens.chain({
       targets: bomb,
-      scaleX: 1.1,
-      scaleY: 1.1,
-      duration: 250,
-      yoyo: true,
-      repeat: -1,
+      tweens: [
+        // Phase 1: Normal Rhythmic Pulse (0ms - 1000ms: 2 cycles @ 250ms half-period)
+        {
+          scaleX: 1.15,
+          scaleY: 1.15,
+          duration: 250,
+          yoyo: true,
+          repeat: 1,
+          ease: 'Sine.easeInOut',
+        },
+        // Phase 2: Accelerated Warning Pulse (1000ms - 1600ms: 2 cycles @ 150ms half-period)
+        {
+          scaleX: 1.25,
+          scaleY: 1.25,
+          duration: 150,
+          yoyo: true,
+          repeat: 1,
+          ease: 'Quad.easeInOut',
+          onStart: () => {
+            if (bomb.active) bomb.setTint(0xff8866); // Warning amber tint
+          },
+        },
+        // Phase 3: Critical Detonation Swell & Hyper-Pulse (1600ms - 2000ms: ~3 cycles @ 65ms half-period)
+        {
+          scaleX: 1.35,
+          scaleY: 1.35,
+          duration: 65,
+          yoyo: true,
+          repeat: 2,
+          ease: 'Back.easeOut',
+          onStart: () => {
+            if (bomb.active) bomb.setTint(0xff2222); // Critical red alert
+          },
+        },
+      ],
     });
 
     this.activeBombs++;
 
-    // Explode after 2 seconds
-    this.time.delayedCall(2000, () => this.explodeBomb(bomb, row, col));
+    // Attach references to bomb data for clean lifecycle management
+    const fuseTimer = this.time.delayedCall(2000, () => this.explodeBomb(bomb, row, col));
+    bomb.setData('fuseTimer', fuseTimer);
+    bomb.setData('tweenChain', tweenChain);
   }
 
   explodeBomb(bomb: Phaser.Physics.Arcade.Sprite, row: number, col: number) {
     if (!bomb.active) return;
+
+    // Clean up timers & tweens
+    const timer = bomb.getData('fuseTimer') as Phaser.Time.TimerEvent | undefined;
+    if (timer) timer.remove(false);
+    const chain = bomb.getData('tweenChain') as Phaser.Tweens.TweenChain | undefined;
+    if (chain) chain.stop();
+
     bomb.destroy();
     this.activeBombs = Math.max(0, this.activeBombs - 1);
 
-    this.cameras.main.shake(100, 0.004);
+    // 1. Tactile Camera Shake
+    this.cameras.main.shake(150, 0.008);
 
-    // Create explosions (center + 4 directions)
-    this.spawnExplosion(row, col);
+    // 2. High-Impact Screen Flash (warm golden-white flash)
+    this.cameras.main.flash(80, 255, 230, 160, false);
+
+    // 3. Dynamic Expanding Shockwave Ring
+    const centerX = col * TILE_SIZE + TILE_SIZE / 2;
+    const centerY = row * TILE_SIZE + TILE_SIZE / 2;
+    const shockwave = this.add.graphics();
+    shockwave.setDepth(15);
+    this.tweens.addCounter({
+      from: 0,
+      to: 1,
+      duration: 220,
+      ease: 'Quad.easeOut',
+      onUpdate: (tween) => {
+        const t = tween.getValue() ?? 0;
+        shockwave.clear();
+        shockwave.lineStyle(3 * (1 - t) + 0.5, 0xffe066, 0.85 * (1 - t));
+        shockwave.strokeCircle(centerX, centerY, 8 + t * (TILE_SIZE * 1.3));
+      },
+      onComplete: () => {
+        shockwave.destroy();
+      },
+    });
+
+    // Spawn Epicenter Explosion (isCenter = true)
+    this.spawnExplosion(row, col, true);
 
     const directions = [
       { dr: -1, dc: 0 }, // up
@@ -561,43 +1123,51 @@ export default class GameScene extends Phaser.Scene {
         if (this.map[nr][nc] === TILE_BLOCK) {
           // Destroy block and stop
           this.destroyBlock(nr, nc);
-          this.spawnExplosion(nr, nc);
+          this.spawnExplosion(nr, nc, false);
           break;
         }
 
         // Empty tile, spawn explosion
-        this.spawnExplosion(nr, nc);
+        this.spawnExplosion(nr, nc, false);
+
+        // Check for chain reaction with other bombs
+        this.bombs.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
+          const otherBomb = child as Phaser.Physics.Arcade.Sprite;
+          if (otherBomb.active) {
+            const bCol = Math.floor(otherBomb.x / TILE_SIZE);
+            const bRow = Math.floor(otherBomb.y / TILE_SIZE);
+            if (bRow === nr && bCol === nc) {
+              this.explodeBomb(otherBomb, bRow, bCol);
+            }
+          }
+        });
       }
     }
   }
 
-  spawnExplosion(row: number, col: number) {
+  spawnExplosion(row: number, col: number, isCenter: boolean = false) {
     const x = col * TILE_SIZE + TILE_SIZE / 2;
     const y = row * TILE_SIZE + TILE_SIZE / 2;
 
     const exp = this.explosions.create(x, y, 'explosion') as Phaser.Physics.Arcade.Sprite;
     exp.setDepth(12);
 
-    // Check if player is caught
-    this.physics.add.overlap(this.player, exp, () => {
-      this.playerDie();
-    });
+    // Center core has bright brilliant tint, arms have hot orange tint
+    if (isCenter) {
+      exp.setTint(0xffffcc);
+    } else {
+      exp.setTint(0xff7722);
+    }
 
-    // Check if enemies are caught
-    this.physics.add.overlap(this.enemies, exp, (_expObj, enemyHit) => {
-      const target = enemyHit as Phaser.GameObjects.GameObject;
-      if (target.active) {
-        target.destroy();
-      }
-    });
-
-    // Scale/fade explosion and destroy after 300ms
+    // Explosive bloom easing: pop in with easeOut, then rapid fade
+    exp.setScale(0.7);
     this.tweens.add({
       targets: exp,
-      alpha: { from: 1, to: 0.4 },
-      scaleX: { from: 1, to: 1.15 },
-      scaleY: { from: 1, to: 1.15 },
-      duration: 300,
+      scaleX: isCenter ? 1.35 : 1.2,
+      scaleY: isCenter ? 1.35 : 1.2,
+      alpha: { from: 1, to: 0.1 },
+      duration: 320,
+      ease: 'Quad.easeOut',
       onComplete: () => {
         exp.destroy();
       },
@@ -606,9 +1176,33 @@ export default class GameScene extends Phaser.Scene {
 
   destroyBlock(row: number, col: number) {
     this.map[row][col] = TILE_EMPTY;
+    const centerX = col * TILE_SIZE + TILE_SIZE / 2;
+    const centerY = row * TILE_SIZE + TILE_SIZE / 2;
+
     this.blocks.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
       const b = child as Phaser.Physics.Arcade.Sprite;
       if (b && b.active && b.getData('row') === row && b.getData('col') === col) {
+        // Spawn 4 crumbling debris fragments
+        const offsets = [
+          { dx: -6, dy: -6, vx: -25, vy: -25 },
+          { dx: 6, dy: -6, vx: 25, vy: -25 },
+          { dx: -6, dy: 6, vx: -25, vy: 25 },
+          { dx: 6, dy: 6, vx: 25, vy: 25 },
+        ];
+        offsets.forEach((off) => {
+          const frag = this.add.rectangle(centerX + off.dx, centerY + off.dy, 8, 8, 0xb87333);
+          frag.setDepth(11);
+          this.tweens.add({
+            targets: frag,
+            x: frag.x + off.vx,
+            y: frag.y + off.vy,
+            alpha: 0,
+            angle: 45,
+            duration: 220,
+            onComplete: () => frag.destroy(),
+          });
+        });
+
         b.destroy();
       }
     });
