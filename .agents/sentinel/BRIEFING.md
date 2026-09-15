@@ -1,7 +1,7 @@
-# BRIEFING — 2026-09-15T04:11:15Z
+# BRIEFING — 2026-09-15T07:08:09Z
 
 ## Mission
-Oversee implementation of directional character animations, advanced enemy behaviors (bomb placement, name tags), and dynamic gameplay mechanics (items, skills, map gimmicks) into the Bomberman codebase via teamwork_preview_orchestrator swarm, followed by independent victory audit.
+Oversee massive Bomberman expansion (20+ unique items & inventory UI, diverse entities including enemy variants, neutral NPCs, AI allies with health bars/UI, and ultimate skill system) via teamwork_preview_orchestrator swarm, followed by independent victory audit.
 
 ## 🔒 My Identity
 - Archetype: sentinel
@@ -10,8 +10,9 @@ Oversee implementation of directional character animations, advanced enemy behav
 - Victory Auditor: d1360e22-809f-484f-b636-2f4a08035044
 - Orchestrator (Refinement): 5ba8d8e8-7e3d-47e7-b8f4-049c5ea9cdec
 - Victory Auditor (Refinement): c84ee1b7-c0c0-47fe-8971-14c6ac54eba3
-- Orchestrator (Mechanics): 44588999-8c10-421d-bf21-ce8f01b21f6e
-- Victory Auditor (Mechanics): e76692be-6fc2-45cf-86f9-451fc31c9525
+- Orchestrator (Massive Expansion): 016dbbfb-b970-4292-b49a-ec8cec1f7655 (errored - rate limit)
+- Orchestrator (Massive Expansion Gen 2): f6499d96-d3dc-44ee-b2ee-9207d8389e79
+- Victory Auditor (Massive Expansion): 146b9cb3-acb8-46a0-96a1-538b6e07b519
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
@@ -22,32 +23,31 @@ Oversee implementation of directional character animations, advanced enemy behav
 - Clean up all crons and subagents upon completion
 - Refinement acceptance: corner-sliding/physics body adjustments, lively enemy visual AI states, pulsing bomb tweens, clean build
 - Mechanics acceptance: directional character animations (up/down/left/right), enemy bomb placement & name tags, 3+ collectible power-ups (speed, bombs, radius), dynamic gimmicks/skills, HUD reflection, 0 build errors
+- Massive Expansion acceptance: 20+ distinct items defined/dropping/applying effects, in-game UI with item descriptions and inventory/stat tracking, multiple enemy types + neutral NPCs + AI allies with UI elements (health bars, indicators), visually spectacular Ultimate Skill system with distinct cooldown/resource, 0 build errors (npm run build)
 
 ## User Context
-- **Last user request**: Implement directional character animations, advanced enemy behaviors (bomb placement, name tags), and dynamic gameplay mechanics (items, skills, map gimmicks) into the Bomberman codebase using a very large team of agents.
+- **Last user request**: Massively expand Bomberman game scale: brainstorm and implement 20+ unique items, diverse entity types (multiple enemy variants, neutrals, allies), and ultimate skills using a very large team of agents (200+) with full autonomy.
 - **Pending clarifications**: none
-- **Delivered results**: Directional character animations (120x160 spritesheet, 4-directional walk cycles, idle direction retention), advanced enemy AI (strategic bomb placement with suicide-prevention escape BFS, 2-tier overhead name tags/badges), dynamic gameplay mechanics (5 power-ups with 45% drop rate, Dash skill with i-frames, Bomb Kick sliding, Conveyor belts, Teleport portals), and arcade React HUD bridge. 154/154 automated tests passing across 11 suites, 0 lint errors, clean Turbopack build, independently verified by Victory Auditor (VICTORY CONFIRMED).
+- **Delivered results**: Previous milestones complete. Orchestrator dispatched for massive expansion milestone.
+- **Milestone status**: Swarm completion claimed; Victory Audit in progress.
 
 ## Project Status
 - **Phase**: complete
-- **Cron 1 (Progress)**: cancelled
-- **Cron 2 (Liveness)**: cancelled
+- **Cron 1 (Progress)**: cancelled (task-40)
+- **Cron 2 (Liveness)**: cancelled (task-42)
 
 ## Victory Audit Status
 - **Triggered**: yes
 - **Verdict**: VICTORY CONFIRMED
-- **Auditor ID**: e76692be-6fc2-45cf-86f9-451fc31c9525
 - **Retry count**: 0
 
 ## Artifact Index
 - /Users/user/src/bomberman/ORIGINAL_REQUEST.md — Authoritative user request (root)
 - /Users/user/src/bomberman/.agents/ORIGINAL_REQUEST.md — Authoritative user request (.agents)
 - /Users/user/src/bomberman/COLLABORATION.md — Claude collaboration guide
-- /Users/user/src/bomberman/src/game/GameScene.ts — Phaser GameScene with animations, enemy AI, items, and gimmicks
-- /Users/user/src/bomberman/src/game/pathfinding.ts — BFS pathfinding, blast calculation & enemy escape routing
-- /Users/user/src/bomberman/src/game/gameplay_mechanics.ts — Item drop tables, stat mutators, and skills/gimmicks engine
-- /Users/user/src/bomberman/src/components/BombermanGame.tsx — Arcade React HUD and controls
-- /Users/user/src/bomberman/.agents/orchestrator_mechanics/handoff.md — Orchestrator completion report
-- /Users/user/src/bomberman/.agents/victory_auditor_mechanics/handoff.md — Victory Auditor report (VICTORY CONFIRMED)
-
-
+- /Users/user/src/bomberman/.agents/orchestrator_expansion/ — Orchestrator workspace (Gen 1)
+- /Users/user/src/bomberman/.agents/orchestrator_expansion_gen2/ — Orchestrator workspace (Gen 2 active)
+- /Users/user/src/bomberman/src/game/GameScene.ts — Phaser GameScene
+- /Users/user/src/bomberman/src/game/pathfinding.ts — BFS pathfinding & blast calculation
+- /Users/user/src/bomberman/src/game/gameplay_mechanics.ts — Item drop tables & mechanics
+- /Users/user/src/bomberman/src/components/BombermanGame.tsx — Arcade React HUD

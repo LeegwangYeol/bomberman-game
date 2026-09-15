@@ -106,4 +106,30 @@ Introduce core Bomberman items (power-ups like Speed Up, Bomb Up, Fire Up) that 
 - [ ] The game HUD correctly reflects the player's current item stats and skills.
 - [ ] The game builds successfully with 0 errors (`npm run build`).
 
+## Follow-up — 2026-09-15T07:08:09Z
 
+Massively expand the Bomberman game's scale by brainstorming and implementing 20+ unique items, diverse entity types (multiple enemy variants, neutrals, allies), and ultimate skills. Use a very large team of agents (200+) with full autonomy to brainstorm ideas, implement them, fix errors, evaluate the final product, and push the code.
+
+Working directory: /Users/user/src/bomberman
+Integrity mode: demo
+
+## Requirements
+
+### R1. Massive Item Expansion & UI
+Brainstorm and implement at least 20 distinct items/power-ups. Create a comprehensive UI system to display item icons, detailed item descriptions, and current inventory/status to the player.
+
+### R2. Diverse Entities (Enemies, Neutrals, Allies)
+Introduce a rich ecosystem of entities. Include multiple distinct enemy types (with their own UI indicators/health bars), neutral NPCs that wander the map, and AI-controlled allies that assist the player.
+
+### R3. Ultimate Skills (필살기)
+Design and implement "Ultimate Skills" for the player and potentially elite enemies/allies. These should be visually spectacular, game-changing abilities with distinct cooldowns or resource requirements.
+
+## Acceptance Criteria
+
+### Verification
+- [ ] At least 20 distinct items are defined in the code, can drop in-game, and apply their respective effects.
+- [ ] An in-game UI displays item descriptions and tracks the player's collected items/stats.
+- [ ] Multiple enemy types, neutral NPCs, and allies exist in the game logic and spawn appropriately.
+- [ ] Entities (enemies/allies) have corresponding UI elements (e.g., health bars, type indicators).
+- [ ] An "Ultimate Skill" (필살기) system is implemented, triggerable by the player, with significant visual and gameplay impact.
+- [ ] The codebase passes all automated tests and builds successfully (`npm run build`).
