@@ -1,10 +1,22 @@
+/**
+ * Zero-GC Pathfinding & Flat Hazard Bitmask Engine
+ * 195-tile flat 1D TypedArray BFS and hazard tracking for Bomberman.
+ */
+
 export const TILE_SIZE = 40;
 export const ROWS = 13;
 export const COLS = 15;
+export const TOTAL_TILES = ROWS * COLS; // 195
 
 export const TILE_EMPTY = 0;
 export const TILE_WALL = 1;
 export const TILE_BLOCK = 2;
+
+export const FLAG_PASSABLE = 0;
+export const FLAG_WALL = 1;
+export const FLAG_BLOCK = 2;
+export const FLAG_BOMB = 4;
+export const FLAG_HAZARD = 8;
 
 export interface GridCoord {
   r: number;
@@ -12,6 +24,552 @@ export interface GridCoord {
 }
 
 /**
+ * Coordinate transformations
+ */
+export function coordToIdx(r: number, c: number): number {
+  return r * COLS + c;
+}
+
+export function idxToRow(idx: number): number {
+  return (idx / COLS) | 0;
+}
+
+export function idxToCol(idx: number): number {
+  return idx % COLS;
+}
+
+/**
+ * FlatHazardMask: 1D Uint8Array(195) wrapper with Set<string> duck-typing compatibility.
+ * Eliminates per-frame new Set<string>() allocations in the 60 FPS update loop.
+ */
+export class FlatHazardMask implements Iterable<string> {
+  public readonly mask: Uint8Array;
+  public readonly length: number;
+  private _size: number = 0;
+
+  constructor(bufferOrLength: number | ArrayBufferLike = TOTAL_TILES) {
+    if (typeof bufferOrLength === 'number') {
+      this.length = bufferOrLength;
+      this.mask = new Uint8Array(bufferOrLength);
+    } else {
+      this.mask = new Uint8Array(bufferOrLength);
+      this.length = this.mask.length;
+    }
+  }
+
+  public has(key: string | number): boolean {
+    if (typeof key === 'number') {
+      return Number.isInteger(key) && key >= 0 && key < this.length && this.mask[key] !== 0;
+    }
+    if (typeof key !== 'string') return false;
+    const comma = key.indexOf(',');
+    if (comma === -1) return false;
+    const rStr = key.slice(0, comma).trim();
+    const cStr = key.slice(comma + 1).trim();
+    if (rStr === '' || cStr === '') return false;
+    const r = Number(rStr);
+    const c = Number(cStr);
+    if (!Number.isInteger(r) || !Number.isInteger(c) || r < 0 || r >= ROWS || c < 0 || c >= COLS) {
+      return false;
+    }
+    return this.mask[r * COLS + c] !== 0;
+  }
+
+  public add(key: string | number): this {
+    if (typeof key === 'number') {
+      if (Number.isInteger(key) && key >= 0 && key < this.length) {
+        if (this.mask[key] === 0) {
+          this.mask[key] = 1;
+          this._size++;
+        }
+      }
+      return this;
+    }
+    if (typeof key !== 'string') return this;
+    const comma = key.indexOf(',');
+    if (comma === -1) return this;
+    const rStr = key.slice(0, comma).trim();
+    const cStr = key.slice(comma + 1).trim();
+    if (rStr === '' || cStr === '') return this;
+    const r = Number(rStr);
+    const c = Number(cStr);
+    if (Number.isInteger(r) && Number.isInteger(c) && r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+      const idx = r * COLS + c;
+      if (this.mask[idx] === 0) {
+        this.mask[idx] = 1;
+        this._size++;
+      }
+    }
+    return this;
+  }
+
+  public delete(key: string | number): boolean {
+    if (typeof key === 'number') {
+      if (Number.isInteger(key) && key >= 0 && key < this.length) {
+        if (this.mask[key] !== 0) {
+          this.mask[key] = 0;
+          this._size--;
+          return true;
+        }
+      }
+      return false;
+    }
+    if (typeof key !== 'string') return false;
+    const comma = key.indexOf(',');
+    if (comma === -1) return false;
+    const rStr = key.slice(0, comma).trim();
+    const cStr = key.slice(comma + 1).trim();
+    if (rStr === '' || cStr === '') return false;
+    const r = Number(rStr);
+    const c = Number(cStr);
+    if (Number.isInteger(r) && Number.isInteger(c) && r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+      const idx = r * COLS + c;
+      if (this.mask[idx] !== 0) {
+        this.mask[idx] = 0;
+        this._size--;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  public clear(): void {
+    this.mask.fill(0);
+    this._size = 0;
+  }
+
+  public fill(val: number = 0): this {
+    this.mask.fill(val);
+    this._size = val === 0 ? 0 : this.length;
+    return this;
+  }
+
+  public get size(): number {
+    return this._size;
+  }
+
+  public values(): Generator<string, void, unknown> {
+    return this[Symbol.iterator]();
+  }
+
+  public keys(): Generator<string, void, unknown> {
+    return this[Symbol.iterator]();
+  }
+
+  public *entries(): Generator<[string, string], void, unknown> {
+    for (const key of this) {
+      yield [key, key];
+    }
+  }
+
+  public setCoord(r: number, c: number, val: number = 1): void {
+    if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+      const idx = r * COLS + c;
+      if (val !== 0) {
+        if (this.mask[idx] === 0) {
+          this.mask[idx] = val;
+          this._size++;
+        } else {
+          this.mask[idx] = val;
+        }
+      } else {
+        if (this.mask[idx] !== 0) {
+          this.mask[idx] = 0;
+          this._size--;
+        }
+      }
+    }
+  }
+
+  public getCoord(r: number, c: number): number {
+    if (!Number.isInteger(r) || !Number.isInteger(c) || r < 0 || r >= ROWS || c < 0 || c >= COLS) return 0;
+    return this.mask[r * COLS + c];
+  }
+
+  public setIdx(idx: number, val: number = 1): void {
+    if (idx >= 0 && idx < this.length) {
+      if (val !== 0) {
+        if (this.mask[idx] === 0) {
+          this.mask[idx] = val;
+          this._size++;
+        } else {
+          this.mask[idx] = val;
+        }
+      } else {
+        if (this.mask[idx] !== 0) {
+          this.mask[idx] = 0;
+          this._size--;
+        }
+      }
+    }
+  }
+
+  public isHazard(r: number, c: number): boolean {
+    if (!Number.isInteger(r) || !Number.isInteger(c) || r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
+    return this.mask[r * COLS + c] !== 0;
+  }
+
+  public isHazardIdx(idx: number): boolean {
+    return idx >= 0 && idx < this.length && this.mask[idx] !== 0;
+  }
+
+  public *[Symbol.iterator](): Generator<string, void, unknown> {
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (this.mask[r * COLS + c] !== 0) {
+          yield `${r},${c}`;
+        }
+      }
+    }
+  }
+
+  public forEachHazard(callback: (r: number, c: number, val: number) => void): void {
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const val = this.mask[r * COLS + c];
+        if (val !== 0) {
+          callback(r, c, val);
+        }
+      }
+    }
+  }
+
+  public isNearHazard(r: number, c: number, maxDist: number = 3): boolean {
+    const minR = Math.max(0, r - maxDist);
+    const maxR = Math.min(ROWS - 1, r + maxDist);
+    const minC = Math.max(0, c - maxDist);
+    const maxC = Math.min(COLS - 1, c + maxDist);
+    for (let row = minR; row <= maxR; row++) {
+      for (let col = minC; col <= maxC; col++) {
+        if (Math.abs(row - r) + Math.abs(col - c) <= maxDist && this.mask[row * COLS + col] !== 0) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+}
+
+/**
+ * ZeroGCPathfinder: High-performance 1D typed-array BFS engine.
+ * Pre-allocates all search structures (visited, queue, parent, dist) to guarantee zero GC.
+ */
+export class ZeroGCPathfinder {
+  public rows: number;
+  public cols: number;
+  public totalTiles: number;
+
+  private visited: Uint16Array;
+  private generation: number = 1;
+  private queue: Int16Array;
+  private parent: Int16Array;
+  private dist: Int16Array;
+  private tempPath: Int16Array;
+
+  public obstacleMask: Uint8Array;
+  public hazardMask: Uint8Array;
+
+  constructor(rows: number = ROWS, cols: number = COLS) {
+    this.rows = rows;
+    this.cols = cols;
+    this.totalTiles = rows * cols;
+
+    this.visited = new Uint16Array(this.totalTiles);
+    this.queue = new Int16Array(this.totalTiles);
+    this.parent = new Int16Array(this.totalTiles);
+    this.dist = new Int16Array(this.totalTiles);
+    this.tempPath = new Int16Array(this.totalTiles);
+    this.obstacleMask = new Uint8Array(this.totalTiles);
+    this.hazardMask = new Uint8Array(this.totalTiles);
+  }
+
+  public init(cols: number, rows: number): void {
+    this.cols = cols;
+    this.rows = rows;
+    this.totalTiles = rows * cols;
+    if (this.visited.length < this.totalTiles) {
+      this.visited = new Uint16Array(this.totalTiles);
+      this.queue = new Int16Array(this.totalTiles);
+      this.parent = new Int16Array(this.totalTiles);
+      this.dist = new Int16Array(this.totalTiles);
+      this.tempPath = new Int16Array(this.totalTiles);
+      this.obstacleMask = new Uint8Array(this.totalTiles);
+      this.hazardMask = new Uint8Array(this.totalTiles);
+    }
+  }
+
+  public setObstacles(walkableBitmask: Uint8Array): void {
+    this.obstacleMask.set(walkableBitmask);
+  }
+
+  private resetVisited(): void {
+    this.generation++;
+    if (this.generation >= 65530) {
+      this.visited.fill(0);
+      this.generation = 1;
+    }
+  }
+
+  /**
+   * High-performance Zero-GC BFS pathfinder.
+   * Returns pathLength written to outPath.
+   */
+  public findPath(
+    startIdx: number,
+    targetIdx: number,
+    outPath: Int16Array,
+    obstacleMask: Uint8Array = this.obstacleMask,
+    bombMask: Uint8Array | null = null
+  ): number {
+    if (
+      typeof startIdx !== 'number' ||
+      !Number.isInteger(startIdx) ||
+      startIdx < 0 ||
+      startIdx >= this.totalTiles ||
+      typeof targetIdx !== 'number' ||
+      !Number.isInteger(targetIdx) ||
+      targetIdx < 0 ||
+      targetIdx >= this.totalTiles
+    ) {
+      return 0;
+    }
+
+    if (startIdx === targetIdx) return 0;
+
+    const cols = this.cols;
+    const rows = this.rows;
+    const targetR = (targetIdx / cols) | 0;
+    const targetC = targetIdx % cols;
+    const startR = (startIdx / cols) | 0;
+    const startC = startIdx % cols;
+
+    this.resetVisited();
+    const gen = this.generation;
+    const visited = this.visited;
+    const queue = this.queue;
+    const parent = this.parent;
+
+    let head = 0;
+    let tail = 0;
+
+    queue[tail++] = startIdx;
+    visited[startIdx] = gen;
+    parent[startIdx] = -1;
+
+    let closestReachable = startIdx;
+    let minDistance = Math.abs(startR - targetR) + Math.abs(startC - targetC);
+    let reachedTarget = false;
+
+    while (head < tail) {
+      const curr = queue[head++];
+
+      if (curr === targetIdx) {
+        reachedTarget = true;
+        break;
+      }
+
+      const currR = (curr / cols) | 0;
+      const currC = curr % cols;
+      const d = Math.abs(currR - targetR) + Math.abs(currC - targetC);
+      if (d < minDistance) {
+        minDistance = d;
+        closestReachable = curr;
+      }
+
+      // 4 directions in exact order: Up, Down, Left, Right
+      for (let dir = 0; dir < 4; dir++) {
+        let nr = currR;
+        let nc = currC;
+        if (dir === 0) nr--;      // Up
+        else if (dir === 1) nr++; // Down
+        else if (dir === 2) nc--; // Left
+        else nc++;                // Right
+
+        if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+        const nIdx = nr * cols + nc;
+
+        if (visited[nIdx] === gen) continue;
+
+        // Obstacle check: Walls or Breakable Blocks
+        if (obstacleMask[nIdx] === TILE_WALL || obstacleMask[nIdx] === TILE_BLOCK) continue;
+
+        // Bomb check: avoid active bombs (unless target is the player's tile)
+        if (bombMask && bombMask[nIdx] !== 0 && nIdx !== targetIdx) continue;
+
+        visited[nIdx] = gen;
+        parent[nIdx] = curr;
+        queue[tail++] = nIdx;
+      }
+    }
+
+    const destination = reachedTarget ? targetIdx : closestReachable;
+    if (destination === startIdx) {
+      return 0;
+    }
+
+    // Reconstruct path
+    let stepCount = 0;
+    let curr = destination;
+    while (curr !== startIdx && curr >= 0 && stepCount < this.totalTiles) {
+      this.tempPath[stepCount++] = curr;
+      curr = parent[curr];
+    }
+
+    // Reverse into outPath
+    for (let i = 0; i < stepCount; i++) {
+      outPath[i] = this.tempPath[stepCount - 1 - i];
+    }
+
+    return stepCount;
+  }
+
+  /**
+   * Escape BFS: Finds shortest path to nearest safe tile outside dangerMask.
+   * Returns pathLength written to outPath, 0 if start is safe, or -1 if unreachable within maxSteps.
+   */
+  public findSafeTile(
+    startIdx: number,
+    dangerMask: Uint8Array,
+    obstacleMask: Uint8Array,
+    existingBombsMask: Uint8Array | null,
+    maxSteps: number,
+    outPath: Int16Array
+  ): number {
+    if (
+      typeof startIdx !== 'number' ||
+      !Number.isInteger(startIdx) ||
+      startIdx < 0 ||
+      startIdx >= this.totalTiles
+    ) {
+      return -1;
+    }
+
+    if (dangerMask[startIdx] === 0) return 0;
+
+    const cols = this.cols;
+    const rows = this.rows;
+
+    this.resetVisited();
+    const gen = this.generation;
+    const visited = this.visited;
+    const queue = this.queue;
+    const parent = this.parent;
+    const dist = this.dist;
+
+    let head = 0;
+    let tail = 0;
+
+    queue[tail++] = startIdx;
+    visited[startIdx] = gen;
+    parent[startIdx] = -1;
+    dist[startIdx] = 0;
+
+    let safeTarget = -1;
+
+    while (head < tail) {
+      const curr = queue[head++];
+      const d = dist[curr];
+
+      if (dangerMask[curr] === 0) {
+        safeTarget = curr;
+        break;
+      }
+
+      if (d >= maxSteps) continue;
+
+      const currR = (curr / cols) | 0;
+      const currC = curr % cols;
+
+      for (let dir = 0; dir < 4; dir++) {
+        let nr = currR;
+        let nc = currC;
+        if (dir === 0) nr--;
+        else if (dir === 1) nr++;
+        else if (dir === 2) nc--;
+        else nc++;
+
+        if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+        const nIdx = nr * cols + nc;
+
+        if (visited[nIdx] === gen) continue;
+        if (obstacleMask[nIdx] === TILE_WALL || obstacleMask[nIdx] === TILE_BLOCK) continue;
+        if (existingBombsMask && existingBombsMask[nIdx] !== 0 && nIdx !== startIdx) continue;
+
+        visited[nIdx] = gen;
+        parent[nIdx] = curr;
+        dist[nIdx] = d + 1;
+        queue[tail++] = nIdx;
+      }
+    }
+
+    if (safeTarget === -1) return -1;
+
+    // Reconstruct path
+    let stepCount = 0;
+    let curr = safeTarget;
+    while (curr !== startIdx && curr >= 0 && stepCount < this.totalTiles) {
+      this.tempPath[stepCount++] = curr;
+      curr = parent[curr];
+    }
+
+    for (let i = 0; i < stepCount; i++) {
+      outPath[i] = this.tempPath[stepCount - 1 - i];
+    }
+
+    return stepCount;
+  }
+}
+
+// Global Zero-GC Pathfinder Singleton
+export const zeroGCPathfinder = new ZeroGCPathfinder();
+const outPathBuffer = new Int16Array(TOTAL_TILES);
+const sharedBombMask = new Uint8Array(TOTAL_TILES);
+const sharedDangerMask = new Uint8Array(TOTAL_TILES);
+const sharedObstacleMask = new Uint8Array(TOTAL_TILES);
+
+function populateObstacleMask(map: number[][] | Uint8Array, outMask: Uint8Array): void {
+  if (map instanceof Uint8Array) {
+    outMask.set(map);
+    return;
+  }
+  const rMax = Math.min(ROWS, map.length);
+  for (let r = 0; r < rMax; r++) {
+    const row = map[r];
+    if (!row) continue;
+    const base = r * COLS;
+    const cMax = Math.min(COLS, row.length);
+    for (let c = 0; c < cMax; c++) {
+      outMask[base + c] = row[c];
+    }
+  }
+}
+
+function populateMaskFromSetOrArray(
+  source: Set<string> | Uint8Array | FlatHazardMask | null | undefined,
+  outMask: Uint8Array
+): void {
+  outMask.fill(0);
+  if (!source) return;
+  if (source instanceof FlatHazardMask) {
+    outMask.set(source.mask);
+  } else if (source instanceof Uint8Array) {
+    outMask.set(source);
+  } else if (source instanceof Set) {
+    for (const key of source) {
+      const comma = key.indexOf(',');
+      if (comma !== -1) {
+        const r = parseInt(key.slice(0, comma), 10);
+        const c = parseInt(key.slice(comma + 1), 10);
+        if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+          outMask[r * COLS + c] = 1;
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Backward-compatible findPathBFS:
  * Grid-based BFS pathfinding on discrete 13x15 arena avoiding walls, blocks, and active bombs.
  * Includes nearest-frontier Manhattan fallback when player is enclosed by breakable blocks.
  */
@@ -19,85 +577,37 @@ export function findPathBFS(
   start: GridCoord,
   target: GridCoord,
   map: number[][],
-  bombTiles: Set<string>
+  bombTiles: Set<string> | Uint8Array | FlatHazardMask
 ): GridCoord[] {
   if (start.r === target.r && start.c === target.c) return [];
 
-  const queue: GridCoord[] = [start];
-  const visited: boolean[][] = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
-  const parent: Map<string, GridCoord | null> = new Map();
+  populateObstacleMask(map, sharedObstacleMask);
+  populateMaskFromSetOrArray(bombTiles, sharedBombMask);
 
-  visited[start.r][start.c] = true;
-  parent.set(`${start.r},${start.c}`, null);
+  const startIdx = coordToIdx(start.r, start.c);
+  const targetIdx = coordToIdx(target.r, target.c);
 
-  const directions = [
-    { dr: -1, dc: 0 }, // Up
-    { dr: 1, dc: 0 },  // Down
-    { dr: 0, dc: -1 }, // Left
-    { dr: 0, dc: 1 },  // Right
-  ];
+  const len = zeroGCPathfinder.findPath(
+    startIdx,
+    targetIdx,
+    outPathBuffer,
+    sharedObstacleMask,
+    sharedBombMask
+  );
 
-  let closestReachable: GridCoord = start;
-  let minDistance = Math.abs(start.r - target.r) + Math.abs(start.c - target.c);
-  let reachedTarget = false;
+  if (len === 0) return [];
 
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-
-    if (current.r === target.r && current.c === target.c) {
-      reachedTarget = true;
-      break;
-    }
-
-    const dist = Math.abs(current.r - target.r) + Math.abs(current.c - target.c);
-    if (dist < minDistance) {
-      minDistance = dist;
-      closestReachable = current;
-    }
-
-    for (const dir of directions) {
-      const nr = current.r + dir.dr;
-      const nc = current.c + dir.dc;
-
-      if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
-      if (visited[nr][nc]) continue;
-
-      // Obstacle check: Walls or Breakable Blocks
-      if (map[nr][nc] === TILE_WALL || map[nr][nc] === TILE_BLOCK) continue;
-
-      // Bomb check: avoid active bombs (unless target is the player's tile)
-      if (bombTiles.has(`${nr},${nc}`) && !(nr === target.r && nc === target.c)) {
-        continue;
-      }
-
-      visited[nr][nc] = true;
-      parent.set(`${nr},${nc}`, current);
-      queue.push({ r: nr, c: nc });
-    }
+  const path: GridCoord[] = new Array(len);
+  for (let i = 0; i < len; i++) {
+    const idx = outPathBuffer[i];
+    path[i] = { r: (idx / COLS) | 0, c: idx % COLS };
   }
-
-  const destination = reachedTarget ? target : closestReachable;
-  if (destination.r === start.r && destination.c === start.c) {
-    return [];
-  }
-
-  // Reconstruct path from destination backwards to start
-  const path: GridCoord[] = [];
-  let curr: GridCoord | null = destination;
-  while (curr && !(curr.r === start.r && curr.c === start.c)) {
-    path.unshift(curr);
-    curr = parent.get(`${curr.r},${curr.c}`) ?? null;
-  }
-
   return path;
 }
 
 /**
+ * Backward-compatible getBlastTiles:
  * Computes all grid tiles engulfed by an explosion at `center` with radius `power`.
- * Raycasts in 4 cardinal directions:
- * - Stops at indestructible walls (wall tile is NOT engulfed)
- * - Engulfs breakable blocks (block tile IS engulfed, but ray stops after it)
- * - Engulfs empty tiles up to `power` distance
  */
 export function getBlastTiles(
   center: GridCoord,
@@ -131,74 +641,79 @@ export function getBlastTiles(
 }
 
 /**
+ * Backward-compatible findEscapePathBFS:
  * Finds the shortest path to the nearest safe tile outside dangerTiles using BFS.
- * Guarantees enemy avoids walking into walls, blocks, or other active bombs.
- * If start tile is not in dangerTiles, returns an empty path [].
- * If no safe tile can be reached within maxSteps, returns null.
  */
 export function findEscapePathBFS(
   start: GridCoord,
-  dangerTiles: Set<string>,
+  dangerTiles: Set<string> | Uint8Array | FlatHazardMask,
   map: number[][],
-  existingBombs: Set<string>,
+  existingBombs: Set<string> | Uint8Array | FlatHazardMask,
   maxSteps: number = 4
 ): GridCoord[] | null {
-  // If start is miraculously safe, return empty path
-  if (!dangerTiles.has(`${start.r},${start.c}`)) return [];
+  populateObstacleMask(map, sharedObstacleMask);
+  populateMaskFromSetOrArray(dangerTiles, sharedDangerMask);
+  populateMaskFromSetOrArray(existingBombs, sharedBombMask);
 
-  const queue: { coord: GridCoord; dist: number }[] = [{ coord: start, dist: 0 }];
-  const visited: boolean[][] = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
-  const parent: Map<string, GridCoord | null> = new Map();
+  const startIdx = coordToIdx(start.r, start.c);
 
-  visited[start.r][start.c] = true;
-  parent.set(`${start.r},${start.c}`, null);
+  const len = zeroGCPathfinder.findSafeTile(
+    startIdx,
+    sharedDangerMask,
+    sharedObstacleMask,
+    sharedBombMask,
+    maxSteps,
+    outPathBuffer
+  );
 
-  const directions = [
-    { dr: -1, dc: 0 }, // Up
-    { dr: 1, dc: 0 },  // Down
-    { dr: 0, dc: -1 }, // Left
-    { dr: 0, dc: 1 },  // Right
-  ];
+  if (len === -1) return null;
+  if (len === 0) return [];
 
-  let safeTarget: GridCoord | null = null;
-
-  while (queue.length > 0) {
-    const currentItem = queue.shift()!;
-    const { coord: current, dist } = currentItem;
-
-    if (!dangerTiles.has(`${current.r},${current.c}`)) {
-      safeTarget = current;
-      break;
-    }
-
-    if (dist >= maxSteps) continue;
-
-    for (const dir of directions) {
-      const nr = current.r + dir.dr;
-      const nc = current.c + dir.dc;
-
-      if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
-      if (visited[nr][nc]) continue;
-      if (map[nr][nc] === TILE_WALL || map[nr][nc] === TILE_BLOCK) continue;
-      // Cannot escape into another existing bomb tile (except start tile)
-      if (existingBombs.has(`${nr},${nc}`) && !(nr === start.r && nc === start.c)) continue;
-
-      visited[nr][nc] = true;
-      parent.set(`${nr},${nc}`, current);
-      queue.push({ coord: { r: nr, c: nc }, dist: dist + 1 });
-    }
+  const path: GridCoord[] = new Array(len);
+  for (let i = 0; i < len; i++) {
+    const idx = outPathBuffer[i];
+    path[i] = { r: (idx / COLS) | 0, c: idx % COLS };
   }
-
-  if (!safeTarget) return null;
-
-  // Reconstruct path from safeTarget backwards to start
-  const path: GridCoord[] = [];
-  let curr: GridCoord | null = safeTarget;
-  while (curr && !(curr.r === start.r && curr.c === start.c)) {
-    path.unshift(curr);
-    curr = parent.get(`${curr.r},${curr.c}`) ?? null;
-  }
-
   return path;
 }
 
+/**
+ * Alias for findEscapePathBFS
+ */
+export const findSafeTileBFS = findEscapePathBFS;
+
+/**
+ * Determines if a tile is within blast range of a bomb epicenter.
+ */
+export function isTileInBlastRange(
+  tile: GridCoord | number,
+  center: GridCoord | number,
+  power: number,
+  map: number[][] | Uint8Array
+): boolean {
+  const tr = typeof tile === 'number' ? (tile / COLS) | 0 : tile.r;
+  const tc = typeof tile === 'number' ? tile % COLS : tile.c;
+  const cr = typeof center === 'number' ? (center / COLS) | 0 : center.r;
+  const cc = typeof center === 'number' ? center % COLS : center.c;
+
+  if (tr === cr && tc === cc) return true;
+  if (tr !== cr && tc !== cc) return false;
+
+  const dist = Math.abs(tr - cr) + Math.abs(tc - cc);
+  if (dist > power) return false;
+
+  const dr = Math.sign(tr - cr);
+  const dc = Math.sign(tc - cc);
+
+  let r = cr + dr;
+  let c = cc + dc;
+  while (r !== tr || c !== tc) {
+    const tileVal = Array.isArray(map) ? map[r][c] : map[r * COLS + c];
+    if (tileVal === TILE_WALL || tileVal === TILE_BLOCK) return false;
+    r += dr;
+    c += dc;
+  }
+  const destVal = Array.isArray(map) ? map[tr][tc] : map[tr * COLS + tc];
+  if (destVal === TILE_WALL) return false;
+  return true;
+}

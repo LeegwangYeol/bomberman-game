@@ -1,120 +1,75 @@
-# Bomberman Massive Scale Expansion — Test Infrastructure & Architecture
+# E2E Test Infra: Bomberman Infinite Evolution & Massive Expansion
 
-## 1. Executive Summary
+## Test Philosophy
+- Opaque-box, requirement-driven. Derived strictly from user directives and game specifications.
+- Methodology: Category-Partition + Boundary Value Analysis (BVA) + Pairwise Combinatorial Testing + Real-World Workload Testing.
+- Extreme Performance & Reliability: 10,000-frame continuous soak test proving Zero-GC memory invariants ($\Delta\text{Heap} \le 0.25\text{MB}$), and adversarial Chaos Bots testing multi-touch, gauge overflow, rapid pause/resume, and physical boundary clipping.
 
-This document establishes the comprehensive automated testing architecture for the **Bomberman Massive Scale Expansion** (Items, Entities, Ultimate Skills & HUD Inventory). The test suite adheres to a rigorous **4-Tier Testing Methodology** designed to validate every gameplay feature, mathematical invariant, boundary edge case, cross-system interaction, and end-to-end match scenario.
+## Feature Inventory
+| # | Feature | Source (requirement) | Tier 1 | Tier 2 | Tier 3 |
+|---|---------|---------------------|:------:|:------:|:------:|
+| 1 | 1D Typed Array ZeroGCPathfinder | ORIGINAL_REQUEST §2, GDD §6 | 5 | 5 | ✓ |
+| 2 | Contiguous ObjectPool Engine | ORIGINAL_REQUEST §2, GDD §6 | 5 | 5 | ✓ |
+| 3 | Camera Shake Scratch Vectors | ORIGINAL_REQUEST §2, GDD §6 | 5 | 5 | ✓ |
+| 4 | Flat Hazard Tile Bitmask | ORIGINAL_REQUEST §2, GDD §6 | 5 | 5 | ✓ |
+| 5 | Web Audio AudioVoicePool | ORIGINAL_REQUEST §2, GDD §6 | 5 | 5 | ✓ |
+| 6 | 10k-Frame Soak Test Harness | ORIGINAL_REQUEST §2, GDD §6 | 5 | 5 | ✓ |
+| 7 | BaseBoss State Machine | ORIGINAL_REQUEST §1, GDD §2 | 5 | 5 | ✓ |
+| 8 | 3-Tier Tile Telegraph Engine | ORIGINAL_REQUEST §1, GDD §2 | 5 | 5 | ✓ |
+| 9 | King Gummy Bear Boss | ORIGINAL_REQUEST §1, GDD §2 | 5 | 5 | ✓ |
+| 10 | Mecha Hamster Captain Nibbles | ORIGINAL_REQUEST §1, GDD §2 | 5 | 5 | ✓ |
+| 11 | Queen Bee Cupcake Boss | ORIGINAL_REQUEST §1, GDD §2 | 5 | 5 | ✓ |
+| 12 | Boss HUD & Health Bar | ORIGINAL_REQUEST §1, GDD §2 | 5 | 5 | ✓ |
+| 13 | Crisis Manager FSM | ORIGINAL_REQUEST §1, GDD §5 | 5 | 5 | ✓ |
+| 14 | Pastel Void Incursion | ORIGINAL_REQUEST §1, GDD §5 | 5 | 5 | ✓ |
+| 15 | Clockwork Toy Rebellion | ORIGINAL_REQUEST §1, GDD §5 | 5 | 5 | ✓ |
+| 16 | Orbital Bombardment Crisis | ORIGINAL_REQUEST §1, GDD §5 | 5 | 5 | ✓ |
+| 17 | Solar Flare Crisis | ORIGINAL_REQUEST §1, GDD §5 | 5 | 5 | ✓ |
+| 18 | Creeping Lava Crisis | ORIGINAL_REQUEST §1, GDD §5 | 5 | 5 | ✓ |
+| 19 | Dimensional Rift Crisis | ORIGINAL_REQUEST §1, GDD §5 | 5 | 5 | ✓ |
+| 20 | Situation Log HUD | ORIGINAL_REQUEST §1, GDD §5 | 5 | 5 | ✓ |
+| 21 | Infinite Scaling Difficulty Engine | ORIGINAL_REQUEST §1, GDD §5 | 5 | 5 | ✓ |
+| 22 | Crisis Survival Game Mode | ORIGINAL_REQUEST §1, GDD §5 | 5 | 5 | ✓ |
+| 23 | Boss Rush Game Mode | ORIGINAL_REQUEST §1, GDD §2 | 5 | 5 | ✓ |
+| 24 | Endless Gauntlet Game Mode | ORIGINAL_REQUEST §1, GDD §5 | 5 | 5 | ✓ |
+| 25 | Dual-Currency Economy | ORIGINAL_REQUEST §1, GDD §5 | 5 | 5 | ✓ |
+| 26 | Confectionery Perk Tree | ORIGINAL_REQUEST §1, GDD §5 | 5 | 5 | ✓ |
+| 27 | Relics & Artifacts System | ORIGINAL_REQUEST §1, GDD §5 | 5 | 5 | ✓ |
+| 28 | Persistent Score & Trophy Unlocks | ORIGINAL_REQUEST §1, GDD §5 | 5 | 5 | ✓ |
+| 29 | Match Session Persistence | ORIGINAL_REQUEST §4, GDD §6 | 5 | 5 | ✓ |
+| 30 | Meta-Profile LocalStorage Persistence | ORIGINAL_REQUEST §4, GDD §6 | 5 | 5 | ✓ |
+| 31 | Export / Import Save State | ORIGINAL_REQUEST §4, GDD §6 | 5 | 5 | ✓ |
+| 32 | API 429 Quota Recovery Circuit Breaker | ORIGINAL_REQUEST §4, GDD §6 | 5 | 5 | ✓ |
+| 33 | Chaos Bot Multi-Touch Spam Test | ORIGINAL_REQUEST §3, GDD §6 | 5 | 5 | ✓ |
+| 34 | Chaos Bot Boundary & Gauge Attack | ORIGINAL_REQUEST §3, GDD §6 | 5 | 5 | ✓ |
+| 35 | Chaos Bot Fast Pause/Resume Stress | ORIGINAL_REQUEST §3, GDD §6 | 5 | 5 | ✓ |
 
-The automated test runner executes **241 tests across 15 test suites** with **100% passing results (241/241 pass)** in under 350ms.
+## Test Architecture
+- **Test Runner**: Node.js native test runner (`node --experimental-strip-types --test tests/*.test.mjs`)
+- **Memory Soak Execution**: `node --expose-gc --experimental-strip-types --test tests/soak_10k_frames.test.mjs`
+- **Pass/Fail Semantics**: All test suites must exit code 0 with 0 failures and 0 skipped.
+- **Directory Layout**:
+  - `tests/unit/`: Component-level simulation tests.
+  - `tests/integration/`: Cross-module mechanics tests.
+  - `tests/e2e/`: Full simulation match flow tests.
+  - `tests/soak_10k_frames.test.mjs`: 10,000-frame continuous game loop soak test.
+  - `tests/chaos_resilience.test.mjs`: 50,000-action adversarial chaos bot harness.
 
----
+## Real-World Application Scenarios (Tier 4)
+| # | Scenario | Features Exercised | Complexity |
+|---|----------|--------------------|------------|
+| 1 | Full Match with Boss Encounter | M1 Zero-GC, M2 King Gummy Bear, Boss HUD, 150ms buffer | High |
+| 2 | Crisis Outbreak in Mid-Game | M1 Pooling, M3 Pastel Void, Situation Log HUD, Prisms | High |
+| 3 | 10,000-Frame Endless Soak | M1 Zero-GC Pathfinder, ObjectPool, Heap drift <= 0.25MB | Extreme |
+| 4 | 50,000-Action Chaos Bot Stress | M1 Pooling, M5 Chaos Bot, Multi-touch, Boundary Breaking | Extreme |
+| 5 | Mid-Battle Browser Refresh & Quota Recovery | M4 Scaling, M5 GameStatePersistence, 429 Circuit Breaker | High |
+| 6 | Boss Rush Gauntlet Full Run | M2 All 3 Bosses, M4 Scaling, Meta-Progression Perks | Very High |
+| 7 | Endless Gauntlet 10-Floor Run | M3 Crises, M4 Relics, Boons, Difficulty Escalation | Very High |
 
-## 2. 4-Tier Testing Methodology
-
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                       4-TIER TEST ARCHITECTURE                               │
-├────────┬─────────────────────────────────────────────────────────────────────┤
-│ Tier 1 │ FEATURE COVERAGE (Unit & Contract Compliance)                       │
-│        │ ≥5 test cases per feature covering 24 items, 5 enemies, 2 neutrals, │
-│        │ 3 allies, 5 ultimate skills, and 3-tier overhead UI.                │
-├────────┼─────────────────────────────────────────────────────────────────────┤
-│ Tier 2 │ BOUNDARY & CORNER CASES (Safety & Invariants)                       │
-│        │ Strict stat clamping (speed ≤250, bombs ≤8, fire ≤8), 600ms grace   │
-│        │ window, anti-snowball redirection, cul-de-sac suicide prevention,   │
-│        │ 6000ms ultimate lockout, camera trauma saturation (≤1.0).           │
-├────────┼─────────────────────────────────────────────────────────────────────┤
-│ Tier 3 │ CROSS-FEATURE COMBINATIONS (Pairwise Synergy & Conflict)            │
-│        │ Piercing Bomb raycasts vs soft blocks, Ice Bomb stasis on entities, │
-│        │ Tank crushing block containing items, Mini-Bomber friendly-fire     │
-│        │ safety, Shield Guard dome absorption, Aegis Overdrive reflection.   │
-├────────┼─────────────────────────────────────────────────────────────────────┤
-│ Tier 4 │ REAL-WORLD APPLICATION SCENARIOS (End-to-End Game Simulations)      │
-│        │ Multi-wave encounters, 100-block demolition item progression runs,  │
-│        │ multi-cycle ultimate charging and execution loops.                  │
-└────────┴─────────────────────────────────────────────────────────────────────┘
-```
-
-### Tier 1: Feature Coverage
-- Every feature has explicit unit tests verifying definitions, attributes, state transitions, and expected outputs.
-- All 24 items have dedicated tests validating category, rarity, icon key, description, and mutator effects.
-- All 5 enemy archetypes, 2 neutral NPCs, and 3 allies are validated with exact movement speeds, health pools, and behavior intents.
-- 5 ultimate skills are tested for resource consumption, phase timing, and tactical effects.
-
-### Tier 2: Boundary & Corner Cases
-- **Stat Clamping**: Speed clamped to $[150, 250]$ px/s; active bomb capacity to $[1, 8]$; fire power to $[2, 8]$; extra lives to $[0, 3]$.
-- **Explosion Grace Period**: $t \le 600\text{ms}$ protects dropped items from blast incineration; $t \ge 601\text{ms}$ incinerates unprotected items.
-- **Dynamic Cap Redirection & Anti-Snowball**: Players at max stats will not receive dead drops; candidate drop pools dynamically re-weight towards consumables or shields.
-- **Suicide Prevention**: Bomber AI evaluates candidate bomb drops via `findEscapePathBFS()`; drops in dead-end cul-de-sacs are strictly rejected.
-- **Ultimate Lockout**: A 6,000ms lockout timer enforces 0% gauge generation while active, preventing infinite ultimate spam cascades.
-- **Trauma Saturation**: Square-law camera trauma is clamped at $\le 1.0$ and decays exponentially at $\lambda = 1.4\text{ s}^{-1}$.
-
-### Tier 3: Cross-Feature Combinations
-- Pairwise interactions between newly introduced systems:
-  - Piercing Bomb penetrating destructible blocks without terminating raycast.
-  - Ice Bomb applying 3.0s frozen status to enemies, halting velocity and AI timers.
-  - Tank pulverizing blocks concealing items without destroying the item.
-  - Mini-Bomber AI evaluating player coordinates to eliminate friendly fire.
-  - Shield Guard Vanguard projecting Aegis dome to absorb explosions for the player.
-  - Aegis Overdrive reflecting fatal enemy contact and absorbing bomb thermal energy.
-
-### Tier 4: Real-World Application Scenarios
-- Long-running multi-turn simulation loops:
-  - 100-block clearing run tracking inventory statistics, drop probability adherence, score aggregation, and stat caps.
-  - Multi-wave entity clashes with Chaser, Tank, and Splitter simultaneously engaging player and Mini-Bomber ally.
-  - Full match ultimate lifecycle (charging 0% $\to$ 100% $\to$ skill execution $\to$ lockout $\to$ decay $\to$ second ultimate cycle).
-
----
-
-## 3. Feature Coverage Matrix
-
-| Feature Area | Feature Components | Test Suite File | Test Count | Status |
-|:---|:---|:---|:---:|:---:|
-| **24 Items Expansion** | 6 Bomb Variants (`PIERCING`, `REMOTE`, `CLUSTER`, `LANDMINE`, `ICE`, `BOUNCING`)<br>6 Stat Boosts (`SPEED_UP`, `BOMB_UP`, `FIRE_UP`, `MEGA_FIRE`, `ARMOR_UP`, `BLAST_RESIST`)<br>6 Utilities (`KICK`, `WALL_PASS`, `BOMB_PASS`, `TIME_FREEZE`, `MAGNET`, `EXTRA_LIFE`)<br>6 Tactical Buffs (`SHIELD`, `CLOAK`, `DEFLECTOR`, `SPEED_SURGE`, `VAMPIRIC`, `POISON_MIST`)<br>Gilded Chests & 600ms Grace Window | `tests/items_expansion.test.mjs` | 41 | **PASSED** |
-| **Diverse Entities Ecosystem** | 5 Enemies (`CHASER`, `BOMBER`, `TANK`, `GHOST`, `SPLITTER`)<br>2 Neutrals (`MERCHANT`, `CRITTER`)<br>3 Allies (`MINI_BOMBER`, `PET_DRONE`, `SHIELD_GUARD`)<br>3-Tier Overhead UI (`HP Bar`, `Name Tag`, `Intent Badge`)<br>Multi-hit i-frames & Friendly Fire Elimination | `tests/entities_expansion.test.mjs` | 19 | **PASSED** |
-| **Ultimate Skills (필살기)** | 5 Ultimates (`METEOR_STRIKE`, `SUPER_NOVA`, `CHRONO_FREEZE`, `NUCLEAR_BARRAGE`, `AEGIS_OVERDRIVE`)<br>100-pt Energy Gauge & Calibrated Economy<br>6-second Anti-Snowball Lockout Window<br>Square-Law Camera Trauma Decay ($\lambda = 1.4\text{ s}^{-1}$)<br>Zero-Dependency Web Audio Synth Spec | `tests/ultimate_skills.test.mjs` | 16 | **PASSED** |
-| **HUD & Inventory Bridge** | Real-time Inventory Data Structures (`CollectedItemEntry`)<br>Active Buffs Duration & Auto-Expiration (`ActiveBuffsManager`)<br>Stats Bridge Event Serialization & 200ms Throttling<br>Mobile Responsive Drawer State (`[🎒 INVENTORY]`, 48px targets)<br>Mobile 3-Button Touch Arc (`[ULT]`, `[DASH]`, `[BOMB]`)<br>Desktop Glassmorphic Tooltip Cards | `tests/hud_inventory_expansion.test.mjs` | 11 | **PASSED** |
-| **Refinement & Baseline Suites** | Player Movement & Corner Sliding Physics<br>AI Pathfinding & BFS Corridor Navigation<br>Bomb Lifecycle & Pulsing Tweens<br>Directional Character Animations (4-way)<br>Skills, Gimmicks (Conveyor, Portal), & Empirical Stress | `tests/*.test.mjs` (11 baseline suites) | 154 | **PASSED** |
-| **Total Test Suite** | **All Expansion & Core Baseline Systems** | **15 Test Suites** | **241** | **100% PASS** |
-
----
-
-## 4. Test Runner Instructions
-
-### 4.1 Running the Full Test Suite
-Execute the standard Node.js test runner across all test suites:
-```bash
-npm test
-```
-*Expected Result*: 241 passed, 0 failed, duration < 400ms.
-
-### 4.2 Running Individual Test Suites
-For targeted development or debugging, run individual test suites directly:
-
-```bash
-# 1. Items Expansion Suite (24 items, drop rates, stat caps, grace window)
-node --experimental-strip-types --test tests/items_expansion.test.mjs
-
-# 2. Diverse Entities Suite (5 enemies, 2 neutrals, 3 allies, 3-tier UI)
-node --experimental-strip-types --test tests/entities_expansion.test.mjs
-
-# 3. Ultimate Skills Suite (5 ultimates, 100-pt economy, lockout, trauma decay)
-node --experimental-strip-types --test tests/ultimate_skills.test.mjs
-
-# 4. HUD & Inventory Bridge Suite (bridge serialization, mobile drawer, tooltips)
-node --experimental-strip-types --test tests/hud_inventory_expansion.test.mjs
-```
-
-### 4.3 Static Analysis & Lint Verification
-To verify TypeScript and ECMAScript code quality:
-```bash
-npx eslint tests/items_expansion.test.mjs tests/entities_expansion.test.mjs tests/ultimate_skills.test.mjs tests/hud_inventory_expansion.test.mjs
-```
-*Expected Result*: 0 problems, 0 errors, 0 warnings across all 4 new expansion test files.
-
----
-
-## 5. Architectural Quality Standards
-
-1. **Zero Facade Tests**: Every test exercises genuine state transitions, boundary conditions, and mathematical formulas.
-2. **Deterministic & Isolated**: Each test constructs its own state and mock environment without depending on global state or execution order.
-3. **Strict Invariant Verification**: Critical game invariants (suicide prevention, friendly-fire immunity, stat caps, grace period, lockout duration) are mathematically guarded with zero tolerance for regressions.
+## Coverage Thresholds
+- Tier 1: ≥5 per feature (≥175 tests)
+- Tier 2: ≥5 per feature (≥175 tests)
+- Tier 3: Pairwise coverage of major feature combinations (≥35 tests)
+- Tier 4: ≥7 realistic end-to-end workload scenarios
+- 10k-Frame Soak: 10,000 frames with heap drift $\le 0.25\text{MB}$
+- Chaos Resilience: 50,000 adversarial inputs with 0 crashes and 0 gauge/boundary violations

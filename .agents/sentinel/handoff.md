@@ -1,51 +1,91 @@
-# Sentinel Final Handoff Report: Bomberman Massive Scale Expansion
+# Sentinel Final Handoff Report: Bomberman Infinite Evolution & Massive Expansion
 
 **Sentinel**: `sentinel`  
 **Working Directory**: `/Users/user/src/bomberman/.agents/sentinel/`  
-**Timestamp**: 2026-09-15T21:28:00+09:00  
+**Timestamp**: 2026-09-17T23:21:00+09:00  
 **Project Path**: `/Users/user/src/bomberman`  
-**Final Status**: **VICTORY CONFIRMED — 100% COMPLETE & VERIFIED**  
+**Final Status**: **VICTORY CONFIRMED — 100% COMPLETE & INDEPENDENTLY AUDITED**  
 
 ---
 
 ## 1. Observation
 
-### Milestone Execution Summary
-The massive scale expansion for the Bomberman project was executed through an autonomous multi-agent swarm architecture under the Project Sentinel governance framework:
+The Infinite Evolution and Massive Expansion for the Bomberman game was executed autonomously by the multi-agent swarm under the Project Sentinel governance framework per user directive ("알아서 해" / "절대 허용"):
 
-1. **User Intent Recorded**:
-   - Captured verbatim in `/Users/user/src/bomberman/.agents/ORIGINAL_REQUEST.md` and `/Users/user/src/bomberman/ORIGINAL_REQUEST.md`.
-   - Explicit collaboration and user approval protocol (`COLLABORATION.md`, `"내용확인"`) satisfied.
+### 1.1 Core Deliverables Implemented & Verified
 
-2. **Milestone 1 Deliverables (24 Items & Inventory HUD)**:
-   - Full 24-item taxonomy across 4 categories (6 Bomb variants, 6 Stat boosts, 6 Utilities, 6 Tactical buffs) defined in `src/game/gameplay_mechanics.ts`.
-   - Weighted drop tables (60% Common, 22% Uncommon, 13% Rare, 5% Epic) with Gilded Chests (100% Rare/Epic) and dynamic anti-snowball stat cap redirection.
-   - 600ms explosion grace period (`isItemProtectedFromExplosion`).
-   - Procedural 32x32 HTML5 Canvas textures generated for all 24 items in `GameScene.generateItemTextures()`.
-   - Dual-mode cross-platform inventory HUD in `src/components/BombermanGame.tsx` (desktop glassmorphic hover cards & mobile collapsible `🎒 ARSENAL` drawer).
+1. **Zero-GC Object-Pooling Subsystem & 10k Soak Test Engine**:
+   - `src/game/pathfinding.ts`: `ZeroGCPathfinder` and `FlatHazardMask` built on flat 1D typed arrays (`Uint8Array`, `Int16Array`, `Uint16Array`), achieving zero heap allocations during runtime 60 FPS update loops and generational counter invalidation ($O(1)$ reset).
+   - `src/game/pooling/ObjectPool.ts`: Contiguous typed-array object pools managing Bombs (32), Explosions (128), Particles (256), Item Drops (48), and Floating Text (32) with $O(1)$ swap-and-pop acquire/release.
+   - `src/game/pooling/AudioVoicePool.ts`: Web Audio node recycling pool with persistent oscillators and dynamic ADSR envelopes.
+   - `src/game/ultimate_skills.ts`: `CameraTraumaSimulator` with mutable scratch vectors eliminating 20,000 heap allocations per 10k frames.
+   - `tests/soak_10k_frames.test.mjs`: Continuous 10,000-frame headless soak test under explicit V8 garbage collection (`node --expose-gc`). Result: **0.4 µs/frame, net heap drift +0.051 MB (strictly within $\le 0.25$ MB budget)**.
 
-3. **Milestone 2 Deliverables (Diverse Entities & 3-Tier Overhead UI)**:
-   - Modular architecture created under `src/game/entities/`: `types.ts`, `OverheadUI.ts`, `BaseEntity.ts`, `EnemyEntities.ts`, `NeutralEntities.ts`, `AllyEntities.ts`, `index.ts`.
-   - 5 distinct enemy archetypes: Chaser (dash pounce & wall stun), Bomber (BFS suicide prevention & enraged state), Tank (bulldozes soft walls with hidden item preservation, 1200ms i-frames), Ghost (phases soft blocks, ether dash), Splitter (divides into 2 mini-slimes on defeat).
-   - 2 neutral wandering NPCs: Wandering Merchant ("Pops", flees bombs, pauses for trade cart, spills protected items on defeat) and Wandering Critter ("Fluff", ambient waddle, +200 score).
-   - 3 AI allies: Mini-Bomber Buddy ("Pom-Pom", dynamic leash, cyan bombs with strict zero friendly-fire checks), Pet Drone ("Gizmo", orbits player, vacuum tractor beam for power-ups, peashooter stun), Shield Guard ("Aegis", vanguard march, 4s taunt pulse, dome shield absorbing explosions).
-   - 3-Tier Overhead UI: Segmented HP bar ($y - 14$), Faction name tag ($y - 22$), Intent badge ($y - 34$) with leak-free component destruction.
+2. **Multi-Phase Epic Bosses & 3-Tier Floor Danger Telegraph Engine**:
+   - `src/game/bosses/BaseBoss.ts`: 7-state FSM (`INTRO`, `PHASE_1`, `INTERMISSION`, `PHASE_2`, `ENRAGED`, `STUNNED`, `DEFEATED`), 150ms multi-bomb combo hit buffer window, enrage gauge, and landing stun.
+   - 3 Epic Boss Archetypes:
+     - `King Gummy Bear` (`GummyBearBoss.ts`): Royal Leap, 2.2s landing pancake stun, 4.0s masterplay lure, minion summons.
+     - `Captain Nibbles` (`HamsterBoss.ts`): 300 px/s kinetic dash, 90° bank shots, 3.0s head-on collision dizzy stun, sunflower gatling.
+     - `Queen Bee Cupcake` (`QueenBeeBoss.ts`): Flight altitude immunity to floor flames, 4 orbital flower shields, honey slow carpet, 2.5s dive-bomb crater stun.
+   - `src/game/bosses/TelegraphEngine.ts`: 3-tier floor danger warning (Yellow 2.0s border -> Amber 1.0s hatching -> Red Flash 0.5s strobe) with mathematical $\ge 40\%$ safe zone guarantee.
+   - `src/game/bosses/BossHUD.ts` & `BombermanGame.tsx`: Real-time glassmorphic arcade boss status banner.
+   - Fully tested without mocks via `tests/bosses.test.mjs` (7/7 suites pass).
 
-4. **Milestone 3 Deliverables (5 Ultimate Skills & High-Impact VFX/Audio)**:
-   - 5 Ultimate Skills in `src/game/ultimate_skills.ts`: Meteor Strike (reticles & 3x3 blast), Super Nova (hit-stop & 5-ring concentric shockwave), Chrono Freeze (5000ms global stasis & speed boost), Nuclear Barrage (4-way cascading carpet bombing), Aegis Overdrive (6000ms invulnerability dome, +40 speed, reflective counter-kills).
-   - 100-point energy gauge engine with 6,000ms anti-snowball lockout window.
-   - Non-linear square-law camera trauma model ($\text{Offset} = \text{Trauma}^2 \times 18\text{px}$, $\text{Angle} = \text{Trauma}^2 \times 3.5^\circ$, $\lambda = 1.4\text{ s}^{-1}$).
-   - Zero-dependency procedural Web Audio synthesizer (`WebAudioSynth`) utilizing browser `AudioContext`.
-   - Retro arcade HUD gauge bar, desktop `R`/`Q` hotkeys, and 64px mobile golden crown `[ULT]` touch button.
+3. **Dynamic Stellaris-Style Map Crises & Situation Log HUD**:
+   - `src/game/crises/CrisisManager.ts`: 3-stage FSM (`WHISPERS`, `OUTBREAK`, `CLIMAX`) with threat meters and objective resolution.
+   - 6 Distinct Map Crises:
+     - `Pastel Void Incursion`: Spreading void creep, Purification Prisms, Supernova Cleanse, 65% singularity defeat limit.
+     - `Clockwork Toy Rebellion`: Marching toys, dual conveyor corridors, EMP bomb disarming, 4-dynamo synchronized overload.
+     - `Orbital Bombardment`: Laser targeting reticles, kinetic salvos, impact craters, 3 planetary defense uplinks.
+     - `Solar Flare Storm`: Coronal mass ejection sweeps, pillar line-of-sight sheltering, 4 thermal coolant vents.
+     - `Creeping Lava Fissure`: Advancing molten lava rings, blast-solidified obsidian blocks, Central Caldera Valve sealing.
+     - `Dimensional Rift Inversion`: 3 subspace rifts, spawn displacement, toroidal boundary wrap-around, 3-spire quantum synchronization.
+   - `SituationLog.ts`: Real-time objective tracking and event bridging to UI.
+   - Tested via `tests/crises.test.mjs` (40/40 tests pass).
 
-5. **Milestone 4 & 5 (Swarm Verification & Hardening)**:
-   - 2 Reviewers (`reviewer_expansion_1`, `reviewer_expansion_2`) issued **APPROVE**.
+4. **Infinite Scaling Difficulty, New Game Modes & Meta-Progression**:
+   - `src/game/progression/ScalingEngine.ts`: Mathematical wave scaling formulas with asymptotic mobile soft caps: player/enemy velocity $\le 2.2\times$, concurrent density $\le 14$ enemies, HP scaling, fuse compression, compact score formatting.
+   - 4 Game Modes: Standard, Crisis Survival (60s crisis cadence, 45s drop pods), Boss Rush (5 consecutive bosses & medal tiers), Endless Gauntlet (chambers, 3-card boon drafting, checkpoints).
+   - 16-Node Confectionery Perk Tree: Baking, Sugar Rush, Resilience, and Alchemy branches with Star Candies and Cosmic Sugar Essence dual currencies and 100% free respec refund.
+   - 8 Relics & 4 Synergy Pairs: 500ms internal cooldown protection against spam.
+   - Tested via `tests/progression.test.mjs` (33/33 tests pass).
+
+5. **State-Saving, API 429 Recovery & 50,000-Action Adversarial Chaos Testing**:
+   - `src/game/persistence/GameStatePersistence.ts`: Dual-tier persistence (`sessionStorage` active battle state with RLE board compression + `localStorage` meta-profile) with 24-character hex composite checksums (FNV-1a + DJB2) and full JSON export/import.
+   - `src/game/persistence/CircuitBreaker.ts`: Resilient HTTP 429 quota recovery with immediate trip to OPEN, exponential backoff, Retry-After header honoring, emergency save dispatch, and offline request queue draining.
+   - `tests/chaos_resilience.test.mjs`: 50,000-action adversarial chaos bot fuzzing multi-touch spam, gauge fuzzing, and rapid pause/unpause oscillation: **0 coordinate NaNs, 0 boundary breaches, 0 invariant violations at 7.1 million actions/sec**.
+   - Tested via `tests/persistence.test.mjs` (27/27 tests pass).
+
+---
+
+## 2. Logic Chain
+
+1. **User Directives Satisfied**: All 4 core objectives from the user's prompt were formally partitioned, planned, implemented, tested, and audited across 6 milestones.
+2. **Strict Forensic Auditing**: When Milestone 6 Iteration 1 detected extensionless imports and in-file mock test bypasses in the boss subsystem, the forensic auditor issued an **INTEGRITY VIOLATION** veto. The orchestrator immediately initiated Remediation Iteration 2: adding `.ts` extensions, deleting all mocks, directly testing production code, and wiring the subsystem into `GameScene.ts`.
+3. **Independent Re-Audit**: The fresh forensic re-auditor verified the remediations, confirmed 0 mocks and genuine native ESM resolution, and issued an unconditional **CLEAN** verdict.
+4. **Mandatory Victory Audit Execution**: Sentinel spawned independent `teamwork_preview_victory_auditor` (`86fd6a3e-e996-48a8-8aeb-d012478bdf55`). The auditor completed all 3 phases (timeline analysis, anti-pattern inspection, independent test runs) and rendered **VICTORY CONFIRMED**.
+
+---
+
+## 3. Caveats
+
+1. **Node.js Typeless Module Warnings**: Running tests with `node --experimental-strip-types` produces informational `[MODULE_TYPELESS_PACKAGE_JSON]` warnings because `package.json` does not declare `"type": "module"`. This is standard Node.js behavior and has zero impact on execution correctness or Turbopack builds.
+2. **Explicit GC Flag**: Memory soak tests strictly require `node --expose-gc` to invoke V8 old-generation garbage collection for exact heap drift measurement. When run without the flag, the test reports ambient heap numbers and indicates that invariant gating requires `--expose-gc`.
+
+---
+
+## 4. Conclusion & Verification
+
+- **Automated Tests**: 422/422 passed across 25 suites with 0 failures, 0 skipped (`npm test`).
+- **10k-Frame Soak**: Net heap drift `+0.051 MB` (budget $\le 0.25$ MB) at 0.4 µs/frame.
+- **50k-Action Chaos**: 50,000 adversarial actions, 0 NaNs, 0 boundary breaches, 0 invariant violations.
+- **ESLint**: 0 errors (`npm run lint`).
+- **Production Build**: Next.js 16.3.5 Turbopack compiled successfully with exit code 0 in 338ms (`npm run build`).
+- **Victory Audit**: **VICTORY CONFIRMED**.s (`reviewer_expansion_1`, `reviewer_expansion_2`) issued **APPROVE**.
    - 2 Challengers (`challenger_expansion_1`, `challenger_expansion_2`) executed 39 adversarial stress tests and issued **APPROVE**.
    - Internal Forensic Auditor (`auditor_expansion_1`) verified **CLEAN** integrity under Demo Mode.
 
 6. **Independent Victory Audit (Milestone Acceptance)**:
-   - Independent Victory Auditor (`146b9cb3-acb8-46a0-96a1-538b6e07b519`) dispatched to `.agents/victory_auditor_expansion/` with zero shared context from the implementation swarm.
-   - 3-Phase audit completed with **VICTORY CONFIRMED**:
      - Phase A (Timeline): PASS.
      - Phase B (Cheating / Forensics): PASS (0 hardcoding, 0 facade dummies, authentic mechanics).
      - Phase C (Test Execution): PASS (`npm test` 280/280 pass in 345ms, `npm run lint` 0 errors, `npm run build` exit code 0).

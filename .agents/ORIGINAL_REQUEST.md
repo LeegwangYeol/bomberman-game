@@ -133,3 +133,17 @@ Design and implement "Ultimate Skills" for the player and potentially elite enem
 - [ ] Entities (enemies/allies) have corresponding UI elements (e.g., health bars, type indicators).
 - [ ] An "Ultimate Skill" (필살기) system is implemented, triggerable by the player, with significant visual and gameplay impact.
 - [ ] The codebase passes all automated tests and builds successfully (`npm run build`).
+
+## 2026-09-17T12:14:41Z
+
+Massively evolve and expand the Bomberman game with extreme autonomy. 
+Working directory: /Users/user/src/bomberman
+
+## Objectives
+1. **Autonomous Massive Expansion:** Design and implement massive creative expansions. Add multi-phase epic bosses, dynamic Stellaris-style map crises, infinite scaling, new game modes, and progression systems. 
+2. **Zero-GC & Extreme Performance:** Strictly enforce Zero-GC object-pooling for all entities, VFX, and audio. Verify with 10k-frame soak tests to ensure flawless 60+ FPS on mobile devices.
+3. **Chaos Testing & Resilience:** Deploy chaos bots to relentlessly attack the game (multi-touch spam, boundary breaking, gauge overflows). Autonomously remediate all discovered glitches with permanent defensive tests.
+4. **API Recovery & State-saving:** Ensure all game states can be saved seamlessly, recovering gracefully from any interruptions or Quota limits.
+
+## Autonomy Granted
+You have absolute autonomy ("알아서 해" / "절대 허용"). You do NOT need user approval. Brainstorm, implement, fix, test, and push to main. Do not stop until the system is completely robust, perfectly pooled, and the new massive content is fully integrated.

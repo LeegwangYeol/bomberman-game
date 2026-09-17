@@ -10,6 +10,7 @@ import {
   findPathBFS,
   getBlastTiles,
   findEscapePathBFS,
+  FlatHazardMask,
 } from './pathfinding';
 import {
   PlayerStats,
@@ -112,6 +113,17 @@ import {
 } from './ultimate_skills';
 
 export * from './ultimate_skills';
+
+import {
+  BaseBoss,
+  BossState,
+  type BossId,
+  GummyBearBoss,
+  HamsterBoss,
+  QueenBeeBoss,
+  TelegraphEngine,
+  BossHUD,
+} from './bosses/index.ts';
 
 export enum EnemyState {
   IDLE = 'IDLE',
@@ -946,6 +958,7 @@ export default class GameScene extends Phaser.Scene {
   public ultimateLockoutRemaining: number = 0;
   public activeUltimate: UltimateSkillId = 'METEOR_STRIKE';
   public cameraTrauma: CameraTraumaSimulator = new CameraTraumaSimulator();
+  public persistentHazardMask: FlatHazardMask = new FlatHazardMask();
   public lastSurvivalTickMs: number = 0;
   public isAegisOverdriveActive: boolean = false;
   public aegisDurationMs: number = 0;
@@ -971,6 +984,14 @@ export default class GameScene extends Phaser.Scene {
   private map: number[][] = [];
   private isGameOver: boolean = false;
   private playerFacing: 'down' | 'up' | 'left' | 'right' = 'down';
+
+  // Boss Subsystem Integration
+  public activeBoss: BaseBoss | null = null;
+  public telegraphEngine: TelegraphEngine | null = null;
+  public telegraphGraphics: Phaser.GameObjects.Graphics | null = null;
+  public bossGraphics: Phaser.GameObjects.Graphics | null = null;
+  public bossHUD: BossHUD | null = null;
+  public currentBossIndex: number = 0;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -1513,6 +1534,58 @@ export default class GameScene extends Phaser.Scene {
       duration: 3500,
       repeat: -1,
     });
+
+    // Initialize Boss HUD & Telegraph Renderers
+    this.bossHUD = new BossHUD(this.game);
+    this.telegraphGraphics = this.add.graphics();
+    this.telegraphGraphics.setDepth(5);
+    this.bossGraphics = this.add.graphics();
+    this.bossGraphics.setDepth(15);
+    this.telegraphEngine = new TelegraphEngine(this.telegraphGraphics);
+
+    // Wire Game Mode Changes for Boss Encounters
+    this.game.events.on('mode-changed', (mode: string) => {
+      if (mode === 'boss_rush' || mode === 'BOSS_RUSH') {
+        this.startBossEncounter('king_gummy_bear');
+      } else if (this.activeBoss) {
+        this.dismissBoss();
+      }
+    });
+  }
+
+  public startBossEncounter(bossId: string): void {
+    this.dismissBoss();
+
+    const startX = 300;
+    const startY = 260;
+
+    if (bossId === 'captain_nibbles' || bossId === 'boss_hamster_nibbles') {
+      this.activeBoss = new HamsterBoss(startX, startY);
+    } else if (bossId === 'queen_bee_cupcake' || bossId === 'boss_queen_bee') {
+      this.activeBoss = new QueenBeeBoss(startX, startY);
+    } else {
+      this.activeBoss = new GummyBearBoss(startX, startY);
+    }
+
+    if (this.bossHUD) {
+      this.bossHUD.initBoss(this.activeBoss.config.id as BossId, this.activeBoss.maxHp);
+    }
+  }
+
+  public dismissBoss(): void {
+    if (this.telegraphEngine) {
+      this.telegraphEngine.reset();
+    }
+    if (this.telegraphGraphics) {
+      this.telegraphGraphics.clear();
+    }
+    if (this.bossGraphics) {
+      this.bossGraphics.clear();
+    }
+    if (this.bossHUD) {
+      this.bossHUD.dismissBoss();
+    }
+    this.activeBoss = null;
   }
 
   update(_time: number, delta: number) {
@@ -1741,14 +1814,15 @@ export default class GameScene extends Phaser.Scene {
       this.shieldVisual = null;
     }
 
-    // 9. Collect active bomb tiles for AI path avoidance
-    const bombTiles = new Set<string>();
+    // 9. Collect active bomb tiles for AI path avoidance (Zero-GC persistent FlatHazardMask)
+    this.persistentHazardMask.clear();
+    const bombTiles = this.persistentHazardMask as unknown as Set<string>;
     this.bombs.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
       const b = child as Phaser.Physics.Arcade.Sprite;
       if (b.active) {
         const col = Math.floor(b.x / TILE_SIZE);
         const row = Math.floor(b.y / TILE_SIZE);
-        bombTiles.add(`${row},${col}`);
+        this.persistentHazardMask.setCoord(row, col, 1);
       }
     });
 
@@ -1850,6 +1924,65 @@ export default class GameScene extends Phaser.Scene {
             n.setVelocity(0, 0);
           }
         });
+      }
+    }
+
+    // 11. Update Active Boss & Telegraphs
+    if (this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED) {
+      this.activeBoss.update(delta, this.player.x, this.player.y);
+
+      if (this.telegraphEngine) {
+        this.telegraphEngine.update(delta);
+        this.telegraphEngine.render(_time);
+      }
+
+      if (this.bossHUD) {
+        this.bossHUD.setHp(this.activeBoss.currentHp);
+        this.bossHUD.setBossState(this.activeBoss.bossState);
+        this.bossHUD.setEnrageGauge(this.activeBoss.enrageGauge);
+      }
+
+      // Render Procedural Boss Visuals
+      if (this.bossGraphics) {
+        this.bossGraphics.clear();
+        const radius = this.activeBoss.config.colliderRadius || 35;
+
+        // Outer glow / aura
+        const themeColor =
+          this.activeBoss.bossState === BossState.ENRAGED
+            ? 0xff0044
+            : this.activeBoss.bossState === BossState.STUNNED
+              ? 0xf59e0b
+              : 0x9333ea;
+
+        this.bossGraphics.fillStyle(themeColor, 0.3);
+        this.bossGraphics.fillCircle(this.activeBoss.x, this.activeBoss.y, radius + 8);
+
+        // Core body
+        this.bossGraphics.fillStyle(themeColor, 0.9);
+        this.bossGraphics.fillCircle(this.activeBoss.x, this.activeBoss.y, radius);
+
+        // Health ring / border
+        this.bossGraphics.lineStyle(3, 0xffffff, 0.8);
+        this.bossGraphics.strokeCircle(this.activeBoss.x, this.activeBoss.y, radius);
+
+        // Stun Stars if stunned
+        if (this.activeBoss.bossState === BossState.STUNNED) {
+          this.bossGraphics.fillStyle(0xfff500, 1.0);
+          for (let i = 0; i < 3; i++) {
+            const starAngle = _time / 200 + (i * (Math.PI * 2)) / 3;
+            const sx = this.activeBoss.x + Math.cos(starAngle) * (radius + 12);
+            const sy = this.activeBoss.y - 10 + Math.sin(starAngle) * 8;
+            this.bossGraphics.fillCircle(sx, sy, 4);
+          }
+        }
+      }
+
+      // Defeat check
+      if (this.activeBoss.currentHp <= 0 || this.activeBoss.getState() === BossState.DEFEATED) {
+        this.score += 5000;
+        this.game.events.emit('currency-reward', { starCandies: 50, cosmicEssence: 25 });
+        this.dismissBoss();
       }
     }
   }
@@ -2361,6 +2494,20 @@ export default class GameScene extends Phaser.Scene {
         exp.destroy();
       },
     });
+
+    // Check hit on active boss
+    if (this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED) {
+      const dist = Phaser.Math.Distance.Between(x, y, this.activeBoss.x, this.activeBoss.y);
+      if (dist < (this.activeBoss.config.colliderRadius || 35) + 20) {
+        const hit = this.activeBoss.takeBombDamage(1, 'bomb');
+        if (hit && this.bossHUD) {
+          this.bossHUD.setHp(this.activeBoss.currentHp);
+          if (this.activeBoss.bossState === BossState.STUNNED) {
+            this.bossHUD.triggerStun(this.activeBoss.stunTimerMs / 1000, 'Bomb Blast Combo!');
+          }
+        }
+      }
+    }
   }
 
   spawnSpecificItem(type: ItemType, row: number, col: number) {

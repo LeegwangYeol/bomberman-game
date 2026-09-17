@@ -148,11 +148,26 @@ export const CHARGE_VALUES = {
  * Angle = Trauma^2 * MaxAngle
  * Decay rate = 1.4 s^-1
  */
+export interface CameraOffsets {
+  x: number;
+  y: number;
+  angle: number;
+}
+
+export interface ShakeMagnitude {
+  trauma: number;
+  offsetPx: number;
+  angleDeg: number;
+}
+
 export class CameraTraumaSimulator {
   public trauma: number = 0.0;
   public maxOffset: number;
   public maxAngle: number;
   public decayRate: number;
+
+  private readonly _scratchOffsets: CameraOffsets = { x: 0, y: 0, angle: 0 };
+  private readonly _scratchMagnitude: ShakeMagnitude = { trauma: 0, offsetPx: 0, angleDeg: 0 };
 
   constructor(maxOffset: number = 18, maxAngle: number = 3.5, decayRate: number = 1.4) {
     this.trauma = 0.0;
@@ -171,29 +186,33 @@ export class CameraTraumaSimulator {
     }
   }
 
-  public getShakeMagnitude(): { trauma: number; offsetPx: number; angleDeg: number } {
+  public getShakeMagnitude(out?: ShakeMagnitude): ShakeMagnitude {
     // Non-linear square law: Trauma^2
+    const target = out ?? this._scratchMagnitude;
     const factor = this.trauma * this.trauma;
-    return {
-      trauma: this.trauma,
-      offsetPx: factor * this.maxOffset,
-      angleDeg: factor * this.maxAngle,
-    };
+    target.trauma = this.trauma;
+    target.offsetPx = factor * this.maxOffset;
+    target.angleDeg = factor * this.maxAngle;
+    return target;
   }
 
   /**
    * Calculates pseudo-harmonic camera shake displacement for Phaser frame updates
    */
-  public getOffsets(timeMs: number = 0): { x: number; y: number; angle: number } {
+  public getOffsets(timeMs: number = 0, out?: CameraOffsets): CameraOffsets {
+    const target = out ?? this._scratchOffsets;
     const mag = this.getShakeMagnitude();
     if (mag.trauma <= 0.0001) {
-      return { x: 0, y: 0, angle: 0 };
+      target.x = 0;
+      target.y = 0;
+      target.angle = 0;
+      return target;
     }
     const t = timeMs * 0.04;
-    const x = mag.offsetPx * (Math.sin(t * 1.37) * 0.65 + Math.cos(t * 2.11) * 0.35);
-    const y = mag.offsetPx * (Math.cos(t * 1.73) * 0.65 + Math.sin(t * 2.89) * 0.35);
-    const angle = mag.angleDeg * Math.sin(t * 1.93);
-    return { x, y, angle };
+    target.x = mag.offsetPx * (Math.sin(t * 1.37) * 0.65 + Math.cos(t * 2.11) * 0.35);
+    target.y = mag.offsetPx * (Math.cos(t * 1.73) * 0.65 + Math.sin(t * 2.89) * 0.35);
+    target.angle = mag.angleDeg * Math.sin(t * 1.93);
+    return target;
   }
 }
 
@@ -229,13 +248,18 @@ export class UltimateEngineSimulator {
   }
 
   public addCharge(points: number): number {
+    // Defensive input sanitization against NaN, undefined, null, non-numbers
+    if (typeof points !== 'number' || isNaN(points)) {
+      return 0;
+    }
     // Anti-snowball lockout invariant:
     // No charge can be accumulated while lockout timer is active!
     if (this.lockoutRemainingMs > 0) {
       return 0;
     }
     const prev = this.gauge;
-    this.gauge = Math.min(this.maxGauge, Math.max(0.0, this.gauge + points));
+    const safePoints = points === Infinity ? this.maxGauge : points === -Infinity ? -this.maxGauge : points;
+    this.gauge = Math.min(this.maxGauge, Math.max(0.0, this.gauge + safePoints));
     return this.gauge - prev;
   }
 
