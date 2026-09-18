@@ -19,6 +19,7 @@ export class QueenBeeBoss extends BaseBoss {
   public targetDiveX: number = 0;
   public targetDiveY: number = 0;
   public flightTimeSec: number = 0;
+  public timeUntilNextDiveMs: number = 5000;
 
   constructor(startX: number = 300, startY: number = 260) {
     const config: BossConfig = {
@@ -122,6 +123,22 @@ export class QueenBeeBoss extends BaseBoss {
       return;
     }
 
+    // ARCH-03: Automated periodic royal dive cadence to expose tactical grounding vulnerability
+    if (
+      this.bossState === BossState.PHASE_1 ||
+      this.bossState === BossState.PHASE_2 ||
+      this.bossState === BossState.ENRAGED
+    ) {
+      this.timeUntilNextDiveMs -= dt;
+      if (this.timeUntilNextDiveMs <= 0) {
+        this.timeUntilNextDiveMs = this.bossState === BossState.ENRAGED ? 4000 : 5500;
+        const targetX = playerX > 0 ? playerX : this.x;
+        const targetY = playerY > 0 ? playerY : this.y;
+        this.initiateRoyalDive(targetX, targetY);
+        return;
+      }
+    }
+
     // Figure-8 cruising flight pattern
     this.flightTimeSec += dt / 1000;
     const centerX = 300;
@@ -208,9 +225,10 @@ export class QueenBeeBoss extends BaseBoss {
     nextState: BossState
   ): void {
     void prevState;
-    if (nextState !== BossState.STUNNED) {
+    if (nextState !== BossState.STUNNED && nextState !== BossState.DEFEATED) {
       this.isGrounded = false;
       this.altitude = 40;
+      this.timeUntilNextDiveMs = nextState === BossState.ENRAGED ? 3500 : 5000;
     }
     if (nextState === BossState.INTERMISSION) {
       this.activeShieldCount = this.maxShields;

@@ -77,6 +77,9 @@ export abstract class BaseBoss {
   public stateTimerMs: number = 0;
   public readonly introDurationMs: number = 1500;
   public readonly intermissionDurationMs: number = 1800;
+  public readonly deathDurationMs: number = 1200;
+  public deathTimerMs: number = 0;
+  public isDeathAnimationComplete: boolean = false;
 
   constructor(config: BossConfig, startX: number, startY: number) {
     this.config = config;
@@ -94,7 +97,17 @@ export abstract class BaseBoss {
    * Main per-frame simulation update (Zero-GC, 60 FPS tick).
    */
   public update(dt: number, playerX: number = 0, playerY: number = 0): void {
-    if (this.bossState === BossState.DEFEATED) return;
+    if (this.bossState === BossState.DEFEATED) {
+      if (!this.isDeathAnimationComplete) {
+        this.deathTimerMs -= dt;
+        if (this.deathTimerMs <= 0) {
+          this.deathTimerMs = 0;
+          this.isDeathAnimationComplete = true;
+          this.onDeathAnimationFinished();
+        }
+      }
+      return;
+    }
 
     const stateAtStart = this.bossState;
 
@@ -227,9 +240,15 @@ export abstract class BaseBoss {
       this.applyStun(totalStunSec);
     }
 
-    // Engage post-combo i-frames
-    this.iFrameTimerMs = this.defaultIFrameMs;
-    this.isInvulnerable = true;
+    // ARCH-02: Engage post-combo i-frames ONLY if boss is NOT stunned
+    // Stun is a tactical vulnerability window; i-frames must not overlap and negate it.
+    if (this.bossState !== BossState.STUNNED) {
+      this.iFrameTimerMs = this.defaultIFrameMs;
+      this.isInvulnerable = true;
+    } else {
+      this.iFrameTimerMs = 0;
+      this.isInvulnerable = false;
+    }
 
     // Check phase transition thresholds
     const hpRatio = this.currentHp / this.maxHp;
@@ -263,6 +282,9 @@ export abstract class BaseBoss {
     this.stunTimerMs = Math.max(this.stunTimerMs, durationSec * 1000);
     this.vx = 0;
     this.vy = 0;
+    // ARCH-02: Stun opens vulnerability window — clear i-frames immediately
+    this.isInvulnerable = false;
+    this.iFrameTimerMs = 0;
   }
 
   /**
@@ -308,6 +330,8 @@ export abstract class BaseBoss {
         this.isInvulnerable = true;
         this.vx = 0;
         this.vy = 0;
+        this.deathTimerMs = this.deathDurationMs;
+        this.isDeathAnimationComplete = false;
         this.onDefeated();
         break;
     }
@@ -376,6 +400,18 @@ export abstract class BaseBoss {
   public get stunRemainingMs(): number {
     return this.stunTimerMs;
   }
+
+  public get isDismissible(): boolean {
+    return this.bossState === BossState.DEFEATED && this.isDeathAnimationComplete;
+  }
+
+  public get deathAnimationProgress(): number {
+    if (this.bossState !== BossState.DEFEATED) return 0;
+    if (this.deathDurationMs <= 0) return 1.0;
+    return Math.min(1.0, Math.max(0, 1.0 - this.deathTimerMs / this.deathDurationMs));
+  }
+
+  protected onDeathAnimationFinished(): void {}
 
   public getHUDData(): BossHUDData {
     return {

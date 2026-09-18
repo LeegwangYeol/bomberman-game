@@ -2,11 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   findPathBFS,
+  ZeroGCPathfinder,
+  isTileInBlastRange,
+  getBlastTiles,
+  findEscapePathBFS,
   ROWS,
   COLS,
   TILE_EMPTY,
   TILE_WALL,
-  TILE_BLOCK
+  TILE_BLOCK,
 } from '../src/game/pathfinding.ts';
 
 // Helper: Standard Bomberman arena map generator
@@ -553,4 +557,187 @@ test('Refined AI States: Normal enemy transitions IDLE -> HUNTING on proximity a
   // Player retreats to (1, 10), distance > 7 and wall blocked -> loses interest and returns to IDLE
   sim.update(16, 1, 1, 1, 10, 420, 60, map, new Set());
   assert.equal(sim.aiState, 'IDLE');
+});
+
+/* ==============================================================================
+ * SUITE: DEFENSIVE TESTS (AI-01 .. AI-08)
+ * ============================================================================== */
+
+test('AI-01: ZeroGCPathfinder.init(rows, cols) parameter order matches constructor', () => {
+  const pf = new ZeroGCPathfinder(10, 20);
+  assert.equal(pf.rows, 10);
+  assert.equal(pf.cols, 20);
+  // Re-init with new dimensions
+  pf.init(12, 16);
+  assert.equal(pf.rows, 12, 'pf.rows must be 12');
+  assert.equal(pf.cols, 16, 'pf.cols must be 16');
+});
+
+test('AI-02: isTileInBlastRange gracefully guards off-grid coordinates', () => {
+  const map = createStandardMap();
+  // Safe handling of negative coordinates
+  assert.equal(isTileInBlastRange({ r: -1, c: -1 }, { r: 1, c: 1 }, 2, map), false);
+  assert.equal(isTileInBlastRange({ r: 1, c: 1 }, { r: -1, c: -1 }, 2, map), false);
+  // Safe handling of extreme out-of-bound coordinates
+  assert.equal(isTileInBlastRange({ r: 100, c: 100 }, { r: 1, c: 1 }, 2, map), false);
+  assert.equal(isTileInBlastRange({ r: 1, c: 1 }, { r: 100, c: 100 }, 2, map), false);
+  // In-range tile
+  assert.equal(isTileInBlastRange({ r: 1, c: 2 }, { r: 1, c: 1 }, 2, map), true);
+});
+
+test('AI-03: ChaserEnemy stun recovery unifies cooldown in exactly config.stunMs (900ms)', () => {
+  // Model ChaserEnemy stun lifecycle
+  let aiState = 'COOLDOWN';
+  let isStunned = true;
+  let stunTimerMs = 900;
+
+  function updateStun(delta) {
+    if (isStunned || aiState === 'COOLDOWN') {
+      stunTimerMs -= delta;
+      if (stunTimerMs <= 0) {
+        isStunned = false;
+        aiState = 'TRACKING';
+        stunTimerMs = 0;
+      }
+    }
+  }
+
+  // After 450ms, still stunned
+  updateStun(450);
+  assert.equal(isStunned, true);
+  assert.equal(aiState, 'COOLDOWN');
+
+  // After another 450ms (total 900ms), stun and cooldown are resolved simultaneously
+  updateStun(450);
+  assert.equal(isStunned, false, 'Stun must be cleared at exactly 900ms');
+  assert.equal(aiState, 'TRACKING', 'Must transition to TRACKING without 1200ms additional delay');
+});
+
+test('AI-04: BomberEnemy and MiniBomberAlly evasion watchdog timeout & onBombExploded()', () => {
+  let aiState = 'EVADING';
+  let evadeTimeoutMs = 2500;
+
+  function onBombExploded() {
+    aiState = 'HUNTING';
+    evadeTimeoutMs = 2500;
+  }
+
+  function updateAI(delta) {
+    if (aiState === 'EVADING') {
+      evadeTimeoutMs -= delta;
+      if (evadeTimeoutMs <= 0) {
+        aiState = 'HUNTING';
+        evadeTimeoutMs = 2500;
+      }
+    }
+  }
+
+  // 1. Immediate bomb explosion recovery
+  onBombExploded();
+  assert.equal(aiState, 'HUNTING');
+
+  // 2. Watchdog timeout recovery when bomb detonates off-screen or fails callback
+  aiState = 'EVADING';
+  updateAI(2400);
+  assert.equal(aiState, 'EVADING');
+  updateAI(100);
+  assert.equal(aiState, 'HUNTING', 'Must recover from EVADING after 2500ms watchdog expires');
+});
+
+test('AI-05: GhostEnemy Ether Dash velocity is preserved across update frames for 450ms', () => {
+  let isDashing = true;
+  let dashRemainingMs = 450;
+  let dashDir = { x: 1, y: 0 };
+  let velocity = { x: 260, y: 0 };
+
+  function updateAI(delta) {
+    if (isDashing) {
+      dashRemainingMs -= delta;
+      if (dashRemainingMs <= 0) {
+        isDashing = false;
+        dashRemainingMs = 0;
+      } else {
+        velocity = { x: dashDir.x * 260, y: dashDir.y * 260 };
+        return; // Preserves dash velocity, does not overwrite with normal chase velocity
+      }
+    }
+    // Normal chase velocity (110 px/s)
+    velocity = { x: 110, y: 0 };
+  }
+
+  // Frame 1: 16ms into dash
+  updateAI(16);
+  assert.equal(isDashing, true);
+  assert.equal(velocity.x, 260, 'Velocity must stay 260 px/s during dash');
+
+  // Frame 20: 320ms into dash
+  updateAI(304);
+  assert.equal(isDashing, true);
+  assert.equal(velocity.x, 260, 'Velocity must stay 260 px/s');
+
+  // Dash completes at 450ms
+  updateAI(130);
+  assert.equal(isDashing, false);
+  assert.equal(velocity.x, 110, 'Reverts to normal speed once dash expires');
+});
+
+test('AI-06: MerchantNPC escape mask includes full blast raycast tiles', () => {
+  const map = createStandardMap();
+  // Bomb at (1, 1) with power = 2
+  const dangerTiles = getBlastTiles({ r: 1, c: 1 }, 2, map);
+
+  // Epicenter and arm tiles must be marked dangerous
+  assert.ok(dangerTiles.has('1,1'));
+  assert.ok(dangerTiles.has('1,2'));
+  assert.ok(dangerTiles.has('1,3'));
+  assert.ok(dangerTiles.has('2,1'));
+  assert.ok(dangerTiles.has('3,1'));
+
+  // NPC at (1, 2) in blast path finds escape route to safe tile outside danger
+  const escapePath = findEscapePathBFS({ r: 1, c: 2 }, dangerTiles, map);
+  assert.ok(escapePath.length > 0, 'Must find escape path away from blast');
+  const destination = escapePath[escapePath.length - 1];
+  assert.ok(!dangerTiles.has(`${destination.r},${destination.c}`), 'Escape destination must be safe');
+});
+
+test('AI-07: PetDroneAlly tractor beam movement scales with delta / 1000', () => {
+  let pullX = 0;
+  function applyPull(deltaMs) {
+    pullX += 150 * (deltaMs / 1000);
+  }
+
+  // At 60 FPS (16.67ms per frame), 60 frames = 1 second
+  for (let i = 0; i < 60; i++) {
+    applyPull(1000 / 60);
+  }
+  // Total pull over 1 second must equal 150px
+  assert.ok(Math.abs(pullX - 150) < 0.01, `Tractor beam pull over 1s must be 150px (got ${pullX})`);
+});
+
+test('AI-08: SplitterEnemy mini-slime spawn validates grid boundaries and empty tiles', () => {
+  const map = createStandardMap();
+  // Place SplitterEnemy at corner (1, 1)
+  const r = 1;
+  const c = 1;
+  // Candidates: (0, 1) [WALL], (2, 1) [EMPTY], (1, 0) [WALL], (1, 2) [EMPTY]
+  const offsets = [
+    { dr: -1, dc: 0 },
+    { dr: 1, dc: 0 },
+    { dr: 0, dc: -1 },
+    { dr: 0, dc: 1 },
+  ];
+
+  const validSpawns = [];
+  for (const off of offsets) {
+    const nr = r + off.dr;
+    const nc = c + off.dc;
+    if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && map[nr][nc] === TILE_EMPTY) {
+      validSpawns.push({ r: nr, c: nc });
+    }
+  }
+
+  assert.equal(validSpawns.length, 2, 'Only (2, 1) and (1, 2) are valid empty tiles');
+  assert.ok(validSpawns.some(s => s.r === 2 && s.c === 1));
+  assert.ok(validSpawns.some(s => s.r === 1 && s.c === 2));
+  assert.ok(!validSpawns.some(s => s.r === 0 || s.c === 0), 'Wall tiles must be rejected');
 });

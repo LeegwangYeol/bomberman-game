@@ -110,8 +110,10 @@ export class ChaserEnemy extends BaseEntity {
     if (this.isDead || !this.active) return;
     this.updateEntity(delta, currentTime);
 
-    if (this.isStunned) {
-      if (currentTime >= this.stunUntil) {
+    // AI-03: Unified stun & cooldown state recovery in exactly config.stunMs (900ms)
+    if (this.isStunned || this.aiState === EnemyState.COOLDOWN) {
+      this.stateTimer -= delta;
+      if (currentTime >= this.stunUntil || this.stateTimer <= 0) {
         this.isStunned = false;
         this.changeState(EnemyState.TRACKING);
       }
@@ -191,13 +193,6 @@ export class ChaserEnemy extends BaseEntity {
         }
         break;
       }
-
-      case EnemyState.COOLDOWN:
-        this.stateTimer -= delta;
-        if (this.stateTimer <= 0) {
-          this.changeState(EnemyState.TRACKING);
-        }
-        break;
     }
   }
 
@@ -239,6 +234,7 @@ export class BomberEnemy extends BaseEntity {
   private escapePath: GridCoord[] = [];
   private escapeTargetTile: GridCoord | null = null;
   private pathRecalcTimer: number = 0;
+  public evadeTimeoutMs: number = 0;
 
   constructor(scene: Phaser.Scene, x: number, y: number, texture: string = 'enemy') {
     super(
@@ -272,12 +268,23 @@ export class BomberEnemy extends BaseEntity {
         break;
       case EnemyState.EVADING:
         this.overheadUI.setIntent('💨', true);
+        this.evadeTimeoutMs = 2500; // AI-04: 2500ms evasion watchdog
         break;
       case EnemyState.ENRAGED:
         this.overheadUI.setIntent('😈', true);
         this.moveSpeed = this.config.enragedSpeed;
         this.setTint(0xec4899);
         break;
+    }
+  }
+
+  public onBombExploded(): void {
+    if (this.activeBombs > 0) {
+      this.activeBombs--;
+    }
+    if (this.aiState === EnemyState.EVADING && this.activeBombs === 0) {
+      this.escapePath = [];
+      this.changeState(this.hp === 1 ? EnemyState.ENRAGED : EnemyState.HUNTING);
     }
   }
 
@@ -314,6 +321,14 @@ export class BomberEnemy extends BaseEntity {
     const dist = Math.abs(er - pr) + Math.abs(ec - pc);
 
     if (this.aiState === EnemyState.EVADING) {
+      // AI-04: Watchdog timeout to prevent evasion deadlock
+      this.evadeTimeoutMs -= delta;
+      if (this.evadeTimeoutMs <= 0) {
+        this.escapePath = [];
+        this.changeState(this.hp === 1 ? EnemyState.ENRAGED : EnemyState.HUNTING);
+        return;
+      }
+
       // Follow escape path to safety
       if (this.escapePath.length > 0) {
         const next = this.escapePath[0];
@@ -526,6 +541,9 @@ export class GhostEnemy extends BaseEntity {
   private isMaterialized: boolean = false;
   private materializeUntil: number = 0;
   private currentPath: GridCoord[] = [];
+  public isDashing: boolean = false;
+  public dashRemainingMs: number = 0;
+  public dashDir: { x: number; y: number } = { x: 0, y: 0 };
 
   constructor(scene: Phaser.Scene, x: number, y: number, texture: string = 'enemy') {
     super(
@@ -587,22 +605,36 @@ export class GhostEnemy extends BaseEntity {
       this.currentPath = findPathBFS({ r: er, c: ec }, { r: pr, c: pc }, ghostMap, bombTiles);
     }
 
-    // Ether dash if close and off cooldown
-    if (!this.isMaterialized && this.dashCooldownTimer <= 0 && dist <= 4) {
+    // AI-05: Ether dash if close and off cooldown
+    if (!this.isMaterialized && !this.isDashing && this.dashCooldownTimer <= 0 && dist <= 4) {
       this.dashCooldownTimer = 5000;
       this.isMaterialized = true;
       this.materializeUntil = currentTime + this.config.materializeDelayMs;
+      this.isDashing = true;
+      this.dashRemainingMs = 450; // 450ms dash duration
       this.setAlpha(1.0);
       this.overheadUI.setIntent('⚡', true);
 
       const dx = player.x - this.x;
       const dy = player.y - this.y;
       if (Math.abs(dx) > Math.abs(dy)) {
-        this.setVelocity(Math.sign(dx) * this.config.dashSpeed, 0);
+        this.dashDir = { x: Math.sign(dx), y: 0 };
       } else {
-        this.setVelocity(0, Math.sign(dy) * this.config.dashSpeed);
+        this.dashDir = { x: 0, y: Math.sign(dy) };
       }
+      this.setVelocity(this.dashDir.x * this.config.dashSpeed, this.dashDir.y * this.config.dashSpeed);
       return;
+    }
+
+    // AI-05: Maintain dash velocity across entire dash duration
+    if (this.isDashing) {
+      this.dashRemainingMs -= delta;
+      if (this.dashRemainingMs <= 0) {
+        this.isDashing = false;
+      } else {
+        this.setVelocity(this.dashDir.x * this.config.dashSpeed, this.dashDir.y * this.config.dashSpeed);
+        return;
+      }
     }
 
     if (this.currentPath.length > 0) {
@@ -656,18 +688,37 @@ export class SplitterEnemy extends BaseEntity {
     const ec = Math.floor(this.x / TILE_SIZE);
 
     if (this.scene) {
-      const leftC = Math.max(1, ec - 1);
-      const rightC = Math.min(COLS - 2, ec + 1);
+      // AI-08: Check tile validity and map emptiness before placing mini-slimes
+      const map = (this.scene as unknown as { map?: number[][] }).map;
+      const candidates: { r: number; c: number }[] = [
+        { r: er, c: ec - 1 },
+        { r: er, c: ec + 1 },
+        { r: er - 1, c: ec },
+        { r: er + 1, c: ec },
+        { r: er - 1, c: ec - 1 },
+        { r: er - 1, c: ec + 1 },
+        { r: er + 1, c: ec - 1 },
+        { r: er + 1, c: ec + 1 },
+      ];
+
+      const validTiles = candidates.filter((pt) => {
+        if (pt.r < 1 || pt.r >= ROWS - 1 || pt.c < 1 || pt.c >= COLS - 1) return false;
+        if (!map) return true;
+        return map[pt.r]?.[pt.c] === TILE_EMPTY;
+      });
+
+      const p1 = validTiles[0] || { r: er, c: ec };
+      const p2 = validTiles[1] || validTiles[0] || { r: er, c: ec };
 
       const mini1 = new MiniSplitterEnemy(
         this.scene,
-        leftC * TILE_SIZE + TILE_SIZE / 2,
-        er * TILE_SIZE + TILE_SIZE / 2
+        p1.c * TILE_SIZE + TILE_SIZE / 2,
+        p1.r * TILE_SIZE + TILE_SIZE / 2
       );
       const mini2 = new MiniSplitterEnemy(
         this.scene,
-        rightC * TILE_SIZE + TILE_SIZE / 2,
-        er * TILE_SIZE + TILE_SIZE / 2
+        p2.c * TILE_SIZE + TILE_SIZE / 2,
+        p2.r * TILE_SIZE + TILE_SIZE / 2
       );
 
       this.spawnedMinis = [mini1, mini2];

@@ -29,6 +29,7 @@ export class APIQuotaCircuitBreaker {
   private currentBackoffMs = 0;
   private offlineQueue: QueuedApiRequest[] = [];
   private isDraining = false;
+  private retryTimer: NodeJS.Timeout | number | null = null;
 
   private readonly failureThreshold: number;
   private readonly resetTimeoutMs: number;
@@ -184,6 +185,10 @@ export class APIQuotaCircuitBreaker {
   }
 
   public recordSuccess(): void {
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer as NodeJS.Timeout);
+      this.retryTimer = null;
+    }
     this.consecutiveFailures = 0;
     this.consecutive429Count = 0;
     this.currentBackoffMs = 0;
@@ -300,6 +305,17 @@ export class APIQuotaCircuitBreaker {
           } else {
             // Re-queue at head
             this.offlineQueue.unshift(item);
+            // SEC-01: When re-queuing under non-OPEN state, schedule retry to prevent deadlock
+            if (this.getState() !== CircuitBreakerState.OPEN) {
+              const retryDelay = Math.min(1000, 100 * Math.pow(2, item.retries - 1));
+              if (this.retryTimer) {
+                clearTimeout(this.retryTimer as NodeJS.Timeout);
+              }
+              this.retryTimer = setTimeout(() => {
+                this.retryTimer = null;
+                void this.drainQueue();
+              }, retryDelay);
+            }
           }
           break;
         }
@@ -312,6 +328,10 @@ export class APIQuotaCircuitBreaker {
   }
 
   public clearQueue(): void {
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer as NodeJS.Timeout);
+      this.retryTimer = null;
+    }
     while (this.offlineQueue.length > 0) {
       const item = this.offlineQueue.shift();
       if (item) {

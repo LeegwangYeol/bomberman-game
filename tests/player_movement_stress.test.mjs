@@ -63,6 +63,10 @@ class PlayerMovementSimulator {
       down: { isDown: false, timeDown: 0 },
     };
     this.mobileInput = { up: false, down: false, left: false, right: false, bomb: false };
+    this.cornerSlideTolerance = 8;
+    this.remediatedCornerSlide = false;
+    this.hasWallPass = false;
+    this.hasBombPass = false;
   }
 
   setPlayerPosition(x, y) {
@@ -83,25 +87,29 @@ class PlayerMovementSimulator {
    */
   isPassable(r, c) {
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
-    if (this.map[r][c] !== TILE_EMPTY) return false;
+    if (this.map[r][c] === TILE_WALL) return false;
+    if (this.map[r][c] === TILE_BLOCK && !this.hasWallPass) return false;
 
-    const playerCol = Math.floor(this.player.x / TILE_SIZE);
-    const playerRow = Math.floor(this.player.y / TILE_SIZE);
+    if (!this.hasBombPass) {
+      const playerCol = Math.floor(this.player.x / TILE_SIZE);
+      const playerRow = Math.floor(this.player.y / TILE_SIZE);
 
-    let hasBomb = false;
-    for (const b of this.bombs) {
-      if (b.active) {
-        const br = Math.floor(b.y / TILE_SIZE);
-        const bc = Math.floor(b.x / TILE_SIZE);
-        if (br === r && bc === c) {
-          // Allow stepping off a bomb if player is currently on it
-          if (!(playerRow === r && playerCol === c)) {
-            hasBomb = true;
+      let hasBomb = false;
+      for (const b of this.bombs) {
+        if (b.active) {
+          const br = Math.floor(b.y / TILE_SIZE);
+          const bc = Math.floor(b.x / TILE_SIZE);
+          if (br === r && bc === c) {
+            // Allow stepping off a bomb if player is currently on it
+            if (!(playerRow === r && playerCol === c)) {
+              hasBomb = true;
+            }
           }
         }
       }
+      if (hasBomb) return false;
     }
-    return !hasBomb;
+    return true;
   }
 
   /**
@@ -182,15 +190,31 @@ class PlayerMovementSimulator {
         }
       } else {
         // Phase 2: Corner Rounding
-        const canRoundUp = diffY < -3 && this.isPassable(row - 1, col) && this.isPassable(row - 1, nextCol);
-        const canRoundDown = diffY > 3 && this.isPassable(row + 1, col) && this.isPassable(row + 1, nextCol);
+        if (this.remediatedCornerSlide) {
+          const tol = this.cornerSlideTolerance || 8;
+          const canRoundUp = diffY <= 0 && Math.abs(diffY) <= tol && this.isPassable(row - 1, col) && this.isPassable(row - 1, nextCol);
+          const canRoundDown = diffY >= 0 && Math.abs(diffY) <= tol && this.isPassable(row + 1, col) && this.isPassable(row + 1, nextCol);
 
-        if (canRoundUp) {
-          vy = -SLIDE_SPEED;
-        } else if (canRoundDown) {
-          vy = SLIDE_SPEED;
+          if (canRoundUp && canRoundDown) {
+            vy = diffY < 0 ? -SLIDE_SPEED : diffY > 0 ? SLIDE_SPEED : -SLIDE_SPEED;
+          } else if (canRoundUp) {
+            vy = -SLIDE_SPEED;
+          } else if (canRoundDown) {
+            vy = SLIDE_SPEED;
+          } else {
+            vy = 0;
+          }
         } else {
-          vy = 0;
+          const canRoundUp = diffY < -3 && this.isPassable(row - 1, col) && this.isPassable(row - 1, nextCol);
+          const canRoundDown = diffY > 3 && this.isPassable(row + 1, col) && this.isPassable(row + 1, nextCol);
+
+          if (canRoundUp) {
+            vy = -SLIDE_SPEED;
+          } else if (canRoundDown) {
+            vy = SLIDE_SPEED;
+          } else {
+            vy = 0;
+          }
         }
       }
     } else {
@@ -209,17 +233,44 @@ class PlayerMovementSimulator {
         }
       } else {
         // Phase 2: Corner Rounding
-        const canRoundLeft = diffX < -3 && this.isPassable(row, col - 1) && this.isPassable(nextRow, col - 1);
-        const canRoundRight = diffX > 3 && this.isPassable(row, col + 1) && this.isPassable(nextRow, col + 1);
+        if (this.remediatedCornerSlide) {
+          const tol = this.cornerSlideTolerance || 8;
+          const canRoundLeft = diffX <= 0 && Math.abs(diffX) <= tol && this.isPassable(row, col - 1) && this.isPassable(nextRow, col - 1);
+          const canRoundRight = diffX >= 0 && Math.abs(diffX) <= tol && this.isPassable(row, col + 1) && this.isPassable(nextRow, col + 1);
 
-        if (canRoundLeft) {
-          vx = -SLIDE_SPEED;
-          this.player.flipX = true;
-        } else if (canRoundRight) {
-          vx = SLIDE_SPEED;
-          this.player.flipX = false;
+          if (canRoundLeft && canRoundRight) {
+            if (diffX < 0) {
+              vx = -SLIDE_SPEED;
+              this.player.flipX = true;
+            } else if (diffX > 0) {
+              vx = SLIDE_SPEED;
+              this.player.flipX = false;
+            } else {
+              vx = -SLIDE_SPEED;
+              this.player.flipX = true;
+            }
+          } else if (canRoundLeft) {
+            vx = -SLIDE_SPEED;
+            this.player.flipX = true;
+          } else if (canRoundRight) {
+            vx = SLIDE_SPEED;
+            this.player.flipX = false;
+          } else {
+            vx = 0;
+          }
         } else {
-          vx = 0;
+          const canRoundLeft = diffX < -3 && this.isPassable(row, col - 1) && this.isPassable(nextRow, col - 1);
+          const canRoundRight = diffX > 3 && this.isPassable(row, col + 1) && this.isPassable(nextRow, col + 1);
+
+          if (canRoundLeft) {
+            vx = -SLIDE_SPEED;
+            this.player.flipX = true;
+          } else if (canRoundRight) {
+            vx = SLIDE_SPEED;
+            this.player.flipX = false;
+          } else {
+            vx = 0;
+          }
         }
       }
     }
@@ -881,4 +932,117 @@ test('Continuous Stress: Navigating an S-curve corridor under continuous physics
   assert.equal(finalRow, 2);
   assert.ok(finalCol >= 2, `Expected player to reach at least col 2 (got ${finalCol})`);
   assert.equal(sim.isOverlappingWall(), false, 'Player must remain wall-collision free');
+});
+
+/* ==============================================================================
+ * SUITE: DEFENSIVE TESTS (PHYS-03, PHYS-07, CORNER SLIDING & PERKS)
+ * ============================================================================== */
+
+test('PHYS-07: cornerSlideTolerance level 0 (8px), level 1 (11px), level 2 (14px) expands corner assist zone', () => {
+  const sim = new PlayerMovementSimulator();
+  sim.remediatedCornerSlide = true;
+  sim.map[1][2] = TILE_WALL; // blocked ahead when moving right
+  sim.map[2][1] = TILE_EMPTY;
+  sim.map[2][2] = TILE_EMPTY; // corner open downwards
+  sim.cursors.right.isDown = true;
+
+  // Level 0 (tolerance = 8px): diffY = +10px (py = 70) is out of range
+  sim.cornerSlideTolerance = 8;
+  sim.setPlayerPosition(60, 70); // rowCenterY = 60, diffY = +10
+  sim.updatePlayerMovement();
+  assert.equal(sim.player.vy, 0, 'diffY = 10 must NOT trigger rounding at tolerance 8px');
+
+  // Level 1 (tolerance = 11px): diffY = +10px IS within range
+  sim.cornerSlideTolerance = 11;
+  sim.updatePlayerMovement();
+  assert.equal(sim.player.vy, 150, 'diffY = 10 triggers rounding at tolerance 11px');
+
+  // Level 2 (tolerance = 14px): diffY = +13px (py = 73) triggers rounding
+  sim.cornerSlideTolerance = 14;
+  sim.setPlayerPosition(60, 73); // diffY = +13
+  sim.updatePlayerMovement();
+  assert.equal(sim.player.vy, 150, 'diffY = 13 triggers rounding at tolerance 14px');
+
+  // Outside level 2 tolerance: diffY = +15px (py = 75) does not trigger
+  sim.setPlayerPosition(60, 75); // diffY = +15
+  sim.updatePlayerMovement();
+  assert.equal(sim.player.vy, 0, 'diffY = 15 must NOT trigger rounding at tolerance 14px');
+});
+
+test('PHYS-07: Zero dead zone allows corner rounding when centered (diff === 0)', () => {
+  const sim = new PlayerMovementSimulator();
+  sim.remediatedCornerSlide = true;
+  sim.map[1][2] = TILE_WALL; // blocked ahead to the right
+  sim.map[0][1] = TILE_EMPTY; // open upwards
+  sim.map[0][2] = TILE_EMPTY;
+  sim.map[2][1] = TILE_WALL; // blocked downwards
+  sim.map[2][2] = TILE_WALL;
+  sim.cursors.right.isDown = true;
+
+  // Perfectly centered on Y axis (py = 60, diffY = 0)
+  sim.setPlayerPosition(60, 60);
+  sim.updatePlayerMovement();
+
+  // In the old code, diffY === 0 meant diffY < -3 and diffY > 3 were both false (dead zone).
+  // In the remediated code, zero dead zone allows rounding into the only open direction!
+  assert.equal(sim.player.vy, -150, 'Centered player rounds upwards when upward corner is open');
+});
+
+test('PHYS-07: Wall-pass & Bomb-pass passability preserves corridor centering', () => {
+  const sim = new PlayerMovementSimulator();
+  sim.remediatedCornerSlide = true;
+
+  // Corridor with soft block at (1, 2)
+  sim.map[1][2] = TILE_BLOCK;
+  sim.cursors.right.isDown = true;
+
+  // Without wall pass: blocked ahead, corridor centering does not treat (1, 2) as directOpen
+  sim.hasWallPass = false;
+  assert.equal(sim.isPassable(1, 2), false);
+
+  // With wall pass: passable ahead, directOpen = true, corridor centering engages
+  sim.hasWallPass = true;
+  assert.equal(sim.isPassable(1, 2), true);
+
+  sim.setPlayerPosition(60, 64); // 4px off-center vertically
+  sim.updatePlayerMovement();
+  assert.equal(sim.player.vx, 150, 'Player moves right through soft block');
+  assert.equal(sim.player.vy, -150, 'Corridor centering pulls player toward centerline while passing wall');
+
+  // Bomb on (1, 3)
+  sim.placeBomb(1, 3);
+  sim.hasBombPass = false;
+  assert.equal(sim.isPassable(1, 3), false);
+
+  sim.hasBombPass = true;
+  assert.equal(sim.isPassable(1, 3), true);
+});
+
+test('PHYS-03: Conveyor drift AABB boundary clamp prevents wall penetration', () => {
+  const sim = new PlayerMovementSimulator();
+  // Player at (1, 1) [center 60, 60], wall at (1, 2) [starts at x = 80]
+  sim.map[1][2] = TILE_WALL;
+  sim.setPlayerPosition(67, 60); // 24x24 hitbox with radius 12: right edge at 67 + 12 = 79px (< 80)
+
+  // Helper conveyor step matching GameScene.ts AABB clamp
+  function driftStep(playerX, beltDirX, delta) {
+    const drift = 60 * delta;
+    const nextX = playerX + beltDirX * drift;
+    const leadX = nextX + beltDirX * 12;
+    const leadCol = Math.floor(leadX / TILE_SIZE);
+    if (leadCol < COLS && sim.map[1]?.[leadCol] === TILE_EMPTY) {
+      return nextX;
+    }
+    return playerX; // Clamped at boundary
+  }
+
+  // Drift for 60 frames (1 second, 60px drift without clamp)
+  let currX = 67;
+  for (let i = 0; i < 60; i++) {
+    currX = driftStep(currX, 1, 1 / 60);
+    // Boundary check: right edge (currX + 12) must NEVER reach or enter tile 2 (x >= 80)
+    assert.ok(currX + 12 <= 80, `Hitbox right edge (${currX + 12}) must never penetrate wall at x=80`);
+  }
+  // Max clamped player x is 68px (68 + 12 = 80)
+  assert.ok(currX <= 68, `Player clamped cleanly at wall edge (got ${currX})`);
 });

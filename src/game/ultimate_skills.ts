@@ -359,6 +359,25 @@ export const UltimateEngine = UltimateEngineSimulator;
 
 export class WebAudioSynth {
   private ctx: AudioContext | null = null;
+  private timeouts: Set<ReturnType<typeof setTimeout>> = new Set();
+
+  private safeTimeout(fn: () => void, delayMs: number): void {
+    const tid = setTimeout(() => {
+      this.timeouts.delete(tid);
+      fn();
+    }, delayMs);
+    this.timeouts.add(tid);
+  }
+
+  private wireAutoDisconnect(osc: OscillatorNode, gain: GainNode, filter?: BiquadFilterNode): void {
+    osc.onended = () => {
+      try {
+        osc.disconnect();
+        if (filter) filter.disconnect();
+        gain.disconnect();
+      } catch {}
+    };
+  }
 
   private getContext(): AudioContext | null {
     if (typeof window === 'undefined') return null;
@@ -396,11 +415,12 @@ export class WebAudioSynth {
       gain.gain.linearRampToValueAtTime(0.01, now + 0.45);
       osc.connect(gain);
       gain.connect(ctx.destination);
+      this.wireAutoDisconnect(osc, gain);
       osc.start(now);
       osc.stop(now + 0.45);
 
       // Sub-bass detonation at touchdown
-      setTimeout(() => {
+      this.safeTimeout(() => {
         this.playSubBassBoom(0.7, 55, 20);
       }, 450);
     } catch {
@@ -423,10 +443,11 @@ export class WebAudioSynth {
       gain.gain.linearRampToValueAtTime(0.35, now + 0.28);
       osc.connect(gain);
       gain.connect(ctx.destination);
+      this.wireAutoDisconnect(osc, gain);
       osc.start(now);
       osc.stop(now + 0.28);
 
-      setTimeout(() => {
+      this.safeTimeout(() => {
         this.playSubBassBoom(1.0, 90, 20);
       }, 280);
     } catch {}
@@ -449,6 +470,7 @@ export class WebAudioSynth {
 
       osc.connect(gain);
       gain.connect(ctx.destination);
+      this.wireAutoDisconnect(osc, gain);
       osc.start(now);
       osc.stop(now + duration);
     } catch {}
@@ -478,6 +500,7 @@ export class WebAudioSynth {
       osc.connect(filter);
       filter.connect(gain);
       gain.connect(ctx.destination);
+      this.wireAutoDisconnect(osc, gain, filter);
 
       osc.start(now);
       osc.stop(now + 0.35);
@@ -498,6 +521,7 @@ export class WebAudioSynth {
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
       osc.connect(gain);
       gain.connect(ctx.destination);
+      this.wireAutoDisconnect(osc, gain);
       osc.start(now);
       osc.stop(now + 0.04);
     } catch {}
@@ -524,6 +548,7 @@ export class WebAudioSynth {
         gain.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
         osc.connect(gain);
         gain.connect(ctx.destination);
+        this.wireAutoDisconnect(osc, gain);
         osc.start(now);
         osc.stop(now + 0.07);
       });
@@ -551,6 +576,7 @@ export class WebAudioSynth {
         gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
         osc.connect(gain);
         gain.connect(ctx.destination);
+        this.wireAutoDisconnect(osc, gain);
         osc.start(now);
         osc.stop(now + 0.35);
       });
@@ -572,6 +598,7 @@ export class WebAudioSynth {
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
       osc.connect(gain);
       gain.connect(ctx.destination);
+      this.wireAutoDisconnect(osc, gain);
       osc.start(now);
       osc.stop(now + 0.15);
     } catch {}
@@ -593,10 +620,28 @@ export class WebAudioSynth {
         gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
         osc.connect(gain);
         gain.connect(ctx.destination);
+        this.wireAutoDisconnect(osc, gain);
         osc.start(now);
         osc.stop(now + 0.25);
       });
     } catch {}
+  }
+
+  public destroy(): void {
+    for (const tid of this.timeouts) {
+      clearTimeout(tid);
+    }
+    this.timeouts.clear();
+    if (this.ctx) {
+      try {
+        this.ctx.close().catch(() => {});
+      } catch {}
+      this.ctx = null;
+    }
+  }
+
+  public disconnect(): void {
+    this.destroy();
   }
 }
 

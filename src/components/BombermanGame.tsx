@@ -376,6 +376,10 @@ export default function BombermanGame() {
 
     // Keyboard controls (Arrow keys + WASD + Spacebar + Shift/E + R/Q)
     const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.isContentEditable)) {
+        return;
+      }
       if (!window.mobileInput) return;
       const key = e.key.toLowerCase();
       if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'shift', 'e', 'r', 'q'].includes(key) || e.code === 'Space') {
@@ -398,6 +402,10 @@ export default function BombermanGame() {
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.isContentEditable)) {
+        return;
+      }
       if (!window.mobileInput) return;
       const key = e.key.toLowerCase();
       if (key === 'w' || key === 'arrowup') window.mobileInput.up = false;
@@ -454,6 +462,14 @@ export default function BombermanGame() {
       const handleCurrencyReward = (rewards: { starCandies?: number; cosmicEssence?: number }) => {
         if (rewards.starCandies) setStarCandies((c) => c + rewards.starCandies!);
         if (rewards.cosmicEssence) setCosmicEssence((e) => e + rewards.cosmicEssence!);
+        const current = persistenceRef.current.loadMetaProfile();
+        if (current) {
+          persistenceRef.current.saveMetaProfile({
+            ...current,
+            starCandies: (rewards.starCandies ? (current.starCandies || 0) + rewards.starCandies : current.starCandies),
+            cosmicEssence: (rewards.cosmicEssence ? (current.cosmicEssence || 0) + rewards.cosmicEssence : current.cosmicEssence),
+          });
+        }
       };
       phaserGame.events.on('currency-reward', handleCurrencyReward);
 
@@ -495,10 +511,20 @@ export default function BombermanGame() {
 
       manager.on('move', (evt) => {
         const angle = evt.data.angle.degree;
-        window.mobileInput.up = angle > 45 && angle < 135;
-        window.mobileInput.down = angle > 225 && angle < 315;
-        window.mobileInput.left = angle > 135 && angle < 225;
-        window.mobileInput.right = (angle >= 0 && angle <= 45) || (angle >= 315 && angle <= 360);
+        if (evt.data.distance !== undefined && evt.data.distance < 5) {
+          window.mobileInput.up = false;
+          window.mobileInput.down = false;
+          window.mobileInput.left = false;
+          window.mobileInput.right = false;
+          return;
+        }
+        // Multi-directional angle partitioning with 8-way sector coverage
+        // Eliminates dead zones at 135° and 225° by properly including diagonal sector boundaries
+        const norm = ((angle % 360) + 360) % 360;
+        window.mobileInput.up = norm >= 22.5 && norm <= 157.5;
+        window.mobileInput.down = norm >= 202.5 && norm <= 337.5;
+        window.mobileInput.left = norm >= 112.5 && norm <= 247.5;
+        window.mobileInput.right = norm <= 67.5 || norm >= 292.5;
       });
 
       manager.on('end', () => {
@@ -514,22 +540,56 @@ export default function BombermanGame() {
   const handleBombPress = () => {
     if (window.mobileInput) {
       window.mobileInput.bomb = true;
-      setTimeout(() => {
-        if (window.mobileInput) {
-          window.mobileInput.bomb = false;
-        }
-      }, 100);
+      // Frame-synchronized fallback clearing to prevent input drop while avoiding timer collision races
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (window.mobileInput) {
+            window.mobileInput.bomb = false;
+          }
+        });
+      });
+    }
+  };
+
+  const handleBombRelease = () => {
+    requestAnimationFrame(() => {
+      if (window.mobileInput) {
+        window.mobileInput.bomb = false;
+      }
+    });
+  };
+
+  const handleBombCancel = () => {
+    if (window.mobileInput) {
+      window.mobileInput.bomb = false;
     }
   };
 
   const handleDashPress = () => {
     if (window.mobileInput) {
       window.mobileInput.dash = true;
-      setTimeout(() => {
-        if (window.mobileInput) {
-          window.mobileInput.dash = false;
-        }
-      }, 100);
+      // Frame-synchronized fallback clearing to prevent input drop while avoiding timer collision races
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (window.mobileInput) {
+            window.mobileInput.dash = false;
+          }
+        });
+      });
+    }
+  };
+
+  const handleDashRelease = () => {
+    requestAnimationFrame(() => {
+      if (window.mobileInput) {
+        window.mobileInput.dash = false;
+      }
+    });
+  };
+
+  const handleDashCancel = () => {
+    if (window.mobileInput) {
+      window.mobileInput.dash = false;
     }
   };
 
@@ -542,16 +602,26 @@ export default function BombermanGame() {
             navigator.vibrate([40, 20, 40]);
           } catch {}
         }
-        setTimeout(() => {
-          if (window.mobileInput) {
-            window.mobileInput.ultimate = false;
-          }
-        }, 150);
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (window.mobileInput) {
+              window.mobileInput.ultimate = false;
+            }
+          });
+        });
       }
     }
   };
 
   const handleUltimateRelease = () => {
+    requestAnimationFrame(() => {
+      if (window.mobileInput) {
+        window.mobileInput.ultimate = false;
+      }
+    });
+  };
+
+  const handleUltimateCancel = () => {
     if (window.mobileInput) {
       window.mobileInput.ultimate = false;
     }
@@ -1118,6 +1188,8 @@ export default function BombermanGame() {
                 type="button"
                 onPointerDown={handleUltimatePress}
                 onPointerUp={handleUltimateRelease}
+                onPointerCancel={handleUltimateCancel}
+                onPointerLeave={handleUltimateRelease}
                 disabled={stats.ultimateGauge < 100 || stats.ultimateLockoutRemaining > 0}
                 aria-label="Ultimate Skill"
                 className={`w-16 h-16 rounded-full border-3 flex flex-col items-center justify-center transition-all select-none touch-none cursor-pointer ${
@@ -1141,6 +1213,9 @@ export default function BombermanGame() {
               <button 
                 type="button"
                 onPointerDown={handleDashPress}
+                onPointerUp={handleDashRelease}
+                onPointerCancel={handleDashCancel}
+                onPointerLeave={handleDashRelease}
                 aria-label="Dash"
                 className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-tr from-cyan-600 via-blue-500 to-indigo-600 rounded-full border-3 border-cyan-900 shadow-[0_0_20px_rgba(6,182,212,0.6),inset_0_3px_6px_rgba(255,255,255,0.4)] flex flex-col items-center justify-center active:scale-95 active:brightness-90 transition-all select-none touch-none cursor-pointer"
               >
@@ -1155,6 +1230,9 @@ export default function BombermanGame() {
               <button 
                 type="button"
                 onPointerDown={handleBombPress}
+                onPointerUp={handleBombRelease}
+                onPointerCancel={handleBombCancel}
+                onPointerLeave={handleBombRelease}
                 aria-label="Plant Bomb"
                 className="w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-tr from-rose-600 via-red-500 to-amber-500 rounded-full border-4 border-red-900 shadow-[0_0_25px_rgba(239,68,68,0.7),inset_0_3px_6px_rgba(255,255,255,0.4)] flex flex-col items-center justify-center active:scale-95 active:brightness-90 transition-all select-none touch-none cursor-pointer"
               >

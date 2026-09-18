@@ -8,6 +8,7 @@ import {
   TILE_EMPTY,
   GridCoord,
   findEscapePathBFS,
+  getBlastTiles,
 } from '../pathfinding';
 import { ItemType } from '../gameplay_mechanics';
 
@@ -79,21 +80,29 @@ export class MerchantNPC extends BaseEntity {
     const mr = Math.floor(this.y / TILE_SIZE);
     const mc = Math.floor(this.x / TILE_SIZE);
 
-    // 1. Danger check: Flee if ticking bomb is within 3 tiles
+    // 1. Danger check: Flee if ticking bomb is within blast range
     let nearBomb = false;
+    const allBlastTiles = new Set<string>();
     for (const bKey of bombTiles) {
       const [br, bc] = bKey.split(',').map(Number);
-      if (Math.abs(mr - br) + Math.abs(mc - bc) <= 3) {
+      if (Math.abs(mr - br) + Math.abs(mc - bc) <= 4) {
         nearBomb = true;
-        break;
       }
+      const blast = getBlastTiles({ r: br, c: bc }, 3, map);
+      for (const tile of blast) {
+        allBlastTiles.add(tile);
+      }
+    }
+
+    if (allBlastTiles.has(`${mr},${mc}`)) {
+      nearBomb = true;
     }
 
     if (nearBomb) {
       this.overheadUI.setIntent('😱', true);
       if (this.fleePath.length === 0) {
-        const escape = findEscapePathBFS({ r: mr, c: mc }, bombTiles, map, bombTiles, 4);
-        if (escape) this.fleePath = escape;
+        const escape = findEscapePathBFS({ r: mr, c: mc }, allBlastTiles, map, bombTiles, 4);
+        if (escape && escape.length > 0) this.fleePath = escape;
       }
 
       if (this.fleePath.length > 0) {

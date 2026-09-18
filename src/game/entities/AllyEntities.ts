@@ -24,6 +24,7 @@ export class MiniBomberAlly extends BaseEntity {
   private pathRecalcTimer: number = 0;
   private currentPath: GridCoord[] = [];
   private escapePath: GridCoord[] = [];
+  public evadeTimeoutMs: number = 0;
 
   constructor(scene: Phaser.Scene, x: number, y: number, texture: string = 'player') {
     super(
@@ -41,6 +42,16 @@ export class MiniBomberAlly extends BaseEntity {
     this.moveSpeed = 100;
     this.setTint(0x06b6d4);
     this.overheadUI.setIntent('🛡️', true);
+  }
+
+  public onBombExploded(): void {
+    if (this.activeBombs > 0) {
+      this.activeBombs--;
+    }
+    if (this.activeBombs === 0) {
+      this.escapePath = [];
+      this.overheadUI.setIntent('🛡️', true);
+    }
   }
 
   public updateAI(
@@ -67,8 +78,15 @@ export class MiniBomberAlly extends BaseEntity {
     const pc = Math.floor(player.x / TILE_SIZE);
     const distToPlayer = Math.abs(ar - pr) + Math.abs(ac - pc);
 
-    // Evasion handling
+    // Evasion handling with watchdog timer
     if (this.escapePath.length > 0) {
+      this.evadeTimeoutMs -= delta;
+      if (this.evadeTimeoutMs <= 0) {
+        this.escapePath = [];
+        this.overheadUI.setIntent('🛡️', true);
+        return;
+      }
+
       this.overheadUI.setIntent('💨', true);
       const next = this.escapePath[0];
       const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
@@ -85,6 +103,9 @@ export class MiniBomberAlly extends BaseEntity {
 
       if (Math.abs(dx) < 4 && Math.abs(dy) < 4) {
         this.escapePath.shift();
+        if (this.escapePath.length === 0) {
+          this.overheadUI.setIntent('🛡️', true);
+        }
       }
       return;
     }
@@ -106,6 +127,7 @@ export class MiniBomberAlly extends BaseEntity {
             this.activeBombs++;
             this.bombCooldownTimer = 4500;
             this.escapePath = escape;
+            this.evadeTimeoutMs = 2500; // AI-04: 2500ms evasion watchdog
             this.overheadUI.setIntent('💣', true);
             return;
           }
@@ -209,10 +231,12 @@ export class PetDroneAlly extends BaseEntity {
 
     if (closestItem) {
       this.overheadUI.setIntent('🧲', true);
-      // Tractor beam pulls item towards player or drone flies to item
+      // AI-07: Tractor beam pulls item towards player with delta scaling (150 px/s)
       const angle = Phaser.Math.Angle.Between(closestItem.x, closestItem.y, player.x, player.y);
-      closestItem.x += Math.cos(angle) * 2.5;
-      closestItem.y += Math.sin(angle) * 2.5;
+      const pullSpeed = 150;
+      const pullStep = pullSpeed * (delta / 1000);
+      closestItem.x += Math.cos(angle) * pullStep;
+      closestItem.y += Math.sin(angle) * pullStep;
 
       const toItemAngle = Phaser.Math.Angle.Between(this.x, this.y, closestItem.x, closestItem.y);
       this.setVelocity(

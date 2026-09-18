@@ -26,6 +26,10 @@ import {
   CameraTraumaSimulator,
 } from '../src/game/ultimate_skills.ts';
 
+import { APIQuotaCircuitBreaker } from '../src/game/persistence/CircuitBreaker.ts';
+import { GameStatePersistence, MemoryStorageAdapter } from '../src/game/persistence/GameStatePersistence.ts';
+import { STORAGE_SCHEMA_VERSION } from '../src/game/persistence/PersistenceTypes.ts';
+
 export class ChaosObjectPool {
   constructor(factory, resetFn, capacity) {
     this.factory = factory;
@@ -182,7 +186,7 @@ export class HeadlessChaosSimulation {
     this.totalActionsProcessed++;
     // Invariant: Keys strictly convert to boolean, rejecting malformed types
     const boolVal = Boolean(rawValue);
-    if (key in this.input) {
+    if (Object.prototype.hasOwnProperty.call(this.input, key)) {
       this.input[key] = boolVal;
     }
   }
@@ -597,3 +601,107 @@ test('Grand Chaos Bot: 50,000 Adversarial Actions Under Extreme Stress', () => {
   console.log(` Invariant Violations:     0`);
   console.log(`===============================================================\n`);
 });
+
+/* ==============================================================================
+ * ADVERSARIAL SECURITY & PERSISTENCE CHAOS SUITES
+ * ============================================================================== */
+
+test('Adversarial Chaos: Prototype pollution keys in injectInput do not shadow Object prototype', () => {
+  const sim = new HeadlessChaosSimulation();
+
+  const attackKeys = ['toString', 'valueOf', 'constructor', '__proto__', 'hasOwnProperty', 'isPrototypeOf'];
+  for (const key of attackKeys) {
+    sim.injectInput(key, true);
+    assert.equal(typeof sim.input.toString, 'function');
+    assert.equal(typeof sim.input.valueOf, 'function');
+    assert.equal(Object.prototype.hasOwnProperty.call(sim.input, key), false);
+  }
+});
+
+test('Concurrent CircuitBreaker Chaos: 50 concurrent requests survive rapid 429 quota toggling', async () => {
+  const cb = new APIQuotaCircuitBreaker({
+    failureThreshold: 2,
+    initialBackoffMs: 20,
+    resetTimeoutMs: 50,
+  });
+
+  let successCount = 0;
+  let rejectedCount = 0;
+
+  const tasks = Array.from({ length: 50 }, (_, i) => {
+    return cb.execute(async () => {
+      if (i % 3 === 0) {
+        throw { status: 429, message: 'Resource exhausted' };
+      }
+      if (i % 7 === 0) {
+        throw new Error('Transient connection error');
+      }
+      return `payload_${i}`;
+    }, { queueIfOpen: true })
+    .then((res) => {
+      successCount++;
+      return res;
+    })
+    .catch(() => {
+      rejectedCount++;
+      return null;
+    });
+  });
+
+  // Rapidly trigger recovery while requests are executing
+  setTimeout(() => {
+    cb.recordSuccess();
+  }, 25);
+  setTimeout(() => {
+    cb.recordSuccess();
+  }, 75);
+
+  await Promise.all(tasks);
+  assert.equal(successCount + rejectedCount, 50, 'All 50 tasks must settle without hanging');
+  assert.ok(successCount > 0, 'Some tasks should succeed');
+});
+
+test('Persistence Chaos: 1,000 fuzzed payloads sanitize cleanly without unhandled exceptions', () => {
+  const persistence = new GameStatePersistence(new MemoryStorageAdapter(), new MemoryStorageAdapter());
+
+  const fuzzedValues = [
+    null,
+    undefined,
+    NaN,
+    Infinity,
+    -Infinity,
+    -999999,
+    1e12,
+    'corrupted_string',
+    {},
+    [],
+    { toString: () => 'evil' },
+  ];
+
+  for (let i = 0; i < 1000; i++) {
+    const rawProfile = {
+      version: fuzzedValues[i % fuzzedValues.length],
+      cosmicEssence: fuzzedValues[(i * 3) % fuzzedValues.length],
+      starCandies: fuzzedValues[(i * 7) % fuzzedValues.length],
+      perks: {
+        sugar_spark: fuzzedValues[(i * 2) % fuzzedValues.length],
+        quick_wick: fuzzedValues[(i * 5) % fuzzedValues.length],
+        __proto__: 123,
+        constructor: 'polluted',
+        toString: fuzzedValues[i % fuzzedValues.length],
+      },
+      unlockedModes: fuzzedValues[(i * 11) % fuzzedValues.length],
+      highestWaveReached: fuzzedValues[(i * 13) % fuzzedValues.length],
+    };
+
+    const sanitized = persistence.sanitizeMetaProfile(rawProfile);
+    assert.ok(sanitized !== null && typeof sanitized === 'object');
+    assert.equal(sanitized.version, STORAGE_SCHEMA_VERSION);
+    assert.ok(Number.isFinite(sanitized.cosmicEssence) && sanitized.cosmicEssence >= 0);
+    assert.ok(Number.isFinite(sanitized.starCandies) && sanitized.starCandies >= 0);
+    assert.equal(Object.prototype.hasOwnProperty.call(sanitized.perks, '__proto__'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(sanitized.perks, 'constructor'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(sanitized.perks, 'toString'), false);
+  }
+});
+

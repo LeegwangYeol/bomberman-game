@@ -22,7 +22,9 @@ import {
 } from '../progression/ProgressionTypes.ts';
 import type {
   MetaProfile,
+  PerkState,
 } from '../progression/ProgressionTypes.ts';
+import { CONFECTIONERY_PERKS } from '../progression/PerkTree.ts';
 import { APIQuotaCircuitBreaker } from './CircuitBreaker.ts';
 
 /* ==============================================================================
@@ -70,20 +72,27 @@ export class WebStorageAdapter implements IStorageAdapter {
   }
 
   public getItem(key: string): string | null {
+    // SEC-03: If fallback has an entry (written after quota error), return it to prevent stale reads
+    const fallbackVal = this.fallback.getItem(key);
+    if (fallbackVal !== null) {
+      return fallbackVal;
+    }
     if (this.storage) {
       try {
         return this.storage.getItem(key);
       } catch {
-        return this.fallback.getItem(key);
+        return null;
       }
     }
-    return this.fallback.getItem(key);
+    return null;
   }
 
   public setItem(key: string, value: string): void {
     if (this.storage) {
       try {
         this.storage.setItem(key, value);
+        // Clear fallback override on successful web storage write
+        this.fallback.removeItem(key);
         return;
       } catch {
         // Fallback to memory on quota error or exception
@@ -477,7 +486,7 @@ export class GameStatePersistence {
         return defaultProfile;
       }
 
-      return envelope.profile;
+      return this.sanitizeMetaProfile(envelope.profile);
     } catch {
       const defaultProfile = this.createDefaultMetaProfile();
       this.saveMetaProfile(defaultProfile);
@@ -489,6 +498,63 @@ export class GameStatePersistence {
     const defaultProfile = this.createDefaultMetaProfile();
     this.saveMetaProfile(defaultProfile);
     return defaultProfile;
+  }
+
+  /**
+   * SEC-04: Sanitizes meta-profile schema against negative/corrupted numbers,
+   * prototype pollution keys, NaN, and out-of-range perk levels.
+   */
+  public sanitizeMetaProfile(profile: unknown): MetaProfile {
+    const defaultProfile = this.createDefaultMetaProfile();
+    if (!profile || typeof profile !== 'object') {
+      return defaultProfile;
+    }
+    const p = profile as Record<string, unknown>;
+
+    const sanitizedPerks: PerkState = {};
+    if (p.perks && typeof p.perks === 'object') {
+      for (const [key, val] of Object.entries(p.perks as Record<string, unknown>)) {
+        if (
+          typeof key !== 'string' ||
+          key in Object.prototype ||
+          key === '__proto__' ||
+          key === 'constructor' ||
+          key === 'prototype'
+        ) {
+          continue;
+        }
+        const node = Object.prototype.hasOwnProperty.call(CONFECTIONERY_PERKS, key)
+          ? CONFECTIONERY_PERKS[key]
+          : null;
+        const maxLevel = node ? node.maxLevel : 10;
+        const numVal = typeof val === 'number' && Number.isFinite(val) ? Math.floor(val) : 0;
+        sanitizedPerks[key] = Math.max(0, Math.min(numVal, maxLevel));
+      }
+    }
+
+    const safeNumber = (val: unknown, fallback: number): number => {
+      if (typeof val === 'number' && Number.isFinite(val) && !Number.isNaN(val)) {
+        return Math.max(0, Math.floor(val));
+      }
+      return fallback;
+    };
+
+    const isString = (m: unknown): m is string => typeof m === 'string';
+
+    return {
+      version: STORAGE_SCHEMA_VERSION,
+      lastUpdated: typeof p.lastUpdated === 'number' && Number.isFinite(p.lastUpdated) ? p.lastUpdated : Date.now(),
+      cosmicEssence: safeNumber(p.cosmicEssence, defaultProfile.cosmicEssence),
+      starCandies: safeNumber(p.starCandies, defaultProfile.starCandies),
+      perks: sanitizedPerks,
+      unlockedModes: Array.isArray(p.unlockedModes) ? (p.unlockedModes as unknown[]).filter(isString) as GameModeType[] : defaultProfile.unlockedModes,
+      discoveredRelics: Array.isArray(p.discoveredRelics) ? (p.discoveredRelics as unknown[]).filter(isString) as RelicId[] : defaultProfile.discoveredRelics,
+      equippedRelics: Array.isArray(p.equippedRelics) ? (p.equippedRelics as unknown[]).filter(isString) as RelicId[] : defaultProfile.equippedRelics,
+      highestWaveReached: typeof p.highestWaveReached === 'object' && p.highestWaveReached !== null ? p.highestWaveReached as Record<GameModeType, number> : defaultProfile.highestWaveReached,
+      bestSurvivalTimesSeconds: typeof p.bestSurvivalTimesSeconds === 'object' && p.bestSurvivalTimesSeconds !== null ? p.bestSurvivalTimesSeconds as Record<string, number> : defaultProfile.bestSurvivalTimesSeconds,
+      bestBossRushTimeSeconds: typeof p.bestBossRushTimeSeconds === 'number' && Number.isFinite(p.bestBossRushTimeSeconds) ? Math.max(0, p.bestBossRushTimeSeconds) : null,
+      trophiesUnlocked: Array.isArray(p.trophiesUnlocked) ? (p.trophiesUnlocked as unknown[]).filter(isString) : defaultProfile.trophiesUnlocked,
+    };
   }
 
   /* --------------------------------------------------------------------------
@@ -564,7 +630,9 @@ export class GameStatePersistence {
 
       // Save imported meta profile
       if (pkg.metaProfile) {
-        this.saveMetaProfile(pkg.metaProfile);
+        const sanitized = this.sanitizeMetaProfile(pkg.metaProfile);
+        this.saveMetaProfile(sanitized);
+        pkg.metaProfile = sanitized;
       }
 
       return {

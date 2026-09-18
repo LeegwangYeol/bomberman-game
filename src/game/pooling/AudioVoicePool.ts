@@ -141,6 +141,29 @@ export class AudioVoice {
     this.isBusy = false;
     this.endTime = now + 0.003;
   }
+
+  public disconnect(): void {
+    try {
+      if (this.osc) {
+        try {
+          this.osc.stop();
+        } catch {}
+        this.osc.disconnect();
+        this.osc = null;
+      }
+      if (this.filter) {
+        this.filter.disconnect();
+        this.filter = null;
+      }
+      if (this.gain) {
+        this.gain.disconnect();
+        this.gain = null;
+      }
+    } catch {
+      // Safe teardown
+    }
+    this.isBusy = false;
+  }
 }
 
 export class AudioVoicePool {
@@ -155,7 +178,26 @@ export class AudioVoicePool {
 
   public init(ctx: AudioContext): void {
     if (this.ctx === ctx && this.voices.length > 0) return;
+
+    // Disconnect old voices if re-initializing
+    for (let i = 0; i < this.voices.length; i++) {
+      this.voices[i].disconnect();
+    }
+    this.voices.length = 0;
+
+    if (this.masterBus) {
+      try {
+        this.masterBus.disconnect();
+      } catch {}
+      this.masterBus = null;
+    }
+
     this.ctx = ctx;
+
+    // Handle suspended context
+    if (ctx && ctx.state === 'suspended' && typeof ctx.resume === 'function') {
+      ctx.resume().catch(() => {});
+    }
 
     try {
       this.masterBus = ctx.createGain();
@@ -165,7 +207,6 @@ export class AudioVoicePool {
       this.masterBus = null;
     }
 
-    this.voices.length = 0;
     for (let i = 0; i < this.capacity; i++) {
       this.voices.push(new AudioVoice(i, ctx, this.masterBus));
     }
@@ -173,6 +214,9 @@ export class AudioVoicePool {
 
   public acquireVoice(): AudioVoice | null {
     if (!this.ctx || this.voices.length === 0) return null;
+    if (this.ctx.state === 'suspended' && typeof this.ctx.resume === 'function') {
+      this.ctx.resume().catch(() => {});
+    }
     const now = this.ctx.currentTime;
 
     // 1. Find an idle or expired voice
@@ -226,5 +270,23 @@ export class AudioVoicePool {
     for (let i = 0; i < this.voices.length; i++) {
       this.voices[i].forceSilence(this.ctx);
     }
+  }
+
+  public destroy(): void {
+    for (let i = 0; i < this.voices.length; i++) {
+      this.voices[i].disconnect();
+    }
+    this.voices.length = 0;
+    if (this.masterBus) {
+      try {
+        this.masterBus.disconnect();
+      } catch {}
+      this.masterBus = null;
+    }
+    this.ctx = null;
+  }
+
+  public disconnect(): void {
+    this.destroy();
   }
 }

@@ -361,6 +361,14 @@ export abstract class BaseCrisis implements ICrisis {
     this.clearAllHazards();
     this.objectives = [];
     this.activeAlert = null;
+    this.onReset();
+  }
+
+  protected onReset(): void {
+    // Reinitialize subclass state (timers, pending craters, counts, etc.)
+    this.onInit();
+    // Keep objectives empty while crisis remains INACTIVE
+    this.objectives = [];
   }
 
   // Helper grid bounds checks

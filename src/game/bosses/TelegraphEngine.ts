@@ -190,10 +190,9 @@ export class TelegraphEngine {
    */
   public isTrajectoryLocked(attackId: number): boolean {
     for (let i = 0; i < this._activeCount; i++) {
-      const slot = this.activeSlots[i];
-      if (this.slotAttackId[slot] === attackId) {
+      if (this.slotAttackId[i] === attackId) {
         // If any tile in this attack has entered Amber or Red (remaining <= 1000ms), trajectory is locked
-        if (this.slotRemainingTimeMs[slot] <= DURATION_YELLOW_MS) {
+        if (this.slotRemainingTimeMs[i] <= DURATION_YELLOW_MS) {
           return true;
         }
       }
@@ -412,9 +411,8 @@ export class TelegraphEngine {
     let i = 0;
 
     while (i < this._activeCount) {
-      const slot = this.activeSlots[i];
-      if (this.slotAttackId[slot] === attackId) {
-        const idx = this.slotTileIndex[slot];
+      if (this.slotAttackId[i] === attackId) {
+        const idx = this.slotTileIndex[i];
 
         // Decrement spatial ref
         if (this.tileRefCount[idx] > 0) {
@@ -427,18 +425,16 @@ export class TelegraphEngine {
           }
         }
 
-        // Swap and pop
+        // ARCH-01: In-place swap-and-pop slot reallocation
         const lastSlotIdx = --this._activeCount;
         if (i < lastSlotIdx) {
-          const movedSlot = this.activeSlots[lastSlotIdx];
-          this.activeSlots[i] = movedSlot;
-
-          this.slotTileIndex[slot] = this.slotTileIndex[movedSlot];
-          this.slotAttackId[slot] = this.slotAttackId[movedSlot];
-          this.slotRemainingTimeMs[slot] = this.slotRemainingTimeMs[movedSlot];
-          this.slotTotalDurationMs[slot] = this.slotTotalDurationMs[movedSlot];
-          this.slotStage[slot] = this.slotStage[movedSlot];
-          this.slotFlags[slot] = this.slotFlags[movedSlot];
+          this.slotTileIndex[i] = this.slotTileIndex[lastSlotIdx];
+          this.slotAttackId[i] = this.slotAttackId[lastSlotIdx];
+          this.slotRemainingTimeMs[i] = this.slotRemainingTimeMs[lastSlotIdx];
+          this.slotTotalDurationMs[i] = this.slotTotalDurationMs[lastSlotIdx];
+          this.slotStage[i] = this.slotStage[lastSlotIdx];
+          this.slotFlags[i] = this.slotFlags[lastSlotIdx];
+          this.activeSlots[i] = i;
         }
         removed++;
       } else {
@@ -461,14 +457,13 @@ export class TelegraphEngine {
 
     let i = 0;
     while (i < this._activeCount) {
-      const slot = this.activeSlots[i];
-      const remaining = this.slotRemainingTimeMs[slot] - deltaMs;
-      this.slotRemainingTimeMs[slot] = remaining;
+      const remaining = this.slotRemainingTimeMs[i] - deltaMs;
+      this.slotRemainingTimeMs[i] = remaining;
 
       if (remaining <= 0) {
         // Impact reached!
-        const tileIdx = this.slotTileIndex[slot];
-        const attackId = this.slotAttackId[slot];
+        const tileIdx = this.slotTileIndex[i];
+        const attackId = this.slotAttackId[i];
 
         if (this.onImpactCallback) {
           this.onImpactCallback(attackId, tileIdx);
@@ -485,29 +480,27 @@ export class TelegraphEngine {
           }
         }
 
-        // Swap-and-pop release
+        // ARCH-01: In-place swap-and-pop slot reallocation
         const lastSlotIdx = --this._activeCount;
         if (i < lastSlotIdx) {
-          const movedSlot = this.activeSlots[lastSlotIdx];
-          this.activeSlots[i] = movedSlot;
-
-          this.slotTileIndex[slot] = this.slotTileIndex[movedSlot];
-          this.slotAttackId[slot] = this.slotAttackId[movedSlot];
-          this.slotRemainingTimeMs[slot] = this.slotRemainingTimeMs[movedSlot];
-          this.slotTotalDurationMs[slot] = this.slotTotalDurationMs[movedSlot];
-          this.slotStage[slot] = this.slotStage[movedSlot];
-          this.slotFlags[slot] = this.slotFlags[movedSlot];
+          this.slotTileIndex[i] = this.slotTileIndex[lastSlotIdx];
+          this.slotAttackId[i] = this.slotAttackId[lastSlotIdx];
+          this.slotRemainingTimeMs[i] = this.slotRemainingTimeMs[lastSlotIdx];
+          this.slotTotalDurationMs[i] = this.slotTotalDurationMs[lastSlotIdx];
+          this.slotStage[i] = this.slotStage[lastSlotIdx];
+          this.slotFlags[i] = this.slotFlags[lastSlotIdx];
+          this.activeSlots[i] = i;
         }
       } else {
         // Update Stage & Locked Flag
         if (remaining > DURATION_YELLOW_MS) {
-          this.slotStage[slot] = TelegraphTier.YELLOW;
+          this.slotStage[i] = TelegraphTier.YELLOW;
         } else if (remaining > DURATION_RED_MS) {
-          this.slotStage[slot] = TelegraphTier.AMBER;
-          this.slotFlags[slot] |= 2; // Mark LOCKED
+          this.slotStage[i] = TelegraphTier.AMBER;
+          this.slotFlags[i] |= 2; // Mark LOCKED
         } else {
-          this.slotStage[slot] = TelegraphTier.RED_FLASH;
-          this.slotFlags[slot] |= 2; // Locked
+          this.slotStage[i] = TelegraphTier.RED_FLASH;
+          this.slotFlags[i] |= 2; // Locked
         }
         i++;
       }
@@ -525,10 +518,9 @@ export class TelegraphEngine {
     this.tileRemainingTime.fill(999999);
 
     for (let i = 0; i < this._activeCount; i++) {
-      const slot = this.activeSlots[i];
-      const idx = this.slotTileIndex[slot];
-      const stg = this.slotStage[slot];
-      const rem = this.slotRemainingTimeMs[slot];
+      const idx = this.slotTileIndex[i];
+      const stg = this.slotStage[i];
+      const rem = this.slotRemainingTimeMs[i];
 
       if (stg > this.tileDominantStage[idx]) {
         this.tileDominantStage[idx] = stg;
@@ -687,7 +679,10 @@ export class TelegraphEngine {
   }
 
   // Public Query APIs
-  public isTileDangerous(r: number, c: number): boolean {
+  public isTileDangerous(r: number, c?: number): boolean {
+    if (c === undefined) {
+      return this.isIdxDangerous(r);
+    }
     if (r < 0 || r >= this.rows || c < 0 || c >= this.cols || isNaN(r) || isNaN(c)) return false;
     return this.activeTileMask[r * this.cols + c] !== 0;
   }
@@ -697,13 +692,22 @@ export class TelegraphEngine {
     return this.activeTileMask[idx] !== 0;
   }
 
-  public getTileTier(r: number, c: number): TelegraphTier {
+  public getTileTier(r: number, c?: number): TelegraphTier {
+    if (c === undefined) {
+      if (r < 0 || r >= this.totalTiles || isNaN(r)) return TelegraphTier.NONE;
+      return this.tileDominantStage[r] as TelegraphTier;
+    }
     if (r < 0 || r >= this.rows || c < 0 || c >= this.cols || isNaN(r) || isNaN(c))
       return TelegraphTier.NONE;
     return this.tileDominantStage[r * this.cols + c] as TelegraphTier;
   }
 
-  public getTileRemainingTime(r: number, c: number): number {
+  public getTileRemainingTime(r: number, c?: number): number {
+    if (c === undefined) {
+      if (r < 0 || r >= this.totalTiles || isNaN(r)) return 0;
+      const time = this.tileRemainingTime[r];
+      return time < 999000 ? time : 0;
+    }
     if (r < 0 || r >= this.rows || c < 0 || c >= this.cols || isNaN(r) || isNaN(c)) return 0;
     const time = this.tileRemainingTime[r * this.cols + c];
     return time < 999000 ? time : 0;

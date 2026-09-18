@@ -283,9 +283,9 @@ export class ZeroGCPathfinder {
     this.hazardMask = new Uint8Array(this.totalTiles);
   }
 
-  public init(cols: number, rows: number): void {
-    this.cols = cols;
+  public init(rows: number = ROWS, cols: number = COLS): void {
     this.rows = rows;
+    this.cols = cols;
     this.totalTiles = rows * cols;
     if (this.visited.length < this.totalTiles) {
       this.visited = new Uint16Array(this.totalTiles);
@@ -528,6 +528,7 @@ const sharedDangerMask = new Uint8Array(TOTAL_TILES);
 const sharedObstacleMask = new Uint8Array(TOTAL_TILES);
 
 function populateObstacleMask(map: number[][] | Uint8Array, outMask: Uint8Array): void {
+  outMask.fill(0);
   if (map instanceof Uint8Array) {
     outMask.set(map);
     return;
@@ -696,6 +697,14 @@ export function isTileInBlastRange(
   const cr = typeof center === 'number' ? (center / COLS) | 0 : center.r;
   const cc = typeof center === 'number' ? center % COLS : center.c;
 
+  // AI-02: Boundary check coordinates against grid dimensions
+  if (
+    tr < 0 || tr >= ROWS || tc < 0 || tc >= COLS ||
+    cr < 0 || cr >= ROWS || cc < 0 || cc >= COLS
+  ) {
+    return false;
+  }
+
   if (tr === cr && tc === cc) return true;
   if (tr !== cr && tc !== cc) return false;
 
@@ -708,12 +717,13 @@ export function isTileInBlastRange(
   let r = cr + dr;
   let c = cc + dc;
   while (r !== tr || c !== tc) {
-    const tileVal = Array.isArray(map) ? map[r][c] : map[r * COLS + c];
+    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
+    const tileVal = Array.isArray(map) ? map[r]?.[c] : map[r * COLS + c];
     if (tileVal === TILE_WALL || tileVal === TILE_BLOCK) return false;
     r += dr;
     c += dc;
   }
-  const destVal = Array.isArray(map) ? map[tr][tc] : map[tr * COLS + tc];
+  const destVal = Array.isArray(map) ? map[tr]?.[tc] : map[tr * COLS + tc];
   if (destVal === TILE_WALL) return false;
   return true;
 }

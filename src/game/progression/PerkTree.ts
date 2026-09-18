@@ -235,12 +235,15 @@ export class PerkTreeManager {
     currentPerks: PerkState,
     availableEssence: number
   ): { canUpgrade: boolean; cost: number; reason?: string } {
+    if (!Object.prototype.hasOwnProperty.call(CONFECTIONERY_PERKS, perkId)) {
+      return { canUpgrade: false, cost: 0, reason: 'Unknown perk ID' };
+    }
     const node = CONFECTIONERY_PERKS[perkId];
     if (!node) {
       return { canUpgrade: false, cost: 0, reason: 'Unknown perk ID' };
     }
 
-    const currentLevel = currentPerks[perkId] || 0;
+    const currentLevel = (Object.prototype.hasOwnProperty.call(currentPerks, perkId) ? currentPerks[perkId] : 0) || 0;
     if (currentLevel >= node.maxLevel) {
       return { canUpgrade: false, cost: 0, reason: 'Perk already at maximum level' };
     }
@@ -253,9 +256,11 @@ export class PerkTreeManager {
     // Check prerequisites
     if (node.prerequisites) {
       for (const req of node.prerequisites) {
-        const reqLvl = currentPerks[req.perkId] || 0;
+        const reqLvl = (Object.prototype.hasOwnProperty.call(currentPerks, req.perkId) ? currentPerks[req.perkId] : 0) || 0;
         if (reqLvl < req.minLevel) {
-          const reqNode = CONFECTIONERY_PERKS[req.perkId];
+          const reqNode = Object.prototype.hasOwnProperty.call(CONFECTIONERY_PERKS, req.perkId)
+            ? CONFECTIONERY_PERKS[req.perkId]
+            : undefined;
           const reqName = reqNode ? reqNode.name : req.perkId;
           return {
             canUpgrade: false,
@@ -307,9 +312,11 @@ export class PerkTreeManager {
   static calculateSpentEssence(perks: PerkState): number {
     let total = 0;
     for (const [id, level] of Object.entries(perks)) {
+      if (!Object.prototype.hasOwnProperty.call(CONFECTIONERY_PERKS, id)) continue;
       const node = CONFECTIONERY_PERKS[id];
       if (!node) continue;
-      for (let i = 0; i < Math.min(level, node.maxLevel); i++) {
+      const safeLevel = typeof level === 'number' && Number.isFinite(level) ? Math.max(0, Math.floor(level)) : 0;
+      for (let i = 0; i < Math.min(safeLevel, node.maxLevel); i++) {
         total += node.costs[i];
       }
     }
@@ -335,7 +342,7 @@ export class PerkTreeManager {
    * Calculate all active gameplay bonuses provided by the current perk tree
    */
   static calculateAppliedBonuses(perks: PerkState): AppliedPerkBonuses {
-    const p = (id: string) => perks[id] || 0;
+    const p = (id: string) => (Object.prototype.hasOwnProperty.call(perks, id) ? Math.max(0, perks[id] || 0) : 0);
 
     // Sugar Spark: +1, +2, +3 blast radius
     const startingBlastRadiusBonus = Math.min(3, p('sugar_spark'));

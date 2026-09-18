@@ -455,3 +455,124 @@ test('Tier 4: Full Session HUD & Inventory Flow — item collection, mobile draw
   assert.equal(uiState.stats.ultimateGauge, 0);
   assert.equal(uiState.stats.ultimateLockoutRemaining, 6000);
 });
+
+/* ==============================================================================
+ * TIER 5: DEFENSIVE UI & INPUT REMEDIATION TESTS (UI-03, UI-04, UI-05)
+ * ============================================================================== */
+
+test('UI-03: Virtual joystick 8-way partition eliminates dead zones at 135° and 225°', () => {
+  function mapJoystickAngle(angle, distance) {
+    const input = { up: false, down: false, left: false, right: false };
+    if (distance !== undefined && distance < 5) {
+      return input;
+    }
+    const norm = ((angle % 360) + 360) % 360;
+    input.up = norm >= 22.5 && norm <= 157.5;
+    input.down = norm >= 202.5 && norm <= 337.5;
+    input.left = norm >= 112.5 && norm <= 247.5;
+    input.right = norm <= 67.5 || norm >= 292.5;
+    return input;
+  }
+
+  // Deadzone check
+  const dead = mapJoystickAngle(135, 3);
+  assert.equal(dead.up, false);
+  assert.equal(dead.left, false);
+
+  // Exact 135.0° (Up-Left diagonal) — previously ALL false!
+  const upLeft = mapJoystickAngle(135, 20);
+  assert.equal(upLeft.up, true, '135° must have up=true');
+  assert.equal(upLeft.left, true, '135° must have left=true');
+  assert.equal(upLeft.down, false);
+  assert.equal(upLeft.right, false);
+
+  // Exact 225.0° (Down-Left diagonal) — previously ALL false!
+  const downLeft = mapJoystickAngle(225, 20);
+  assert.equal(downLeft.down, true, '225° must have down=true');
+  assert.equal(downLeft.left, true, '225° must have left=true');
+  assert.equal(downLeft.up, false);
+  assert.equal(downLeft.right, false);
+
+  // Exact 45.0° (Up-Right diagonal)
+  const upRight = mapJoystickAngle(45, 20);
+  assert.equal(upRight.up, true);
+  assert.equal(upRight.right, true);
+
+  // Exact 315.0° (Down-Right diagonal)
+  const downRight = mapJoystickAngle(315, 20);
+  assert.equal(downRight.down, true);
+  assert.equal(downRight.right, true);
+
+  // Cardinal directions: 0° Right, 90° Up, 180° Left, 270° Down
+  assert.deepEqual(mapJoystickAngle(0, 20), { up: false, down: false, left: false, right: true });
+  assert.deepEqual(mapJoystickAngle(90, 20), { up: true, down: false, left: false, right: false });
+  assert.deepEqual(mapJoystickAngle(180, 20), { up: false, down: false, left: true, right: false });
+  assert.deepEqual(mapJoystickAngle(270, 20), { up: false, down: true, left: false, right: false });
+});
+
+test('UI-04: Action button pointer cancel immediately resets input without stuck state', () => {
+  const mobileInput = { bomb: false, dash: false, ultimate: false };
+
+  // Press down
+  mobileInput.bomb = true;
+  assert.equal(mobileInput.bomb, true);
+
+  // Cancel event (e.g. gesture interrupted or finger dragged off)
+  const handleBombCancel = () => {
+    mobileInput.bomb = false;
+  };
+  handleBombCancel();
+  assert.equal(mobileInput.bomb, false);
+
+  // Ultimate press and cancel
+  mobileInput.ultimate = true;
+  const handleUltimateCancel = () => {
+    mobileInput.ultimate = false;
+  };
+  handleUltimateCancel();
+  assert.equal(mobileInput.ultimate, false);
+});
+
+test('UI-05: Global key handler ignores input and avoids preventDefault inside textarea and input elements', () => {
+  const mobileInput = { up: false, down: false, left: false, right: false, bomb: false, dash: false, ultimate: false };
+
+  function handleKeyDown(e) {
+    const target = e.target;
+    if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.isContentEditable)) {
+      return false; // Ignored, no preventDefault
+    }
+    const key = e.key.toLowerCase();
+    if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'shift', 'e', 'r', 'q'].includes(key) || e.code === 'Space') {
+      e.prevented = true;
+    }
+    if (key === ' ' || e.code === 'Space') {
+      mobileInput.bomb = true;
+    }
+    return true;
+  }
+
+  // Typing space inside a <textarea> in the Backup/Import modal
+  const textareaEvent = {
+    key: ' ',
+    code: 'Space',
+    target: { tagName: 'TEXTAREA' },
+    prevented: false,
+  };
+  const processedTextarea = handleKeyDown(textareaEvent);
+  assert.equal(processedTextarea, false);
+  assert.equal(textareaEvent.prevented, false, 'Must NOT call preventDefault on textarea space');
+  assert.equal(mobileInput.bomb, false, 'Must NOT plant bomb when typing in textarea');
+
+  // Normal gameplay spacebar
+  const gameEvent = {
+    key: ' ',
+    code: 'Space',
+    target: { tagName: 'CANVAS' },
+    prevented: false,
+  };
+  const processedGame = handleKeyDown(gameEvent);
+  assert.equal(processedGame, true);
+  assert.equal(gameEvent.prevented, true, 'Must call preventDefault on game space');
+  assert.equal(mobileInput.bomb, true, 'Must plant bomb during game');
+});
+

@@ -18,6 +18,10 @@ export class HamsterBoss extends BaseBoss {
   public gatlingTimerMs: number = 0;
   public laserAngleRad: number = 0;
   public isLaserSweeping: boolean = false;
+  public readonly minArenaX: number = 60;
+  public readonly maxArenaX: number = 540;
+  public readonly minArenaY: number = 60;
+  public readonly maxArenaY: number = 460;
 
   constructor(startX: number = 300, startY: number = 260) {
     const config: BossConfig = {
@@ -33,7 +37,9 @@ export class HamsterBoss extends BaseBoss {
       phase2HpThreshold: 0.7, // <= 7 HP
       phase3HpThreshold: 0.33, // <= 3 HP
     };
-    super(config, startX, startY);
+    const clampedX = Math.max(60, Math.min(startX, 540));
+    const clampedY = Math.max(60, Math.min(startY, 460));
+    super(config, clampedX, clampedY);
   }
 
   public override canTakeDamage(): boolean {
@@ -86,6 +92,28 @@ export class HamsterBoss extends BaseBoss {
     if (this.isDashing) {
       this.x += this.dashDirection.x * this.dashSpeed * (dt / 1000);
       this.y += this.dashDirection.y * this.dashSpeed * (dt / 1000);
+
+      // ARCH-03: Clamp dash within arena bounds and trigger wall impact
+      let hitWall = false;
+      if (this.x <= this.minArenaX) {
+        this.x = this.minArenaX;
+        hitWall = true;
+      } else if (this.x >= this.maxArenaX) {
+        this.x = this.maxArenaX;
+        hitWall = true;
+      }
+
+      if (this.y <= this.minArenaY) {
+        this.y = this.minArenaY;
+        hitWall = true;
+      } else if (this.y >= this.maxArenaY) {
+        this.y = this.maxArenaY;
+        hitWall = true;
+      }
+
+      if (hitWall) {
+        this.onWallImpact();
+      }
       return;
     }
 
@@ -98,6 +126,8 @@ export class HamsterBoss extends BaseBoss {
       // Normal corridor patrol
       this.x += Math.sign(dx) * this.currentSpeed * (dt / 1000);
       this.y += Math.sign(dy) * this.currentSpeed * (dt / 1000);
+      this.x = Math.max(this.minArenaX, Math.min(this.maxArenaX, this.x));
+      this.y = Math.max(this.minArenaY, Math.min(this.maxArenaY, this.y));
     }
   }
 
@@ -156,11 +186,17 @@ export class HamsterBoss extends BaseBoss {
 
     if (this.remainingRebounds > 0) {
       this.remainingRebounds--;
-      // 90-degree bank shot turn
+      // 90-degree bank shot turn away from boundary walls
       if (this.dashDirection.x !== 0) {
-        this.dashDirection = { x: 0, y: Math.random() > 0.5 ? 1 : -1 };
+        const canGoUp = this.y > this.minArenaY + 40;
+        const canGoDown = this.y < this.maxArenaY - 40;
+        const yDir = canGoUp && canGoDown ? (Math.random() > 0.5 ? 1 : -1) : canGoUp ? -1 : 1;
+        this.dashDirection = { x: 0, y: yDir };
       } else {
-        this.dashDirection = { x: Math.random() > 0.5 ? 1 : -1, y: 0 };
+        const canGoLeft = this.x > this.minArenaX + 40;
+        const canGoRight = this.x < this.maxArenaX - 40;
+        const xDir = canGoLeft && canGoRight ? (Math.random() > 0.5 ? 1 : -1) : canGoLeft ? -1 : 1;
+        this.dashDirection = { x: xDir, y: 0 };
       }
     } else {
       this.isDashing = false;

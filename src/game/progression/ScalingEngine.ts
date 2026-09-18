@@ -93,12 +93,20 @@ export const WAVE_MUTATOR_CATALOG: Record<WaveMutatorId, WaveMutator> = {
 
 export class ScalingEngine {
   /**
+   * Internal helper to guarantee wave index is a finite integer >= 1.
+   * Prevents NaN propagation and infinite loops.
+   */
+  private static sanitizeWave(wave: number): number {
+    return Number.isFinite(wave) ? Math.max(1, Math.floor(wave)) : 1;
+  }
+
+  /**
    * Calculate enemy speed multiplier based on wave W:
    * v(W) = v0 * (1 + min(1.2, 0.035 * (W - 1)))
    * Soft capped at 2.2x base velocity.
    */
   static calculateEnemySpeedMultiplier(wave: number): number {
-    const safeWave = Math.max(1, Math.floor(wave));
+    const safeWave = this.sanitizeWave(wave);
     const bonus = Math.min(1.2, 0.035 * (safeWave - 1));
     return Number((1.0 + bonus).toFixed(4));
   }
@@ -107,17 +115,21 @@ export class ScalingEngine {
    * Calculate effective enemy velocity in px/s.
    */
   static calculateEnemyVelocity(wave: number, baseVelocity: number = 100): number {
+    const safeBase = Number.isFinite(baseVelocity) && baseVelocity > 0 ? baseVelocity : 100;
     const mult = this.calculateEnemySpeedMultiplier(wave);
-    return Math.round(baseVelocity * mult);
+    return Math.round(safeBase * mult);
   }
 
   /**
    * Calculate base enemy hit points based on wave W:
    * HP(W) = floor(HP0 + 0.25 * (W - 1))
+   * Soft capped at baseHP + 5 to maintain reasonable mobile combat pacing.
    */
   static calculateEnemyHp(wave: number, baseHP: number = 1): number {
-    const safeWave = Math.max(1, Math.floor(wave));
-    return Math.floor(baseHP + 0.25 * (safeWave - 1));
+    const safeWave = this.sanitizeWave(wave);
+    const safeBase = Number.isFinite(baseHP) && baseHP > 0 ? Math.floor(baseHP) : 1;
+    const scaled = Math.floor(safeBase + 0.25 * (safeWave - 1));
+    return Math.min(safeBase + 5, scaled);
   }
 
   /**
@@ -125,7 +137,7 @@ export class ScalingEngine {
    * Starting at Wave 5, 20% baseline, scaling up to 50% at wave 20+.
    */
   static calculateArmorChance(wave: number): number {
-    const safeWave = Math.max(1, Math.floor(wave));
+    const safeWave = this.sanitizeWave(wave);
     if (safeWave < 5) return 0.0;
     const additionalChance = Math.min(0.30, 0.02 * (safeWave - 5));
     return Number((0.20 + additionalChance).toFixed(2));
@@ -137,7 +149,7 @@ export class ScalingEngine {
    * Strictly capped at 14 to guarantee zero frame drops and prevent pool exhaustion.
    */
   static calculateActiveEnemyCount(wave: number): number {
-    const safeWave = Math.max(1, Math.floor(wave));
+    const safeWave = this.sanitizeWave(wave);
     const delta = Math.sqrt(safeWave - 1) * 1.5;
     const count = 4 + Math.floor(delta);
     return Math.min(14, count);
@@ -148,7 +160,7 @@ export class ScalingEngine {
    * Fuse(W) = max(1200ms, 2000ms - 40ms * (W - 1))
    */
   static calculateBombFuseMs(wave: number): number {
-    const safeWave = Math.max(1, Math.floor(wave));
+    const safeWave = this.sanitizeWave(wave);
     const raw = 2000 - 40 * (safeWave - 1);
     return Math.max(1200, raw);
   }
@@ -158,7 +170,7 @@ export class ScalingEngine {
    * ReactionTime(W) = max(200ms, 600ms - 20ms * (W - 1))
    */
   static calculateEnemyReactionMs(wave: number): number {
-    const safeWave = Math.max(1, Math.floor(wave));
+    const safeWave = this.sanitizeWave(wave);
     const raw = 600 - 20 * (safeWave - 1);
     return Math.max(200, raw);
   }
@@ -168,8 +180,8 @@ export class ScalingEngine {
    * M(W, KillStreak) = 1.0 + 0.15 * (W - 1) + 0.05 * KillStreak
    */
   static calculateScoreMultiplier(wave: number, killStreak: number = 0): number {
-    const safeWave = Math.max(1, Math.floor(wave));
-    const safeStreak = Math.max(0, Math.floor(killStreak));
+    const safeWave = this.sanitizeWave(wave);
+    const safeStreak = Number.isFinite(killStreak) ? Math.max(0, Math.floor(killStreak)) : 0;
     const mult = 1.0 + 0.15 * (safeWave - 1) + 0.05 * safeStreak;
     return Number(mult.toFixed(2));
   }
@@ -177,10 +189,13 @@ export class ScalingEngine {
   /**
    * Boss HP scaling for deep endless runs or Boss Rush waves:
    * BossHP(W) = floor(BaseBossHP * (1 + 0.15 * (W - 1)))
+   * Soft capped at floor(baseBossHp * 2.5) to keep boss encounters beatable.
    */
   static calculateBossHp(wave: number, baseBossHp: number = 10): number {
-    const safeWave = Math.max(1, Math.floor(wave));
-    return Math.floor(baseBossHp * (1.0 + 0.15 * (safeWave - 1)));
+    const safeWave = this.sanitizeWave(wave);
+    const safeBase = Number.isFinite(baseBossHp) && baseBossHp > 0 ? Math.floor(baseBossHp) : 10;
+    const scaled = Math.floor(safeBase * (1.0 + 0.15 * (safeWave - 1)));
+    return Math.min(Math.floor(safeBase * 2.5), scaled);
   }
 
   /**
@@ -188,11 +203,11 @@ export class ScalingEngine {
    * Ensures no conflicting mutators (e.g. Glass Cannon + Dense Fortification).
    */
   static generateWaveMutators(wave: number, seed?: number): WaveMutator[] {
-    const safeWave = Math.max(1, Math.floor(wave));
+    const safeWave = this.sanitizeWave(wave);
     if (safeWave < 3) return []; // Waves 1 and 2 are vanilla training waves
 
     const allKeys = Object.keys(WAVE_MUTATOR_CATALOG) as WaveMutatorId[];
-    const s = seed !== undefined ? seed : safeWave * 104729;
+    const s = seed !== undefined && Number.isFinite(seed) ? seed : safeWave * 104729;
 
     // Pick first mutator
     const idx1 = Math.abs(s) % allKeys.length;
@@ -257,7 +272,7 @@ export class ScalingEngine {
    * E.g. 1,250,000 -> "1.25M", 14,800,000 -> "14.8M", 450,000 -> "450K".
    */
   static formatScore(score: number): string {
-    const safeScore = Math.max(0, Math.floor(score));
+    const safeScore = Number.isFinite(score) ? Math.max(0, Math.floor(score)) : 0;
     if (safeScore < 10000) {
       return safeScore.toLocaleString('en-US');
     }

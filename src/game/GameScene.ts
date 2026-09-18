@@ -993,6 +993,66 @@ export default class GameScene extends Phaser.Scene {
   public bossHUD: BossHUD | null = null;
   public currentBossIndex: number = 0;
 
+  // Progression & Physics Resilience (PHYS-05, PHYS-06, PHYS-07, UI-01, UI-06)
+  public cornerSlideTolerance: number = 8;
+  public baseSpeedBonus: number = 0;
+  public destroyedBlocksThisTick: Set<string> = new Set();
+  public bossHitBombIds: Set<string> = new Set();
+  private statsTimerAccumulator: number = 0;
+
+  private onModeChanged = (mode: string) => {
+    if (mode === 'boss_rush' || mode === 'BOSS_RUSH') {
+      this.startBossEncounter('king_gummy_bear');
+    } else if (this.activeBoss) {
+      this.dismissBoss();
+    }
+  };
+
+  private onPerksUpdated = (perksPayload: Record<string, number> | { perks?: Record<string, number> }) => {
+    let perks: Record<string, number> | undefined;
+    if (perksPayload && typeof perksPayload === 'object') {
+      if ('perks' in perksPayload && perksPayload.perks && typeof perksPayload.perks === 'object') {
+        perks = perksPayload.perks;
+      } else {
+        perks = perksPayload as Record<string, number>;
+      }
+    }
+    if (perks) {
+      const cornerLvl = typeof perks['corner_magnet'] === 'number' ? perks['corner_magnet'] : 0;
+      this.cornerSlideTolerance = cornerLvl === 1 ? 11 : cornerLvl >= 2 ? 14 : 8;
+      const bouncy = typeof perks['bouncy_soles'] === 'number' ? perks['bouncy_soles'] : 0;
+      if (bouncy > 0) {
+        this.baseSpeedBonus = Math.min(3, bouncy) * 10;
+      }
+      const sugar = typeof perks['sugar_coating'] === 'number' ? perks['sugar_coating'] : 0;
+      if (sugar > 0) {
+        this.shieldCharges = Math.max(this.shieldCharges, Math.min(2, sugar));
+        this.hasShield = this.shieldCharges > 0;
+      }
+      this.emitStatsUpdate();
+    }
+  };
+
+  private onRelicsUpdated = (_relics: unknown) => {
+    void _relics;
+    this.emitStatsUpdate();
+  };
+
+  private onResumeRunState = (_savedRun: unknown) => {
+    void _savedRun;
+    this.emitStatsUpdate();
+  };
+
+  public shutdown(): void {
+    if (this.game && this.game.events) {
+      this.game.events.off('mode-changed', this.onModeChanged);
+      this.game.events.off('perks-updated', this.onPerksUpdated);
+      this.game.events.off('relics-updated', this.onRelicsUpdated);
+      this.game.events.off('resume-run-state', this.onResumeRunState);
+    }
+    this.dismissBoss();
+  }
+
   constructor() {
     super({ key: 'GameScene' });
   }
@@ -1052,6 +1112,11 @@ export default class GameScene extends Phaser.Scene {
     this.lastSurvivalTickMs = 0;
     this.isAegisOverdriveActive = false;
     this.aegisDurationMs = 0;
+    this.cornerSlideTolerance = 8;
+    this.baseSpeedBonus = 0;
+    this.destroyedBlocksThisTick.clear();
+    this.bossHitBombIds.clear();
+    this.statsTimerAccumulator = 0;
     if (this.aegisDomeVisual) {
       this.aegisDomeVisual.destroy();
       this.aegisDomeVisual = null;
@@ -1543,14 +1608,12 @@ export default class GameScene extends Phaser.Scene {
     this.bossGraphics.setDepth(15);
     this.telegraphEngine = new TelegraphEngine(this.telegraphGraphics);
 
-    // Wire Game Mode Changes for Boss Encounters
-    this.game.events.on('mode-changed', (mode: string) => {
-      if (mode === 'boss_rush' || mode === 'BOSS_RUSH') {
-        this.startBossEncounter('king_gummy_bear');
-      } else if (this.activeBoss) {
-        this.dismissBoss();
-      }
-    });
+    // Wire Game Mode Changes & Meta-Progression Events (UI-06, MEM-01)
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
+    this.game.events.on('mode-changed', this.onModeChanged);
+    this.game.events.on('perks-updated', this.onPerksUpdated);
+    this.game.events.on('relics-updated', this.onRelicsUpdated);
+    this.game.events.on('resume-run-state', this.onResumeRunState);
   }
 
   public startBossEncounter(bossId: string): void {
@@ -1589,6 +1652,34 @@ export default class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number) {
+    this.destroyedBlocksThisTick.clear();
+
+    // Fail-safe reset for extra-life/shield invulnerability
+    if (
+      this.isInvulnerable &&
+      !this.isDashing &&
+      !this.isAegisOverdriveActive &&
+      this.time.now >= this.shieldInvulnerableUntil
+    ) {
+      this.isInvulnerable = false;
+      if (this.player && this.player.active) {
+        this.player.alpha = 1;
+      }
+    }
+
+    // UI-01: Periodic stats update during active cooldowns and buffs
+    this.statsTimerAccumulator = (this.statsTimerAccumulator || 0) + delta;
+    if (this.statsTimerAccumulator >= 100) {
+      this.statsTimerAccumulator = 0;
+      if (
+        this.dashCooldownRemaining > 0 ||
+        this.ultimateLockoutRemaining > 0 ||
+        (this.activeBuffs && this.activeBuffs.length > 0)
+      ) {
+        this.emitStatsUpdate();
+      }
+    }
+
     // 0a. Survival Drip: +1 charge point every 3000ms
     if (_time - this.lastSurvivalTickMs >= 3000) {
       this.addUltimateCharge(CHARGE_VALUES.SURVIVAL_TICK);
@@ -1716,7 +1807,7 @@ export default class GameScene extends Phaser.Scene {
       this.placeBomb();
     }
 
-    // 5. Conveyor belt push drift for player
+    // 5. Conveyor belt push drift for player (PHYS-03: AABB bounds check)
     const pCol = Math.floor(this.player.x / TILE_SIZE);
     const pRow = Math.floor(this.player.y / TILE_SIZE);
     const belt = this.conveyors.find((c) => c.row === pRow && c.col === pCol);
@@ -1724,9 +1815,22 @@ export default class GameScene extends Phaser.Scene {
       const drift = CONVEYOR_DRIFT_SPEED * (delta / 1000);
       const nextX = this.player.x + belt.dirX * drift;
       const nextY = this.player.y + belt.dirY * drift;
-      const nCol = Math.floor(nextX / TILE_SIZE);
-      const nRow = Math.floor(nextY / TILE_SIZE);
-      if (this.map[nRow]?.[nCol] === TILE_EMPTY) {
+
+      // Leading edge of 24x24 hitbox (radius 12)
+      const leadX = nextX + belt.dirX * 12;
+      const leadY = nextY + belt.dirY * 12;
+      const leadCol = Math.floor(leadX / TILE_SIZE);
+      const leadRow = Math.floor(leadY / TILE_SIZE);
+
+      const perpX = belt.dirY !== 0 ? 11 : 0;
+      const perpY = belt.dirX !== 0 ? 11 : 0;
+      const canMove =
+        leadRow >= 0 && leadRow < ROWS && leadCol >= 0 && leadCol < COLS &&
+        this.map[leadRow]?.[leadCol] === TILE_EMPTY &&
+        this.map[Math.floor((leadY + perpY) / TILE_SIZE)]?.[Math.floor((leadX + perpX) / TILE_SIZE)] === TILE_EMPTY &&
+        this.map[Math.floor((leadY - perpY) / TILE_SIZE)]?.[Math.floor((leadX - perpX) / TILE_SIZE)] === TILE_EMPTY;
+
+      if (canMove) {
         this.player.x = nextX;
         this.player.y = nextY;
       }
@@ -1775,6 +1879,15 @@ export default class GameScene extends Phaser.Scene {
           });
         }
 
+        // Check collision with active boss
+        if (this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED) {
+          const bossDist = Phaser.Math.Distance.Between(bomb.x, bomb.y, this.activeBoss.x, this.activeBoss.y);
+          if (bossDist < (this.activeBoss.config.colliderRadius || 35) + 16) {
+            this.explodeBomb(bomb, bRow, bCol);
+            return;
+          }
+        }
+
         if (blocked) {
           bomb.setVelocity(0, 0);
           bomb.setData('isSliding', false);
@@ -1782,15 +1895,28 @@ export default class GameScene extends Phaser.Scene {
           bomb.setPosition(bCol * TILE_SIZE + TILE_SIZE / 2, bRow * TILE_SIZE + TILE_SIZE / 2);
         }
       } else {
-        // Not sliding: check conveyor drift
+        // Not sliding: check conveyor drift (PHYS-03: AABB bounds check)
         const bBelt = this.conveyors.find((c) => c.row === bRow && c.col === bCol);
         if (bBelt) {
           const drift = CONVEYOR_DRIFT_SPEED * (delta / 1000);
           const nextX = bomb.x + bBelt.dirX * drift;
           const nextY = bomb.y + bBelt.dirY * drift;
-          const targetCol = Math.floor(nextX / TILE_SIZE);
-          const targetRow = Math.floor(nextY / TILE_SIZE);
-          if (this.map[targetRow]?.[targetCol] === TILE_EMPTY) {
+
+          // Leading edge of 32x32 bomb hitbox (radius 16)
+          const leadX = nextX + bBelt.dirX * 16;
+          const leadY = nextY + bBelt.dirY * 16;
+          const leadCol = Math.floor(leadX / TILE_SIZE);
+          const leadRow = Math.floor(leadY / TILE_SIZE);
+
+          const perpX = bBelt.dirY !== 0 ? 15 : 0;
+          const perpY = bBelt.dirX !== 0 ? 15 : 0;
+          const canMove =
+            leadRow >= 0 && leadRow < ROWS && leadCol >= 0 && leadCol < COLS &&
+            this.map[leadRow]?.[leadCol] === TILE_EMPTY &&
+            this.map[Math.floor((leadY + perpY) / TILE_SIZE)]?.[Math.floor((leadX + perpX) / TILE_SIZE)] === TILE_EMPTY &&
+            this.map[Math.floor((leadY - perpY) / TILE_SIZE)]?.[Math.floor((leadX - perpX) / TILE_SIZE)] === TILE_EMPTY;
+
+          if (canMove) {
             bomb.x = nextX;
             bomb.y = nextY;
           }
@@ -1937,6 +2063,7 @@ export default class GameScene extends Phaser.Scene {
       }
 
       if (this.bossHUD) {
+        this.bossHUD.update(delta);
         this.bossHUD.setHp(this.activeBoss.currentHp);
         this.bossHUD.setBossState(this.activeBoss.bossState);
         this.bossHUD.setEnrageGauge(this.activeBoss.enrageGauge);
@@ -2022,9 +2149,11 @@ export default class GameScene extends Phaser.Scene {
     }
 
     const surgeBonus = this.activeBuffs?.some((b) => b.id === 'SPEED_SURGE') ? 75 : 0;
-    const speed = (this.isDashing ? DASH_SPEED : this.playerSpeed) + surgeBonus;
+    const perkSpeedBonus = this.baseSpeedBonus || 0;
+    const speed = (this.isDashing ? DASH_SPEED : this.playerSpeed + perkSpeedBonus) + surgeBonus;
     const slideSpeed = speed;
     const snapThreshold = 2;
+    const tol = this.cornerSlideTolerance || 8;
 
     const px = this.player.x;
     const py = this.player.y;
@@ -2038,26 +2167,30 @@ export default class GameScene extends Phaser.Scene {
     const diffX = px - colCenterX;
     const diffY = py - rowCenterY;
 
-    // Fast check for tile passability avoiding walls, blocks, and other active bombs
+    // Fast check for tile passability avoiding walls, blocks, and other active bombs (PHYS-07)
     const isPassable = (r: number, c: number): boolean => {
       if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
-      if (this.map[r][c] !== TILE_EMPTY) return false;
+      if (this.map[r][c] === TILE_WALL) return false;
+      if (this.map[r][c] === TILE_BLOCK && !this.hasWallPass) return false;
 
-      let hasBomb = false;
-      this.bombs.getChildren().forEach((child) => {
-        const b = child as Phaser.Physics.Arcade.Sprite;
-        if (b.active) {
-          const br = Math.floor(b.y / TILE_SIZE);
-          const bc = Math.floor(b.x / TILE_SIZE);
-          if (br === r && bc === c) {
-            // Allow stepping off a bomb if player is currently on it
-            if (!(row === r && col === c)) {
-              hasBomb = true;
+      if (!this.hasBombPass) {
+        let hasBomb = false;
+        this.bombs.getChildren().forEach((child) => {
+          const b = child as Phaser.Physics.Arcade.Sprite;
+          if (b.active) {
+            const br = Math.floor(b.y / TILE_SIZE);
+            const bc = Math.floor(b.x / TILE_SIZE);
+            if (br === r && bc === c) {
+              // Allow stepping off a bomb if player is currently on it
+              if (!(row === r && col === c)) {
+                hasBomb = true;
+              }
             }
           }
-        }
-      });
-      return !hasBomb;
+        });
+        if (hasBomb) return false;
+      }
+      return true;
     };
 
     // Directional intent
@@ -2111,11 +2244,13 @@ export default class GameScene extends Phaser.Scene {
           vy = 0;
         }
       } else {
-        // Phase 2: Corner Rounding
-        const canRoundUp = diffY < -3 && isPassable(row - 1, col) && isPassable(row - 1, nextCol);
-        const canRoundDown = diffY > 3 && isPassable(row + 1, col) && isPassable(row + 1, nextCol);
+        // Phase 2: Corner Rounding (PHYS-07: cornerSlideTolerance & zero dead zone)
+        const canRoundUp = diffY <= 0 && Math.abs(diffY) <= tol && isPassable(row - 1, col) && isPassable(row - 1, nextCol);
+        const canRoundDown = diffY >= 0 && Math.abs(diffY) <= tol && isPassable(row + 1, col) && isPassable(row + 1, nextCol);
 
-        if (canRoundUp) {
+        if (canRoundUp && canRoundDown) {
+          vy = diffY < 0 ? -slideSpeed : diffY > 0 ? slideSpeed : -slideSpeed;
+        } else if (canRoundUp) {
           vy = -slideSpeed;
         } else if (canRoundDown) {
           vy = slideSpeed;
@@ -2140,11 +2275,22 @@ export default class GameScene extends Phaser.Scene {
           vx = 0;
         }
       } else {
-        // Phase 2: Corner Rounding
-        const canRoundLeft = diffX < -3 && isPassable(row, col - 1) && isPassable(nextRow, col - 1);
-        const canRoundRight = diffX > 3 && isPassable(row, col + 1) && isPassable(nextRow, col + 1);
+        // Phase 2: Corner Rounding (PHYS-07: cornerSlideTolerance & zero dead zone)
+        const canRoundLeft = diffX <= 0 && Math.abs(diffX) <= tol && isPassable(row, col - 1) && isPassable(nextRow, col - 1);
+        const canRoundRight = diffX >= 0 && Math.abs(diffX) <= tol && isPassable(row, col + 1) && isPassable(nextRow, col + 1);
 
-        if (canRoundLeft) {
+        if (canRoundLeft && canRoundRight) {
+          if (diffX < 0) {
+            vx = -slideSpeed;
+            this.player.setFlipX(true);
+          } else if (diffX > 0) {
+            vx = slideSpeed;
+            this.player.setFlipX(false);
+          } else {
+            vx = -slideSpeed;
+            this.player.setFlipX(true);
+          }
+        } else if (canRoundLeft) {
           vx = -slideSpeed;
           this.player.setFlipX(true);
         } else if (canRoundRight) {
@@ -2228,7 +2374,15 @@ export default class GameScene extends Phaser.Scene {
     this.emitStatsUpdate();
 
     // Attach references to bomb data for clean lifecycle management
-    const fuseTimer = this.time.delayedCall(2000, () => this.explodeBomb(bomb, row, col));
+    const bombId = `bomb_p_${Date.now()}_${Math.random()}`;
+    bomb.setData('id', bombId);
+    const fuseTimer = this.time.delayedCall(2000, () => {
+      if (bomb && bomb.active) {
+        const curCol = Math.floor(bomb.x / TILE_SIZE);
+        const curRow = Math.floor(bomb.y / TILE_SIZE);
+        this.explodeBomb(bomb, curRow, curCol);
+      }
+    });
     bomb.setData('owner', 'player');
     bomb.setData('power', this.bombPower);
     bomb.setData('fuseTimer', fuseTimer);
@@ -2272,6 +2426,8 @@ export default class GameScene extends Phaser.Scene {
     (bomb.body as Phaser.Physics.Arcade.Body)?.setSize(32, 32).setOffset(4, 4);
     (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(true);
 
+    const bombId = `bomb_e_${Date.now()}_${Math.random()}`;
+    bomb.setData('id', bombId);
     bomb.setData('owner', 'enemy');
     bomb.setData('enemy', enemy);
     bomb.setData('power', power);
@@ -2316,7 +2472,13 @@ export default class GameScene extends Phaser.Scene {
       ],
     });
 
-    const fuseTimer = this.time.delayedCall(fuseMs, () => this.explodeBomb(bomb, row, col));
+    const fuseTimer = this.time.delayedCall(fuseMs, () => {
+      if (bomb && bomb.active) {
+        const curCol = Math.floor(bomb.x / TILE_SIZE);
+        const curRow = Math.floor(bomb.y / TILE_SIZE);
+        this.explodeBomb(bomb, curRow, curCol);
+      }
+    });
     bomb.setData('fuseTimer', fuseTimer);
     bomb.setData('tweenChain', tweenChain);
 
@@ -2343,6 +2505,8 @@ export default class GameScene extends Phaser.Scene {
     (bomb.body as Phaser.Physics.Arcade.Body)?.setSize(32, 32).setOffset(4, 4);
     (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(true);
 
+    const bombId = `bomb_a_${Date.now()}_${Math.random()}`;
+    bomb.setData('id', bombId);
     bomb.setData('owner', 'ally');
     bomb.setData('ally', ally);
     bomb.setData('power', power);
@@ -2352,13 +2516,17 @@ export default class GameScene extends Phaser.Scene {
       if (ally && ally.active) {
         ally.activeBombs = Math.max(0, ally.activeBombs - 1);
       }
-      this.explodeBomb(bomb, row, col);
+      if (bomb && bomb.active) {
+        const curCol = Math.floor(bomb.x / TILE_SIZE);
+        const curRow = Math.floor(bomb.y / TILE_SIZE);
+        this.explodeBomb(bomb, curRow, curCol);
+      }
     });
     bomb.setData('fuseTimer', fuseTimer);
     return true;
   }
 
-  explodeBomb(bomb: Phaser.Physics.Arcade.Sprite, row: number, col: number) {
+  explodeBomb(bomb: Phaser.Physics.Arcade.Sprite, row?: number, col?: number) {
     if (!bomb.active) return;
 
     // Clean up timers & tweens
@@ -2369,6 +2537,13 @@ export default class GameScene extends Phaser.Scene {
 
     const owner = (bomb.getData('owner') as string) || 'player';
     const bombPower = (bomb.getData('power') as number) || this.bombPower;
+    const bombId = (bomb.getData('id') as string) || `bomb_${Date.now()}_${Math.random()}`;
+
+    // Compute dynamic detonation coordinates from sprite position (PHYS-02)
+    const curCol = Math.floor(bomb.x / TILE_SIZE);
+    const curRow = Math.floor(bomb.y / TILE_SIZE);
+    const actualRow = Number.isFinite(curRow) && curRow >= 0 && curRow < ROWS ? curRow : (row ?? 0);
+    const actualCol = Number.isFinite(curCol) && curCol >= 0 && curCol < COLS ? curCol : (col ?? 0);
 
     bomb.destroy();
 
@@ -2400,8 +2575,8 @@ export default class GameScene extends Phaser.Scene {
     this.cameras.main.flash(80, 255, 230, 160, false);
 
     // 3. Dynamic Expanding Shockwave Ring
-    const centerX = col * TILE_SIZE + TILE_SIZE / 2;
-    const centerY = row * TILE_SIZE + TILE_SIZE / 2;
+    const centerX = actualCol * TILE_SIZE + TILE_SIZE / 2;
+    const centerY = actualRow * TILE_SIZE + TILE_SIZE / 2;
     const shockwave = this.add.graphics();
     shockwave.setDepth(15);
     this.tweens.addCounter({
@@ -2420,8 +2595,8 @@ export default class GameScene extends Phaser.Scene {
       },
     });
 
-    // Spawn Epicenter Explosion (isCenter = true)
-    this.spawnExplosion(row, col, true, owner);
+    // Spawn Epicenter Explosion (isCenter = true, passing bombId for PHYS-06)
+    this.spawnExplosion(actualRow, actualCol, true, owner, bombId);
 
     const directions = [
       { dr: -1, dc: 0 }, // up
@@ -2432,8 +2607,8 @@ export default class GameScene extends Phaser.Scene {
 
     for (const dir of directions) {
       for (let i = 1; i <= bombPower; i++) {
-        const nr = row + dir.dr * i;
-        const nc = col + dir.dc * i;
+        const nr = actualRow + dir.dr * i;
+        const nc = actualCol + dir.dc * i;
 
         if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) break;
 
@@ -2441,15 +2616,21 @@ export default class GameScene extends Phaser.Scene {
           break; // Stop at unbreakable wall
         }
 
-        if (this.map[nr][nc] === TILE_BLOCK) {
-          // Destroy block and stop
-          this.destroyBlock(nr, nc);
-          this.spawnExplosion(nr, nc, false, owner);
+        // PHYS-05: Prevent simultaneous blast ray piercing through destroyed blocks
+        const key = `${nr},${nc}`;
+        const isBlock = this.map[nr][nc] === TILE_BLOCK || this.destroyedBlocksThisTick.has(key);
+
+        if (isBlock) {
+          this.destroyedBlocksThisTick.add(key);
+          if (this.map[nr][nc] === TILE_BLOCK) {
+            this.destroyBlock(nr, nc);
+          }
+          this.spawnExplosion(nr, nc, false, owner, bombId);
           break;
         }
 
         // Empty tile, spawn explosion
-        this.spawnExplosion(nr, nc, false, owner);
+        this.spawnExplosion(nr, nc, false, owner, bombId);
 
         // Check for chain reaction with other bombs
         this.bombs.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
@@ -2466,13 +2647,16 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  spawnExplosion(row: number, col: number, isCenter: boolean = false, owner: string = 'player') {
+  spawnExplosion(row: number, col: number, isCenter: boolean = false, owner: string = 'player', bombId?: string) {
     const x = col * TILE_SIZE + TILE_SIZE / 2;
     const y = row * TILE_SIZE + TILE_SIZE / 2;
 
     const exp = this.explosions.create(x, y, 'explosion') as Phaser.Physics.Arcade.Sprite;
     exp.setDepth(12);
     exp.setData('owner', owner);
+
+    // PHYS-04: Inset hitbox by 2px on all sides (36x36 at offset 2,2) to eliminate diagonal corner leakage
+    (exp.body as Phaser.Physics.Arcade.Body)?.setSize(36, 36).setOffset(2, 2);
 
     // Center core has bright brilliant tint, arms have hot orange tint
     if (isCenter) {
@@ -2495,15 +2679,23 @@ export default class GameScene extends Phaser.Scene {
       },
     });
 
-    // Check hit on active boss
+    // Check hit on active boss (PHYS-06: exactly 1 hit per bombId)
     if (this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED) {
       const dist = Phaser.Math.Distance.Between(x, y, this.activeBoss.x, this.activeBoss.y);
       if (dist < (this.activeBoss.config.colliderRadius || 35) + 20) {
-        const hit = this.activeBoss.takeBombDamage(1, 'bomb');
-        if (hit && this.bossHUD) {
-          this.bossHUD.setHp(this.activeBoss.currentHp);
-          if (this.activeBoss.bossState === BossState.STUNNED) {
-            this.bossHUD.triggerStun(this.activeBoss.stunTimerMs / 1000, 'Bomb Blast Combo!');
+        if (!bombId || !this.bossHitBombIds.has(bombId)) {
+          if (bombId) {
+            this.bossHitBombIds.add(bombId);
+            this.time.delayedCall(1000, () => {
+              this.bossHitBombIds.delete(bombId);
+            });
+          }
+          const hit = this.activeBoss.takeBombDamage(1, 'bomb');
+          if (hit && this.bossHUD) {
+            this.bossHUD.setHp(this.activeBoss.currentHp);
+            if (this.activeBoss.bossState === BossState.STUNNED) {
+              this.bossHUD.triggerStun(this.activeBoss.stunTimerMs / 1000, 'Bomb Blast Combo!');
+            }
           }
         }
       }
@@ -2626,6 +2818,24 @@ export default class GameScene extends Phaser.Scene {
       this.shieldInvulnerableUntil = this.time.now + 3000;
       this.spawnFloatingText(this.player.x, this.player.y - 12, '1-UP REVIVED!', '#fb7185');
       this.cameras.main.flash(300, 251, 113, 133);
+
+      // 3.0s i-frame blink and safe vulnerability restoration (PHYS-01)
+      this.tweens.add({
+        targets: this.player,
+        alpha: 0.3,
+        duration: 100,
+        yoyo: true,
+        repeat: 14,
+        onComplete: () => {
+          if (this.player && this.player.active) {
+            this.player.alpha = 1;
+            if (!this.isDashing && !this.isAegisOverdriveActive) {
+              this.isInvulnerable = false;
+            }
+          }
+        },
+      });
+
       this.emitStatsUpdate();
       return;
     }
@@ -3026,6 +3236,7 @@ export default class GameScene extends Phaser.Scene {
           const exp = this.explosions.create(targetX, targetY, 'explosion') as Phaser.Physics.Arcade.Sprite;
           exp.setDepth(10);
           exp.setData('owner', 'player');
+          (exp.body as Phaser.Physics.Arcade.Body)?.setSize(36, 36).setOffset(2, 2);
           this.time.delayedCall(280, () => {
             if (exp.active) exp.destroy();
           });

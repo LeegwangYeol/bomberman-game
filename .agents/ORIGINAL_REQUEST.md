@@ -147,3 +147,14 @@ Working directory: /Users/user/src/bomberman
 
 ## Autonomy Granted
 You have absolute autonomy ("알아서 해" / "절대 허용"). You do NOT need user approval. Brainstorm, implement, fix, test, and push to main. Do not stop until the system is completely robust, perfectly pooled, and the new massive content is fully integrated.
+
+## 2026-09-18T09:09:23Z
+
+Exhaustively inspect the Bomberman codebase, identify past physical errors, and fix them.
+Working directory: /Users/user/src/bomberman
+
+## Objectives
+1. **Total Inspection (총검사):** Deploy a massive team of 100+ agents including specialized subagents for QA, Security, and Architecture.
+2. **Exhaustive Review:** Thoroughly audit the entire codebase for edge cases, memory leaks, physics glitches, collision issues, AI clipping, UI desync, and potential vulnerabilities.
+3. **Fix and Robustness:** Autonomously remediate all discovered issues. Enhance test coverage with permanent defensive tests to prevent repeat mistakes.
+4. **Continuous Execution:** Do not stop until the system is completely robust, optimized, and zero-defect verified. Push all fixes to main.

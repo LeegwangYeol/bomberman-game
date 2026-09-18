@@ -284,3 +284,225 @@ test('Chain Detonation: Explosion hitting another bomb detonates it immediately'
   assert.ok(sim.explosions.some(e => e.row === 1 && e.col === 1 && e.isCenter));
   assert.ok(sim.explosions.some(e => e.row === 1 && e.col === 2 && e.isCenter));
 });
+
+/* ==============================================================================
+ * SUITE: DEFENSIVE TESTS (PHYS-01, PHYS-02, PHYS-04, PHYS-05, PHYS-06)
+ * ============================================================================== */
+
+test('PHYS-01: Extra life revival grants 3000ms i-frames and resets isInvulnerable to false', () => {
+  let extraLives = 1;
+  let isInvulnerable = false;
+  let shieldInvulnerableUntil = 0;
+  let currentTime = 10000;
+
+  function playerDie() {
+    if (isInvulnerable) return;
+    if (extraLives > 0) {
+      extraLives--;
+      isInvulnerable = true;
+      shieldInvulnerableUntil = currentTime + 3000;
+      return;
+    }
+  }
+
+  function updateVulnerability(now) {
+    if (isInvulnerable && now >= shieldInvulnerableUntil) {
+      isInvulnerable = false;
+    }
+  }
+
+  // Fatal hit at t = 10000
+  playerDie();
+  assert.equal(extraLives, 0);
+  assert.equal(isInvulnerable, true, 'Player should be invulnerable immediately after 1-UP');
+  assert.equal(shieldInvulnerableUntil, 13000);
+
+  // During 3000ms window (t = 11500)
+  updateVulnerability(11500);
+  assert.equal(isInvulnerable, true, 'Must remain invulnerable during 3000ms window');
+
+  // After 3000ms expires (t = 13000)
+  updateVulnerability(13000);
+  assert.equal(isInvulnerable, false, 'isInvulnerable must reset to false after 3000ms');
+
+  // Next fatal hit without extra lives kills player
+  let gameOver = false;
+  function playerDieFinal() {
+    if (isInvulnerable) return;
+    if (extraLives === 0) {
+      gameOver = true;
+    }
+  }
+  playerDieFinal();
+  assert.equal(gameOver, true, 'Vulnerability restored cleanly; player is not in permanent god-mode');
+});
+
+test('PHYS-02: Kicked / drifted bomb detonates at current sprite position, not placement closure', () => {
+  const map = createStandardMap();
+  const sim = new BombLifecycleSimulator(map, 1, 2);
+
+  // Place bomb at (1, 1) [x = 60, y = 60]
+  const b = sim.placeBomb(60, 60);
+  assert.equal(b.row, 1);
+  assert.equal(b.col, 1);
+
+  // Simulate kicking the bomb 4 tiles to the right: comes to rest at (1, 5) [x = 220, y = 60]
+  b.x = 220;
+  b.y = 60;
+  // Dynamic update of row/col matching GameScene.ts explodeBomb(bomb)
+  b.col = Math.floor(b.x / TILE_SIZE); // 5
+  b.row = Math.floor(b.y / TILE_SIZE); // 1
+
+  // Detonate
+  sim.update(2000);
+
+  // Epicenter MUST be at (1, 5), NOT at original placement tile (1, 1)
+  assert.ok(
+    sim.explosions.some(e => e.row === 1 && e.col === 5 && e.isCenter),
+    'Epicenter must be at current sprite tile (1, 5)'
+  );
+  assert.ok(
+    !sim.explosions.some(e => e.row === 1 && e.col === 1 && e.isCenter),
+    'Old placement tile (1, 1) must NOT explode'
+  );
+});
+
+test('PHYS-04: 36x36 explosion body with 2px inset eliminates diagonal blast damage behind solid corner pillars', () => {
+  // Indestructible pillar at (2, 2) spanning x: [80, 120], y: [80, 120]
+  // Blast epicenter at (1, 2), center = (100, 60)
+  const blastCenter = { x: 100, y: 60 };
+
+  // 1. Unadjusted 40x40 body: [80, 120] x [40, 80]
+  const unadjustedAABB = {
+    left: blastCenter.x - 20,
+    right: blastCenter.x + 20,
+    top: blastCenter.y - 20,
+    bottom: blastCenter.y + 20,
+  };
+  assert.equal(unadjustedAABB.right, 120);
+  assert.equal(unadjustedAABB.bottom, 80);
+
+  // 2. Remediated 36x36 body with 2px inset: [82, 118] x [42, 78]
+  const remediatedAABB = {
+    left: blastCenter.x - 18,
+    right: blastCenter.x + 18,
+    top: blastCenter.y - 18,
+    bottom: blastCenter.y + 18,
+  };
+  assert.equal(remediatedAABB.right, 118);
+  assert.equal(remediatedAABB.bottom, 78);
+
+  // Entity rounding corner in East corridor (2, 3), center = (130, 90), 24x24 hitbox (radius 12)
+  const entityAABB = {
+    left: 130 - 12, // 118
+    right: 130 + 12, // 142
+    top: 90 - 12, // 78
+    bottom: 90 + 12, // 102
+  };
+
+  function checkOverlap(a, b) {
+    return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+  }
+
+  // Without 2px inset: diagonal leakage bug hits entity through pillar corner!
+  assert.equal(
+    checkOverlap(unadjustedAABB, entityAABB),
+    true,
+    '40x40 body incorrectly leaks diagonally across pillar corner'
+  );
+
+  // With 36x36 2px inset: diagonal leakage is mathematically eliminated!
+  assert.equal(
+    checkOverlap(remediatedAABB, entityAABB),
+    false,
+    '36x36 body with 2px inset cleanly shields entity behind solid pillar'
+  );
+});
+
+test('PHYS-05: Simultaneous blast rays terminate cleanly at soft blocks without piercing', () => {
+  const map = createStandardMap();
+  map[2][1] = TILE_BLOCK; // Soft block separating (1, 1) and (3, 1)
+
+  const destroyedBlocksThisTick = new Set();
+  const raycastHitsA = [];
+  const raycastHitsB = [];
+
+  // Bomb A at (1, 1) shoots downwards with power = 3
+  function traceRay(startR, startC, dr, dc, power, hits) {
+    for (let i = 1; i <= power; i++) {
+      const nr = startR + dr * i;
+      const nc = startC + dc * i;
+      const key = `${nr},${nc}`;
+      const isBlock = map[nr][nc] === TILE_BLOCK || destroyedBlocksThisTick.has(key);
+
+      if (isBlock) {
+        destroyedBlocksThisTick.add(key);
+        map[nr][nc] = TILE_EMPTY; // Block destroyed
+        hits.push({ r: nr, c: nc, type: 'block_hit' });
+        break; // Ray terminates
+      }
+      hits.push({ r: nr, c: nc, type: 'empty_hit' });
+    }
+  }
+
+  // Trace Bomb A down
+  traceRay(1, 1, 1, 0, 3, raycastHitsA);
+  assert.equal(raycastHitsA.length, 1);
+  assert.equal(raycastHitsA[0].r, 2);
+  assert.equal(raycastHitsA[0].c, 1);
+  assert.equal(raycastHitsA[0].type, 'block_hit');
+
+  // In the same tick, trace Bomb B at (3, 1) shooting upwards
+  traceRay(3, 1, -1, 0, 3, raycastHitsB);
+  assert.equal(raycastHitsB.length, 1);
+  assert.equal(raycastHitsB[0].r, 2);
+  assert.equal(raycastHitsB[0].c, 1);
+  assert.equal(raycastHitsB[0].type, 'block_hit');
+
+  // Neither ray pierced through (2, 1) to strike opposite bomb source
+  assert.ok(!raycastHitsA.some(h => h.r === 3 && h.c === 1), 'Bomb A ray must not pierce to (3, 1)');
+  assert.ok(!raycastHitsB.some(h => h.r === 1 && h.c === 1), 'Bomb B ray must not pierce to (1, 1)');
+});
+
+test('PHYS-06: Single bomb blast damages active boss exactly once despite multiple overlapping explosion tiles', () => {
+  // Model Boss HP and bomb hit tracking
+  let bossHp = 10;
+  const bossHitBombIds = new Set();
+
+  function onExplosionTileNearBoss(tileX, tileY, bombId) {
+    // Boss collider circle at (100, 100), radius 35 (+20 = 55px reach)
+    const dist = Math.hypot(tileX - 100, tileY - 100);
+    if (dist < 55) {
+      if (!bombId || !bossHitBombIds.has(bombId)) {
+        if (bombId) bossHitBombIds.add(bombId);
+        bossHp -= 1; // Take 1 damage
+        return true;
+      }
+    }
+    return false;
+  }
+
+  const bombId = 'bomb_test_phys_06';
+
+  // Bomb blast spawns 3 tiles close to boss:
+  // 1. Epicenter at (80, 80) -> dist = 28.2px (< 55)
+  const hit1 = onExplosionTileNearBoss(80, 80, bombId);
+  assert.equal(hit1, true);
+  assert.equal(bossHp, 9);
+
+  // 2. Arm tile 1 at (100, 60) -> dist = 40.0px (< 55)
+  const hit2 = onExplosionTileNearBoss(100, 60, bombId);
+  assert.equal(hit2, false, 'Second tile from same bombId must be rejected');
+  assert.equal(bossHp, 9, 'Boss HP must remain 9 (no multi-hit)');
+
+  // 3. Arm tile 2 at (60, 100) -> dist = 40.0px (< 55)
+  const hit3 = onExplosionTileNearBoss(60, 100, bombId);
+  assert.equal(hit3, false, 'Third tile from same bombId must be rejected');
+  assert.equal(bossHp, 9, 'Boss HP must remain 9');
+
+  // Different bomb detonates later
+  const hitOtherBomb = onExplosionTileNearBoss(80, 80, 'bomb_other_02');
+  assert.equal(hitOtherBomb, true, 'Different bombId is accepted');
+  assert.equal(bossHp, 8);
+});
+

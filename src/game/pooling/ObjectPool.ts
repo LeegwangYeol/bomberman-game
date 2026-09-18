@@ -22,7 +22,7 @@ export class ObjectPool<T> {
   private readonly activeFlags: Uint8Array;
   private readonly itemToIndexMap: Map<T, number>;
   private _activeCount: number = 0;
-  private readonly resetCallback?: (item: T) => void;
+  private resetCallback?: (item: T) => void;
   private readonly acquireCallback?: (item: T) => void;
 
   constructor(options: ObjectPoolOptions<T>) {
@@ -103,11 +103,6 @@ export class ObjectPool<T> {
       return false; // Already released (double-release guard)
     }
 
-    this.activeFlags[itemIndex] = 0;
-    if (this.resetCallback) {
-      this.resetCallback(item);
-    }
-
     const slot = this.itemToActiveSlot[itemIndex];
     const lastSlot = --this._activeCount;
 
@@ -120,6 +115,15 @@ export class ObjectPool<T> {
     this.activeIndices[lastSlot] = -1;
     this.itemToActiveSlot[itemIndex] = -1;
     this.freeIndices[this.freeHead++] = itemIndex;
+    this.activeFlags[itemIndex] = 0;
+
+    if (this.resetCallback) {
+      try {
+        this.resetCallback(item);
+      } catch {
+        // Guard against custom reset callback errors corrupting pool invariants
+      }
+    }
 
     return true;
   }
@@ -156,7 +160,9 @@ export class ObjectPool<T> {
       this.itemToActiveSlot[itemIndex] = -1;
       this.activeIndices[i] = -1;
       if (this.resetCallback) {
-        this.resetCallback(this.storage[itemIndex]);
+        try {
+          this.resetCallback(this.storage[itemIndex]);
+        } catch {}
       }
     }
 
@@ -165,6 +171,20 @@ export class ObjectPool<T> {
     for (let i = 0; i < this.capacity; i++) {
       this.freeIndices[i] = i;
     }
+  }
+
+  /**
+   * Releases all resources and clears references for complete teardown.
+   */
+  public destroy(): void {
+    this.reset();
+    this.storage.length = 0;
+    this.itemToIndexMap.clear();
+    this.resetCallback = undefined;
+  }
+
+  public dispose(): void {
+    this.destroy();
   }
 }
 

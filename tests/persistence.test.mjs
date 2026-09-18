@@ -37,6 +37,7 @@ import {
 } from '../src/game/progression/ProgressionTypes.ts';
 
 import { createInitialPlayerStats } from '../src/game/gameplay_mechanics.ts';
+import { PerkTreeManager, CONFECTIONERY_PERKS } from '../src/game/progression/PerkTree.ts';
 
 /* ==============================================================================
  * SECTION 1: RUN-LENGTH ENCODING (RLE) COMPRESSION & DECOMPRESSION
@@ -628,3 +629,146 @@ test('WebStorageAdapter: falls back cleanly to MemoryStorageAdapter in headless/
   localWeb.clear();
   assert.equal(localWeb.getItem('k2'), null);
 });
+
+/* ==============================================================================
+ * SECTION 6: DEFENSIVE SECURITY & RESILIENCE TESTS (SEC-01 TO SEC-04)
+ * ============================================================================== */
+
+test('SEC-01: CircuitBreaker offline queue does not deadlock on non-429 retry under CLOSED state', async () => {
+  const cb = new APIQuotaCircuitBreaker({
+    failureThreshold: 5,
+    initialBackoffMs: 50,
+  });
+
+  // Trip to OPEN
+  cb.handleQuotaError();
+  assert.equal(cb.isOpen(), true);
+
+  // Queue an operation that fails on attempt 1 with a network timeout, but succeeds on attempt 2
+  let attempts = 0;
+  const queuedPromise = cb.execute(async () => {
+    attempts++;
+    if (attempts === 1) {
+      throw new Error('ETIMEDOUT: Connection reset by peer');
+    }
+    return 'network_recovered_payload';
+  });
+
+  assert.equal(cb.getQueueLength(), 1);
+
+  // Recovery: circuit breaker resets to CLOSED and initiates drainQueue()
+  cb.recordSuccess();
+  assert.equal(cb.isClosed(), true);
+
+  // Wait for the scheduled retry timer to drain the non-429 queued item
+  const result = await queuedPromise;
+  assert.equal(result, 'network_recovered_payload');
+  assert.equal(attempts, 2, 'Must have retried successfully');
+  assert.equal(cb.getQueueLength(), 0, 'Queue must be drained');
+});
+
+test('SEC-02: PerkTreeManager safely rejects prototype pollution keys without throwing TypeError', () => {
+  const prototypeAttackKeys = ['toString', 'valueOf', 'constructor', '__proto__', 'hasOwnProperty', 'isPrototypeOf'];
+
+  for (const maliciousKey of prototypeAttackKeys) {
+    // 1. canUpgradePerk must safely return unknown perk ID instead of crashing
+    const check = PerkTreeManager.canUpgradePerk(maliciousKey, {}, 100);
+    assert.equal(check.canUpgrade, false);
+    assert.equal(check.reason, 'Unknown perk ID');
+
+    // 2. upgradePerk must reject without modifying essence or throwing
+    const upgradeRes = PerkTreeManager.upgradePerk(maliciousKey, {}, 100);
+    assert.equal(upgradeRes.success, false);
+    assert.equal(upgradeRes.remainingEssence, 100);
+  }
+
+  // 3. calculateSpentEssence ignores prototype keys
+  const spent = PerkTreeManager.calculateSpentEssence({
+    toString: 5,
+    valueOf: 10,
+    __proto__: 99,
+  });
+  assert.equal(spent, 0);
+
+  // 4. calculateAppliedBonuses safely returns default bonuses
+  const bonuses = PerkTreeManager.calculateAppliedBonuses({
+    constructor: 5,
+  });
+  assert.equal(bonuses.startingBlastRadiusBonus, 0);
+  assert.equal(bonuses.baseSpeedBonus, 0);
+});
+
+test('SEC-03: WebStorageAdapter prevents stale reads when browser storage quota is exceeded', () => {
+  // Mock browser storage that throws QuotaExceededError on setItem
+  let storedValue = 'INITIAL_PROFILE_V1';
+  const mockStorage = {
+    getItem: (key) => (key === 'profile' ? storedValue : null),
+    setItem: () => {
+      throw new Error('QuotaExceededError: The quota has been exceeded.');
+    },
+    removeItem: () => {},
+    clear: () => {},
+  };
+
+  const adapter = new WebStorageAdapter('local');
+  // Inject mock storage
+  adapter.storage = mockStorage;
+
+  // Initial read gets initial value
+  assert.equal(adapter.getItem('profile'), 'INITIAL_PROFILE_V1');
+
+  // Attempt to write new profile — throws QuotaExceededError and falls back to memory adapter
+  adapter.setItem('profile', 'UPDATED_PROFILE_V2');
+
+  // CRITICAL SEC-03 check: Reading after quota error MUST return fallback memory value, NOT stale storage!
+  const readAfterQuota = adapter.getItem('profile');
+  assert.equal(readAfterQuota, 'UPDATED_PROFILE_V2', 'Must return updated value from fallback memory');
+
+  // Now restore healthy storage that accepts writes
+  mockStorage.setItem = (key, val) => {
+    storedValue = val;
+  };
+
+  // Writing to healthy storage should update storage and clear fallback
+  adapter.setItem('profile', 'HEALTHY_STORAGE_PROFILE_V3');
+  assert.equal(adapter.getItem('profile'), 'HEALTHY_STORAGE_PROFILE_V3');
+});
+
+test('SEC-04: GameStatePersistence sanitizes imported profile against corrupted numbers, negative perks, and prototype keys', () => {
+  const session = new MemoryStorageAdapter();
+  const local = new MemoryStorageAdapter();
+  const persistence = new GameStatePersistence(session, local);
+
+  const maliciousProfile = {
+    version: STORAGE_SCHEMA_VERSION,
+    lastUpdated: Date.now(),
+    cosmicEssence: -9999, // Negative essence attack
+    starCandies: NaN, // NaN currency attack
+    perks: {
+      sugar_spark: -5, // Negative perk level
+      quick_wick: 999, // Way above max level (3)
+      __proto__: 10, // Prototype injection
+      constructor: 5,
+      toString: 3,
+    },
+    unlockedModes: ['boss_rush', 12345, null, '__proto__'],
+  };
+
+  const sanitized = persistence.sanitizeMetaProfile(maliciousProfile);
+
+  // Verify numerical sanitization
+  assert.equal(sanitized.cosmicEssence, 0, 'Negative cosmicEssence clamped to 0');
+  assert.equal(sanitized.starCandies, 50, 'NaN starCandies falls back to default 50');
+
+  // Verify perk sanitization
+  assert.equal(sanitized.perks.sugar_spark, 0, 'Negative perk level clamped to 0');
+  const maxWick = CONFECTIONERY_PERKS.quick_wick.maxLevel;
+  assert.equal(sanitized.perks.quick_wick, maxWick, `Perk level clamped to maxLevel (${maxWick})`);
+  assert.equal(Object.prototype.hasOwnProperty.call(sanitized.perks, '__proto__'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(sanitized.perks, 'constructor'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(sanitized.perks, 'toString'), false);
+
+  // Verify mode array sanitization
+  assert.deepEqual(sanitized.unlockedModes, ['boss_rush', '__proto__']);
+});
+
