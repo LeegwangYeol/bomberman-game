@@ -3,10 +3,12 @@ import { BaseEntity } from './BaseEntity';
 import { ALLY_ARCHETYPES, FACTIONS } from './types';
 import {
   TILE_SIZE,
-  GridCoord,
+  type GridCoord,
   findPathBFS,
   getBlastTiles,
   findEscapePathBFS,
+  FlatHazardMask,
+  cloneBombTilesAsSet,
 } from '../pathfinding';
 
 /**
@@ -59,7 +61,7 @@ export class MiniBomberAlly extends BaseEntity {
     currentTime: number,
     player: Phaser.Physics.Arcade.Sprite | null,
     map: number[][],
-    bombTiles: Set<string>,
+    bombTiles: Set<string> | Uint8Array | FlatHazardMask,
     dropBombCallback?: (r: number, c: number, power: number) => boolean
   ) {
     if (this.isDead || !this.active) return;
@@ -117,7 +119,7 @@ export class MiniBomberAlly extends BaseEntity {
 
       // FRIENDLY FIRE SAFETY: NEVER plant bomb if blast intersects player!
       if (!playerInDanger) {
-        const simulatedBombs = new Set(bombTiles);
+        const simulatedBombs = cloneBombTilesAsSet(bombTiles);
         simulatedBombs.add(`${ar},${ac}`);
         const escape = findEscapePathBFS({ r: ar, c: ac }, candidateBlast, map, simulatedBombs, 4);
 

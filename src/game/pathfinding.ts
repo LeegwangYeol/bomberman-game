@@ -37,6 +37,7 @@ export interface BlockTargetResult {
   targetBlock: GridCoord;
   approachTile: GridCoord;
   placementTile: GridCoord;
+  safeApproachTiles?: GridCoord[];
 }
 
 export interface DemolitionPath {
@@ -915,7 +916,7 @@ export function findEscapePathBFS(
   dangerTiles: Set<string> | Uint8Array | FlatHazardMask,
   map: number[][],
   existingBombs: Set<string> | Uint8Array | FlatHazardMask,
-  maxSteps: number = 4
+  maxSteps: number = 8
 ): GridCoord[] | null {
   populateObstacleMask(map, sharedObstacleMask);
   populateMaskFromSetOrArray(dangerTiles, sharedDangerMask);
@@ -1039,6 +1040,87 @@ export function findTargetBlockBFS(
 }
 
 export const findDemolitionTarget = findTargetBlockBFS;
+
+/**
+ * Duck-typed coordinate hazard/bomb membership check across Set<string>, Uint8Array, and FlatHazardMask.
+ */
+export function isTileInHazardMask(
+  mask?: Set<string> | Uint8Array | FlatHazardMask | null,
+  r?: number,
+  c?: number
+): boolean {
+  if (!mask || r === undefined || c === undefined) return false;
+  if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
+  if (mask instanceof FlatHazardMask) {
+    return mask.isHazard(r, c);
+  }
+  if (mask instanceof Uint8Array) {
+    return mask[r * COLS + c] !== 0;
+  }
+  if (typeof (mask as { has?: (coord: string) => boolean }).has === 'function') {
+    return Boolean((mask as { has: (coord: string) => boolean }).has(`${r},${c}`));
+  }
+  return false;
+}
+
+/**
+ * Converts or clones any duck-typed bomb collection (Set<string>, Uint8Array, FlatHazardMask) into a Set<string>.
+ */
+export function cloneBombTilesAsSet(
+  bombTiles?: Set<string> | Uint8Array | FlatHazardMask | null
+): Set<string> {
+  const s = new Set<string>();
+  if (!bombTiles) return s;
+  if (bombTiles instanceof Set) {
+    for (const item of bombTiles) s.add(item);
+  } else if (bombTiles instanceof FlatHazardMask) {
+    for (const item of bombTiles) s.add(item);
+  } else if (bombTiles instanceof Uint8Array) {
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (bombTiles[r * COLS + c] !== 0) {
+          s.add(`${r},${c}`);
+        }
+      }
+    }
+  } else if (typeof (bombTiles as { [Symbol.iterator]?: () => Iterator<unknown> })[Symbol.iterator] === 'function') {
+    for (const item of (bombTiles as Iterable<unknown>)) {
+      if (typeof item === 'string') s.add(item);
+    }
+  }
+  return s;
+}
+
+/**
+ * Multi-angle demolition evaluation:
+ * Evaluates all 4 orthogonal sides of a target block to find safe approach tiles.
+ */
+export function getSafeDemolitionApproaches(
+  targetBlock: GridCoord,
+  map: number[][],
+  bombTiles?: Set<string> | Uint8Array | FlatHazardMask,
+  bombPower: number = 2,
+  maxEscapeSteps: number = 8
+): GridCoord[] {
+  const dirs = [
+    { dr: -1, dc: 0 },
+    { dr: 1, dc: 0 },
+    { dr: 0, dc: -1 },
+    { dr: 0, dc: 1 },
+  ];
+  const safe: GridCoord[] = [];
+  for (const d of dirs) {
+    const r = targetBlock.r + d.dr;
+    const c = targetBlock.c + d.dc;
+    if (r >= 0 && r < ROWS && c >= 0 && c < COLS && map[r][c] === TILE_EMPTY) {
+      const isBomb = isTileInHazardMask(bombTiles, r, c);
+      if (!isBomb && canSafelyPlaceBomb({ r, c }, bombPower, map, bombTiles, maxEscapeSteps)) {
+        safe.push({ r, c });
+      }
+    }
+  }
+  return safe;
+}
 
 /**
  * Computes full path through breakable blocks, identifying any blocking blocks along the way.
@@ -1207,7 +1289,7 @@ export function canSafelyPlaceBomb(
   power: number,
   map: number[][],
   existingBombs?: Set<string> | Uint8Array | FlatHazardMask,
-  maxEscapeSteps: number = 4
+  maxEscapeSteps: number = 8
 ): boolean {
   const path = getSafeBombEscapePath(pos, power, map, existingBombs, maxEscapeSteps);
   return path !== null && path.length > 0;
@@ -1216,12 +1298,14 @@ export function canSafelyPlaceBomb(
 /**
  * Identifies a choke-point tile where dropping a bomb will trap or corner the player,
  * while ensuring the enemy has a valid safe escape path.
+ * When allowOpenPursuit is true, aggressive offensive bombing is permitted when dist <= 2.
  */
 export function findCorneringBombTile(
   enemyPos: GridCoord,
   playerPos: GridCoord,
   map: number[][],
-  bombTiles?: Set<string> | Uint8Array | FlatHazardMask
+  bombTiles?: Set<string> | Uint8Array | FlatHazardMask,
+  allowOpenPursuit: boolean = false
 ): GridCoord | null {
   if (
     enemyPos.r < 0 || enemyPos.r >= ROWS || enemyPos.c < 0 || enemyPos.c >= COLS ||
@@ -1246,9 +1330,14 @@ export function findCorneringBombTile(
     }
   }
 
+  const dist = Math.abs(enemyPos.r - playerPos.r) + Math.abs(enemyPos.c - playerPos.c);
+
   // Player must be confined (at most 2 open neighbors: corridor, corner, or dead-end)
+  // OR when allowOpenPursuit is enabled and enemy is within close striking distance (dist <= 2)
   if (playerNeighbors.length > 2) {
-    return null;
+    if (!allowOpenPursuit || dist > 2) {
+      return null;
+    }
   }
 
   const path = findPathBFS(enemyPos, playerPos, map, bombTiles || new Set());
@@ -1256,7 +1345,6 @@ export function findCorneringBombTile(
     return null;
   }
 
-  const dist = Math.abs(enemyPos.r - playerPos.r) + Math.abs(enemyPos.c - playerPos.c);
   if (dist > 4) {
     return null;
   }
@@ -1280,12 +1368,24 @@ export function findCorneringBombTile(
       playerNeighbors.some((n) => blast.has(`${n.r},${n.c}`));
 
     if (coversPlayerOrExit) {
-      if (canSafelyPlaceBomb(cand, 2, map, bombTiles, 4)) {
+      if (canSafelyPlaceBomb(cand, 2, map, bombTiles, 8)) {
         return cand;
       }
     }
   }
 
   return null;
+}
+
+/**
+ * Offensive bomb tile search: aggressive player hunting that allows open-space bombing when close (dist <= 2).
+ */
+export function findOffensiveBombTile(
+  enemyPos: GridCoord,
+  playerPos: GridCoord,
+  map: number[][],
+  bombTiles?: Set<string> | Uint8Array | FlatHazardMask
+): GridCoord | null {
+  return findCorneringBombTile(enemyPos, playerPos, map, bombTiles, true);
 }
 

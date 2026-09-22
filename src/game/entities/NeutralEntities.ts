@@ -1,16 +1,18 @@
 import Phaser from 'phaser';
-import { BaseEntity } from './BaseEntity';
+import { BaseEntity, applyPhysicsBodyInvariantGuard } from './BaseEntity';
 import { NEUTRAL_ARCHETYPES, FACTIONS } from './types';
 import {
   ROWS,
   COLS,
   TILE_SIZE,
   TILE_EMPTY,
-  GridCoord,
+  type GridCoord,
   findEscapePathBFS,
   getBlastTiles,
+  FlatHazardMask,
+  cloneBombTilesAsSet,
 } from '../pathfinding';
-import { ItemType } from '../gameplay_mechanics';
+import type { ItemType } from '../gameplay_mechanics';
 
 /**
  * 1. Wandering Merchant ("Pops"):
@@ -72,7 +74,7 @@ export class MerchantNPC extends BaseEntity {
     currentTime: number,
     player: Phaser.Physics.Arcade.Sprite | null,
     map: number[][],
-    bombTiles: Set<string>
+    bombTiles: Set<string> | Uint8Array | FlatHazardMask
   ) {
     if (this.isDead || !this.active) return;
     this.updateEntity(delta, currentTime);
@@ -83,7 +85,8 @@ export class MerchantNPC extends BaseEntity {
     // 1. Danger check: Flee if ticking bomb is within blast range
     let nearBomb = false;
     const allBlastTiles = new Set<string>();
-    for (const bKey of bombTiles) {
+    const bombSet = cloneBombTilesAsSet(bombTiles);
+    for (const bKey of bombSet) {
       const [br, bc] = bKey.split(',').map(Number);
       if (Math.abs(mr - br) + Math.abs(mc - bc) <= 4) {
         nearBomb = true;
@@ -225,7 +228,7 @@ export class CritterNPC extends BaseEntity {
     this.moveSpeed = this.config.hopSpeed;
     this.setTint(0xec4899);
     this.setScale(0.8, 0.8);
-    (this.body as Phaser.Physics.Arcade.Body)?.setSize(20, 20).setOffset(10, 10);
+    applyPhysicsBodyInvariantGuard(this, 20, 20, 10, 10);
     this.overheadUI.setIntent('🐾', true);
   }
 

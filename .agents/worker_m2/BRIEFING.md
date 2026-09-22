@@ -1,7 +1,7 @@
-# BRIEFING — 2026-09-22T14:27:00+09:00
+# BRIEFING — 2026-09-22T17:41:00+09:00
 
 ## Mission
-Implement Crisis visual rendering and Situation Log HUD, capture 4 distinct high-resolution screenshots, autonomously remediate any bugs/console errors, and verify full test/build suite.
+Implement Milestone 2: UI Depth, Text Occlusion & Staggering: Unified 2.5D depth band, Centralized OverheadUIManager, Player Protection Bubble, Staggered Floating Text Queue, Reviewer 2 remediations, and 100% test/lint/build passes.
 
 ## 🔒 My Identity
 - Archetype: worker
@@ -9,54 +9,53 @@ Implement Crisis visual rendering and Situation Log HUD, capture 4 distinct high
 - Working directory: /Users/user/src/bomberman/.agents/worker_m2
 - Original parent: 32290892-8279-4b5b-83b9-899ee9b22d46
 - Milestone: Milestone 2: Bomberman Visual & Functional Testing and Remediation
+- Milestone M2 (New): UI Depth, Text Occlusion & Staggering
 
 ## 🔒 Key Constraints
 - Genuine implementations only — DO NOT CHEAT, do not hardcode test results, no dummy implementations.
 - Zero console errors in final browser validation run.
 - Maintain passing npm test, npm run lint, and npm run build.
 - Update COLLABORATION.md for Claude collaboration guidelines.
+- Preserve headless OverheadUI test invariants (`getRenderLayers()` returns -14, -22, -34, clearance 8 and 12).
+- Zero lint errors, full backward compatibility.
 
 ## Current Parent
-- Conversation ID: 32290892-8279-4b5b-83b9-899ee9b22d46
-- Updated: 2026-09-22T14:27:00+09:00
+- Conversation ID: 16df783e-b15f-427a-b28b-1561d00db004
+- Updated: 2026-09-22T17:41:00+09:00
 
 ## Task Summary
-- **What to build**: Crisis hazard visuals in `GameScene.ts`, Situation Log HUD overlay in `BombermanGame.tsx`, browser validation & screenshot captures of menu, gameplay, boss fight, and crisis event.
-- **Success criteria**: Crisis hazards render on canvas, Situation Log displays live directives and threat meter, 4 screenshots captured in `screenshots/`, 0 console errors, 100% tests/lint/build passing.
-- **Interface contracts**: `/Users/user/src/bomberman/.agents/orchestrator_visual_test/SCOPE.md`
-- **Code layout**: `src/game/GameScene.ts`, `src/components/BombermanGame.tsx`, `src/game/crises/`
+- **What to build**: 
+  1. Unified 2.5D depth band (`RENDER_DEPTH`) with continuous dynamic Y-sorting in `GameScene.ts`.
+  2. Centralized `OverheadUIManager` with AABB collision repulsion, vertical staggering, adaptive name tag LOD (full, compact, minimal) in `GameScene.ts`.
+  3. Player sprite protection bubble ($R = 38\text{px}$) with smooth opacity decay.
+  4. Staggered floating text queue (`FloatingTextManager`) with $+16\text{px}$ cascade.
+  5. Duck-type `bombTiles` in `pathfinding.ts` and `EnemyEntities.ts` for `FlatHazardMask`.
+  6. Check allies/neutrals in initial `ignoringColliders` on bombs in `GameScene.ts`.
+  7. Maintain headless `OverheadUI` test invariants.
+  8. Verify `npm test`, `npm run lint`, `npm run build`.
+- **Success criteria**: All 562+ existing tests pass, new tests for UI depth & decluttering pass, 0 lint errors, build succeeds.
+- **Interface contracts**: `/Users/user/src/bomberman/.agents/orchestrator_game_feel/SCOPE.md`
+- **Code layout**: `src/game/GameScene.ts`, `src/game/entities/OverheadUI.ts`, `src/game/entities/types.ts`, `src/game/pathfinding.ts`, `src/game/entities/EnemyEntities.ts`, `tests/`
 
 ## Key Decisions Made
-- Connected `CrisisManager` and `SituationLog` to `GameScene.ts`: mode changes to `'crisis_survival'` / `'CRISIS_SURVIVAL'` trigger `CrisisType.PASTEL_VOID`, tick in `update(delta)`, and render hazard graphics (void rifts, prisms, void creep, lava, obsidian, avatar) via Phaser Graphics.
-- In `BombermanGame.tsx`, wired `'situation-log-update'` event and rendered a high-visibility glassmorphism Situation Log HUD overlay card with crisis title, threat level escalation bar, live countdown, and directives checklist.
-- Fixed root layout bug where `overflow-hidden` caused elements to clip on displays with height < 800px; changed to `overflow-x-hidden overflow-y-auto`.
-- Guarded animation creation with `this.anims.exists()` in `GameScene.ts` to silence duplicate key warnings.
-- Added comprehensive integration test in `tests/crises.test.mjs` verifying event bridge and mode switching lifecycle.
-- Captured 4 distinct 2560x1560 high-resolution screenshots in `screenshots/`: `menu.png`, `gameplay.png`, `boss_fight.png`, `crisis_event.png`.
-- Verified 0 console errors across all stages.
+- [Initial]: Will implement `OverheadUIManager` and `FloatingTextManager` cleanly in `GameScene.ts` and export them for testing.
+- [Initial]: In `OverheadUI.ts`, add LOD mode, custom offset storage, and smooth alpha decay while preserving reference offsets in `getRenderLayers()`.
 
 ## Artifact Index
 - `/Users/user/src/bomberman/.agents/worker_m2/DISPATCH.md` — assignment specifications
 - `/Users/user/src/bomberman/.agents/worker_m2/progress.md` — heartbeat and progress tracker
 - `/Users/user/src/bomberman/.agents/worker_m2/handoff.md` — final completion report
-- `/Users/user/src/bomberman/screenshots/menu.png` — Main Menu & Control Center screenshot
-- `/Users/user/src/bomberman/screenshots/gameplay.png` — Standard Gameplay screenshot
-- `/Users/user/src/bomberman/screenshots/boss_fight.png` — Boss Rush & King Gummy Bear screenshot
-- `/Users/user/src/bomberman/screenshots/crisis_event.png` — Crisis Survival & Situation Log HUD screenshot
+- `/Users/user/src/bomberman/tests/ui_depth_declutter.test.mjs` — new comprehensive test suite for M2
 
 ## Change Tracker
-- **Files modified**:
-  * `src/game/GameScene.ts`: wired `CrisisManager`, `SituationLog`, `renderCrisisHazards`, `handleBombBlast`, and animation guards.
-  * `src/components/BombermanGame.tsx`: wired `situation-log-update`, added Situation Log HUD card, fixed layout clipping.
-  * `tests/crises.test.mjs`: added integration tests for SituationLog event bridging and mode resetting.
-  * `COLLABORATION.md`: updated status and collaboration workflow.
-- **Build status**: `npm test` 490/490 pass, `npm run lint` 0 errors, `npm run build` static generation pass.
-- **Pending issues**: None. 100% clean.
+- **Files modified**: Pending
+- **Build status**: Baseline passed (562 tests, 0 lint errors)
+- **Pending issues**: None
 
 ## Quality Status
-- **Build/test result**: PASS (490/490 passed)
-- **Lint status**: PASS (0 errors, 39 existing test unused var warnings)
-- **Tests added/modified**: `Tier 6 [SituationLog Integration]: Bridges crisis updates to listeners and resets cleanly on mode change` in `tests/crises.test.mjs`.
+- **Build/test result**: PASS (562/562 passed baseline)
+- **Lint status**: PASS (0 errors, 39 warnings)
+- **Tests added/modified**: Pending
 
 ## Loaded Skills
 - None loaded

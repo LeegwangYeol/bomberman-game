@@ -1,46 +1,61 @@
-## 2026-09-22T05:16:16Z
-You are the Implementation and QA Worker for Milestone 2: Bomberman Visual & Functional Testing and Remediation.
+# Task Assignment: Worker 2 (Milestone 2 — UI Depth, Text Occlusion & Staggering)
 
-Your working directory is: /Users/user/src/bomberman/.agents/worker_m2
+## Context Files (Read First)
+- `/Users/user/src/bomberman/ORIGINAL_REQUEST.md`
+- `/Users/user/src/bomberman/COLLABORATION.md`
+- `/Users/user/src/bomberman/.agents/orchestrator_game_feel/SCOPE.md`
+- `/Users/user/src/bomberman/.agents/explorer_ui_1/handoff.md`
 
-MANDATORY INTEGRITY WARNING:
+## Mandatory Integrity Warning
 DO NOT CHEAT. All implementations must be genuine. DO NOT hardcode test results, create dummy/facade implementations, or circumvent the intended task. A teamwork_preview_auditor will independently verify your work. Integrity violations WILL be detected and your work WILL be rejected.
 
-MANDATORY INPUTS:
-- Read /Users/user/src/bomberman/ORIGINAL_REQUEST.md
-- Read /Users/user/src/bomberman/COLLABORATION.md
-- Read /Users/user/src/bomberman/.agents/explorer_m1/handoff.md
-- Read /Users/user/src/bomberman/.agents/orchestrator_visual_test/SCOPE.md
+## File Ownership
+You exclusively own and may modify:
+- `src/game/entities/OverheadUI.ts`
+- `src/game/entities/types.ts`
+- `src/game/GameScene.ts` (OverheadUIManager, RENDER_DEPTH, floating text cascade, bombTiles duck-typing)
+- `src/game/pathfinding.ts` (duck-type bombTiles for FlatHazardMask)
+- `src/game/entities/EnemyEntities.ts` (duck-type bombTiles for FlatHazardMask)
+- `tests/` (add tests for UI depth, decluttering, and occlusion)
 
-YOUR TASKS:
-1. Wire up Crisis Mode visual rendering and Situation Log HUD:
-   - As identified by Explorer M1, the complete crisis subsystem exists in `src/game/crises/` (CrisisManager, SituationLog, VoidCrisis, etc.).
-   - In `src/game/GameScene.ts`: Upon receiving `mode-changed` with `'crisis_survival'` or `'CRISIS_SURVIVAL'`, trigger a crisis (e.g., `CrisisType.PASTEL_VOID` or rotating crisis), update the crisis manager in `update(delta)`, and render the crisis hazard graphics (e.g. void rifts/prisms/danger areas using Phaser Graphics). Ensure `stopCrisis` is called when switching away from crisis mode.
-   - In `src/components/BombermanGame.tsx`: Wire `SituationLog` event bridge (`'situation-log-update'`) and render a high-visibility Situation Log HUD overlay card during active crisis (displaying Crisis Name, Threat Level bar, Active Directives/Objectives, and Countdown).
-   - Ensure `npm test`, `npm run lint`, and `npm run build` continue to pass cleanly without any regressions.
+## Core Implementation Requirements
+1. **Unified 2.5D Depth Band Hierarchy (`RENDER_DEPTH`)**:
+   - In `GameScene.ts`, define and apply standard depth constants with continuous dynamic Y-sorting:
+     `depth = 100 + y + subOffset` (where subOffset separates shadow, sprite, HP, name tag, intent badge).
+   - Ensure explosion flames (750), shockwaves, and bosses (800) render cleanly above minion labels.
+2. **Centralized `OverheadUIManager` (Declutter Engine)**:
+   - In `GameScene.ts`, implement `OverheadUIManager`:
+     - Evaluates active overhead UI labels per frame.
+     - Detects AABB intersections between labels and applies horizontal spring repulsion ($\pm \Delta x / 2$).
+     - When entities are tightly stacked horizontally ($|x_i - x_j| < 24\text{px}$), use vertical staggering (under-foot offset `y + 24` or elevated tier).
+     - **Adaptive Name Tag LOD**:
+       - Solo mode ($d > 70\text{px}$): full name (e.g. `'Chaser: Blinky'`).
+       - Clustered mode ($d \le 70\text{px}$): compact nickname (e.g. `'Blinky'`).
+       - Dense melee mode ($3+$ entities within $60\text{px}$): hide text tag, show HP bar and intent badge only.
+3. **Player Protection Bubble ($R = 38\text{px}$)**:
+   - Any enemy/entity label within $38\text{px}$ of `(player.x, player.y)` smoothly fades down to $\alpha = 0.15$ (or $0$ if $\le 20\text{px}$), so the player sprite is never obscured.
+4. **Staggered Floating Text Queue (`FloatingTextManager`)**:
+   - When multiple popups spawn within $30\text{px}$ of each other in a short window ($450\text{ms}$), cascade their $Y$ coordinate upward by $+16\text{px}$ per recent active text so item pickup texts never stack into unreadable blobs.
+5. **Reviewer 2 Findings Remediation**:
+   - In `pathfinding.ts:1065` and `EnemyEntities.ts:360, 726`, duck-type `bombTiles`:
+     `const isBomb = Boolean(bombTiles && 'has' in bombTiles && typeof (bombTiles as any).has === 'function' && (bombTiles as any).has(`${r},${c}`));`
+   - In `GameScene.ts`, check allies and neutrals when populating `ignoringColliders` on bomb placement.
+6. **Preserve Headless Test Invariants**:
+   - In `OverheadUI.ts`, ensure `getRenderLayers()` continues to return reference clearances (`-14`, `-22`, `-34`, clearance `8` and `12`) when queried headlessly.
+7. **Verification**:
+   - Run `npm test` (all 562+ tests must pass).
+   - Run `npm run lint` (0 errors).
+   - Run `npm run build` (success).
+8. Write detailed handoff report to `/Users/user/src/bomberman/.agents/worker_m2/handoff.md`.
 
-2. Browser Automation, Screenshot Captures, and Console Error Monitoring:
-   - Ensure the game is running on `http://localhost:3000` (Next.js dev server is running as task-110, or verify with curl/browser).
-   - Use browser automation (such as `chrome-devtools-mcp` tools or Puppeteer/headless script) to open the page.
-   - Monitor the browser console for any errors or warnings throughout the entire run.
-   - Navigate and capture at least 4 distinct, high-resolution screenshots saved to `/Users/user/src/bomberman/screenshots/`:
-     a. `screenshots/menu.png`: Main menu / Arcade control center (Arcade Marquee header, mode selectors, meta-progression bar, controls guide).
-     b. `screenshots/gameplay.png`: Standard gameplay with player sprite, moving enemies with overhead nametags and intent badges, destructible blocks, portals, and retro HUD.
-     c. `screenshots/boss_fight.png`: Epic boss encounter (`Boss Rush Gauntlet` mode) showing King Gummy Bear on canvas with telegraph rings, and the React Boss HUD overlay mounted at the top (avatar, name, segmented HP bars, Berserk Rage gauge).
-     d. `screenshots/crisis_event.png`: Map crisis event (`Crisis Survival` mode) showing environmental hazard graphics on canvas and the Situation Log HUD overlay card (threat meter, objectives).
-   - Note: If using `take_screenshot` in `chrome-devtools-mcp`, remember the Explorer's tip: omit `filePath` parameter so it offloads the image to `.system_generated/steps/.../media_0.png`, then copy (`cp`) that file to `/Users/user/src/bomberman/screenshots/<name>.png`.
+## 2026-09-22T08:37:37Z
+Task received from parent: Implement Milestone 2: UI Depth, Text Occlusion & Staggering:
+1. Unified 2.5D depth band (RENDER_DEPTH) with continuous dynamic Y-sorting.
+2. Centralized OverheadUIManager with AABB collision repulsion, vertical staggering, and adaptive name tag LOD (full name, compact nickname, HP/intent only).
+3. Player sprite protection bubble (R = 38px) with smooth opacity decay.
+4. Staggered floating text queue (+16px vertical cascade on rapid pickups).
+5. Duck-type bombTiles in pathfinding.ts and EnemyEntities.ts to support FlatHazardMask.
+6. Check allies/neutrals in initial ignoringColliders on bombs.
+7. Maintain headless OverheadUI test invariants.
+8. Verify npm test, npm run lint, npm run build.
 
-3. Autonomous Bug Catching & Remediation:
-   - Inspect all captured screenshots for visual defects (clipping, missing textures, overlapping text).
-   - Check all browser console messages for errors or unhandled exceptions.
-   - If ANY bug, visual glitch, or console error is observed, write genuine fixes in the codebase and re-run the browser validation.
-   - Verify 0 remaining console errors in the final validation run!
-
-4. Document and Report:
-   - Run `npm test`, `npm run lint`, and `npm run build`.
-   - Write a detailed report to `/Users/user/src/bomberman/.agents/worker_m2/handoff.md` with:
-     * Code changes made (GameScene.ts, BombermanGame.tsx, etc.)
-     * Captured screenshot file paths, dimensions, and visual verification
-     * Console messages log during all 4 stages (confirming 0 errors)
-     * Test, lint, and build verification outputs
-   - Send completion message to parent.

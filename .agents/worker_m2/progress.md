@@ -1,21 +1,17 @@
 # Progress Tracker - Worker M2
 
-Last visited: 2026-09-22T14:27:00+09:00
+Last visited: 2026-09-22T17:41:00+09:00
 
-## Status: Completed (VICTORY CONFIRMED)
+## Status: In Progress (Milestone 2)
 - [x] Initialized DISPATCH.md and BRIEFING.md
-- [x] Read mandatory input files (ORIGINAL_REQUEST.md, COLLABORATION.md, explorer handoff, orchestrator SCOPE.md)
-- [x] Implemented Crisis visual rendering in `GameScene.ts` and Situation Log HUD in `BombermanGame.tsx`
-- [x] Fixed root container overflow bug (`overflow-x-hidden overflow-y-auto`) to enable full scroll on all display heights
-- [x] Added animation existence guards in `GameScene.ts` to silence Phaser animation duplicate warnings
-- [x] Verified test / lint / build pass:
-  * Tests: 490/490 passed (100%)
-  * Lint: 0 errors
-  * Build: Static production build compiled cleanly (0 errors)
-- [x] Browser automation & screenshot captures (Chrome DevTools MCP):
-  * `screenshots/menu.png` (2560x1560, 1.6 MB)
-  * `screenshots/gameplay.png` (2560x1560, 1.6 MB)
-  * `screenshots/boss_fight.png` (2560x1560, 1.6 MB)
-  * `screenshots/crisis_event.png` (2560x1560, 1.6 MB)
-- [x] Autonomous bug catching & remediation (0 console errors in final validation run)
-- [x] Prepared detailed handoff report in `handoff.md`
+- [x] Read mandatory input files (ORIGINAL_REQUEST.md, COLLABORATION.md, SCOPE.md, explorer handoff)
+- [x] Verified baseline tests (562/562 pass) and lint (0 errors)
+- [ ] Duck-type `bombTiles` in `pathfinding.ts` and `EnemyEntities.ts` for `FlatHazardMask`
+- [ ] Check allies/neutrals in initial `ignoringColliders` in `GameScene.ts`
+- [ ] Enhance `OverheadUI.ts` (LOD modes, custom offsets, depth, alpha) while maintaining headless test invariants
+- [ ] Implement `RENDER_DEPTH` hierarchy & dynamic continuous Y-sorting in `GameScene.ts`
+- [ ] Implement `OverheadUIManager` with AABB collision repulsion, vertical staggering, adaptive LOD, and Player Protection Bubble
+- [ ] Implement `FloatingTextManager` (+16px cascade) in `GameScene.ts`
+- [ ] Add comprehensive test suite in `tests/ui_depth_declutter.test.mjs`
+- [ ] Verify `npm test`, `npm run lint`, `npm run build`
+- [ ] Write handoff report in `handoff.md` and notify parent

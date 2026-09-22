@@ -1,40 +1,40 @@
-# BRIEFING — 2026-09-22T07:49:00Z
+# BRIEFING — 2026-09-22T10:36:35Z
 
 ## Mission
-Oversee the complete rewrite and verification of aggressive enemy AI (territory expansion via block destruction, relentless player hunting/cornering, self-preservation, tests/aggressive_ai.test.mjs, clean build & 0 lints) via teamwork_preview_orchestrator, followed by independent victory audit.
+Oversee the massive overhaul of game feel, graphical juice (squash-and-stretch, bomb pulsing, screen shake, hit-stop, particles, drop shadows), UI depth & text occlusion fixes, and critical live Enemy AI demolition & hunting execution in GameScene via teamwork_preview_orchestrator, followed by independent victory audit.
 
 ## 🔒 My Identity
 - Archetype: sentinel
 - Working directory: /Users/user/src/bomberman/.agents/sentinel
-- Orchestrator: b12e91d3-87d5-4560-981f-579093e417ed
-- Victory Auditor: 9693c1e2-5c89-491f-aaee-4b2469f0ba2a
+- Orchestrator: 16df783e-b15f-427a-b28b-1561d00db004 (completed & cleaned up)
+- Victory Auditor: 91330a8f-070d-4216-bd18-3845c54c4e75 (completed & cleaned up)
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
 - Victory Audit is MANDATORY before reporting completion
 - Route: General (teamwork_preview_orchestrator)
-- Ensure all acceptance criteria are strictly satisfied (AI files updated in src/game/entities/, tests/aggressive_ai.test.mjs passes, build passes, 0 lint errors)
+- Ensure all acceptance criteria are strictly satisfied (Live aggressive AI block demolition, text occlusion, juice animations & particles, 0 lint errors, 100% tests passing, clean build)
 - Monitor progress and liveness via crons
 - Clean up all crons and subagents upon completion
 
 ## User Context
-- **Last user request**: Rewrite the enemy AI in the Bomberman codebase to be highly aggressive. Enemies must actively destroy blocks to expand their territory and aggressively hunt, corner, and attack the player.
+- **Last user request**: Massively overhaul "game feel" and graphical "juice", fix UI floating text/name tag issues, and fix enemy AI so they ACTUALLY aggressively destroy blocks and hunt the player in real-time gameplay. Use a very large team of agents.
 - **Pending clarifications**: none
 - **Delivered results**:
-  * Core enemy AI (`ChaserEnemy`, `BomberEnemy` in `src/game/entities/EnemyEntities.ts`) rewritten for aggressive territory expansion & player hunting.
-  * BFS/Dijkstra demolition pathfinding (`findPathWithDemolition`, `findDemolitionPath`, `canSafelyPlaceBomb`, `getSafeBombEscapePath`, `findCorneringBombTile`) implemented in `src/game/pathfinding.ts`.
-  * Comprehensive test suite in `tests/aggressive_ai.test.mjs` (11/11 passing).
-  * Adversarial test suites `tests/adversarial_demolition_hunting.test.mjs` (14/14 passing) and `tests/adversarial_suicide_zerogc.test.mjs` (6/6 passing).
-  * Full test suite: 537/537 passing across all 31 test suites.
-  * 0 ESLint errors, Next.js clean production build.
+  * R1: Real aggressive Enemy AI in `GameScene.ts` and `EnemyEntities.ts` with `ignoringColliders` bomb separation lock release, multi-angle demolition targeting, 8-step BFS escape, and spawn corridor clearance.
+  * R2: Unified 2.5D `RENDER_DEPTH` hierarchy with continuous Y-sorting, `OverheadUIManager` with AABB horizontal spring repulsion and vertical tier splitting, adaptive LOD modes, and a 38px Player Sprite Protection Bubble.
+  * R3: Massive Game Feel upgrade with movement bobbing & squash/stretch, `applyPhysicsBodyInvariantGuard` keeping 24x24 hitbox strictly invariant to prevent corner snagging, 4-phase asymmetric bomb pulse, `CameraTraumaSimulator` screen shake ($T^2$), debounced hit-stop, Zero-GC particle emitters, and dynamic drop shadows.
+  * 644/644 tests passing across 41 test suites (100% pass rate).
+  * 0 ESLint errors in production.
+  * Next.js Turbopack clean static build (exit code 0).
   * Independent Victory Audit: VICTORY CONFIRMED.
 
 ## Project Status
 - **Phase**: complete
-- **Active Orchestrator**: b12e91d3-87d5-4560-981f-579093e417ed (completed & cleaned up)
-- **Victory Auditor**: 9693c1e2-5c89-491f-aaee-4b2469f0ba2a (completed & cleaned up)
-- **Cron 1 (Progress)**: cancelled (task-30)
-- **Cron 2 (Liveness)**: cancelled (task-32)
+- **Active Orchestrator**: 16df783e-b15f-427a-b28b-1561d00db004 (cleaned up)
+- **Victory Auditor**: 91330a8f-070d-4216-bd18-3845c54c4e75 (cleaned up)
+- **Cron 1 (Progress)**: cancelled (task-34)
+- **Cron 2 (Liveness)**: cancelled (task-36)
 
 ## Victory Audit Status
 - **Triggered**: yes
@@ -45,11 +45,8 @@ Oversee the complete rewrite and verification of aggressive enemy AI (territory 
 - /Users/user/src/bomberman/ORIGINAL_REQUEST.md — Authoritative user request (root)
 - /Users/user/src/bomberman/.agents/ORIGINAL_REQUEST.md — Authoritative user request (.agents)
 - /Users/user/src/bomberman/COLLABORATION.md — Claude collaboration guide
-- /Users/user/src/bomberman/.agents/orchestrator_aggressive_ai_gen2/GATE_STATUS.md — Gate 2 pass record
-- /Users/user/src/bomberman/.agents/orchestrator_aggressive_ai_gen2/handoff.md — Orchestrator Gen 2 synthesis
-- /Users/user/src/bomberman/.agents/victory_auditor_aggressive_ai/handoff.md — Victory Auditor report
-- /Users/user/src/bomberman/src/game/entities/EnemyEntities.ts — Enemy AI entities
-- /Users/user/src/bomberman/src/game/pathfinding.ts — Pathfinding & blast logic
-- /Users/user/src/bomberman/tests/aggressive_ai.test.mjs — Test suite for aggressive AI
-- /Users/user/src/bomberman/tests/adversarial_demolition_hunting.test.mjs — Adversarial demolition & hunting tests
-- /Users/user/src/bomberman/tests/adversarial_suicide_zerogc.test.mjs — Adversarial suicide & Zero-GC tests
+- /Users/user/src/bomberman/PROJECT.md — Project tracker
+- /Users/user/src/bomberman/.agents/sentinel/BRIEFING.md — Sentinel persistent briefing
+- /Users/user/src/bomberman/.agents/sentinel/handoff.md — Sentinel final handoff
+- /Users/user/src/bomberman/.agents/orchestrator_game_feel/handoff.md — Orchestrator completion handoff
+- /Users/user/src/bomberman/.agents/victory_auditor_game_feel/handoff.md — Victory Auditor forensic report

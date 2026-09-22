@@ -12,6 +12,46 @@ export const FACTIONS = {
 
 export type EntityFaction = (typeof FACTIONS)[keyof typeof FACTIONS];
 
+export const RENDER_DEPTH = {
+  // Ground Layers
+  BACKGROUND: -10,
+  FLOOR: 0,
+  WALLS: 1,
+  BLOCKS: 2,
+  DECALS: 3,
+  PORTALS: 4,
+  ITEM_GLOW: 5,
+  ITEMS: 6,
+  BOMBS: 7,
+  TELEGRAPHS: 8,
+  CRISIS_HAZARDS: 9,
+
+  // Dynamic Y-Sorted Band (100 to 700 based on screen Y)
+  // depth = ENTITY_Y_BASE + y * Y_SCALE + OFFSET
+  ENTITY_Y_BASE: 100,
+  ENTITY_Y_SCALE: 1.0,
+  OFFSET_SHADOW: -0.1,
+  OFFSET_SPRITE: 0.0,
+  OFFSET_SHIELD: 0.1,
+  OFFSET_HP_BAR: 0.2,
+  OFFSET_NAME_TAG: 0.3,
+  OFFSET_INTENT_BADGE: 0.4,
+
+  // World Visual Effects (Always above ground entities)
+  EXPLOSIONS: 750,
+  SHOCKWAVES: 760,
+  DEBRIS_PARTICLES: 770,
+
+  // Boss Graphics Layer
+  BOSS_BODY: 800,
+  BOSS_VFX: 810,
+
+  // Floating Labels & Popups
+  FLOATING_TEXT: 900,
+  SCREEN_OVERLAY: 950,
+} as const;
+
+
 export const ENEMY_ARCHETYPES = {
   CHASER: {
     type: 'CHASER',
@@ -160,3 +200,6 @@ export interface OverheadRenderLayers {
     visible: boolean;
   };
 }
+
+export type NameTagLODMode = 'full' | 'compact' | 'minimal';
+

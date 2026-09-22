@@ -1,6 +1,6 @@
 import type Phaser from 'phaser';
 import { BaseEntity } from './BaseEntity';
-import {
+import type {
   EnemyType,
   NeutralType,
   AllyType,

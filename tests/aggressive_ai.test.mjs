@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { register } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import {
   ROWS,
   COLS,
@@ -15,7 +17,80 @@ import {
   canSafelyPlaceBomb,
   getSafeBombEscapePath,
   findCorneringBombTile,
+  findOffensiveBombTile,
+  getSafeDemolitionApproaches,
 } from '../src/game/pathfinding.ts';
+
+// ESM loader hook to resolve extensionless imports in Node --experimental-strip-types
+const loaderCode = `
+export async function resolve(specifier, context, nextResolve) {
+  try {
+    return await nextResolve(specifier, context);
+  } catch (err) {
+    if (err.code === "ERR_MODULE_NOT_FOUND") {
+      for (const ext of [".ts", ".js", "/index.ts"]) {
+        try {
+          return await nextResolve(specifier + ext, context);
+        } catch {}
+      }
+    }
+    throw err;
+  }
+}
+
+export async function load(url, context, nextLoad) {
+  const result = await nextLoad(url, context);
+  if (url.includes("BaseEntity.ts")) {
+    const src = typeof result.source === "string" ? result.source : result.source.toString("utf8");
+    const patched = src.replace("import { EntityFaction, FACTIONS } from './types';", "import { FACTIONS } from './types';");
+    return { ...result, source: patched };
+  }
+  return result;
+}
+`;
+
+register(`data:text/javascript,${encodeURIComponent(loaderCode)}`, pathToFileURL('./'));
+
+// Minimal DOM & Canvas mocks for headless Phaser entity instantiation
+const mockCanvasCtx = {
+  fillRect: () => {},
+  clearRect: () => {},
+  getImageData: () => ({ data: new Uint8Array(16) }),
+  putImageData: () => {},
+  createImageData: () => ({ data: new Uint8Array(16) }),
+  setTransform: () => {},
+  drawImage: () => {},
+  save: () => {},
+  restore: () => {},
+  beginPath: () => {},
+  closePath: () => {},
+  moveTo: () => {},
+  lineTo: () => {},
+  arc: () => {},
+  stroke: () => {},
+  fill: () => {},
+  scale: () => {},
+  translate: () => {},
+  rotate: () => {},
+};
+
+if (!globalThis.window) globalThis.window = globalThis;
+if (!globalThis.document) {
+  globalThis.document = {
+    createElement: () => ({
+      getContext: () => mockCanvasCtx,
+      style: {},
+      setAttribute: () => {},
+      width: 800,
+      height: 600,
+    }),
+    documentElement: { style: {} },
+  };
+}
+if (!globalThis.HTMLCanvasElement) globalThis.HTMLCanvasElement = class {};
+if (!globalThis.Image) globalThis.Image = class {};
+
+const { ChaserEnemy, BomberEnemy, EnemyState } = await import('../src/game/entities/EnemyEntities.ts');
 
 /* ==============================================================================
  * TEST HARNESS: Headless Arena Simulator & Aggressive Enemy Model
@@ -518,6 +593,11 @@ test('Scenario B2: Statistical superiority over Random Wandering across 20 varie
     let randEnemy = { r: 1, c: 1 };
     let pPosRand = { r: 9, c: 11 };
     let randHit = false;
+    let seed = 123456789 + i * 10007;
+    const lcg = () => {
+      seed = (seed * 1664525 + 1013904223) % 4294967296;
+      return seed / 4294967296;
+    };
 
     for (let tick = 0; tick < 100; tick++) {
       if (dynamicPlayer && tick % 4 === 0) {
@@ -540,7 +620,7 @@ test('Scenario B2: Statistical superiority over Random Wandering across 20 varie
         }
       }
       if (validMoves.length > 0) {
-        const chosen = validMoves[Math.floor(Math.random() * validMoves.length)];
+        const chosen = validMoves[Math.floor(lcg() * validMoves.length)];
         randEnemy = chosen;
       }
       simRandom.update(200);
@@ -736,4 +816,288 @@ test('Scenario D4: 1,000-scenario adversarial fuzzing (zero suicide invariance)'
   assert.equal(testedScenarios, 1000);
   assert.ok(safePlacements > 0, 'Must have some valid safe placements');
   assert.ok(rejectedPlacements > 0, 'Must have some rejected placements');
+});
+
+/* ==============================================================================
+ * SCENARIO E: PRODUCTION ENTITY SUITE (ChaserEnemy & BomberEnemy Live Demolition)
+ * ============================================================================== */
+
+function createMockScene() {
+  const createChainable = () => {
+    const obj = {};
+    const methods = [
+      'setOrigin', 'setDepth', 'setText', 'setVisible', 'destroy', 'setAlpha',
+      'clear', 'fillStyle', 'fillRect', 'strokeRect', 'lineStyle', 'setScrollFactor',
+    ];
+    for (const m of methods) {
+      obj[m] = () => obj;
+    }
+    return obj;
+  };
+
+  return {
+    sys: {
+      queueDepthSort: () => {},
+      anims: { on: () => {}, off: () => {}, get: () => null, create: () => {} },
+      textures: { get: () => ({ get: () => ({}) }) },
+    },
+    add: {
+      existing: (obj) => obj,
+      text: () => createChainable(),
+      graphics: () => createChainable(),
+      image: () => createChainable(),
+    },
+    physics: {
+      add: {
+        existing: (obj) => {
+          obj.body = {
+            setSize: () => obj.body,
+            setOffset: () => obj.body,
+            setCollideWorldBounds: () => obj.body,
+            setVelocity: (vx, vy) => {
+              obj.body.velocity.x = vx;
+              obj.body.velocity.y = vy;
+              return obj.body;
+            },
+            velocity: { x: 0, y: 0 },
+            x: obj.x,
+            y: obj.y,
+            width: 24,
+            height: 24,
+          };
+          return obj;
+        },
+      },
+    },
+    time: { now: 1000 },
+  };
+}
+
+test('Scenario E1: Real ChaserEnemy production entity executes live demolition and 8-step BFS escape', () => {
+  const scene = createMockScene();
+  const map = [];
+  for (let r = 0; r < ROWS; r++) {
+    map[r] = [];
+    for (let c = 0; c < COLS; c++) {
+      if (r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1 || (r % 2 === 0 && c % 2 === 0)) {
+        map[r][c] = TILE_WALL;
+      } else {
+        map[r][c] = TILE_BLOCK;
+      }
+    }
+  }
+  map[1][1] = TILE_EMPTY; // Enemy tile
+  map[1][2] = TILE_BLOCK; // Target soft block to demolish
+  map[2][1] = TILE_EMPTY; // Corridor down
+  map[3][1] = TILE_EMPTY; // Corridor down
+  map[3][2] = TILE_EMPTY; // Safe retreat alcove outside bomb blast
+  map[1][5] = TILE_EMPTY; // Player tile behind block
+
+  const chaser = new ChaserEnemy(scene, 1 * 32 + 16, 1 * 32 + 16);
+  chaser.bombCooldownTimer = 0;
+
+  let placedBomb = null;
+  const dropBombCallback = (r, c, fuseMs) => {
+    placedBomb = { r, c, fuseMs };
+    return true;
+  };
+
+  const player = { x: 5 * 32 + 16, y: 1 * 32 + 16, active: true };
+  const bombTiles = new Set();
+
+  chaser.updateAI(16, 1000, player, map, bombTiles, dropBombCallback);
+
+  assert.ok(placedBomb !== null, 'ChaserEnemy must place demolition bomb');
+  assert.equal(placedBomb.r, 1);
+  assert.equal(placedBomb.c, 1);
+  assert.equal(placedBomb.fuseMs, 2000);
+  assert.equal(chaser.aiState, EnemyState.EVADING, 'ChaserEnemy must transition to EVADING state');
+  assert.equal(chaser.activeBombs, 1, 'activeBombs count must increment to 1');
+  assert.ok(chaser.escapePath.length > 0, 'Escape path must be populated');
+
+  // Verify escape destination is outside bomb blast
+  const blast = getBlastTiles({ r: 1, c: 1 }, chaser.bombPower, map);
+  const dest = chaser.escapePath[chaser.escapePath.length - 1];
+  assert.ok(!blast.has(`${dest.r},${dest.c}`), 'Escape destination must be outside blast');
+
+  // Simulate bomb explosion lifecycle
+  chaser.onBombExploded();
+  assert.equal(chaser.activeBombs, 0, 'activeBombs must decrement to 0');
+  assert.equal(chaser.aiState, EnemyState.TRACKING, 'aiState must reset to TRACKING on explosion');
+});
+
+test('Scenario E2: Real BomberEnemy production entity executes live demolition and enraged fuse scaling', () => {
+  const scene = createMockScene();
+  const map = [];
+  for (let r = 0; r < ROWS; r++) {
+    map[r] = [];
+    for (let c = 0; c < COLS; c++) {
+      if (r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1 || (r % 2 === 0 && c % 2 === 0)) {
+        map[r][c] = TILE_WALL;
+      } else {
+        map[r][c] = TILE_BLOCK;
+      }
+    }
+  }
+  map[1][1] = TILE_EMPTY;
+  map[1][2] = TILE_BLOCK; // Target block
+  map[2][1] = TILE_EMPTY;
+  map[3][1] = TILE_EMPTY;
+  map[3][2] = TILE_EMPTY; // Safe retreat
+  map[1][5] = TILE_EMPTY;
+
+  // Test 1: Full HP BomberEnemy uses standard 2500ms fuse
+  const bomberFullHp = new BomberEnemy(scene, 1 * 32 + 16, 1 * 32 + 16);
+  bomberFullHp.bombCooldownTimer = 0;
+  let fullHpBomb = null;
+  bomberFullHp.updateAI(16, 1000, { x: 5 * 32 + 16, y: 1 * 32 + 16, active: true }, map, new Set(), (r, c, fuseMs) => {
+    fullHpBomb = { r, c, fuseMs };
+    return true;
+  });
+  assert.ok(fullHpBomb !== null);
+  assert.equal(fullHpBomb.fuseMs, 2500, 'Full HP BomberEnemy must use 2500ms fuse');
+
+  // Test 2: Enraged BomberEnemy (HP = 1) uses quick 1200ms fuse
+  const bomberEnraged = new BomberEnemy(scene, 1 * 32 + 16, 1 * 32 + 16);
+  bomberEnraged.hp = 1;
+  bomberEnraged.bombCooldownTimer = 0;
+  let enragedBomb = null;
+  bomberEnraged.updateAI(16, 1000, { x: 5 * 32 + 16, y: 1 * 32 + 16, active: true }, map, new Set(), (r, c, fuseMs) => {
+    enragedBomb = { r, c, fuseMs };
+    return true;
+  });
+  assert.ok(enragedBomb !== null);
+  assert.equal(enragedBomb.fuseMs, 1200, 'Enraged BomberEnemy must use quickFuseMs 1200ms fuse');
+  assert.equal(bomberEnraged.aiState, EnemyState.EVADING);
+});
+
+test('Scenario E3: Multi-angle demolition approach targeting (getSafeDemolitionApproaches)', () => {
+  const map = createStandardMap();
+  const targetBlock = { r: 1, c: 3 };
+  map[1][3] = TILE_BLOCK;
+  map[1][1] = TILE_EMPTY;
+  map[1][2] = TILE_EMPTY;
+  map[1][4] = TILE_EMPTY;
+  map[1][5] = TILE_EMPTY;
+
+  const safeApproaches = getSafeDemolitionApproaches(targetBlock, map, new Set(), 2, 8);
+  assert.ok(Array.isArray(safeApproaches), 'Must return array of safe coordinates');
+  assert.ok(safeApproaches.length > 0, 'Must identify at least 1 safe approach angle');
+  const hasCol2 = safeApproaches.some((pt) => pt.r === 1 && pt.c === 2);
+  const hasCol4 = safeApproaches.some((pt) => pt.r === 1 && pt.c === 4);
+  assert.ok(hasCol2 || hasCol4, 'Must identify adjacent corridor tiles as safe approaches');
+});
+
+test('Scenario E4: Anti-freeze fallback patrol when safe escape is unavailable', () => {
+  const scene = createMockScene();
+  const map = [];
+  for (let r = 0; r < ROWS; r++) {
+    map[r] = [];
+    for (let c = 0; c < COLS; c++) {
+      map[r][c] = TILE_WALL;
+    }
+  }
+  // 2-tile enclosed pocket: enemy at (1,1), adjacent soft block at (1,2), open tile at (2,1)
+  map[1][1] = TILE_EMPTY;
+  map[1][2] = TILE_BLOCK;
+  map[2][1] = TILE_EMPTY; // Alternative corridor tile
+  map[1][5] = TILE_EMPTY; // Distant player
+
+  const dangerTiles = getBlastTiles({ r: 1, c: 1 }, 2, map);
+  const escape = findEscapePathBFS({ r: 1, c: 1 }, dangerTiles, map, new Set(['1,1']), 8);
+  assert.equal(escape, null, 'Must have no safe escape from 1-tile pocket');
+
+  const chaser = new ChaserEnemy(scene, 1 * 32 + 16, 1 * 32 + 16);
+  chaser.bombCooldownTimer = 0;
+
+  let dropped = false;
+  chaser.updateAI(16, 1000, { x: 5 * 32 + 16, y: 1 * 32 + 16, active: true }, map, new Set(), () => {
+    dropped = true;
+    return true;
+  });
+
+  // Since unsafe, bomb MUST NOT be dropped to prevent suicide
+  assert.equal(dropped, false, 'Must not drop bomb without safe escape');
+  // AND anti-freeze fallback patrol must move the entity rather than setting velocity to (0,0)
+  const isMoving = Math.abs(chaser.body.velocity.x) > 0 || Math.abs(chaser.body.velocity.y) > 0;
+  assert.ok(isMoving, 'Entity must patrol towards adjacent open tile rather than freezing permanently at (0,0)');
+});
+
+test('Scenario E5: Aggressive offensive player hunting in open spaces (findOffensiveBombTile)', () => {
+  const map = createStandardMap();
+  const enemyPos = { r: 3, c: 2 };
+  const playerPos = { r: 3, c: 3 }; // Player at 4-way intersection with 4 open neighbors
+
+  // Standard cornering requires playerNeighbors <= 2; at (3,3) player has 4 open neighbors:
+  const standardCorner = findCorneringBombTile(enemyPos, playerPos, map, new Set(), false);
+  assert.equal(standardCorner, null, 'Standard cornering rejects open player with > 2 neighbors');
+
+  // Aggressive hunting allows close-range offensive bombing (dist <= 2):
+  const offensiveBomb = findOffensiveBombTile(enemyPos, playerPos, map, new Set());
+  assert.ok(offensiveBomb !== null, 'Offensive hunting must identify strike tile when dist <= 2');
+  assert.deepEqual(offensiveBomb, { r: 3, c: 2 });
+});
+
+test('Scenario E6: Arcade Physics ignoringColliders Set & AABB overlap separation logic', () => {
+  const entity = {
+    x: 48,
+    y: 48,
+    body: {
+      x: 36,
+      y: 36,
+      right: 60,
+      bottom: 60,
+      width: 24,
+      height: 24,
+    },
+  };
+
+  const bomb = {
+    x: 48,
+    y: 48,
+    data: new Map(),
+    getData(key) { return this.data.get(key); },
+    setData(key, val) { this.data.set(key, val); },
+    body: {
+      x: 32,
+      y: 32,
+      right: 64,
+      bottom: 64,
+      width: 32,
+      height: 32,
+    },
+  };
+
+  const intersects = (r1, r2) => {
+    return !(r2.x >= r1.right || r2.right <= r1.x || r2.y >= r1.bottom || r2.bottom <= r1.y);
+  };
+
+  const ignoring = new Set([entity]);
+  bomb.setData('ignoringColliders', ignoring);
+
+  const processCallback = (e, b) => {
+    const ign = b.getData('ignoringColliders');
+    if (ign && ign.has(e)) {
+      if (!intersects(e.body, b.body)) {
+        ign.delete(e);
+        return true;
+      }
+      return false; // Pass through while still overlapping
+    }
+    return true; // Collision active
+  };
+
+  assert.equal(processCallback(entity, bomb), false, 'Must pass through while body overlaps bomb');
+  assert.ok(ignoring.has(entity), 'Entity still in ignoringColliders');
+
+  entity.body.x = 52;
+  entity.body.right = 76;
+  assert.equal(processCallback(entity, bomb), false, 'Must still pass through while partial overlap remains');
+
+  entity.body.x = 65;
+  entity.body.right = 89;
+  assert.equal(processCallback(entity, bomb), true, 'Collision must re-enable once body fully separates');
+  assert.equal(ignoring.has(entity), false, 'Entity must be removed from ignoringColliders');
+
+  assert.equal(processCallback(entity, bomb), true, 'Subsequent collision attempts must collide');
 });

@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { BaseEntity } from './BaseEntity';
+import { BaseEntity, applyPhysicsBodyInvariantGuard } from './BaseEntity';
 import { ENEMY_ARCHETYPES, FACTIONS } from './types';
 import {
   ROWS,
@@ -8,12 +8,16 @@ import {
   TILE_WALL,
   TILE_BLOCK,
   TILE_EMPTY,
-  GridCoord,
+  type GridCoord,
   findPathBFS,
   getBlastTiles,
   findEscapePathBFS,
   findTargetBlockBFS,
   findCorneringBombTile,
+  getSafeDemolitionApproaches,
+  FlatHazardMask,
+  isTileInHazardMask,
+  cloneBombTilesAsSet,
 } from '../pathfinding';
 
 /**
@@ -131,7 +135,7 @@ export class ChaserEnemy extends BaseEntity {
     currentTime: number,
     player: Phaser.Physics.Arcade.Sprite | null,
     map: number[][],
-    bombTiles: Set<string>,
+    bombTiles: Set<string> | Uint8Array | FlatHazardMask,
     dropBombCallback?: (r: number, c: number, fuseMs?: number) => boolean
   ) {
     if (this.isDead || !this.active) return;
@@ -194,6 +198,7 @@ export class ChaserEnemy extends BaseEntity {
     const dist = Math.abs(er - pr) + Math.abs(ec - pc);
 
     switch (this.aiState) {
+      case EnemyState.PATROL:
       case EnemyState.TRACKING:
       case EnemyState.HUNTING: {
         // Line-of-sight check for corridor charge
@@ -228,12 +233,12 @@ export class ChaserEnemy extends BaseEntity {
             this.activeBombs < this.maxBombs &&
             dist <= 2
           ) {
-            const trapTile = findCorneringBombTile({ r: er, c: ec }, { r: pr, c: pc }, map, bombTiles);
+            const trapTile = findCorneringBombTile({ r: er, c: ec }, { r: pr, c: pc }, map, bombTiles, true);
             if (trapTile && trapTile.r === er && trapTile.c === ec) {
               const dangerTiles = getBlastTiles({ r: er, c: ec }, this.bombPower, map);
-              const simulatedBombTiles = new Set(bombTiles);
+              const simulatedBombTiles = cloneBombTilesAsSet(bombTiles);
               simulatedBombTiles.add(`${er},${ec}`);
-              const safeEscape = findEscapePathBFS({ r: er, c: ec }, dangerTiles, map, simulatedBombTiles, 4);
+              const safeEscape = findEscapePathBFS({ r: er, c: ec }, dangerTiles, map, simulatedBombTiles, 8);
               if (safeEscape && safeEscape.length > 0) {
                 const placed = dropBombCallback ? dropBombCallback(er, ec, 2000) : false;
                 if (placed) {
@@ -275,9 +280,9 @@ export class ChaserEnemy extends BaseEntity {
               this.activeBombs < this.maxBombs
             ) {
               const dangerTiles = getBlastTiles({ r: er, c: ec }, this.bombPower, map);
-              const simulatedBombTiles = new Set(bombTiles);
+              const simulatedBombTiles = cloneBombTilesAsSet(bombTiles);
               simulatedBombTiles.add(`${er},${ec}`);
-              const safeEscape = findEscapePathBFS({ r: er, c: ec }, dangerTiles, map, simulatedBombTiles, 4);
+              const safeEscape = findEscapePathBFS({ r: er, c: ec }, dangerTiles, map, simulatedBombTiles, 8);
 
               if (safeEscape && safeEscape.length > 0) {
                 const placed = dropBombCallback ? dropBombCallback(er, ec, 2000) : false;
@@ -287,6 +292,26 @@ export class ChaserEnemy extends BaseEntity {
                   this.escapePath = safeEscape;
                   this.changeState(EnemyState.EVADING);
                   return;
+                }
+              } else {
+                // Multi-angle evaluation: check alternative safe approach tiles for this block
+                const safeApproaches = getSafeDemolitionApproaches(targetBlock, map, bombTiles, this.bombPower, 8);
+                for (const alt of safeApproaches) {
+                  if (alt.r === er && alt.c === ec) continue;
+                  const pathToAlt = findPathBFS({ r: er, c: ec }, alt, map, bombTiles);
+                  if (pathToAlt.length > 0 && pathToAlt[pathToAlt.length - 1].r === alt.r && pathToAlt[pathToAlt.length - 1].c === alt.c) {
+                    const next = pathToAlt[0];
+                    const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
+                    const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
+                    const dx = targetX - this.x;
+                    const dy = targetY - this.y;
+                    if (Math.abs(dx) > Math.abs(dy)) {
+                      this.setVelocity(Math.sign(dx) * this.config.trackSpeed, 0);
+                    } else {
+                      this.setVelocity(0, Math.sign(dy) * this.config.trackSpeed);
+                    }
+                    return;
+                  }
                 }
               }
             }
@@ -323,7 +348,37 @@ export class ChaserEnemy extends BaseEntity {
               this.setVelocity(0, Math.sign(dy) * this.config.trackSpeed);
             }
           } else {
-            this.setVelocity(0, 0);
+            // Anti-freeze fallback patrol: wander/patrol to an adjacent open tile
+            const patrolDirs = [
+              { dr: -1, dc: 0 },
+              { dr: 1, dc: 0 },
+              { dr: 0, dc: -1 },
+              { dr: 0, dc: 1 },
+            ];
+            let moved = false;
+            for (const pd of patrolDirs) {
+              const nr = er + pd.dr;
+              const nc = ec + pd.dc;
+              if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && map[nr][nc] === TILE_EMPTY) {
+                const isBomb = isTileInHazardMask(bombTiles, nr, nc);
+                if (!isBomb) {
+                  const targetX = nc * TILE_SIZE + TILE_SIZE / 2;
+                  const targetY = nr * TILE_SIZE + TILE_SIZE / 2;
+                  const dx = targetX - this.x;
+                  const dy = targetY - this.y;
+                  if (Math.abs(dx) > Math.abs(dy)) {
+                    this.setVelocity(Math.sign(dx) * this.config.patrolSpeed, 0);
+                  } else {
+                    this.setVelocity(0, Math.sign(dy) * this.config.patrolSpeed);
+                  }
+                  moved = true;
+                  break;
+                }
+              }
+            }
+            if (!moved) {
+              this.setVelocity(0, 0);
+            }
           }
         }
         break;
@@ -461,7 +516,7 @@ export class BomberEnemy extends BaseEntity {
     currentTime: number,
     player: Phaser.Physics.Arcade.Sprite | null,
     map: number[][],
-    bombTiles: Set<string>,
+    bombTiles: Set<string> | Uint8Array | FlatHazardMask,
     dropBombCallback?: (r: number, c: number, fuseMs: number) => boolean
   ) {
     if (this.isDead || !this.active) return;
@@ -531,7 +586,7 @@ export class BomberEnemy extends BaseEntity {
     if (hasDirectPath) {
       // Offensive Bombing & Cornering (R2):
       // When close to player (dist <= 2 or dist <= 3 in corridor/corner)
-      const trapTile = findCorneringBombTile({ r: er, c: ec }, { r: pr, c: pc }, map, bombTiles);
+      const trapTile = findCorneringBombTile({ r: er, c: ec }, { r: pr, c: pc }, map, bombTiles, true);
       const isAtTrapTile = trapTile !== null && trapTile.r === er && trapTile.c === ec;
       if (
         this.bombCooldownTimer <= 0 &&
@@ -539,10 +594,10 @@ export class BomberEnemy extends BaseEntity {
         (dist <= this.bombPower || isAtTrapTile)
       ) {
         const dangerTiles = getBlastTiles({ r: er, c: ec }, this.bombPower, map);
-        const simulatedBombTiles = new Set(bombTiles);
+        const simulatedBombTiles = cloneBombTilesAsSet(bombTiles);
         simulatedBombTiles.add(`${er},${ec}`);
 
-        const safeEscape = findEscapePathBFS({ r: er, c: ec }, dangerTiles, map, simulatedBombTiles, 4);
+        const safeEscape = findEscapePathBFS({ r: er, c: ec }, dangerTiles, map, simulatedBombTiles, 8);
 
         if (safeEscape && safeEscape.length > 0) {
           const fuseMs = this.hp === 1 ? this.config.quickFuseMs : 2500;
@@ -586,9 +641,9 @@ export class BomberEnemy extends BaseEntity {
           this.activeBombs < this.maxBombs
         ) {
           const dangerTiles = getBlastTiles({ r: er, c: ec }, this.bombPower, map);
-          const simulatedBombTiles = new Set(bombTiles);
+          const simulatedBombTiles = cloneBombTilesAsSet(bombTiles);
           simulatedBombTiles.add(`${er},${ec}`);
-          const safeEscape = findEscapePathBFS({ r: er, c: ec }, dangerTiles, map, simulatedBombTiles, 4);
+          const safeEscape = findEscapePathBFS({ r: er, c: ec }, dangerTiles, map, simulatedBombTiles, 8);
 
           if (safeEscape && safeEscape.length > 0) {
             const fuseMs = this.hp === 1 ? this.config.quickFuseMs : 2500;
@@ -599,6 +654,27 @@ export class BomberEnemy extends BaseEntity {
               this.escapePath = safeEscape;
               this.changeState(EnemyState.EVADING);
               return;
+            }
+          } else {
+            // Multi-angle evaluation: check alternative safe approach tiles for this block
+            const safeApproaches = getSafeDemolitionApproaches(targetBlock, map, bombTiles, this.bombPower, 8);
+            for (const alt of safeApproaches) {
+              if (alt.r === er && alt.c === ec) continue;
+              const pathToAlt = findPathBFS({ r: er, c: ec }, alt, map, bombTiles);
+              if (pathToAlt.length > 0 && pathToAlt[pathToAlt.length - 1].r === alt.r && pathToAlt[pathToAlt.length - 1].c === alt.c) {
+                const next = pathToAlt[0];
+                const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
+                const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
+                const dx = targetX - this.x;
+                const dy = targetY - this.y;
+                const currentSpeed = this.hp === 1 ? this.config.enragedSpeed : this.config.trackSpeed;
+                if (Math.abs(dx) > Math.abs(dy)) {
+                  this.setVelocity(Math.sign(dx) * currentSpeed, 0);
+                } else {
+                  this.setVelocity(0, Math.sign(dy) * currentSpeed);
+                }
+                return;
+              }
             }
           }
         }
@@ -638,7 +714,38 @@ export class BomberEnemy extends BaseEntity {
           this.setVelocity(0, Math.sign(dy) * currentSpeed);
         }
       } else {
-        this.setVelocity(0, 0);
+        // Anti-freeze fallback patrol: wander/patrol to an adjacent open tile
+        const patrolDirs = [
+          { dr: -1, dc: 0 },
+          { dr: 1, dc: 0 },
+          { dr: 0, dc: -1 },
+          { dr: 0, dc: 1 },
+        ];
+        let moved = false;
+        for (const pd of patrolDirs) {
+          const nr = er + pd.dr;
+          const nc = ec + pd.dc;
+          if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && map[nr][nc] === TILE_EMPTY) {
+            const isBomb = isTileInHazardMask(bombTiles, nr, nc);
+            if (!isBomb) {
+              const targetX = nc * TILE_SIZE + TILE_SIZE / 2;
+              const targetY = nr * TILE_SIZE + TILE_SIZE / 2;
+              const dx = targetX - this.x;
+              const dy = targetY - this.y;
+              const patrolSpeed = this.config.patrolSpeed;
+              if (Math.abs(dx) > Math.abs(dy)) {
+                this.setVelocity(Math.sign(dx) * patrolSpeed, 0);
+              } else {
+                this.setVelocity(0, Math.sign(dy) * patrolSpeed);
+              }
+              moved = true;
+              break;
+            }
+          }
+        }
+        if (!moved) {
+          this.setVelocity(0, 0);
+        }
       }
     }
   }
@@ -670,7 +777,7 @@ export class TankEnemy extends BaseEntity {
     this.moveSpeed = this.config.walkSpeed;
     this.setTint(0x64748b);
     this.setScale(1.2, 1.2);
-    (this.body as Phaser.Physics.Arcade.Body)?.setSize(28, 28).setOffset(6, 6);
+    applyPhysicsBodyInvariantGuard(this, 28, 28, 6, 6);
     this.overheadUI.setIntent('🛡️', true);
   }
 
@@ -679,7 +786,7 @@ export class TankEnemy extends BaseEntity {
     currentTime: number,
     player: Phaser.Physics.Arcade.Sprite | null,
     map: number[][],
-    bombTiles: Set<string>,
+    bombTiles: Set<string> | Uint8Array | FlatHazardMask,
     destroyBlockCallback?: (r: number, c: number) => void,
     applyStompSlowCallback?: (slowPct: number, durationMs: number) => void
   ) {
@@ -809,7 +916,7 @@ export class GhostEnemy extends BaseEntity {
     currentTime: number,
     player: Phaser.Physics.Arcade.Sprite | null,
     map: number[][],
-    bombTiles: Set<string>
+    bombTiles: Set<string> | Uint8Array | FlatHazardMask
   ) {
     if (this.isDead || !this.active) return;
     this.updateEntity(delta, currentTime);
@@ -973,7 +1080,7 @@ export class SplitterEnemy extends BaseEntity {
     currentTime: number,
     player: Phaser.Physics.Arcade.Sprite | null,
     map: number[][],
-    bombTiles: Set<string>
+    bombTiles: Set<string> | Uint8Array | FlatHazardMask
   ) {
     if (this.isDead || !this.active) return;
     this.updateEntity(delta, currentTime);
@@ -1039,7 +1146,7 @@ export class MiniSplitterEnemy extends BaseEntity {
     this.moveSpeed = 100;
     this.setTint(0x84cc16);
     this.setScale(0.7, 0.7);
-    (this.body as Phaser.Physics.Arcade.Body)?.setSize(18, 18).setOffset(11, 11);
+    applyPhysicsBodyInvariantGuard(this, 18, 18, 11, 11);
     this.overheadUI.setIntent('🟢', true);
   }
 
@@ -1048,7 +1155,7 @@ export class MiniSplitterEnemy extends BaseEntity {
     currentTime: number,
     player: Phaser.Physics.Arcade.Sprite | null,
     map: number[][],
-    bombTiles: Set<string>
+    bombTiles: Set<string> | Uint8Array | FlatHazardMask
   ) {
     if (this.isDead || !this.active) return;
     this.updateEntity(delta, currentTime);
