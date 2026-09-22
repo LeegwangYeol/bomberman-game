@@ -1,30 +1,19 @@
-# Dispatch for reviewer_1
+## 2026-09-22T05:28:00Z
+You are Reviewer 1 for Milestone 4 (Visual & Functional Testing Verification).
+Working directory: /Users/user/src/bomberman/.agents/reviewer_1
 
-## Task
-Review /Users/user/src/bomberman/GDD.md for game design depth, completeness against ORIGINAL_REQUEST.md acceptance criteria, balance, and cute aesthetic coherence.
+MANDATORY INPUTS:
+- Read /Users/user/src/bomberman/ORIGINAL_REQUEST.md
+- Read /Users/user/src/bomberman/COLLABORATION.md
+- Read /Users/user/src/bomberman/.agents/worker_m2/handoff.md
+- Read /Users/user/src/bomberman/.agents/orchestrator_visual_test/SCOPE.md
 
-Authoritative Request: /Users/user/src/bomberman/.agents/ORIGINAL_REQUEST.md
-Working Directory: /Users/user/src/bomberman/.agents/reviewer_1
-Target Document: /Users/user/src/bomberman/GDD.md
-Output Target: /Users/user/src/bomberman/.agents/reviewer_1/handoff.md
-
-## 2026-09-14T09:38:54Z
-You are Reviewer 1 (GDD Completeness Reviewer) for the Cute Web Bomberman project.
-Your working directory is: /Users/user/src/bomberman/.agents/reviewer_1
-Authoritative request: /Users/user/src/bomberman/.agents/ORIGINAL_REQUEST.md
-Dispatch: /Users/user/src/bomberman/.agents/reviewer_1/DISPATCH.md
-Document to Review: /Users/user/src/bomberman/GDD.md
-
-Your Mission:
-Critically and objectively review /Users/user/src/bomberman/GDD.md against ALL user requirements and acceptance criteria in ORIGINAL_REQUEST.md:
-1. Normal enemies with unique movement patterns, AI behaviors, stats, and cute themes.
-2. Mid-bosses with multi-phase mechanics, telegraphing, and phases.
-3. Specialized NPCs and Ally systems (rescuable allies, companion pets, wandering merchants/helpers).
-4. Random events altering the map or rules.
-5. Stellaris-style mid/end-game crises: MUST include at least TWO distinct, detailed "Stellaris-style" crisis scenarios with buildup warnings, map hazards, invader factions, and survival objectives.
-6. Cute UI Revamp Concept: Pure CSS, HTML Canvas, and emojis (no external image assets); Canvas glows/pastels/rounded shapes/particles, CSS bouncy typography/glassmorphism/mobile controls.
-
-Evaluate completeness, design depth, cute thematic cohesion, and gameplay balance.
-State your verdict explicitly: APPROVE or REQUEST_CHANGES.
-Write your complete review to `/Users/user/src/bomberman/.agents/reviewer_1/handoff.md`.
-When finished, send a message to the orchestrator with your verdict and findings summary.
+YOUR TASKS:
+1. Examine git diff and code modifications made by Worker M2 in:
+   - src/game/GameScene.ts (Crisis mode wiring, graphics hazard rendering, anim exists guards, bomb blast linkage, shutdown cleanup)
+   - src/components/BombermanGame.tsx (Situation Log HUD card, layout scroll fix, unmount listeners)
+   - tests/crises.test.mjs (Tier 6 integration test)
+2. Verify that the changes adhere to project architecture and don't introduce regressions or memory leaks.
+3. Run `npm test`, `npm run lint`, and `npm run build` and inspect the output.
+4. Deliver your clear verdict (APPROVE or REQUEST_CHANGES) with supporting evidence in /Users/user/src/bomberman/.agents/reviewer_1/handoff.md.
+5. Send a completion message to parent.

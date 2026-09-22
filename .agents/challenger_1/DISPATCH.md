@@ -26,3 +26,21 @@ Adversarially stress-test the gameplay mechanics in /Users/user/src/bomberman/GD
 State your verdict explicitly: APPROVE or REQUEST_CHANGES.
 Write your complete report to `/Users/user/src/bomberman/.agents/challenger_1/handoff.md`.
 When finished, send a message to the orchestrator with your verdict and findings summary.
+
+## 2026-09-22T05:27:18Z
+You are Challenger 1 for Milestone 4 (Visual & Functional Testing Verification).
+Working directory: /Users/user/src/bomberman/.agents/challenger_1
+
+MANDATORY INPUTS:
+- Read /Users/user/src/bomberman/ORIGINAL_REQUEST.md
+- Read /Users/user/src/bomberman/COLLABORATION.md
+- Read /Users/user/src/bomberman/.agents/worker_m2/handoff.md
+- Read /Users/user/src/bomberman/.agents/orchestrator_visual_test/SCOPE.md
+
+YOUR TASKS:
+1. Conduct empirical, adversarial testing on the game mode switching and Crisis lifecycle:
+   - Repeated rapid mode switches: Standard -> Boss Rush -> Crisis Survival -> Endless -> Crisis Survival -> Standard.
+   - Verify that crisisGraphics, activeBoss, situationLog, and tickers are cleanly instantiated and dismantled without dangling objects or NaN coordinates.
+2. Run test execution to stress test crisis handlers and ensure no unhandled exceptions or state corruptions occur.
+3. Deliver your clear verdict (APPROVE or REQUEST_CHANGES) with empirical evidence in /Users/user/src/bomberman/.agents/challenger_1/handoff.md.
+4. Send a completion message to parent.

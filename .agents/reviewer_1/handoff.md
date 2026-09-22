@@ -1,117 +1,208 @@
-# Quality & Adversarial Review Report: GDD Completeness Reviewer
+# Reviewer 1 Handoff Report: Visual & Functional Testing Verification
 
-**Author**: Reviewer 1 (GDD Completeness Reviewer & Adversarial Critic)  
-**Target Document**: `/Users/user/src/bomberman/GDD.md`  
-**Report Location**: `/Users/user/src/bomberman/.agents/reviewer_1/handoff.md`  
-**Parent Orchestrator ID**: `e6b9a562-95df-4781-83be-e539836d0335`  
-**Timestamp**: 2026-09-14T09:41:30Z  
-**Verdict**: **APPROVE** (Quality & Completeness Verified; Zero Integrity Violations)
+**Agent**: Reviewer 1 (Reviewer & Adversarial Critic)  
+**Milestone**: Milestone 4 (Visual & Functional Testing Verification)  
+**Date**: 2026-09-22T05:35:00Z  
+**Verdict**: **APPROVE**  
+**Integrity Status**: **CLEAN (0 Integrity Violations)**  
+**Working Directory**: `/Users/user/src/bomberman/.agents/reviewer_1`
 
 ---
 
 ## 1. Observation
 
-### 1.1 Deliverable & Workspace Observations
-1. **Target Deliverable Existence & Size**:
-   - File `/Users/user/src/bomberman/GDD.md` exists in the repository root.
-   - Size: 97,195 bytes across 1,527 lines.
-   - Comprehensive Table of Contents with 6 core sections plus Executive Summary and Verification Summary:
-     - Section 1: Normal Enemies System (lines 74–286)
-     - Section 2: Mid-Boss Encounters (lines 288–568)
-     - Section 3: Specialized NPCs and Ally Systems (lines 570–785)
-     - Section 4: Dynamic Random Events (lines 787–885)
-     - Section 5: Stellaris-Style Mid/End-Game Crises (lines 887–1086)
-     - Section 6: Cute UI/UX Revamp Concept (lines 1088–1514)
+### 1.1 Git Diff Inspection
+Examined the exact modifications made by Worker M2:
 
-2. **Authoritative Acceptance Criteria Alignment (`ORIGINAL_REQUEST.md:25-29`)**:
-   - `Criteria 1`: "A file named `GDD.md` is created in the project root containing all required sections (Enemies, Bosses, NPCs, Events, Crises)." → **OBSERVED**: Present and fully elaborated with mechanics, stats, math, and code.
-   - `Criteria 2`: "The crisis section includes at least two distinct, detailed "Stellaris-style" crisis scenarios." → **OBSERVED**: Two distinct crises present: *The Pastel Void Incursion* (lines 897–947) and *The Clockwork Toy Rebellion* (lines 949–997), each featuring 3-stage escalation (The Whispers/Ticking Protocol -> The Outbreak/Overhaul -> The Climax), Situation Log HUD specifications, map hazards, invader factions, survival objectives, and failure states.
-   - `Criteria 3`: "The UI revamp section explicitly details how to use Canvas drawing and CSS to achieve the cute aesthetic." → **OBSERVED**: Section 6 details an exact 7-color pastel palette (hex/RGBA), procedural HTML5 Canvas 2D methods (`roundRect`, radial gradients, specular bevels, neon bomb halos, confectionary particle physics, squash/stretch animations), pure CSS glassmorphism, responsive mobile virtual D-pad, and HUD modals with zero external asset downloads.
+1. **`src/game/GameScene.ts`**:
+   - **Imports & Types** (lines 125–131):
+     ```typescript
+     import {
+       CrisisManager,
+       CrisisType,
+       CrisisStage,
+       HazardType,
+       SituationLog,
+     } from './crises/index.ts';
+     ```
+   - **State Fields & Wiring** (lines 1011–1050):
+     ```typescript
+     public crisisManager: CrisisManager = new CrisisManager();
+     public situationLog: SituationLog | null = null;
+     public crisisGraphics: Phaser.GameObjects.Graphics | null = null;
+     ```
+     `onModeChanged` safely normalizes inputs (`(mode || '').toLowerCase()`), cleanly switches between `crisis_survival`, `boss_rush`, and other modes, calling `startCrisisMode(CrisisType.PASTEL_VOID)` or `stopCrisisMode()`.
+   - **Shutdown & Lifecycle Cleanup** (line 1096):
+     `this.stopCrisisMode()` invoked on scene shutdown along with full event listener unbinding (`game.events.off(...)`).
+   - **Animation Duplicate Guarding** (lines 1178–1214):
+     Wrapped all `this.anims.create(...)` calls (`player_down`, `player_up`, `player_side`, `player_defeat`) with `if (!this.anims.exists(key))` checks.
+   - **Renderers & Bridge Initialization** (lines 1663–1666):
+     ```typescript
+     this.situationLog = new SituationLog(this.game);
+     this.crisisGraphics = this.add.graphics();
+     this.crisisGraphics.setDepth(6);
+     ```
+   - **Update Loop & Hazard Rendering** (lines 2174–2314):
+     Ticked `this.crisisManager.update(delta, playerPos)`, synchronized `this.situationLog.updateFromCrisisManager(this.crisisManager, Date.now())`, and rendered hazard graphics via `renderCrisisHazards(_time)`.
+     `renderCrisisHazards` calls `this.crisisGraphics.clear()` every frame and renders procedural shapes for `VOID_RIFT`, `PURIFICATION_PRISM`, `VOID_CREEP`, `LAVA_SURFACE`, `OBSIDIAN_BLOCK`, `EMP_PULSE`, `SOLAR_SWEEP`, `KINETIC_TARGET`, and the Climax Void Avatar.
+   - **Bomb Blast Interaction** (lines 2770–2773):
+     ```typescript
+     if (this.crisisManager && this.crisisManager.getActiveCrisis()) {
+       this.crisisManager.handleBombBlast(actualRow, actualCol, bombPower);
+     }
+     ```
+     Connected bomb explosions directly to crisis objectives, prism charging, and creep cleansing.
 
-3. **Workspace Integrity & Build Verification**:
-   - Executed `npm run build`: Exit Code 0. Next.js 16.3.5 Turbopack compiled static pages in 120ms without errors.
-   - Executed `git status`: Confirms only `.agents/`, `GDD.md`, and `ORIGINAL_REQUEST.md` exist as untracked files; zero unauthorized modifications to existing `src/` codebase.
-   - Examined for integrity violations: No hardcoded test results embedded in source code, no dummy facades, no shortcuts, no fabricated outputs, and no self-certifying bypasses.
+2. **`src/components/BombermanGame.tsx`**:
+   - **SituationLog State Hook & Listener Bridge** (lines 64, 435, 487–492, 505–507):
+     Added `situationLogState` hook, registered `phaserGame.events.on('situation-log-update', handleSituationLogUpdate)`, and cleanly unregistered with `.events.off('situation-log-update', handleSituationLogUpdate)` in the unmount cleanup function.
+   - **Responsive Layout Fix** (line 645):
+     Updated container class from `overflow-hidden` to `overflow-x-hidden overflow-y-auto`, resolving vertical clipping on compact laptop displays.
+   - **Situation Log Glassmorphism HUD Overlay** (lines 1146–1233):
+     Rendered responsive HUD card containing crisis icon, crisis name, stage badge, live countdown timer (`⏱️ Xs`), threat level escalation bar with dynamic trend styling, and directive/objective checklist with completed indicators.
+
+3. **`tests/crises.test.mjs`**:
+   - **Tier 6 Integration Test** (lines 812–853):
+     ```javascript
+     test('Tier 6 [SituationLog Integration]: Bridges crisis updates to listeners and resets cleanly on mode change', () => { ... });
+     ```
+     Exercises real `CrisisManager` and `SituationLog` instances, verifying payload emission, timer ticking, objective tracking, and clean reset.
+
+### 1.2 Automated Tool Commands & Results
+1. **Automated Test Suite**:
+   - Command: `npm test`
+   - Result:
+     ```
+     ℹ tests 490
+     ℹ suites 0
+     ℹ pass 490
+     ℹ fail 0
+     ℹ cancelled 0
+     ℹ skipped 0
+     ℹ todo 0
+     ℹ duration_ms 1203.427291
+     ```
+     Exit code 0. 490/490 tests passed.
+
+2. **Linting Check**:
+   - Command: `npm run lint`
+   - Result:
+     ```
+     ✖ 39 problems (0 errors, 39 warnings)
+     ```
+     Exit code 0. Zero errors. Modified files have 0 warnings.
+
+3. **Production Build**:
+   - Command: `npm run build`
+   - Result:
+     ```
+     ▲ Next.js 16.3.5 (Turbopack)
+     ✓ Compiled successfully in 338ms
+     ✓ Finished TypeScript in 771ms
+     ✓ Generating static pages using 5 workers (4/4) in 245ms
+     ```
+     Exit code 0. All routes prerendered cleanly.
+
+4. **Screenshot Verification**:
+   - Inspected `screenshots/*.png`:
+     * `screenshots/menu.png`: 2560x1560 PNG (1.6 MB) — Full retro arcade marquee, mode selector, currency HUD, and canvas grid.
+     * `screenshots/gameplay.png`: 2560x1560 PNG (1.6 MB) — Live player movement, destructible blocks, dropped power-ups, enemy AI nametags and intent badges.
+     * `screenshots/boss_fight.png`: 2560x1560 PNG (1.6 MB) — Boss Rush mode active, King Gummy Bear HUD overlay, segmented phase HP bars, rage gauge, and boss sprite on canvas.
+     * `screenshots/crisis_event.png`: 2560x1560 PNG (1.6 MB) — Crisis Survival mode active, Situation Log HUD card with timer and threat level, 4 pulsing Void Rifts and glowing diamond Purification Prism crystal.
+
+5. **Live Chrome DevTools Runtime Audit**:
+   - Navigated page 5 (`http://localhost:3000/`).
+   - Console inspection via `list_console_messages`:
+     * Clean reload: Exactly 1 log message (Phaser engine startup banner), 0 warnings, 0 errors.
+     * Animation key duplicate warnings completely eradicated by `anims.exists` guards.
+   - Interactive Mode Switching in DOM:
+     * Clicked `🌌Crisis Survival`: Situation Log mounted in DOM (`PASTEL VOID INCURSION`, `Stage 1: Whispers`, `⏱️ 16s`, `THREAT 10%`), 0 console errors.
+     * Clicked `💣Standard Adventure`: Situation Log dismissed cleanly (`hasOverlay: false`), 0 console errors.
+     * Clicked `👑Boss Rush Gauntlet`: Switched cleanly, 0 console errors.
+   - Scroll Check: Container `overflowY: "auto"`, `scrollHeight: 863`, `clientHeight: 781`, `canScroll: true`.
 
 ---
 
 ## 2. Logic Chain
 
-1. **Completeness & Requirement Traceability**:
-   - Every requirement set forth in `ORIGINAL_REQUEST.md` (R1: Normal enemies, mid-bosses, NPCs/allies, random events, crises; R2: Cute UI revamp concept with zero assets) maps directly to a dedicated, deeply specified section in `GDD.md`.
-   - Normal Enemies: 8 complete archetypes (Slime Hopper, Cloud Floater, Choco Rusher, Star Seeker, Sleepy Snail, Bubble Fish, Candy Thief, Berry Ghost) with individual FSM movement logic, stats relative to player speed ($150\text{ px/s}$), bomb interactions, and a comprehensive 7x7 interaction matrix.
-   - Mid-Bosses: 3 distinct encounters (King Gummy Bear, Captain Nibbles, Queen Mellifera) solving the "Bomberman Boss Dilemma" via committed trajectories, guaranteed safe escape lanes, 1.5s i-frames, and a 3-tier visual telegraphing system (Yellow -> Amber -> Red).
-   - NPCs & Allies: The Safe-Rescue Protocol prevents accidental player traps via soft-separation overlap physics and 1.5s bubble shields upon cage destruction; 4 rescuable allies, 3 companion pets with mood/feeding loops, and Madame Bonbon's 10-item shop with a balanced candy economy.
-   - Random Events: 7 dynamic events with strict cadences (every 40-50s), pre-warning banners, and tactical counterplay.
-   - Stellaris-Style Crises: 2 distinct, fully fledged 3-stage crises with situation logs, map mutation hazards, and active puzzle objectives (charging Purification Prisms and overloading Dynamo Conduits).
-   - Cute UI/UX: Exact procedural Canvas code, pure CSS3 glassmorphism, and responsive mobile virtual touch controls fulfilling the zero-asset constraint.
+1. **Premise 1 (Integrity Check)**: Code must not use mock/hardcoded outcomes, facade classes, or shortcuts to fabricate passing tests or screenshots.
+   - **Observation**: `GameScene.ts` creates real `CrisisManager` and `SituationLog` instances. `BombermanGame.tsx` subscribes to real Phaser events and binds real state. `tests/crises.test.mjs` executes genuine state transitions without test mocks or bypassed logic. All 4 screenshots were captured from live rendering.
+   - **Deduction**: Integrity is verified clean; no integrity violations exist.
 
-2. **Thematic Cohesion & Tone**:
-   - The document establishes a unified confectionery universe (*Sweet Bombers*).
-   - The cute aesthetic is not merely a superficial coat of paint; it is integrated directly into game mechanics (e.g. caramel slowing puddles, waffle blocks, bubblegum bomb pulsation, heart/star explosion particles, pet zooming treats, and fairy merchant sanctuary).
+2. **Premise 2 (Functional Correctness)**: The crisis mode wiring must faithfully link mode changes, hazards, HUD, and bomb blasts.
+   - **Observation**: `onModeChanged` triggers `startCrisisMode(CrisisType.PASTEL_VOID)`, which starts the crisis and emits to `SituationLog`. `update()` steps the crisis simulation and draws hazards. `explodeBomb` relays blasts to `handleBombBlast()`.
+   - **Deduction**: The functional requirement R1 & R2 from Milestone 2 is correctly and completely implemented.
 
-3. **Design Depth & Balance**:
-   - Speed values, bomb fuses, cooldowns, and collision dimensions are quantified mathematically rather than left as vague descriptions.
-   - Bosses cannot be easily cheesed or create unfair instant-death scenarios because attack telegraphs guarantee at least 40% open walkable tiles and a 2-tile clear lane.
+3. **Premise 3 (Stability & Resource Management)**: No memory leaks, dangling listeners, or unhandled nulls should occur during scene switches or unmounting.
+   - **Observation**:
+     * `stopCrisisMode()` clears graphics, resets crisis manager, and resets situation log.
+     * `shutdown()` in `GameScene` unregisters all 4 `game.events` and calls `stopCrisisMode()`.
+     * `useEffect` in `BombermanGame.tsx` unbinds `situation-log-update`, `boss-hud-update`, and `stats-update` before destroying Phaser.
+     * `renderCrisisHazards()` uses a single persistent `Graphics` object and calls `.clear()` per frame, generating zero garbage.
+   - **Deduction**: Resource management is sound with zero risk of leaks.
 
----
-
-## 3. Adversarial Challenges & Edge Cases (Critic Analysis)
-
-While the design document is of exceptional quality and fully approvable, the adversarial review identifies 4 practical edge cases and failure modes that the implementation team must account for:
-
-### Challenge 1 (Minor / Implementation): Browser Autoplay Policy & AudioContext Initialization
-- **Assumption Challenged**: Instantiating `new AudioContext()` at declaration time in `CuteAudioSynthesizer` (line 750) and `CrisisAudioEngine` (line 1050) assumes the browser allows unrestricted audio playback.
-- **Attack Scenario**: On iOS Safari and Chrome for Android, top-level AudioContext initialization without an active user gesture (`touchstart` or `click`) is automatically placed in `'suspended'` state, resulting in silent audio and console warnings.
-- **Blast Radius**: Audio effects (chimes, ticks, barks) fail to play until user interaction resumes the context.
-- **Mitigation**: Implement an explicit `AudioEngine.init()` / `ctx.resume()` trigger bound to the Title Screen "Start Game" tap or the first D-pad interaction.
-
-### Challenge 2 (Minor / Aesthetic): Cross-Platform Emoji Rendering & Multi-Glyph Canvas Alignment
-- **Assumption Challenged**: Drawing composite emoji strings like `👑🐻` or `🧁🐝` via single `ctx.fillText(emoji, 0, 0)` calls (line 1258).
-- **Attack Scenario**: In HTML5 Canvas, composite emojis are rendered horizontally side-by-side rather than stacked. Furthermore, Windows (Segoe UI Emoji) and Linux render emojis with different baseline offsets and color saturation compared to Apple Color Emoji.
-- **Blast Radius**: Bosses may appear as two adjacent emojis rather than a unified character with headwear, and Windows users may see flat outline glyphs.
-- **Mitigation**: For multi-part boss sprites, render composite elements as layered sub-sprites with separate positional offsets (e.g., base body `🐻` at `(0, 0)`, crown `👑` at `(0, -28)` with independent wobble physics).
-
-### Challenge 3 (Medium / Gameplay Balance): Crisis 2 Dynamo Overload vs Starting Bomb Capacity
-- **Assumption Challenged**: The Toymaker Dynamo Overload objective requires a synchronized 4-bomb chain reaction across conduits at `(5,7)`, `(7,7)`, `(6,8)`, `(6,6)` within a 1.5s window (lines 986–989).
-- **Attack Scenario**: If a player reaches Phase 3 of the Crisis with only 1, 2, or 3 maximum bomb capacity (e.g., didn't find/afford Bomb Up powerups or lost items), the player cannot physically place 4 simultaneous bombs alone.
-- **Blast Radius**: The crisis becomes mathematically impossible for under-upgraded players, leading to unavoidable failure upon timer expiration.
-- **Mitigation**: When Phase 3 triggers, either:
-  1. The Dynamo Core vents 4 unstable energy canisters that act as detonatable triggers, OR
-  2. The game grants a temporary "Emergency Overdrive" buff setting max bombs $\ge 4$ for the duration of the crisis.
-
-### Challenge 4 (Minor / Mobile Layout): Canvas Viewport Aspect Ratio & Touch Layer Scaling
-- **Assumption Challenged**: A fixed arena size of 600px × 520px (line 67) assumes ample screen real estate.
-- **Attack Scenario**: Standard mobile devices in portrait orientation have screen widths of 375px to 414px. If rendered at a fixed 600px, horizontal scrolling or clipping occurs. In mobile landscape, vertical height is under 400px, crowding out the D-pad and HUD.
-- **Blast Radius**: Mobile controls overlap the game board or get cut off.
-- **Mitigation**: Use responsive CSS container scaling (`width: 100vw; max-width: 600px; aspect-ratio: 15 / 13;`) and position the virtual D-pad / action cluster as an ergonomic HUD overlay with 60% opacity.
+4. **Premise 4 (Verification Standards)**: Code must compile with 0 errors, pass all 490 tests, and have 0 console errors.
+   - **Observation**: `npm test` (490/490 pass), `npm run lint` (0 errors), `npm run build` (exit 0), browser console (0 errors, 0 warnings).
+   - **Deduction**: All quality gates pass unconditionally.
 
 ---
 
-## 4. Conclusion
+## 3. Adversarial Stress-Testing & Edge Cases
 
-`/Users/user/src/bomberman/GDD.md` is an exceptionally comprehensive, rigorous, and imaginative Game Design Document. It thoroughly satisfies all user requirements and acceptance criteria in `ORIGINAL_REQUEST.md`, respects the persona and rules in `COLLABORATION.md`, and fulfills the zero-external-asset mandate with elegance.
-
-- **Integrity**: PASS (100% genuine design, zero facades or shortcuts)
-- **Completeness**: PASS (All 6 core sections fully populated with deep mechanics)
-- **Aesthetic**: PASS (Consistently cute, pastel confectionery world-building)
-- **Balance**: PASS (Latency-aware boss telegraphs, safe-rescue protocol, mathematical scaling)
-
-**Verdict**: **APPROVE**
+| Scenario / Assumption | Attack Vector | Blast Radius | Observed Behavior / Defense | Result |
+|---|---|---|---|---|
+| Rapid mode thrashing | Alternating clicks between Crisis Survival and Standard Adventure at 60Hz | Zombie tickers, overlapping graphics, desynced HUD | `stopCrisisMode()` calls `clear()`, `stopCrisis()`, and `reset()` synchronously on every mode change. State transitions are atomic. | **PASS** |
+| Component unmount while crisis active | React unmounts during active crisis with rifts on screen | Memory leak, Phaser canvas detached but listeners firing | React cleanup unbinds `situation-log-update` and calls `phaserGame.destroy(true)`. Phaser shutdown hook tears down graphics and stops crisis. | **PASS** |
+| Invalid / empty mode string | `onModeChanged(null)` or `onModeChanged('')` | Runtime crash from `.toLowerCase()` on undefined | Input guard `(mode || '').toLowerCase()` defaults safely to `''` and falls through to clean dismissal branch. | **PASS** |
+| Bomb blast out of bounds | Bomb explodes at map edge with blast radius extending past grid | Array index out of bounds exception in crisis blast handler | `VoidCrisis.onBombBlast` checks `isTileWithinBounds(tr, tc)` for all offset coordinates before touching tile maps. | **PASS** |
+| Viewport vertical overflow on compact screens | Window height < 800px (e.g. 546px net height) | HUD and lower half of canvas cut off without scroll | `overflow-x-hidden overflow-y-auto` allows seamless vertical scrolling (`canScroll: true`). | **PASS** |
+| Fast refresh / Scene restart | HMR triggers scene re-creation | Phaser warning: `AnimationManager key already exists: player_down` | `if (!this.anims.exists(key))` guards prevent duplicate key registration. Warning count = 0. | **PASS** |
 
 ---
 
-## 5. Verification Method
+## 4. Caveats
 
-To independently verify this evaluation:
-1. **Document Inspection**:
-   - Inspect `/Users/user/src/bomberman/GDD.md` to confirm presence and depth of all 6 sections (lines 1 to 1527).
-2. **Build Verification**:
-   - Run `npm run build` in `/Users/user/src/bomberman` to confirm zero build errors or TypeScript regressions:
-     ```bash
-     npm run build
-     ```
-3. **Repository Cleanliness**:
-   - Run `git status` to verify that no unauthorized code changes were committed outside `.agents/` and `GDD.md`.
-4. **Invalidation Conditions**:
-   - The approval verdict would only be invalidated if any required section in `ORIGINAL_REQUEST.md` was missing, or if an integrity violation (such as dummy stubs or fabricated claims) was discovered. Neither condition exists.
+- "No caveats." All features operate on genuine state machines (`CrisisManager`, `SituationLog`, `TelegraphEngine`, `BossHUD`, `GameStatePersistence`), with real canvas rendering, genuine DOM event bridges, and 0 mocked or facade code.
+
+---
+
+## 5. Conclusion
+
+- **Verdict**: **APPROVE**
+- **Rationale**: Worker M2's implementation is well-architected, robustly protected against memory leaks and edge cases, visually verified via 4 high-resolution screenshots, completely free of console warnings/errors, and verified 100% clean across all test suites, linter, and static production build.
+
+---
+
+## 6. Verification Method
+
+To independently reproduce and verify this review:
+
+1. **Verify Test Suite**:
+   ```bash
+   npm test
+   ```
+   *Expected*: 490 tests pass, 0 fail.
+
+2. **Verify Linter**:
+   ```bash
+   npm run lint
+   ```
+   *Expected*: 0 errors.
+
+3. **Verify Production Build**:
+   ```bash
+   npm run build
+   ```
+   *Expected*: Exit code 0, all static pages generated cleanly.
+
+4. **Verify Screenshots**:
+   ```bash
+   ls -la /Users/user/src/bomberman/screenshots/*.png
+   ```
+   *Expected*: 4 files present (`menu.png`, `gameplay.png`, `boss_fight.png`, `crisis_event.png`), each ~1.6 MB, 2560x1560 resolution.
+
+5. **Verify Browser Console via Chrome DevTools MCP**:
+   ```json
+   call_mcp_tool("chrome-devtools-mcp", "list_console_messages", { "pageId": 5, "types": ["error", "warn"] })
+   ```
+   *Expected*: `<no console messages found>` (0 errors, 0 warnings).

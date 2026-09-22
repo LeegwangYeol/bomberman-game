@@ -809,3 +809,47 @@ test('Tier 6 [CrisisManager]: getHazardAt returns null for empty tiles and corre
   assert.equal(manager.isTileHazardous(6, 3), true);
 });
 
+test('Tier 6 [SituationLog Integration]: Bridges crisis updates to listeners and resets cleanly on mode change', () => {
+  const emitter = new EventEmitter();
+  const mockGame = {
+    events: {
+      emit(event, ...args) {
+        return emitter.emit(event, ...args);
+      },
+    },
+  };
+
+  const manager = new CrisisManager();
+  const situationLog = new SituationLog(mockGame);
+
+  let lastPayload = null;
+  emitter.on('situation-log-update', (payload) => {
+    lastPayload = payload;
+  });
+
+  // 1. Trigger crisis
+  manager.triggerCrisis(CrisisType.PASTEL_VOID);
+  situationLog.updateFromCrisisManager(manager, Date.now(), true);
+
+  assert.ok(lastPayload !== null);
+  assert.equal(lastPayload.isActive, true);
+  assert.equal(lastPayload.crisisId, CrisisType.PASTEL_VOID);
+  assert.equal(lastPayload.crisisName, 'Pastel Void Incursion');
+  assert.ok(lastPayload.objectives.length > 0);
+  assert.ok(lastPayload.stageRemainingMs > 0);
+
+  // 2. Advance time & update
+  manager.update(5000);
+  situationLog.updateFromCrisisManager(manager, Date.now() + 5000, true);
+  assert.equal(lastPayload.stage, CrisisStage.WHISPERS);
+
+  // 3. Reset crisis (e.g. on mode switch away)
+  manager.stopCrisis('reset');
+  situationLog.reset();
+
+  assert.equal(lastPayload.isActive, false);
+  assert.equal(lastPayload.threatLevel, 0);
+  assert.equal(lastPayload.crisisId, '');
+});
+
+

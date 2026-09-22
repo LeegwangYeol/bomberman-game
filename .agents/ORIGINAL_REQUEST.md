@@ -158,3 +158,48 @@ Working directory: /Users/user/src/bomberman
 2. **Exhaustive Review:** Thoroughly audit the entire codebase for edge cases, memory leaks, physics glitches, collision issues, AI clipping, UI desync, and potential vulnerabilities.
 3. **Fix and Robustness:** Autonomously remediate all discovered issues. Enhance test coverage with permanent defensive tests to prevent repeat mistakes.
 4. **Continuous Execution:** Do not stop until the system is completely robust, optimized, and zero-defect verified. Push all fixes to main.
+
+## 2026-09-22T05:09:09Z
+
+Run an automated visual and functional test of the Bomberman game, taking screenshots to verify rendering and autonomously fixing any discovered UI/gameplay bugs.
+
+Working directory: /Users/user/src/bomberman
+Integrity mode: development
+
+## Requirements
+
+### R1. Comprehensive Visual Verification & Screenshots
+Launch the game in a browser environment (using Chrome DevTools MCP or similar headless browser testing). Navigate through all core content, including the main menus, standard gameplay, epic boss fights, and map crisis events. Take clear screenshots at each key stage to verify visual integrity.
+
+### R2. Autonomous Bug Catching & Remediation
+Monitor the browser console for errors or warnings, and analyze the screenshots for visual glitches (e.g., UI overlapping, missing textures, incorrect alignments). If any bugs or errors are caught, automatically write patches to fix them in the codebase.
+
+## Acceptance Criteria
+
+### Verification
+- [ ] At least 4 distinct screenshots (Menu, Gameplay, Boss Fight, Crisis Event) are successfully captured and saved to the project directory.
+- [ ] A final Markdown report is generated detailing the test coverage, captured screenshots, and any bugs that were encountered.
+- [ ] Any discovered console errors or visual bugs are successfully remediated in the codebase, with 0 remaining console errors during the final validation run.
+
+## 2026-09-22T06:56:58Z
+
+Rewrite the enemy AI in the Bomberman codebase to be highly aggressive. Enemies must actively destroy blocks to expand their territory and aggressively hunt, corner, and attack the player.
+
+Working directory: /Users/user/src/bomberman
+Integrity mode: development
+
+## Requirements
+
+### R1. Aggressive Territory Expansion
+Modify the core enemy AI (e.g., `ChaserEnemy`, `BomberEnemy`) so they no longer just wander randomly. They must actively identify destructible blocks blocking their path and strategically place bombs to destroy them and open up the map.
+
+### R2. Relentless Player Hunting & Attacking
+Implement advanced hunting logic. Enemies should track the player's position, attempt to corner them, and place bombs offensively to trap the player. Ensure they still possess self-preservation logic (running away from bomb blasts).
+
+## Acceptance Criteria
+
+### Verification
+- [ ] Enemy AI files (e.g., in `src/game/entities/`) are updated with the new aggressive block-destroying and pathfinding logic.
+- [ ] A test suite (`tests/aggressive_ai.test.mjs`) is added or updated, proving that enemies actively place bombs to break blocks and reduce distance to the player over time.
+- [ ] The game builds successfully and 0 lint errors exist.
+

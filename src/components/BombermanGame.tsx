@@ -29,6 +29,8 @@ import {
 import { GameStatePersistence } from '../game/persistence';
 import type { SerializedRunState, SaveTriggerType } from '../game/persistence';
 import type { BossHUDState } from '../game/bosses/BossTypes.ts';
+import type { SituationLogState } from '../game/crises/index.ts';
+
 
 // Extend window to hold mobile & unified input state for Phaser to read easily
 export interface MobileInputState {
@@ -59,6 +61,8 @@ export default function BombermanGame() {
   const [selectedMobileItem, setSelectedMobileItem] = useState<(ItemDefinition & { count: number }) | null>(null);
   const [hoveredDesktopItem, setHoveredDesktopItem] = useState<(ItemDefinition & { count: number }) | null>(null);
   const [bossHudState, setBossHudState] = useState<BossHUDState | null>(null);
+  const [situationLogState, setSituationLogState] = useState<SituationLogState | null>(null);
+
 
   // M4: Progression & Game Modes State
   const [selectedMode, setSelectedMode] = useState<GameModeType>(GameModeType.STANDARD);
@@ -428,6 +432,7 @@ export default function BombermanGame() {
 
     let handleStatsUpdate: ((newStats: PlayerStats) => void) | null = null;
     let handleBossHudUpdate: ((hud: BossHUDState) => void) | null = null;
+    let handleSituationLogUpdate: ((log: SituationLogState) => void) | null = null;
 
     if (typeof window !== 'undefined' && gameRef.current && !phaserGameRef.current) {
       const config: Phaser.Types.Core.GameConfig = {
@@ -478,6 +483,12 @@ export default function BombermanGame() {
         setBossHudState(hud);
       };
       phaserGame.events.on('boss-hud-update', handleBossHudUpdate);
+
+      // Situation Log Event Bridge Listener
+      handleSituationLogUpdate = (log: SituationLogState) => {
+        setSituationLogState(log);
+      };
+      phaserGame.events.on('situation-log-update', handleSituationLogUpdate);
     }
 
     return () => {
@@ -490,6 +501,9 @@ export default function BombermanGame() {
         }
         if (handleBossHudUpdate) {
           phaserGameRef.current.events.off('boss-hud-update', handleBossHudUpdate);
+        }
+        if (handleSituationLogUpdate) {
+          phaserGameRef.current.events.off('situation-log-update', handleSituationLogUpdate);
         }
         phaserGameRef.current.events.off('currency-reward');
         phaserGameRef.current.destroy(true);
@@ -628,7 +642,7 @@ export default function BombermanGame() {
   };
 
   return (
-    <div className="relative flex flex-col justify-between items-center w-full min-h-screen bg-gradient-to-b from-slate-950 via-gray-900 to-slate-950 text-white overflow-hidden select-none px-2 py-2 sm:px-4 sm:py-3">
+    <div className="relative flex flex-col justify-between items-center w-full min-h-screen bg-gradient-to-b from-slate-950 via-gray-900 to-slate-950 text-white overflow-x-hidden overflow-y-auto select-none px-2 py-2 sm:px-4 sm:py-3">
       {/* Retro Arcade Cabinet Header / Marquee */}
       <header className="w-full max-w-4xl flex flex-wrap items-center justify-between gap-2 px-4 py-2 rounded-xl bg-slate-900/90 backdrop-blur-md border border-slate-700/60 shadow-[0_0_20px_rgba(59,130,246,0.15)] z-20">
         <div className="flex items-center gap-3">
@@ -1126,6 +1140,95 @@ export default function BombermanGame() {
                   style={{ width: `${Math.min(100, bossHudState.enrageGauge)}%` }}
                 />
               </div>
+            </div>
+          )}
+
+          {/* Dynamic Stellaris Situation Log HUD Overlay */}
+          {situationLogState && situationLogState.isActive && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 w-[94%] max-w-lg z-30 bg-slate-950/95 backdrop-blur-md rounded-xl border border-purple-500/60 p-3 shadow-2xl shadow-purple-950/70 pointer-events-none ring-1 ring-purple-400/30">
+              {/* Header: Crisis Name, Stage Badge, Countdown & Threat Level */}
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl filter drop-shadow">{situationLogState.crisisIcon || '🌌'}</span>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-black tracking-wider text-purple-200 uppercase font-mono">
+                        {situationLogState.crisisName}
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono tracking-wider bg-purple-500/30 text-purple-300 border border-purple-400/50">
+                        {situationLogState.stageName}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 font-mono line-clamp-1">
+                      {situationLogState.statusDescription}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col items-end gap-0.5">
+                  <div className="flex items-center gap-1 text-[11px] font-mono font-bold text-amber-300 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-500/40">
+                    <span>⏱️</span>
+                    <span>{Math.max(0, Math.ceil(situationLogState.stageRemainingMs / 1000))}s</span>
+                  </div>
+                  <div className="text-[10px] font-mono font-bold text-rose-400">
+                    THREAT {Math.round(situationLogState.threatLevel)}%
+                  </div>
+                </div>
+              </div>
+
+              {/* Threat Meter Bar */}
+              <div className="mb-2">
+                <div className="flex items-center justify-between text-[9px] text-slate-400 font-mono mb-0.5">
+                  <span className="tracking-wider">THREAT LEVEL ESCALATION</span>
+                  <span className={`font-bold ${situationLogState.threatTrend === 'critical' ? 'text-rose-400 animate-pulse' : 'text-purple-300'}`}>
+                    {situationLogState.threatTrend.toUpperCase()}
+                  </span>
+                </div>
+                <div className="h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-700/80 p-0.5">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-purple-500 via-pink-500 to-rose-600 transition-all duration-300 shadow-[0_0_8px_rgba(236,72,153,0.5)]"
+                    style={{ width: `${Math.min(100, Math.max(0, situationLogState.threatLevel))}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Active Directives / Objectives */}
+              {situationLogState.objectives && situationLogState.objectives.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-[9px] font-mono font-bold tracking-wider text-slate-400 uppercase">
+                    DIRECTIVES / OBJECTIVES
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                    {situationLogState.objectives.map((obj) => (
+                      <div
+                        key={obj.id}
+                        className={`flex items-center justify-between px-2 py-1 rounded text-[10px] font-mono border ${
+                          obj.isCompleted
+                            ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+                            : 'bg-slate-900/80 border-slate-700/80 text-slate-200'
+                        }`}
+                      >
+                        <span className="truncate pr-1">
+                          {obj.isCompleted ? '✓ ' : '○ '}
+                          {obj.title}
+                        </span>
+                        <span className="font-bold shrink-0">
+                          {obj.currentCount}/{obj.targetCount}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Active Alert Banner */}
+              {situationLogState.activeAlert && (
+                <div className="mt-1.5 px-2 py-1 rounded bg-rose-950/60 border border-rose-500/50 text-[10px] font-mono text-rose-200 flex items-center gap-1.5 animate-pulse">
+                  <span>{situationLogState.activeAlert.icon || '⚠️'}</span>
+                  <span className="font-bold uppercase tracking-wider">{situationLogState.activeAlert.title}:</span>
+                  <span className="truncate">{situationLogState.activeAlert.message}</span>
+                </div>
+              )}
             </div>
           )}
 

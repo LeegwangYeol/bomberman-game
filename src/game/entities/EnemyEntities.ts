@@ -12,24 +12,28 @@ import {
   findPathBFS,
   getBlastTiles,
   findEscapePathBFS,
+  findTargetBlockBFS,
+  findCorneringBombTile,
 } from '../pathfinding';
 
 /**
  * Enemy AI States
  */
-export enum EnemyState {
-  IDLE = 'IDLE',
-  PATROL = 'PATROL',
-  TRACKING = 'TRACKING',
-  HUNTING = 'HUNTING',
-  WINDUP = 'WINDUP',
-  ATTACK = 'ATTACK',
-  COOLDOWN = 'COOLDOWN',
-  EVADING = 'EVADING',
-  ENRAGED = 'ENRAGED',
-  PHASING = 'PHASING',
-  MATERIALIZED = 'MATERIALIZED',
-}
+export const EnemyState = {
+  IDLE: 'IDLE',
+  PATROL: 'PATROL',
+  TRACKING: 'TRACKING',
+  HUNTING: 'HUNTING',
+  WINDUP: 'WINDUP',
+  ATTACK: 'ATTACK',
+  COOLDOWN: 'COOLDOWN',
+  EVADING: 'EVADING',
+  ENRAGED: 'ENRAGED',
+  PHASING: 'PHASING',
+  MATERIALIZED: 'MATERIALIZED',
+} as const;
+
+export type EnemyState = typeof EnemyState[keyof typeof EnemyState];
 
 /**
  * 1. ChaserEnemy: High speed, 350ms telegraph windup before 240 px/s corridor dash, 900ms stun on wall impact.
@@ -37,6 +41,14 @@ export enum EnemyState {
 export class ChaserEnemy extends BaseEntity {
   public aiState: EnemyState = EnemyState.PATROL;
   public config = ENEMY_ARCHETYPES.CHASER;
+
+  public canDropBombs: boolean = true;
+  public activeBombs: number = 0;
+  public maxBombs: number = 1;
+  public bombCooldownTimer: number = 2000;
+  public bombPower: number = 2;
+  public escapePath: GridCoord[] = [];
+  public evadeTimeoutMs: number = 0;
 
   private stateTimer: number = 0;
   private pathRecalcTimer: number = 0;
@@ -77,6 +89,10 @@ export class ChaserEnemy extends BaseEntity {
       case EnemyState.HUNTING:
         this.overheadUI.setIntent('!', true);
         break;
+      case EnemyState.EVADING:
+        this.overheadUI.setIntent('💨', true);
+        this.evadeTimeoutMs = 2500;
+        break;
       case EnemyState.WINDUP:
         this.overheadUI.setIntent('⚠️', true);
         this.setVelocity(0, 0);
@@ -100,15 +116,28 @@ export class ChaserEnemy extends BaseEntity {
     }
   }
 
+  public onBombExploded(): void {
+    if (this.activeBombs > 0) {
+      this.activeBombs--;
+    }
+    if (this.aiState === EnemyState.EVADING && this.activeBombs === 0) {
+      this.escapePath = [];
+      this.changeState(EnemyState.TRACKING);
+    }
+  }
+
   public updateAI(
     delta: number,
     currentTime: number,
     player: Phaser.Physics.Arcade.Sprite | null,
     map: number[][],
-    bombTiles: Set<string>
+    bombTiles: Set<string>,
+    dropBombCallback?: (r: number, c: number, fuseMs?: number) => boolean
   ) {
     if (this.isDead || !this.active) return;
     this.updateEntity(delta, currentTime);
+
+    this.bombCooldownTimer -= delta;
 
     // AI-03: Unified stun & cooldown state recovery in exactly config.stunMs (900ms)
     if (this.isStunned || this.aiState === EnemyState.COOLDOWN) {
@@ -116,6 +145,39 @@ export class ChaserEnemy extends BaseEntity {
       if (currentTime >= this.stunUntil || this.stateTimer <= 0) {
         this.isStunned = false;
         this.changeState(EnemyState.TRACKING);
+      }
+      return;
+    }
+
+    if (this.aiState === EnemyState.EVADING) {
+      this.evadeTimeoutMs -= delta;
+      if (this.evadeTimeoutMs <= 0) {
+        this.escapePath = [];
+        this.changeState(EnemyState.TRACKING);
+        return;
+      }
+
+      if (this.escapePath.length > 0) {
+        const next = this.escapePath[0];
+        const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
+        const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
+        const dx = targetX - this.x;
+        const dy = targetY - this.y;
+
+        if (Math.abs(dx) > Math.abs(dy)) {
+          this.setVelocity(Math.sign(dx) * this.config.trackSpeed, 0);
+        } else {
+          this.setVelocity(0, Math.sign(dy) * this.config.trackSpeed);
+        }
+
+        if (Math.abs(dx) < 4 && Math.abs(dy) < 4) {
+          this.escapePath.shift();
+          if (this.escapePath.length === 0) {
+            this.setVelocity(0, 0);
+          }
+        }
+      } else {
+        this.setVelocity(0, 0);
       }
       return;
     }
@@ -129,12 +191,13 @@ export class ChaserEnemy extends BaseEntity {
     const ec = Math.floor(this.x / TILE_SIZE);
     const pr = Math.floor(player.y / TILE_SIZE);
     const pc = Math.floor(player.x / TILE_SIZE);
+    const dist = Math.abs(er - pr) + Math.abs(ec - pc);
 
     switch (this.aiState) {
       case EnemyState.TRACKING:
       case EnemyState.HUNTING: {
         // Line-of-sight check for corridor charge
-        if ((er === pr || ec === pc) && Math.abs(er - pr) + Math.abs(ec - pc) <= 4) {
+        if ((er === pr || ec === pc) && dist <= 4) {
           if (this.hasLineOfSight(er, ec, pr, pc, map)) {
             const dirX = er === pr ? Math.sign(pc - ec) : 0;
             const dirY = ec === pc ? Math.sign(pr - er) : 0;
@@ -152,17 +215,115 @@ export class ChaserEnemy extends BaseEntity {
           this.currentPath = findPathBFS({ r: er, c: ec }, { r: pr, c: pc }, map, bombTiles);
         }
 
-        if (this.currentPath.length > 0) {
-          const next = this.currentPath[0];
-          const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
-          const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
-          const dx = targetX - this.x;
-          const dy = targetY - this.y;
+        const hasDirectPath =
+          this.currentPath.length > 0 &&
+          this.currentPath[this.currentPath.length - 1].r === pr &&
+          this.currentPath[this.currentPath.length - 1].c === pc;
 
-          if (Math.abs(dx) > Math.abs(dy)) {
-            this.setVelocity(Math.sign(dx) * this.config.trackSpeed, 0);
+        if (hasDirectPath) {
+          // Offensive Cornering / Trap Bombing (R2):
+          if (
+            this.canDropBombs &&
+            this.bombCooldownTimer <= 0 &&
+            this.activeBombs < this.maxBombs &&
+            dist <= 2
+          ) {
+            const trapTile = findCorneringBombTile({ r: er, c: ec }, { r: pr, c: pc }, map, bombTiles);
+            if (trapTile && trapTile.r === er && trapTile.c === ec) {
+              const dangerTiles = getBlastTiles({ r: er, c: ec }, this.bombPower, map);
+              const simulatedBombTiles = new Set(bombTiles);
+              simulatedBombTiles.add(`${er},${ec}`);
+              const safeEscape = findEscapePathBFS({ r: er, c: ec }, dangerTiles, map, simulatedBombTiles, 4);
+              if (safeEscape && safeEscape.length > 0) {
+                const placed = dropBombCallback ? dropBombCallback(er, ec, 2000) : false;
+                if (placed) {
+                  this.activeBombs++;
+                  this.bombCooldownTimer = 2500;
+                  this.escapePath = safeEscape;
+                  this.changeState(EnemyState.EVADING);
+                  return;
+                }
+              }
+            }
+          }
+
+          if (this.currentPath.length > 0) {
+            const next = this.currentPath[0];
+            const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
+            const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
+            const dx = targetX - this.x;
+            const dy = targetY - this.y;
+
+            if (Math.abs(dx) > Math.abs(dy)) {
+              this.setVelocity(Math.sign(dx) * this.config.trackSpeed, 0);
+            } else {
+              this.setVelocity(0, Math.sign(dy) * this.config.trackSpeed);
+            }
+          }
+        } else {
+          // Path to player is blocked by soft blocks: Aggressive Demolition (R1)!
+          const demoTarget = findTargetBlockBFS({ r: er, c: ec }, { r: pr, c: pc }, map, bombTiles);
+          if (demoTarget) {
+            const { targetBlock, approachTile } = demoTarget;
+            const isAtApproach = er === approachTile.r && ec === approachTile.c;
+            const isAdjacentToBlock = Math.abs(er - targetBlock.r) + Math.abs(ec - targetBlock.c) === 1;
+
+            if (
+              (isAtApproach || isAdjacentToBlock) &&
+              this.canDropBombs &&
+              this.bombCooldownTimer <= 0 &&
+              this.activeBombs < this.maxBombs
+            ) {
+              const dangerTiles = getBlastTiles({ r: er, c: ec }, this.bombPower, map);
+              const simulatedBombTiles = new Set(bombTiles);
+              simulatedBombTiles.add(`${er},${ec}`);
+              const safeEscape = findEscapePathBFS({ r: er, c: ec }, dangerTiles, map, simulatedBombTiles, 4);
+
+              if (safeEscape && safeEscape.length > 0) {
+                const placed = dropBombCallback ? dropBombCallback(er, ec, 2000) : false;
+                if (placed) {
+                  this.activeBombs++;
+                  this.bombCooldownTimer = 2500;
+                  this.escapePath = safeEscape;
+                  this.changeState(EnemyState.EVADING);
+                  return;
+                }
+              }
+            }
+
+            if (!isAtApproach) {
+              const pathToApproach = findPathBFS({ r: er, c: ec }, approachTile, map, bombTiles);
+              if (pathToApproach.length > 0) {
+                const next = pathToApproach[0];
+                const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
+                const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
+                const dx = targetX - this.x;
+                const dy = targetY - this.y;
+
+                if (Math.abs(dx) > Math.abs(dy)) {
+                  this.setVelocity(Math.sign(dx) * this.config.trackSpeed, 0);
+                } else {
+                  this.setVelocity(0, Math.sign(dy) * this.config.trackSpeed);
+                }
+                return;
+              }
+            }
+          }
+
+          if (this.currentPath.length > 0) {
+            const next = this.currentPath[0];
+            const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
+            const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
+            const dx = targetX - this.x;
+            const dy = targetY - this.y;
+
+            if (Math.abs(dx) > Math.abs(dy)) {
+              this.setVelocity(Math.sign(dx) * this.config.trackSpeed, 0);
+            } else {
+              this.setVelocity(0, Math.sign(dy) * this.config.trackSpeed);
+            }
           } else {
-            this.setVelocity(0, Math.sign(dy) * this.config.trackSpeed);
+            this.setVelocity(0, 0);
           }
         }
         break;
@@ -177,7 +338,6 @@ export class ChaserEnemy extends BaseEntity {
 
       case EnemyState.ATTACK: {
         this.stateTimer -= delta;
-        // Check impact with wall/block or dash timeout
         const nextR = er + this.attackDir.y;
         const nextC = ec + this.attackDir.x;
         const hitWall =
@@ -347,55 +507,138 @@ export class BomberEnemy extends BaseEntity {
         if (Math.abs(dx) < 4 && Math.abs(dy) < 4) {
           this.escapePath.shift();
           if (this.escapePath.length === 0) {
-            this.changeState(this.hp === 1 ? EnemyState.ENRAGED : EnemyState.HUNTING);
+            this.setVelocity(0, 0);
           }
         }
       } else {
-        this.changeState(this.hp === 1 ? EnemyState.ENRAGED : EnemyState.HUNTING);
+        this.setVelocity(0, 0);
       }
       return;
     }
 
-    // Try planting bomb strategically with suicide prevention check
-    if (this.bombCooldownTimer <= 0 && this.activeBombs < this.maxBombs && dist <= 3) {
-      const dangerTiles = getBlastTiles({ r: er, c: ec }, this.bombPower, map);
-      const simulatedBombTiles = new Set(bombTiles);
-      simulatedBombTiles.add(`${er},${ec}`);
-
-      const safeEscape = findEscapePathBFS({ r: er, c: ec }, dangerTiles, map, simulatedBombTiles, 4);
-
-      if (safeEscape && safeEscape.length > 0) {
-        const fuseMs = this.hp === 1 ? this.config.quickFuseMs : 3000;
-        const placed = dropBombCallback ? dropBombCallback(er, ec, fuseMs) : false;
-        if (placed) {
-          this.activeBombs++;
-          this.bombCooldownTimer = this.hp === 1 ? 1800 : 3500;
-          this.escapePath = safeEscape;
-          this.changeState(EnemyState.EVADING);
-          return;
-        }
-      }
-    }
-
-    // Default tracking movement
+    // Update pathfinding towards player
     this.pathRecalcTimer -= delta;
     if (this.pathRecalcTimer <= 0) {
       this.pathRecalcTimer = 250;
       this.currentPath = findPathBFS({ r: er, c: ec }, { r: pr, c: pc }, map, bombTiles);
     }
 
-    if (this.currentPath.length > 0) {
-      const next = this.currentPath[0];
-      const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
-      const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
-      const dx = targetX - this.x;
-      const dy = targetY - this.y;
+    const hasDirectPath =
+      this.currentPath.length > 0 &&
+      this.currentPath[this.currentPath.length - 1].r === pr &&
+      this.currentPath[this.currentPath.length - 1].c === pc;
 
-      const currentSpeed = this.hp === 1 ? this.config.enragedSpeed : this.config.trackSpeed;
-      if (Math.abs(dx) > Math.abs(dy)) {
-        this.setVelocity(Math.sign(dx) * currentSpeed, 0);
+    if (hasDirectPath) {
+      // Offensive Bombing & Cornering (R2):
+      // When close to player (dist <= 2 or dist <= 3 in corridor/corner)
+      const trapTile = findCorneringBombTile({ r: er, c: ec }, { r: pr, c: pc }, map, bombTiles);
+      const isAtTrapTile = trapTile !== null && trapTile.r === er && trapTile.c === ec;
+      if (
+        this.bombCooldownTimer <= 0 &&
+        this.activeBombs < this.maxBombs &&
+        (dist <= this.bombPower || isAtTrapTile)
+      ) {
+        const dangerTiles = getBlastTiles({ r: er, c: ec }, this.bombPower, map);
+        const simulatedBombTiles = new Set(bombTiles);
+        simulatedBombTiles.add(`${er},${ec}`);
+
+        const safeEscape = findEscapePathBFS({ r: er, c: ec }, dangerTiles, map, simulatedBombTiles, 4);
+
+        if (safeEscape && safeEscape.length > 0) {
+          const fuseMs = this.hp === 1 ? this.config.quickFuseMs : 2500;
+          const placed = dropBombCallback ? dropBombCallback(er, ec, fuseMs) : false;
+          if (placed) {
+            this.activeBombs++;
+            this.bombCooldownTimer = this.hp === 1 ? 1800 : 3000;
+            this.escapePath = safeEscape;
+            this.changeState(EnemyState.EVADING);
+            return;
+          }
+        }
+      }
+
+      // Follow direct path towards player
+      if (this.currentPath.length > 0) {
+        const next = this.currentPath[0];
+        const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
+        const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
+        const dx = targetX - this.x;
+        const dy = targetY - this.y;
+
+        const currentSpeed = this.hp === 1 ? this.config.enragedSpeed : this.config.trackSpeed;
+        if (Math.abs(dx) > Math.abs(dy)) {
+          this.setVelocity(Math.sign(dx) * currentSpeed, 0);
+        } else {
+          this.setVelocity(0, Math.sign(dy) * currentSpeed);
+        }
+      }
+    } else {
+      // Blocked by soft blocks: Aggressive Territory Expansion & Demolition (R1)!
+      const demoTarget = findTargetBlockBFS({ r: er, c: ec }, { r: pr, c: pc }, map, bombTiles);
+      if (demoTarget) {
+        const { targetBlock, approachTile } = demoTarget;
+        const isAtApproach = er === approachTile.r && ec === approachTile.c;
+        const isAdjacentToBlock = Math.abs(er - targetBlock.r) + Math.abs(ec - targetBlock.c) === 1;
+
+        if (
+          (isAtApproach || isAdjacentToBlock) &&
+          this.bombCooldownTimer <= 0 &&
+          this.activeBombs < this.maxBombs
+        ) {
+          const dangerTiles = getBlastTiles({ r: er, c: ec }, this.bombPower, map);
+          const simulatedBombTiles = new Set(bombTiles);
+          simulatedBombTiles.add(`${er},${ec}`);
+          const safeEscape = findEscapePathBFS({ r: er, c: ec }, dangerTiles, map, simulatedBombTiles, 4);
+
+          if (safeEscape && safeEscape.length > 0) {
+            const fuseMs = this.hp === 1 ? this.config.quickFuseMs : 2500;
+            const placed = dropBombCallback ? dropBombCallback(er, ec, fuseMs) : false;
+            if (placed) {
+              this.activeBombs++;
+              this.bombCooldownTimer = this.hp === 1 ? 1800 : 3000;
+              this.escapePath = safeEscape;
+              this.changeState(EnemyState.EVADING);
+              return;
+            }
+          }
+        }
+
+        if (!isAtApproach) {
+          const pathToApproach = findPathBFS({ r: er, c: ec }, approachTile, map, bombTiles);
+          if (pathToApproach.length > 0) {
+            const next = pathToApproach[0];
+            const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
+            const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
+            const dx = targetX - this.x;
+            const dy = targetY - this.y;
+
+            const currentSpeed = this.hp === 1 ? this.config.enragedSpeed : this.config.trackSpeed;
+            if (Math.abs(dx) > Math.abs(dy)) {
+              this.setVelocity(Math.sign(dx) * currentSpeed, 0);
+            } else {
+              this.setVelocity(0, Math.sign(dy) * currentSpeed);
+            }
+            return;
+          }
+        }
+      }
+
+      // Fallback: move along whatever currentPath exists
+      if (this.currentPath.length > 0) {
+        const next = this.currentPath[0];
+        const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
+        const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
+        const dx = targetX - this.x;
+        const dy = targetY - this.y;
+
+        const currentSpeed = this.hp === 1 ? this.config.enragedSpeed : this.config.trackSpeed;
+        if (Math.abs(dx) > Math.abs(dy)) {
+          this.setVelocity(Math.sign(dx) * currentSpeed, 0);
+        } else {
+          this.setVelocity(0, Math.sign(dy) * currentSpeed);
+        }
       } else {
-        this.setVelocity(0, Math.sign(dy) * currentSpeed);
+        this.setVelocity(0, 0);
       }
     }
   }
@@ -507,12 +750,9 @@ export class TankEnemy extends BaseEntity {
     this.pathRecalcTimer -= delta;
     if (this.pathRecalcTimer <= 0) {
       this.pathRecalcTimer = 350;
-      const bulldozerMap = map.map((row) =>
-        row.map((t) => (t === TILE_BLOCK ? TILE_EMPTY : t))
-      );
       const pr = Math.floor(player.y / TILE_SIZE);
       const pc = Math.floor(player.x / TILE_SIZE);
-      this.currentPath = findPathBFS({ r: er, c: ec }, { r: pr, c: pc }, bulldozerMap, bombTiles);
+      this.currentPath = findPathBFS({ r: er, c: ec }, { r: pr, c: pc }, map, bombTiles, true);
     }
 
     if (this.currentPath.length > 0) {
@@ -599,10 +839,7 @@ export class GhostEnemy extends BaseEntity {
     this.pathRecalcTimer -= delta;
     if (this.pathRecalcTimer <= 0) {
       this.pathRecalcTimer = 250;
-      const ghostMap = map.map((row) =>
-        row.map((t) => (t === TILE_BLOCK ? TILE_EMPTY : t))
-      );
-      this.currentPath = findPathBFS({ r: er, c: ec }, { r: pr, c: pc }, ghostMap, bombTiles);
+      this.currentPath = findPathBFS({ r: er, c: ec }, { r: pr, c: pc }, map, bombTiles, true);
     }
 
     // AI-05: Ether dash if close and off cooldown

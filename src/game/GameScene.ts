@@ -124,6 +124,14 @@ import {
   TelegraphEngine,
   BossHUD,
 } from './bosses/index.ts';
+import {
+  CrisisManager,
+  CrisisType,
+  CrisisStage,
+  HazardType,
+  SituationLog,
+} from './crises/index.ts';
+
 
 export enum EnemyState {
   IDLE = 'IDLE',
@@ -1000,13 +1008,47 @@ export default class GameScene extends Phaser.Scene {
   public bossHitBombIds: Set<string> = new Set();
   private statsTimerAccumulator: number = 0;
 
+  // Crisis Subsystem Integration
+  public crisisManager: CrisisManager = new CrisisManager();
+  public situationLog: SituationLog | null = null;
+  public crisisGraphics: Phaser.GameObjects.Graphics | null = null;
+
   private onModeChanged = (mode: string) => {
-    if (mode === 'boss_rush' || mode === 'BOSS_RUSH') {
+    const normalized = (mode || '').toLowerCase();
+    if (normalized === 'boss_rush') {
+      this.stopCrisisMode();
       this.startBossEncounter('king_gummy_bear');
-    } else if (this.activeBoss) {
+    } else if (normalized === 'crisis_survival') {
       this.dismissBoss();
+      this.startCrisisMode(CrisisType.PASTEL_VOID);
+    } else {
+      if (this.activeBoss) {
+        this.dismissBoss();
+      }
+      this.stopCrisisMode();
     }
   };
+
+  public startCrisisMode(type: CrisisType = CrisisType.PASTEL_VOID): void {
+    this.stopCrisisMode();
+    this.crisisManager.triggerCrisis(type);
+    if (this.situationLog) {
+      this.situationLog.updateFromCrisisManager(this.crisisManager, Date.now(), true);
+    }
+  }
+
+  public stopCrisisMode(): void {
+    if (this.crisisManager) {
+      this.crisisManager.stopCrisis('reset');
+    }
+    if (this.situationLog) {
+      this.situationLog.reset();
+    }
+    if (this.crisisGraphics) {
+      this.crisisGraphics.clear();
+    }
+  }
+
 
   private onPerksUpdated = (perksPayload: Record<string, number> | { perks?: Record<string, number> }) => {
     let perks: Record<string, number> | undefined;
@@ -1051,6 +1093,7 @@ export default class GameScene extends Phaser.Scene {
       this.game.events.off('resume-run-state', this.onResumeRunState);
     }
     this.dismissBoss();
+    this.stopCrisisMode();
   }
 
   constructor() {
@@ -1134,33 +1177,42 @@ export default class GameScene extends Phaser.Scene {
     this.generateItemTextures();
 
     // Register Player Animations
-    this.anims.create({
-      key: 'player_down',
-      frames: this.anims.generateFrameNumbers('player', { frames: [0, 1, 0, 2] }),
-      frameRate: 8,
-      repeat: -1,
-    });
+    if (!this.anims.exists('player_down')) {
+      this.anims.create({
+        key: 'player_down',
+        frames: this.anims.generateFrameNumbers('player', { frames: [0, 1, 0, 2] }),
+        frameRate: 8,
+        repeat: -1,
+      });
+    }
 
-    this.anims.create({
-      key: 'player_up',
-      frames: this.anims.generateFrameNumbers('player', { frames: [3, 4, 3, 5] }),
-      frameRate: 8,
-      repeat: -1,
-    });
+    if (!this.anims.exists('player_up')) {
+      this.anims.create({
+        key: 'player_up',
+        frames: this.anims.generateFrameNumbers('player', { frames: [3, 4, 3, 5] }),
+        frameRate: 8,
+        repeat: -1,
+      });
+    }
 
-    this.anims.create({
-      key: 'player_side',
-      frames: this.anims.generateFrameNumbers('player', { frames: [6, 7, 6, 8] }),
-      frameRate: 8,
-      repeat: -1,
-    });
+    if (!this.anims.exists('player_side')) {
+      this.anims.create({
+        key: 'player_side',
+        frames: this.anims.generateFrameNumbers('player', { frames: [6, 7, 6, 8] }),
+        frameRate: 8,
+        repeat: -1,
+      });
+    }
 
-    this.anims.create({
-      key: 'player_defeat',
-      frames: this.anims.generateFrameNumbers('player', { frames: [9, 10, 11] }),
-      frameRate: 6,
-      repeat: 0,
-    });
+    if (!this.anims.exists('player_defeat')) {
+      this.anims.create({
+        key: 'player_defeat',
+        frames: this.anims.generateFrameNumbers('player', { frames: [9, 10, 11] }),
+        frameRate: 6,
+        repeat: 0,
+      });
+    }
+
 
     // Background image at (400, 300) with setScrollFactor(0) and setDepth(-10)
     const bg = this.add.image(400, 300, 'background');
@@ -1608,6 +1660,12 @@ export default class GameScene extends Phaser.Scene {
     this.bossGraphics.setDepth(15);
     this.telegraphEngine = new TelegraphEngine(this.telegraphGraphics);
 
+    // Initialize Crisis Subsystem Renderers & Bridge
+    this.situationLog = new SituationLog(this.game);
+    this.crisisGraphics = this.add.graphics();
+    this.crisisGraphics.setDepth(6);
+
+
     // Wire Game Mode Changes & Meta-Progression Events (UI-06, MEM-01)
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
     this.game.events.on('mode-changed', this.onModeChanged);
@@ -1957,7 +2015,16 @@ export default class GameScene extends Phaser.Scene {
       this.enemies.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
         if (child && child.active) {
           if (child instanceof ChaserEnemy) {
-            child.updateAI(delta, _time, this.isCloaked ? null : this.player, this.map, bombTiles);
+            child.updateAI(
+              delta,
+              _time,
+              this.isCloaked ? null : this.player,
+              this.map,
+              bombTiles,
+              (r, c, fuseMs) => {
+                return this.placeEnemyBomb(child, r, c, child.bombPower, fuseMs);
+              }
+            );
           } else if (child instanceof BomberEnemy) {
             child.updateAI(
               delta,
@@ -2112,7 +2179,148 @@ export default class GameScene extends Phaser.Scene {
         this.dismissBoss();
       }
     }
+
+    // 12. Update Crisis Subsystem & Visual Hazards
+    if (this.crisisManager && this.crisisManager.getActiveCrisis()) {
+      const activeCrisis = this.crisisManager.getActiveCrisis();
+      if (activeCrisis && activeCrisis.getStage() !== CrisisStage.INACTIVE) {
+        const playerPos = {
+          r: Math.floor(this.player.y / TILE_SIZE),
+          c: Math.floor(this.player.x / TILE_SIZE),
+          x: this.player.x,
+          y: this.player.y,
+        };
+        this.crisisManager.update(delta, playerPos);
+        if (this.situationLog) {
+          this.situationLog.updateFromCrisisManager(this.crisisManager, Date.now());
+        }
+
+        // Render Crisis Hazard Graphics
+        this.renderCrisisHazards(_time);
+      }
+    }
   }
+
+  private renderCrisisHazards(time: number): void {
+    if (!this.crisisGraphics || !this.crisisManager) return;
+    this.crisisGraphics.clear();
+
+    const hazards = this.crisisManager.getActiveHazardTiles();
+    for (const hazard of hazards) {
+      const x = hazard.c * TILE_SIZE + TILE_SIZE / 2;
+      const y = hazard.r * TILE_SIZE + TILE_SIZE / 2;
+      const left = hazard.c * TILE_SIZE;
+      const top = hazard.r * TILE_SIZE;
+
+      switch (hazard.type) {
+        case HazardType.VOID_RIFT: {
+          const pulse = 0.75 + 0.25 * Math.sin(time / 200 + hazard.idx);
+          this.crisisGraphics.fillStyle(0x8a2be2, 0.45 * pulse);
+          this.crisisGraphics.fillCircle(x, y, 22 * pulse);
+
+          this.crisisGraphics.fillStyle(0xda70d6, 0.75);
+          this.crisisGraphics.fillCircle(x, y, 13);
+
+          this.crisisGraphics.fillStyle(0x0a0014, 0.95);
+          this.crisisGraphics.fillCircle(x, y, 6);
+
+          this.crisisGraphics.lineStyle(2, 0x00ffff, 0.85);
+          this.crisisGraphics.strokeCircle(x, y, 16 * pulse);
+          break;
+        }
+        case HazardType.PURIFICATION_PRISM: {
+          const prismPulse = 0.8 + 0.2 * Math.sin(time / 150 + hazard.idx);
+          this.crisisGraphics.fillStyle(0x00ffff, 0.25 * prismPulse);
+          this.crisisGraphics.fillCircle(x, y, 24 * prismPulse);
+
+          this.crisisGraphics.fillStyle(0x38bdf8, 0.9);
+          this.crisisGraphics.beginPath();
+          this.crisisGraphics.moveTo(x, y - 15);
+          this.crisisGraphics.lineTo(x + 13, y);
+          this.crisisGraphics.lineTo(x, y + 15);
+          this.crisisGraphics.lineTo(x - 13, y);
+          this.crisisGraphics.closePath();
+          this.crisisGraphics.fillPath();
+
+          this.crisisGraphics.lineStyle(2, 0xffffff, 0.95);
+          this.crisisGraphics.strokePath();
+
+          this.crisisGraphics.fillStyle(0xffd700, 0.9);
+          this.crisisGraphics.fillCircle(x, y, 4);
+          break;
+        }
+        case HazardType.VOID_CREEP: {
+          this.crisisGraphics.fillStyle(0x4c1d95, 0.6);
+          this.crisisGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          this.crisisGraphics.lineStyle(1.5, 0xa855f7, 0.75);
+          this.crisisGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          this.crisisGraphics.fillStyle(0xc084fc, 0.7);
+          this.crisisGraphics.fillCircle(x, y, 3);
+          break;
+        }
+        case HazardType.LAVA_SURFACE: {
+          this.crisisGraphics.fillStyle(0xd97706, 0.65);
+          this.crisisGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          this.crisisGraphics.lineStyle(2, 0xef4444, 0.85);
+          this.crisisGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          break;
+        }
+        case HazardType.OBSIDIAN_BLOCK: {
+          this.crisisGraphics.fillStyle(0x1e1b4b, 0.85);
+          this.crisisGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          this.crisisGraphics.lineStyle(1.5, 0x6366f1, 0.6);
+          this.crisisGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          break;
+        }
+        case HazardType.EMP_PULSE:
+        case HazardType.BRASS_COG: {
+          this.crisisGraphics.lineStyle(2, 0x38bdf8, 0.85);
+          this.crisisGraphics.strokeCircle(x, y, 16);
+          break;
+        }
+        case HazardType.SOLAR_SWEEP:
+        case HazardType.THERMAL_VENT: {
+          this.crisisGraphics.fillStyle(0xfacc15, 0.45);
+          this.crisisGraphics.fillRect(left, top, TILE_SIZE, TILE_SIZE);
+          break;
+        }
+        case HazardType.KINETIC_TARGET:
+        case HazardType.KINETIC_CRATER: {
+          this.crisisGraphics.lineStyle(2, 0xf43f5e, 0.9);
+          this.crisisGraphics.strokeCircle(x, y, 15);
+          this.crisisGraphics.lineBetween(x - 18, y, x + 18, y);
+          this.crisisGraphics.lineBetween(x, y - 18, x, y + 18);
+          break;
+        }
+        default: {
+          this.crisisGraphics.fillStyle(0x8b5cf6, 0.4);
+          this.crisisGraphics.fillRect(left + 4, top + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+          break;
+        }
+      }
+    }
+
+    // If Void Devourer Avatar is active in Climax stage, render Avatar boss visual
+    const activeCrisis = this.crisisManager.getActiveCrisis();
+    if (activeCrisis && 'avatarSpawned' in activeCrisis && (activeCrisis as { avatarSpawned: boolean }).avatarSpawned) {
+      const ax = 7 * TILE_SIZE + TILE_SIZE / 2;
+      const ay = 6 * TILE_SIZE + TILE_SIZE / 2;
+      const pulse = 0.8 + 0.2 * Math.sin(time / 160);
+
+      this.crisisGraphics.fillStyle(0x581c87, 0.4 * pulse);
+      this.crisisGraphics.fillCircle(ax, ay, 36 * pulse);
+
+      this.crisisGraphics.fillStyle(0x2e1065, 0.9);
+      this.crisisGraphics.fillCircle(ax, ay, 26);
+
+      this.crisisGraphics.lineStyle(3, 0xd946ef, 0.9);
+      this.crisisGraphics.strokeCircle(ax, ay, 26);
+
+      this.crisisGraphics.lineStyle(2, 0x38bdf8, 0.85);
+      this.crisisGraphics.strokeCircle(ax, ay, 32 + 3 * Math.sin(time / 140));
+    }
+  }
+
 
   /**
    * Smooth Corridor Centering and Corner-Sliding Movement Controller
@@ -2566,6 +2774,11 @@ export default class GameScene extends Phaser.Scene {
       if (ally && typeof ally.activeBombs === 'number') {
         ally.activeBombs = Math.max(0, ally.activeBombs - 1);
       }
+    }
+
+    // Crisis blast interaction (clearing void creep, charging prisms)
+    if (this.crisisManager && this.crisisManager.getActiveCrisis()) {
+      this.crisisManager.handleBombBlast(actualRow, actualCol, bombPower);
     }
 
     // 1. Tactile Camera Shake

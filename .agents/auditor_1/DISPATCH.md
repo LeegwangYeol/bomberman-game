@@ -1,40 +1,24 @@
-# Dispatch for auditor_1
+## 2026-09-22T05:27:18Z
+You are the Forensic Integrity Auditor for Milestone 4 (Visual & Functional Testing Verification).
+Working directory: /Users/user/src/bomberman/.agents/auditor_1
 
-## Task
-Conduct a forensic integrity audit on /Users/user/src/bomberman/GDD.md and the entire workflow artifact trail.
-Verify:
-1. Genuine implementation vs placeholder/mock/dummy text.
-2. Complete adherence to ORIGINAL_REQUEST.md without shortcuts or omissions.
-3. Truthfulness of claims (e.g. line count, section completeness, Stellaris-style crisis depth, cute UI zero-asset specifications).
-4. Issue a binary verdict: CLEAN or INTEGRITY VIOLATION.
+MANDATORY INTEGRITY DIRECTIVE:
+You perform forensic integrity verification. Verify that work products implement functionality authentically using systematic checks (static analysis, runtime tracing, execution validation).
 
-Authoritative Request: /Users/user/src/bomberman/.agents/ORIGINAL_REQUEST.md
-Working Directory: /Users/user/src/bomberman/.agents/auditor_1
-Target Document: /Users/user/src/bomberman/GDD.md
-Output Target: /Users/user/src/bomberman/.agents/auditor_1/handoff.md
+MANDATORY INPUTS:
+- Read /Users/user/src/bomberman/ORIGINAL_REQUEST.md
+- Read /Users/user/src/bomberman/COLLABORATION.md
+- Read /Users/user/src/bomberman/.agents/worker_m2/handoff.md
+- Read /Users/user/src/bomberman/.agents/orchestrator_visual_test/SCOPE.md
 
-## 2026-09-14T09:38:54Z
-
-You are the Forensic Integrity Auditor (teamwork_preview_auditor) for the Cute Web Bomberman project.
-Your working directory is: /Users/user/src/bomberman/.agents/auditor_1
-Authoritative request: /Users/user/src/bomberman/.agents/ORIGINAL_REQUEST.md
-Dispatch: /Users/user/src/bomberman/.agents/auditor_1/DISPATCH.md
-Target to Audit: /Users/user/src/bomberman/GDD.md
-
-Your Mission:
-Perform a forensic integrity audit on the Game Design Document (/Users/user/src/bomberman/GDD.md) and the agent workflow artifacts.
-Check for:
-1. Cheating or dummy implementations: Are there any placeholders ("TODO", "TBD", "Lorem ipsum", empty sections, or superficial summaries)?
-2. Completeness: Are all required sections from ORIGINAL_REQUEST.md genuinely and exhaustively detailed?
-   - Normal enemies with unique movement patterns?
-   - Mid-bosses with multi-phase mechanics?
-   - Specialized NPCs and Ally systems?
-   - Random events altering map/rules?
-   - At least TWO distinct, detailed Stellaris-style crisis scenarios?
-   - Cute UI revamp using pure CSS, HTML Canvas, and emojis (no external image assets)?
-3. Accuracy: Does the file exist at `/Users/user/src/bomberman/GDD.md`? Are all claimed stats, formulas, and pseudocode authentic?
-4. Binary Verdict: You MUST issue an unambiguous verdict: CLEAN or INTEGRITY VIOLATION.
-
-Write your complete audit report to `/Users/user/src/bomberman/.agents/auditor_1/handoff.md`.
-When finished, send a message to the orchestrator with your verdict and findings.
-
+YOUR TASKS:
+1. Authenticity check of captured screenshots:
+   - Check /Users/user/src/bomberman/screenshots/ (`menu.png`, `gameplay.png`, `boss_fight.png`, `crisis_event.png`).
+   - Confirm they are genuine PNG files captured from the actual browser environment, with matching dimensions, real render content, and not dummy/placeholder images or duplicates.
+2. Anti-cheat & Facade analysis:
+   - Inspect git diff and changes made by Worker M2 in `src/game/GameScene.ts`, `src/components/BombermanGame.tsx`, and `tests/crises.test.mjs`.
+   - Confirm all logic is genuine: real integration of `CrisisManager` and `SituationLog`, real graphics rendering on Phaser canvas, real React state management. No hardcoded test passes, no dummy mocks in production code, no bypass of browser console error detection.
+3. Execution validation:
+   - Run `npm test`, `npm run lint`, `npm run build` and verify genuine passing output.
+4. Deliver your binary verdict (CLEAN or INTEGRITY VIOLATION) in /Users/user/src/bomberman/.agents/auditor_1/handoff.md.
+5. Send a completion message to parent.

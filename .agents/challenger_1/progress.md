@@ -1,25 +1,31 @@
-# Progress: Challenger 1 (Mechanics Adversarial Challenger)
+# Progress: Challenger 1 (Mode Switching & Crisis Lifecycle Verification)
 
-Last visited: 2026-09-14T09:43:00Z
+Last visited: 2026-09-22T05:32:00Z
 
 ## Status
-Empirical adversarial review of `/Users/user/src/bomberman/GDD.md` complete.
-Verdict determined: **REQUEST_CHANGES**.
+Milestone 4 Empirical Adversarial Testing Complete.
+Verdict determined: **APPROVE**.
 
 ## Work Plan
-- [x] Step 1: Read and analyze `/Users/user/src/bomberman/GDD.md` in depth.
-- [x] Step 2: Formulate specific attack scenarios across the 5 target challenge areas:
-  - 1. Enemy AI edge cases (corner trapping, bomb stacking, pathfinding deadlock)
-  - 2. Boss phase transitions (invulnerability timing, bomb chain cheese, corner pinning)
-  - 3. NPC / Ally rescue mechanics and hazard avoidance (body-blocking, ally vs enemy hits)
-  - 4. Random Events & Stellaris Crisis overlaps (Gravity Flip / Darkness during Mid-Boss or Void Incursion)
-  - 5. Airtightness of resolution rules in GDD
-- [x] Step 3: Write and execute empirical test/simulation harnesses to verify failure modes and exploits.
-  - Empirically simulated Star Seeker diagonal rays (100% blocked by pillars at open crossroads).
-  - Empirically simulated Crisis 1 Void Singularity timing (premature defeat at t=92s, 18s before Phase 3 climax ends).
-  - Empirically simulated Crisis 2 Dynamo Overload (unsolvable with base ammo, conveyor belt displacement, EMP fuse desync).
-  - Empirically simulated BaseBoss `takeBombDamage` i-frame code (drops 100% of chain explosion hits).
-  - Empirically simulated Captain Nibbles vs. Bubble Gravity Flip (impossible reaction window: 0.25s arrival vs 0.40s slide).
-- [x] Step 4: Synthesize challenge report and determine verdict (`REQUEST_CHANGES`).
-- [ ] Step 5: Update `BRIEFING.md` and generate `handoff.md`.
-- [ ] Step 6: Dispatch verdict to orchestrator via `send_message`.
+- [x] Step 1: Read all mandatory inputs:
+  - `/Users/user/src/bomberman/ORIGINAL_REQUEST.md`
+  - `/Users/user/src/bomberman/COLLABORATION.md`
+  - `/Users/user/src/bomberman/.agents/worker_m2/handoff.md`
+  - `/Users/user/src/bomberman/.agents/orchestrator_visual_test/SCOPE.md`
+- [x] Step 2: Formulate specific empirical attack scenarios for mode switching and Crisis lifecycle:
+  - Sequence: Standard -> Boss Rush -> Crisis Survival -> Endless -> Crisis Survival -> Standard
+  - Coordinate finite/non-NaN guarantees across bosses, hazards, and situation states
+  - Event listener leak audit on `phaserGame.events`
+  - Bomb blast fuzzing during WHISPERS, OUTBREAK, CLIMAX across all 6 crisis types
+  - Mid-enrage/stun boss teardown safety
+- [x] Step 3: Run live empirical verification in browser (Page 5) via Chrome DevTools MCP:
+  - 60 live mode transitions executed through UI button clicks and React fibers
+  - Zero NaNs, zero failures, zero console errors
+  - 100 synchronous mode switch cycles: verified zero event listener leakage (16 = 16)
+- [x] Step 4: Develop and execute automated adversarial stress test suite in `tests/adversarial_mode_crisis_lifecycle.test.mjs`:
+  - 6 distinct stress tiers covering 50 rapid cycles (300 transitions), 1000 chaos switches, all 6 crisis types, and extreme delta time warping
+  - All 496 project tests pass (`npm test`, 1.25s)
+  - `npm run lint` passes (0 errors)
+  - `npm run build` succeeds (code 0)
+- [x] Step 5: Update `BRIEFING.md` and generate comprehensive `handoff.md`.
+- [ ] Step 6: Dispatch completion message to parent orchestrator.

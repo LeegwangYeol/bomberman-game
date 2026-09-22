@@ -1,4 +1,4 @@
-# BRIEFING — 2026-09-18T13:35:00Z
+# BRIEFING — 2026-09-18T13:37:00Z
 
 ## Mission
 Milestone M10: Full Regression, Build & Main Integration for Bomberman Total Inspection ("총검사") project.
@@ -22,7 +22,7 @@ Milestone M10: Full Regression, Build & Main Integration for Bomberman Total Ins
 
 ## Current Parent
 - Conversation ID: aa0b6d8f-15cd-47a9-98b9-32048d20bdc6
-- Updated: 2026-09-18T13:35:00Z
+- Updated: 2026-09-18T13:37:00Z
 
 ## Task Summary
 - **What to build**: Final integration, documentation update (PROJECT.md & COLLABORATION.md), test verification, lint verification, build verification, git commit and push to main.
@@ -31,20 +31,22 @@ Milestone M10: Full Regression, Build & Main Integration for Bomberman Total Ins
 - **Code layout**: PROJECT.md § Architecture
 
 ## Change Tracker
-- **Files modified**: TBD
-- **Build status**: TBD
+- **Files modified**: PROJECT.md, COLLABORATION.md, .agents/worker_final_integration/*
+- **Build status**: PASS (npm run test 489/489, npm run lint 0 errors, npm run build exit code 0)
 - **Pending issues**: none
 
 ## Quality Status
-- **Build/test result**: TBD
-- **Lint status**: TBD
-- **Tests added/modified**: Verified all suites
+- **Build/test result**: 100% pass (489/489)
+- **Lint status**: 0 errors
+- **Tests added/modified**: 28 new adversarial challenge tests added in challenger phase; all passing
 
 ## Loaded Skills
 - None required
 
 ## Key Decisions Made
-- Proceed with updating PROJECT.md and COLLABORATION.md, then run test/lint/build, then git commit & push.
+- Updated PROJECT.md and COLLABORATION.md with comprehensive 32-defect remediation inventory.
+- Successfully verified tests, linting, and Next.js Turbopack build.
+- Committed all changes (`be6d899`) and pushed cleanly to remote `main`.
 
 ## Artifact Index
 - /Users/user/src/bomberman/.agents/worker_final_integration/DISPATCH.md — Assignment instructions
