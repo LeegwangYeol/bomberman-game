@@ -1,33 +1,33 @@
 import type Phaser from 'phaser';
-import { BaseEntity } from './BaseEntity';
+import { BaseEntity } from './BaseEntity.ts';
 import type {
   EnemyType,
   NeutralType,
   AllyType,
-} from './types';
+} from './types.ts';
 import {
   ChaserEnemy,
   BomberEnemy,
   TankEnemy,
   GhostEnemy,
   SplitterEnemy,
-} from './EnemyEntities';
+} from './EnemyEntities.ts';
 import {
   MerchantNPC,
   CritterNPC,
-} from './NeutralEntities';
+} from './NeutralEntities.ts';
 import {
   MiniBomberAlly,
   PetDroneAlly,
   ShieldGuardAlly,
-} from './AllyEntities';
+} from './AllyEntities.ts';
 
-export * from './types';
-export * from './OverheadUI';
-export * from './BaseEntity';
-export * from './EnemyEntities';
-export * from './NeutralEntities';
-export * from './AllyEntities';
+export * from './types.ts';
+export * from './OverheadUI.ts';
+export * from './BaseEntity.ts';
+export * from './EnemyEntities.ts';
+export * from './NeutralEntities.ts';
+export * from './AllyEntities.ts';
 
 /**
  * Factory helper for spawning enemies by archetype.

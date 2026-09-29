@@ -772,3 +772,103 @@ test('SEC-04: GameStatePersistence sanitizes imported profile against corrupted 
   assert.deepEqual(sanitized.unlockedModes, ['boss_rush']);
 });
 
+test('SEC-05: CircuitBreaker auto-transitions and drains offline queue on passive getState() query', async () => {
+  const cb = new APIQuotaCircuitBreaker({
+    initialBackoffMs: 200,
+    jitterRatio: 0,
+  });
+
+  cb.handleQuotaError(); // OPEN
+  assert.equal(cb.isOpen(), true);
+
+  let taskRan = false;
+  const queuedPromise = cb.execute(async () => {
+    taskRan = true;
+    return 'drained_via_auto_transition';
+  });
+
+  assert.equal(cb.getQueueLength(), 1);
+  assert.equal(taskRan, false);
+
+  // Advance nextAttemptTime artificially past current time
+  // @ts-expect-error Testing private property nextAttemptTime
+  cb.nextAttemptTime = Date.now() - 50;
+
+  // Passive status query (e.g. UI polling getState())
+  const state = cb.getState();
+  assert.equal(state, CircuitBreakerState.HALF_OPEN);
+
+  // Await queued promise resolution triggered by auto-transition drain
+  const result = await queuedPromise;
+  assert.equal(result, 'drained_via_auto_transition');
+  assert.equal(taskRan, true);
+  assert.equal(cb.getQueueLength(), 0);
+  assert.equal(cb.getState(), CircuitBreakerState.CLOSED);
+});
+
+test('SEC-06: CircuitBreaker handles async saveFn rejections cleanly during emergency save', () => {
+  const cb = new APIQuotaCircuitBreaker({ initialBackoffMs: 100 });
+
+  // Async saveFn that rejects
+  const failingAsyncSave = async () => {
+    throw new Error('Async disk I/O error during emergency save');
+  };
+
+  // Must not throw or crash
+  assert.doesNotThrow(() => {
+    const delay = cb.handleQuotaError(failingAsyncSave, { status: 429 });
+    assert.ok(delay >= 80 && delay <= 120);
+    assert.equal(cb.isOpen(), true);
+  });
+});
+
+test('SEC-07: CircuitBreaker isQuotaError detects raw string errors and gRPC RESOURCE_EXHAUSTED', () => {
+  assert.equal(APIQuotaCircuitBreaker.isQuotaError('429 Too Many Requests'), true);
+  assert.equal(APIQuotaCircuitBreaker.isQuotaError('RESOURCE_EXHAUSTED'), true);
+  assert.equal(APIQuotaCircuitBreaker.isQuotaError('Rate limit exceeded: please slow down'), true);
+  assert.equal(APIQuotaCircuitBreaker.isQuotaError('Error: quota exceeded for project'), true);
+  assert.equal(APIQuotaCircuitBreaker.isQuotaError({ code: 'RESOURCE_EXHAUSTED' }), true);
+  assert.equal(APIQuotaCircuitBreaker.isQuotaError('500 Internal Server Error'), false);
+  assert.equal(APIQuotaCircuitBreaker.isQuotaError(null), false);
+  assert.equal(APIQuotaCircuitBreaker.isQuotaError(undefined), false);
+  assert.equal(APIQuotaCircuitBreaker.isQuotaError(12345), false);
+});
+
+test('SEC-08: CircuitBreaker handles burst 429s under 100 queued requests without data loss', async () => {
+  const cb = new APIQuotaCircuitBreaker({
+    initialBackoffMs: 50,
+    maxBackoffMs: 500,
+    jitterRatio: 0,
+    maxQueueSize: 150,
+  });
+
+  // Trip to OPEN
+  cb.handleQuotaError();
+
+  const results = [];
+  const promises = [];
+
+  for (let i = 0; i < 100; i++) {
+    const p = cb.execute(async () => {
+      results.push(i);
+      return i;
+    });
+    promises.push(p);
+  }
+
+  assert.equal(cb.getQueueLength(), 100);
+
+  // Service recovers
+  cb.recordSuccess();
+
+  await Promise.all(promises);
+
+  assert.equal(results.length, 100);
+  // Verify strict FIFO order
+  for (let i = 0; i < 100; i++) {
+    assert.equal(results[i], i);
+  }
+  assert.equal(cb.getQueueLength(), 0);
+  assert.equal(cb.isClosed(), true);
+});
+

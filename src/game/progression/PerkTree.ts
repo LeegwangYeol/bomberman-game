@@ -249,7 +249,7 @@ export class PerkTreeManager {
     }
 
     const cost = node.costs[currentLevel];
-    if (availableEssence < cost) {
+    if (typeof availableEssence !== 'number' || !Number.isFinite(availableEssence) || availableEssence < cost) {
       return { canUpgrade: false, cost, reason: `Insufficient Cosmic Sugar Essence (needs ${cost} ✨)` };
     }
 
@@ -342,7 +342,11 @@ export class PerkTreeManager {
    * Calculate all active gameplay bonuses provided by the current perk tree
    */
   static calculateAppliedBonuses(perks: PerkState): AppliedPerkBonuses {
-    const p = (id: string) => (Object.prototype.hasOwnProperty.call(perks, id) ? Math.max(0, perks[id] || 0) : 0);
+    const p = (id: string) => {
+      if (!Object.prototype.hasOwnProperty.call(perks, id)) return 0;
+      const val = perks[id];
+      return typeof val === 'number' && Number.isFinite(val) ? Math.max(0, Math.floor(val)) : 0;
+    };
 
     // Sugar Spark: +1, +2, +3 blast radius
     const startingBlastRadiusBonus = Math.min(3, p('sugar_spark'));
@@ -352,7 +356,7 @@ export class PerkTreeManager {
     const bombCooldownReduction = qWickLvl === 1 ? 0.10 : qWickLvl === 2 ? 0.18 : qWickLvl >= 3 ? 0.25 : 0;
 
     // Chain Reaction: +25%/+50% score, +5%/+10% ult charge
-    const chainLvl = p('chain_reaction');
+    const chainLvl = Math.min(2, p('chain_reaction'));
     const chainScoreBonus = chainLvl * 0.25;
     const chainUltChargeBonus = chainLvl * 0.05;
 

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
-import { type EntityFaction, FACTIONS } from './types';
-import { OverheadUI } from './OverheadUI';
+import { type EntityFaction, FACTIONS } from './types.ts';
+import { OverheadUI } from './OverheadUI.ts';
 
 /**
  * Physics Body Invariant Guard:
@@ -33,9 +33,11 @@ export function applyPhysicsBodyInvariantGuard(
 
   const mutableBody = body as unknown as MutableArcadeBody;
   mutableBody.updateBounds = function(this: MutableArcadeBody) {
+    const sx = Number.isFinite(sprite.x) ? sprite.x : 0;
+    const sy = Number.isFinite(sprite.y) ? sprite.y : 0;
     if (this.transform) {
-      this.transform.x = sprite.x;
-      this.transform.y = sprite.y;
+      this.transform.x = sx;
+      this.transform.y = sy;
       this.transform.rotation = sprite.rotation ?? 0;
       this.transform.scaleX = sprite.scaleX ?? 1;
       this.transform.scaleY = sprite.scaleY ?? 1;
@@ -47,6 +49,8 @@ export function applyPhysicsBodyInvariantGuard(
     this.updateCenter();
   };
   mutableBody.updateFromGameObject = function(this: MutableArcadeBody) {
+    if (!Number.isFinite(sprite.x)) sprite.x = 0;
+    if (!Number.isFinite(sprite.y)) sprite.y = 0;
     this.updateBounds();
     this.position.x = sprite.x + fixedRelX;
     this.position.y = sprite.y + fixedRelY;
@@ -64,6 +68,7 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
   public faction: EntityFaction;
   public entityType: string;
   public entityName: string;
+  public normalizedEntityType: string = '';
   public overheadUI: OverheadUI;
 
   public invulnerableTimer: number = 0;
@@ -115,6 +120,7 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
     this.hp = this.maxHp;
     this.entityName = entityName;
     this.entityType = entityType;
+    this.normalizedEntityType = (entityType || '').toLowerCase();
 
     if (scene && scene.add) {
       scene.add.existing(this);
@@ -123,7 +129,9 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
       scene.physics.add.existing(this);
     }
 
-    this.setCollideWorldBounds(true);
+    if (this.body && typeof (this.body as unknown as { setCollideWorldBounds?: unknown }).setCollideWorldBounds === 'function') {
+      this.setCollideWorldBounds(true);
+    }
     this.setDepth(9);
     applyPhysicsBodyInvariantGuard(this, 24, 24, 8, 8);
 
@@ -260,7 +268,7 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
     const vy = body ? body.velocity.y : 0;
     const isMoving = Math.abs(vx) > 1 || Math.abs(vy) > 1;
 
-    const typeLower = (this.entityType || '').toLowerCase();
+    const typeLower = this.normalizedEntityType;
     if (typeLower === 'ghost') {
       // Ghost float hover: smooth sine wave
       const hover = Math.sin(currentTime * 0.003) * 4;

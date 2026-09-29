@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
-import { BaseEntity } from './BaseEntity';
-import { ALLY_ARCHETYPES, FACTIONS } from './types';
+import { BaseEntity } from './BaseEntity.ts';
+import { ALLY_ARCHETYPES, FACTIONS } from './types.ts';
 import {
   TILE_SIZE,
   type GridCoord,
@@ -9,7 +9,7 @@ import {
   findEscapePathBFS,
   FlatHazardMask,
   cloneBombTilesAsSet,
-} from '../pathfinding';
+} from '../pathfinding.ts';
 
 /**
  * 1. Mini-Bomber Buddy ("Pom-Pom"):

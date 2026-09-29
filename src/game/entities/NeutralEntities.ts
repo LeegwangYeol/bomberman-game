@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
-import { BaseEntity, applyPhysicsBodyInvariantGuard } from './BaseEntity';
-import { NEUTRAL_ARCHETYPES, FACTIONS } from './types';
+import { BaseEntity, applyPhysicsBodyInvariantGuard } from './BaseEntity.ts';
+import { NEUTRAL_ARCHETYPES, FACTIONS } from './types.ts';
 import {
   ROWS,
   COLS,
@@ -11,8 +11,8 @@ import {
   getBlastTiles,
   FlatHazardMask,
   cloneBombTilesAsSet,
-} from '../pathfinding';
-import type { ItemType } from '../gameplay_mechanics';
+} from '../pathfinding.ts';
+import type { ItemType } from '../gameplay_mechanics.ts';
 
 /**
  * 1. Wandering Merchant ("Pops"):

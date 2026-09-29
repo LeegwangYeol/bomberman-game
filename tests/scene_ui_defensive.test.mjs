@@ -61,6 +61,53 @@ const mockCanvasCtx = {
 };
 
 if (!globalThis.window) globalThis.window = globalThis;
+const globalEventListeners = new Map();
+if (!globalThis.window.addEventListener) {
+  globalThis.window.addEventListener = (event, fn) => {
+    if (!globalEventListeners.has(event)) globalEventListeners.set(event, new Set());
+    globalEventListeners.get(event).add(fn);
+  };
+}
+if (!globalThis.window.removeEventListener) {
+  globalThis.window.removeEventListener = (event, fn) => {
+    if (globalEventListeners.has(event)) {
+      globalEventListeners.get(event).delete(fn);
+    }
+  };
+}
+if (!globalThis.window.dispatchEvent) {
+  globalThis.window.dispatchEvent = (event) => {
+    const type = typeof event === 'string' ? event : event?.type;
+    const fns = globalEventListeners.get(type);
+    if (fns) {
+      for (const fn of fns) fn(event);
+    }
+    return true;
+  };
+}
+if (!globalThis.screen) {
+  globalThis.screen = {
+    orientation: {
+      type: 'portrait-primary',
+      angle: 0,
+      addEventListener: (type, fn) => globalThis.window.addEventListener(`screen-${type}`, fn),
+      removeEventListener: (type, fn) => globalThis.window.removeEventListener(`screen-${type}`, fn),
+    },
+  };
+}
+if (!globalThis.navigator) {
+  globalThis.navigator = {
+    maxTouchPoints: 0,
+    clipboard: { writeText: async () => {} },
+    vibrate: () => true,
+  };
+}
+if (!globalThis.requestAnimationFrame) {
+  globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 16);
+}
+if (!globalThis.cancelAnimationFrame) {
+  globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
+}
 if (!globalThis.document) {
   globalThis.document = {
     createElement: () => ({
@@ -71,6 +118,7 @@ if (!globalThis.document) {
       height: 600,
     }),
     documentElement: { style: {} },
+    body: {},
   };
 }
 if (!globalThis.HTMLCanvasElement) globalThis.HTMLCanvasElement = class {};
@@ -645,4 +693,335 @@ test('ARCH-RELIC-01: RelicManager triggers onBombPlaced pull and onEnemyKilled s
   // Test player damage resets streak
   rm.onPlayerDamaged();
   assert.strictEqual(rm.vampiricKillStreak, 0, 'Damage must reset streak');
+});
+
+/* ==============================================================================
+ * SUITE 9: SCREEN-RESIZE-01 & ORIENTATION-01 (CANVAS SCALING & VIEWPORT INVARIANTS)
+ * ============================================================================== */
+
+test('SCREEN-RESIZE-01 & ORIENTATION-01: Canvas 4:3 aspect ratio and Phaser.Scale.FIT invariant preserved across mobile, tablet, and desktop breakpoints', () => {
+  const GAME_WIDTH = 800;
+  const GAME_HEIGHT = 600;
+  const TARGET_ASPECT = GAME_WIDTH / GAME_HEIGHT; // 4/3 = 1.3333333333333333
+
+  // Standard breakpoint matrix: [width, height, deviceType, expectedMobile]
+  const viewports = [
+    { w: 390, h: 844, device: 'Mobile Portrait (iPhone 14)', hasTouch: true, expectedMobile: true },
+    { w: 844, h: 390, device: 'Mobile Landscape (iPhone 14)', hasTouch: true, expectedMobile: true },
+    { w: 412, h: 915, device: 'Mobile Portrait (Pixel 7)', hasTouch: true, expectedMobile: true },
+    { w: 768, h: 1024, device: 'Tablet Portrait (iPad Mini)', hasTouch: true, expectedMobile: true },
+    { w: 1024, h: 768, device: 'Tablet Landscape (iPad Mini)', hasTouch: true, expectedMobile: true },
+    { w: 1280, h: 800, device: 'Small Laptop', hasTouch: false, expectedMobile: false },
+    { w: 1920, h: 1080, device: 'Desktop Full HD', hasTouch: false, expectedMobile: false },
+    { w: 3440, h: 1440, device: 'Ultrawide Desktop', hasTouch: false, expectedMobile: false },
+  ];
+
+  for (const vp of viewports) {
+    // 1. Calculate Phaser Scale.FIT dimensions inside viewport
+    const scaleFactor = Math.min(vp.w / GAME_WIDTH, vp.h / GAME_HEIGHT);
+    const scaledWidth = GAME_WIDTH * scaleFactor;
+    const scaledHeight = GAME_HEIGHT * scaleFactor;
+    const computedAspect = scaledWidth / scaledHeight;
+
+    assert.ok(scaleFactor > 0, `${vp.device}: scale factor must be positive`);
+    assert.ok(scaledWidth <= vp.w + 0.001, `${vp.device}: scaled width (${scaledWidth}) must not exceed viewport width (${vp.w})`);
+    assert.ok(scaledHeight <= vp.h + 0.001, `${vp.device}: scaled height (${scaledHeight}) must not exceed viewport height (${vp.h})`);
+    assert.ok(Math.abs(computedAspect - TARGET_ASPECT) < 0.0001, `${vp.device}: aspect ratio must remain exactly 4:3 (computed: ${computedAspect})`);
+
+    // 2. Center offset calculation under Phaser.Scale.CENTER_BOTH
+    const offsetX = (vp.w - scaledWidth) / 2;
+    const offsetY = (vp.h - scaledHeight) / 2;
+    assert.ok(offsetX >= 0, `${vp.device}: offsetX must be non-negative`);
+    assert.ok(offsetY >= 0, `${vp.device}: offsetY must be non-negative`);
+
+    // 3. Mobile detection evaluation
+    const isMobileDetected = vp.w < 768 || vp.hasTouch;
+    assert.strictEqual(isMobileDetected, vp.expectedMobile, `${vp.device}: isMobile detection mismatch`);
+  }
+
+  // 4. Verify scale.refresh event listener execution on resize / orientationchange
+  let refreshCount = 0;
+  const mockPhaserGame = {
+    scale: {
+      refresh: () => { refreshCount++; },
+    },
+  };
+
+  const handleViewportChange = () => {
+    if (mockPhaserGame.scale) {
+      mockPhaserGame.scale.refresh();
+    }
+  };
+
+  handleViewportChange();
+  assert.strictEqual(refreshCount, 1, 'scale.refresh must be called on viewport change');
+});
+
+/* ==============================================================================
+ * SUITE 10: JOYSTICK-REPOSITION-01 & INPUT-DEATHZONE-01 (JOYSTICK INVARIANTS)
+ * ============================================================================== */
+
+test('JOYSTICK-REPOSITION-01 & INPUT-DEATHZONE-01: Virtual joystick repositioning, sticky input clearance, and 8-way directional sector invariants', () => {
+  const mobileInput = {
+    up: false,
+    down: false,
+    left: false,
+    right: false,
+    bomb: false,
+    dash: false,
+    ultimate: false,
+  };
+
+  // Pure sector calculation function matching BombermanGame.tsx
+  function updateJoystickInput(angleDeg, distance) {
+    if (distance !== undefined && distance < 5) {
+      mobileInput.up = false;
+      mobileInput.down = false;
+      mobileInput.left = false;
+      mobileInput.right = false;
+      return;
+    }
+    const norm = ((angleDeg % 360) + 360) % 360;
+    mobileInput.up = norm >= 22.5 && norm <= 157.5;
+    mobileInput.down = norm >= 202.5 && norm <= 337.5;
+    mobileInput.left = norm >= 112.5 && norm <= 247.5;
+    mobileInput.right = norm <= 67.5 || norm >= 292.5;
+  }
+
+  function teardownJoystick() {
+    mobileInput.up = false;
+    mobileInput.down = false;
+    mobileInput.left = false;
+    mobileInput.right = false;
+  }
+
+  // 1. Deadzone verification (< 5px)
+  updateJoystickInput(90, 4.9);
+  assert.strictEqual(mobileInput.up, false, 'Distance 4.9px must remain in deadzone');
+  updateJoystickInput(0, 0);
+  assert.strictEqual(mobileInput.right, false, 'Distance 0px must remain in deadzone');
+
+  // 2. Deadzone threshold activation (>= 5px)
+  updateJoystickInput(90, 5.0);
+  assert.strictEqual(mobileInput.up, true, 'Distance 5.0px must activate input');
+  assert.strictEqual(mobileInput.down, false);
+  assert.strictEqual(mobileInput.left, false);
+  assert.strictEqual(mobileInput.right, false);
+
+  // 3. Complete 8-way sector coverage & boundary verification (zero deadzones at 135° and 225°)
+  const sectorTests = [
+    { angle: 0, dist: 20, up: false, down: false, left: false, right: true, desc: 'Pure East (0°)' },
+    { angle: 22.5, dist: 20, up: true, down: false, left: false, right: true, desc: 'Boundary East/North-East (22.5°)' },
+    { angle: 45, dist: 20, up: true, down: false, left: false, right: true, desc: 'North-East (45°)' },
+    { angle: 67.5, dist: 20, up: true, down: false, left: false, right: true, desc: 'Boundary North-East/North (67.5°)' },
+    { angle: 90, dist: 20, up: true, down: false, left: false, right: false, desc: 'Pure North (90°)' },
+    { angle: 112.5, dist: 20, up: true, down: false, left: true, right: false, desc: 'Boundary North/North-West (112.5°)' },
+    { angle: 135, dist: 20, up: true, down: false, left: true, right: false, desc: 'North-West (135° - previously dead zone)' },
+    { angle: 157.5, dist: 20, up: true, down: false, left: true, right: false, desc: 'Boundary North-West/West (157.5°)' },
+    { angle: 180, dist: 20, up: false, down: false, left: true, right: false, desc: 'Pure West (180°)' },
+    { angle: 202.5, dist: 20, up: false, down: true, left: true, right: false, desc: 'Boundary West/South-West (202.5°)' },
+    { angle: 225, dist: 20, up: false, down: true, left: true, right: false, desc: 'South-West (225° - previously dead zone)' },
+    { angle: 247.5, dist: 20, up: false, down: true, left: true, right: false, desc: 'Boundary South-West/South (247.5°)' },
+    { angle: 270, dist: 20, up: false, down: true, left: false, right: false, desc: 'Pure South (270°)' },
+    { angle: 292.5, dist: 20, up: false, down: true, left: false, right: true, desc: 'Boundary South/South-East (292.5°)' },
+    { angle: 315, dist: 20, up: false, down: true, left: false, right: true, desc: 'South-East (315°)' },
+    { angle: 337.5, dist: 20, up: false, down: true, left: false, right: true, desc: 'Boundary South-East/East (337.5°)' },
+    { angle: 360, dist: 20, up: false, down: false, left: false, right: true, desc: 'Wrap-around East (360°)' },
+    { angle: -45, dist: 20, up: false, down: true, left: false, right: true, desc: 'Negative angle (-45° -> 315°)' },
+    { angle: -90, dist: 20, up: false, down: true, left: false, right: false, desc: 'Negative angle (-90° -> 270°)' },
+  ];
+
+  for (const st of sectorTests) {
+    updateJoystickInput(st.angle, st.dist);
+    assert.strictEqual(mobileInput.up, st.up, `${st.desc}: up mismatch`);
+    assert.strictEqual(mobileInput.down, st.down, `${st.desc}: down mismatch`);
+    assert.strictEqual(mobileInput.left, st.left, `${st.desc}: left mismatch`);
+    assert.strictEqual(mobileInput.right, st.right, `${st.desc}: right mismatch`);
+  }
+
+  // 4. Orientation change & teardown clears sticky inputs
+  updateJoystickInput(45, 30); // Player moving North-East
+  assert.strictEqual(mobileInput.up, true);
+  assert.strictEqual(mobileInput.right, true);
+
+  // Orientation change triggers unmount/re-mount teardown
+  teardownJoystick();
+  assert.strictEqual(mobileInput.up, false, 'Teardown must clear sticky up');
+  assert.strictEqual(mobileInput.right, false, 'Teardown must clear sticky right');
+  assert.strictEqual(mobileInput.down, false);
+  assert.strictEqual(mobileInput.left, false);
+});
+
+/* ==============================================================================
+ * SUITE 11: DRAWER-UI-01 & SEC-MODAL-03 (MOBILE DRAWER UI & TOUCH TARGETS)
+ * ============================================================================== */
+
+test('DRAWER-UI-01 & SEC-MODAL-03: Mobile drawer UI lifecycle, input isolation, backdrop dismissal, and 48px touch target invariants', () => {
+  const mobileInput = {
+    up: true,
+    down: false,
+    left: false,
+    right: true,
+    bomb: true,
+    dash: false,
+    ultimate: false,
+  };
+
+  let isInventoryOpen = false;
+  let selectedMobileItem = null;
+
+  function resetAllInputState() {
+    mobileInput.up = false;
+    mobileInput.down = false;
+    mobileInput.left = false;
+    mobileInput.right = false;
+    mobileInput.bomb = false;
+    mobileInput.dash = false;
+    mobileInput.ultimate = false;
+  }
+
+  function openInventory() {
+    isInventoryOpen = true;
+    resetAllInputState();
+  }
+
+  function closeInventoryViaBackdrop() {
+    isInventoryOpen = false;
+    selectedMobileItem = null;
+    resetAllInputState();
+  }
+
+  function handleKeyDown(key) {
+    if (key === 'Escape') {
+      if (isInventoryOpen) {
+        closeInventoryViaBackdrop();
+        return;
+      }
+    }
+    if (isInventoryOpen) {
+      return; // Key input blocked while drawer is open
+    }
+    if (key === ' ') mobileInput.bomb = true;
+  }
+
+  // 1. Open Inventory Drawer -> sticky movement and action inputs must be purged immediately
+  openInventory();
+  assert.strictEqual(isInventoryOpen, true, 'Drawer must be open');
+  assert.strictEqual(mobileInput.up, false, 'Up key must be reset');
+  assert.strictEqual(mobileInput.right, false, 'Right key must be reset');
+  assert.strictEqual(mobileInput.bomb, false, 'Bomb key must be reset');
+
+  // 2. Input while drawer open is completely blocked
+  handleKeyDown(' ');
+  assert.strictEqual(mobileInput.bomb, false, 'Bomb key while drawer open must be ignored');
+
+  // 3. Select an item in the drawer
+  selectedMobileItem = { id: 'SPEED_UP', name: 'Speed Up', count: 3 };
+  assert.strictEqual(selectedMobileItem.count, 3);
+
+  // 4. Backdrop dismiss clears drawer and selected item
+  closeInventoryViaBackdrop();
+  assert.strictEqual(isInventoryOpen, false, 'Drawer must be closed');
+  assert.strictEqual(selectedMobileItem, null, 'Selected item must be cleared');
+
+  // 5. Escape key dismisses drawer
+  openInventory();
+  selectedMobileItem = { id: 'BOMB_UP', name: 'Bomb Up', count: 2 };
+  handleKeyDown('Escape');
+  assert.strictEqual(isInventoryOpen, false, 'Escape must dismiss drawer');
+  assert.strictEqual(selectedMobileItem, null, 'Selected item must be cleared by Escape');
+
+  // 6. Touch Target Size Compliance (WCAG 2.5.5 / Mobile AAA Standard)
+  const ITEM_TOUCH_TARGET = { minWidth: 48, minHeight: 48 };
+  assert.ok(ITEM_TOUCH_TARGET.minWidth >= 48, 'Item tap target width must be >= 48px');
+  assert.ok(ITEM_TOUCH_TARGET.minHeight >= 48, 'Item tap target height must be >= 48px');
+
+  // 7. Landscape height constraint verification
+  const landscapeViewportHeight = 390; // Typical smartphone landscape height
+  const maxDrawerHeight = landscapeViewportHeight * 0.85; // 85vh = 331.5px
+  const headerHeight = 48;
+  const inspectorHeight = landscapeViewportHeight * 0.25; // 25vh = 97.5px
+  const remainingForGrid = maxDrawerHeight - headerHeight - inspectorHeight; // 186px
+
+  assert.ok(remainingForGrid >= 120, 'At least 120px must remain for the item grid in landscape');
+});
+
+/* ==============================================================================
+ * SUITE 12: HEADLESS-FALLBACK-01 (HEADLESS BROWSER & SSR GRACEFUL FALLBACKS)
+ * ============================================================================== */
+
+test('HEADLESS-FALLBACK-01: Headless storage, vibration, clipboard, and download fallbacks execute without throwing', async () => {
+  // 1. Storage quota / insecure environment fallback
+  const { WebStorageAdapter, MemoryStorageAdapter } = await import('../src/game/persistence/GameStatePersistence.ts');
+
+  // Test WebStorageAdapter under mock environment
+  const adapter = new WebStorageAdapter('session');
+  adapter.setItem('test_chaos_key', 'test_value');
+  assert.strictEqual(adapter.getItem('test_chaos_key'), 'test_value', 'Adapter must retrieve written value');
+  adapter.removeItem('test_chaos_key');
+  assert.strictEqual(adapter.getItem('test_chaos_key'), null, 'Adapter must return null after removal');
+
+  const memAdapter = new MemoryStorageAdapter();
+  memAdapter.setItem('mem_key', 'mem_val');
+  assert.strictEqual(memAdapter.getItem('mem_key'), 'mem_val');
+
+  // 2. Vibration API safe execution in headless / iframe
+  let vibrateTriggered = false;
+  const mockNavigator = {
+    vibrate: () => {
+      vibrateTriggered = true;
+      return true;
+    },
+  };
+
+  function safeVibrate() {
+    if (typeof mockNavigator !== 'undefined' && 'vibrate' in mockNavigator) {
+      try {
+        mockNavigator.vibrate([40, 20, 40]);
+      } catch {}
+    }
+  }
+
+  safeVibrate();
+  assert.strictEqual(vibrateTriggered, true, 'safeVibrate must execute cleanly');
+
+  // Test vibration throwing SecurityError / NotAllowedError
+  const throwingNavigator = {
+    vibrate: () => { throw new Error('NotAllowedError: Permissions policy violation'); },
+  };
+  assert.doesNotThrow(() => {
+    try {
+      throwingNavigator.vibrate([40, 20, 40]);
+    } catch {}
+  }, 'Vibration exception must be caught defensively');
+
+  // 3. Clipboard fallback in headless environment
+  let clipboardValue = '';
+  const mockClipboard = {
+    writeText: async (text) => {
+      clipboardValue = text;
+    },
+  };
+
+  await mockClipboard.writeText('{"version":1,"score":100}');
+  assert.strictEqual(clipboardValue, '{"version":1,"score":100}');
+
+  // 4. Safe save file export download simulation in headless
+  function simulateDownloadExport(jsonString) {
+    if (typeof globalThis.window === 'undefined' || typeof globalThis.document === 'undefined') return false;
+    try {
+      const blob = { size: jsonString.length, type: 'application/json' };
+      assert.ok(blob.size >= 0);
+      const url = `blob:http://localhost/${Date.now()}`;
+      const elem = globalThis.document.createElement('a');
+      elem.href = url;
+      elem.download = 'bomberman_save.json';
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  const downloadSuccess = simulateDownloadExport('{"version":1}');
+  assert.strictEqual(downloadSuccess, true, 'Headless download simulation must succeed');
 });

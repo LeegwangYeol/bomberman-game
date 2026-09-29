@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  findPathBFS,
   getBlastTiles,
   findEscapePathBFS,
   ROWS,
@@ -12,26 +11,12 @@ import {
   TILE_BLOCK,
 } from '../src/game/pathfinding.ts';
 import {
-  ITEM_DROP_RATE,
-  ITEM_WEIGHTS,
-  BASE_PLAYER_SPEED,
-  SPEED_UP_DELTA,
   MAX_PLAYER_SPEED,
-  BASE_MAX_BOMBS,
   MAX_BOMBS_CAP,
-  BASE_BOMB_POWER,
   MAX_BOMB_POWER_CAP,
-  DASH_SPEED,
-  DASH_DURATION_MS,
-  DASH_COOLDOWN_MS,
   BOMB_KICK_SPEED,
-  ITEM_GRACE_PERIOD_MS,
-  SHIELD_INVULN_MS,
-  CONVEYOR_DRIFT_SPEED,
-  PORTAL_COOLDOWN_MS,
   determineItemDrop,
   applyItemUpgrade,
-  calculateSpeedLevel,
   createInitialPlayerStats,
   isItemProtectedFromExplosion,
   simulateBombKickSlide,

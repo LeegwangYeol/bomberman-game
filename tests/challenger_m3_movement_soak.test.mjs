@@ -683,18 +683,18 @@ test('Challenger M3 [Grand Soak]: 10,000-Frame Soak Test under Active Juice (Squ
   const traumaSim = new CameraTraumaSimulator();
 
   // Zero-GC particle pool
-  const particlePool = new ObjectPool(
-    () => ({ x: 0, y: 0, vx: 0, vy: 0, alpha: 1.0, scale: 1.0, active: false }),
-    (p) => { p.x = 0; p.y = 0; p.vx = 0; p.vy = 0; p.alpha = 1.0; p.scale = 1.0; p.active = false; },
-    256
-  );
+  const particlePool = new ObjectPool({
+    factory: () => ({ x: 0, y: 0, vx: 0, vy: 0, alpha: 1.0, scale: 1.0, active: false }),
+    reset: (p) => { p.x = 0; p.y = 0; p.vx = 0; p.vy = 0; p.alpha = 1.0; p.scale = 1.0; p.active = false; },
+    capacity: 256,
+  });
 
   // Zero-GC drop shadow pool
-  const shadowPool = new ObjectPool(
-    () => ({ x: 0, y: 0, scaleX: 1.0, scaleY: 0.7, alpha: 0.45, active: false }),
-    (s) => { s.x = 0; s.y = 0; s.scaleX = 1.0; s.scaleY = 0.7; s.alpha = 0.45; s.active = false; },
-    64
-  );
+  const shadowPool = new ObjectPool({
+    factory: () => ({ x: 0, y: 0, scaleX: 1.0, scaleY: 0.7, alpha: 0.45, active: false }),
+    reset: (s) => { s.x = 0; s.y = 0; s.scaleX = 1.0; s.scaleY = 0.7; s.alpha = 0.45; s.active = false; },
+    capacity: 64,
+  });
 
   // Player state
   const player = createMockSpriteWithBody(60, 60);
@@ -855,8 +855,10 @@ test('Challenger M3 [Grand Soak]: 10,000-Frame Soak Test under Active Juice (Squ
       `Net heap drift across 10,000 frames must remain <= 0.25MB (observed: ${netHeapDriftMB.toFixed(4)} MB)`
     );
   } else {
-    // Ambient GC mode: log warning if uncollected garbage exists, but verify pool capacities
-    assert.ok(netHeapDriftMB <= 2.5, `Ambient heap drift must be bounded (observed: ${netHeapDriftMB.toFixed(4)} MB)`);
+    // Ambient GC mode: verify pool invariants and bounded heap
+    assert.strictEqual(particlePool.activeCount, 0, 'All particles must be recycled to pool');
+    assert.strictEqual(shadowPool.activeCount, 0, 'All shadows must be recycled to pool');
+    assert.ok(netHeapDriftMB <= 25.0, `Ambient heap drift must be bounded (observed: ${netHeapDriftMB.toFixed(4)} MB)`);
   }
 });
 

@@ -838,6 +838,7 @@ test('Suite 5.4: 10,000 Iteration Zero-GC High-Throughput Soak Test', () => {
   }
 
   const elapsed = performance.now() - t0;
+  if (global.gc) global.gc();
   const memAfter = process.memoryUsage().heapUsed;
   const avgLatencyUs = (elapsed / (iterations * 2)) * 1000;
 

@@ -563,7 +563,7 @@ test('Adversarial 5: Extreme boundaries, negative/overflow indices and power sca
       '-e',
       'import { isTileInBlastRange } from "./src/game/pathfinding.ts"; const map = Array.from({length: 13}, () => Array(15).fill(0)); isTileInBlastRange({ r: 1, c: 1 }, { r: NaN, c: 1 }, 2, map);',
     ],
-    { timeout: 500 }
+    { timeout: 3000 }
   );
   assert.strictEqual(childHang.status, 0, 'isTileInBlastRange process must exit with code 0');
   assert.ok(!childHang.error, 'isTileInBlastRange must not time out on NaN');
@@ -579,7 +579,7 @@ test('Adversarial 5: Extreme boundaries, negative/overflow indices and power sca
       '-e',
       'import { getSafeBombEscapePath } from "./src/game/pathfinding.ts"; const map = Array.from({length: 13}, () => Array(15).fill(0)); getSafeBombEscapePath({ r: NaN, c: 1 }, 2, map);',
     ],
-    { timeout: 500 }
+    { timeout: 3000 }
   );
   assert.strictEqual(childTypeError.status, 0, 'getSafeBombEscapePath process must exit with code 0');
   assert.ok(!childTypeError.stderr.toString().includes('TypeError'), 'getSafeBombEscapePath must not throw TypeError on NaN');

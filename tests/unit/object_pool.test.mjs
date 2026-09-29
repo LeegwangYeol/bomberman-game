@@ -183,3 +183,64 @@ test('ObjectPool: 10,000 continuous acquire/release stress cycles maintain stric
     assert.strictEqual(pool.freeCount, 64);
   }
 });
+
+test('ObjectPool: IPoolable class instances auto-invoke reset() on release() without options.reset callback', () => {
+  class MockPoolableEntity {
+    constructor(id) {
+      this.id = id;
+      this.active = true;
+      this.resetCalls = 0;
+    }
+    reset() {
+      this.active = false;
+      this.resetCalls++;
+    }
+  }
+
+  const pool = new ObjectPool({
+    capacity: 3,
+    factory: (i) => new MockPoolableEntity(i),
+  });
+
+  const entity = pool.acquire();
+  assert.ok(entity !== null);
+  assert.strictEqual(entity.active, true);
+  assert.strictEqual(entity.resetCalls, 0);
+
+  const released = pool.release(entity);
+  assert.strictEqual(released, true);
+  assert.strictEqual(entity.active, false);
+  assert.strictEqual(entity.resetCalls, 1);
+});
+
+test('ObjectPool: IPoolable class instances auto-invoke reset() on pool.reset()', () => {
+  class MockPoolableEntity {
+    constructor(id) {
+      this.id = id;
+      this.active = true;
+      this.resetCalls = 0;
+    }
+    reset() {
+      this.active = false;
+      this.resetCalls++;
+    }
+  }
+
+  const pool = new ObjectPool({
+    capacity: 4,
+    factory: (i) => new MockPoolableEntity(i),
+  });
+
+  const e1 = pool.acquire();
+  const e2 = pool.acquire();
+  assert.strictEqual(pool.activeCount, 2);
+
+  pool.reset();
+  assert.strictEqual(pool.activeCount, 0);
+  assert.strictEqual(pool.freeCount, 4);
+  assert.strictEqual(e1.active, false);
+  assert.strictEqual(e1.resetCalls, 1);
+  assert.strictEqual(e2.active, false);
+  assert.strictEqual(e2.resetCalls, 1);
+});
+

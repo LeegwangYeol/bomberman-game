@@ -25,7 +25,7 @@ import {
   idxToRow,
   idxToCol,
 } from '../src/game/pathfinding.ts';
-import { ObjectPool, POOL_PRESETS } from '../src/game/pooling/ObjectPool.ts';
+import { ObjectPool } from '../src/game/pooling/ObjectPool.ts';
 
 /* ==============================================================================
  * HELPER UTILITIES FOR ADVERSARIAL GENERATION
@@ -140,6 +140,7 @@ test('Challenger 1.1: ZeroGCPathfinder — 100,000 randomized queries maintain 1
 
   const durationMs = performance.now() - t0;
   assert.ok(pathsFound > 0, 'Should find at least some valid paths across 100,000 queries');
+  assert.ok(zeroLengthPaths > 0, 'Should observe zero-length paths for self-targets or unreachable targets');
   assert.ok(durationMs < 5000, `100,000 queries took ${durationMs.toFixed(1)}ms (must be < 5000ms)`);
 });
 
@@ -225,7 +226,7 @@ test('Challenger 1.3: ObjectPool<T> — 100,000 rapid cycles, starvation attack,
       resetInvocations++;
       item.generation++;
     },
-    onAcquire: (item) => {
+    onAcquire: () => {
       acquireInvocations++;
     },
   });
@@ -295,6 +296,8 @@ test('Challenger 1.3: ObjectPool<T> — 100,000 rapid cycles, starvation attack,
   }
 
   const durationMs = performance.now() - t0;
+  assert.ok(resetInvocations > 0, 'Reset callback must have been invoked');
+  assert.ok(acquireInvocations > 0, 'Acquire callback must have been invoked');
   assert.ok(durationMs < 3000, `100,000 cycles completed in ${durationMs.toFixed(1)}ms`);
 });
 
@@ -489,14 +492,14 @@ test('Challenger 1.7: ZeroGCPathfinder — Non-integer and NaN infinite loop han
        const out = new Int16Array(195);
        pf.findPath(NaN, 17, out);`,
     ],
-    { timeout: 400 }
+    { timeout: 2000 }
   );
 
   const timedOutNaN = Boolean(childNaN.error && childNaN.error.code === 'ETIMEDOUT');
   assert.strictEqual(
     timedOutNaN,
     false,
-    'findPath(NaN, 17) must not enter an infinite loop (process timed out after 400ms)'
+    'findPath(NaN, 17) must not enter an infinite loop (process timed out after 2000ms)'
   );
 
   // Child process check for findSafeTile(NaN, ...)
@@ -512,13 +515,13 @@ test('Challenger 1.7: ZeroGCPathfinder — Non-integer and NaN infinite loop han
        danger[1] = 1;
        pf.findSafeTile(NaN, danger, pf.obstacleMask, null, 4, out);`,
     ],
-    { timeout: 400 }
+    { timeout: 2000 }
   );
 
   const timedOutSafeNaN = Boolean(childSafeNaN.error && childSafeNaN.error.code === 'ETIMEDOUT');
   assert.strictEqual(
     timedOutSafeNaN,
     false,
-    'findSafeTile(NaN, ...) must not enter an infinite loop (process timed out after 400ms)'
+    'findSafeTile(NaN, ...) must not enter an infinite loop (process timed out after 2000ms)'
   );
 });

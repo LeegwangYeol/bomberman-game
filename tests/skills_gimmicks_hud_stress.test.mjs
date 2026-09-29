@@ -1,18 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  BASE_PLAYER_SPEED,
-  SPEED_UP_DELTA,
-  MAX_PLAYER_SPEED,
-  BASE_MAX_BOMBS,
-  MAX_BOMBS_CAP,
-  BASE_BOMB_POWER,
-  MAX_BOMB_POWER_CAP,
-  DASH_SPEED,
   DASH_DURATION_MS,
   DASH_COOLDOWN_MS,
   BOMB_KICK_SPEED,
-  ITEM_GRACE_PERIOD_MS,
   SHIELD_INVULN_MS,
   CONVEYOR_DRIFT_SPEED,
   PORTAL_COOLDOWN_MS,
@@ -28,7 +19,6 @@ import {
   TILE_SIZE,
   TILE_EMPTY,
   TILE_WALL,
-  TILE_BLOCK,
   getBlastTiles,
 } from '../src/game/pathfinding.ts';
 
@@ -152,7 +142,7 @@ test('Portal Debounce: Dynamic exit and re-entry timing', () => {
 
 test('Portal Trajectory: Kicked bomb slides through portal tiles without triggering portal warp', () => {
   const map = createStandardMap();
-  const { portalA } = DEFAULT_PORTALS; // (1, 13)
+  // DEFAULT_PORTALS.portalA is at (1, 13)
 
   // Bomb at (1, 11) kicked right (+1, 0) through (1, 13) towards boundary wall at (1, 14)
   const result = simulateBombKickSlide(11, 1, 1, 0, map);

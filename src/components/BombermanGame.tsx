@@ -30,18 +30,16 @@ import { GameStatePersistence } from '../game/persistence';
 import type { SerializedRunState, SaveTriggerType } from '../game/persistence';
 import type { BossHUDState } from '../game/bosses/BossTypes.ts';
 import type { SituationLogState } from '../game/crises/index.ts';
+import {
+  type MobileInputState,
+  createDefaultMobileInputState,
+  resolveJoystickDirection,
+  resetJoystickDirection,
+  resetAllMobileInputs,
+} from '../game/input_state';
 
-
-// Extend window to hold mobile & unified input state for Phaser to read easily
-export interface MobileInputState {
-  up: boolean;
-  down: boolean;
-  left: boolean;
-  right: boolean;
-  bomb: boolean;
-  dash: boolean;
-  ultimate: boolean;
-}
+// Re-export interface for backward compatibility
+export type { MobileInputState };
 
 declare global {
   interface Window {
@@ -54,6 +52,7 @@ export default function BombermanGame() {
   const joystickRef = useRef<HTMLDivElement>(null);
   const phaserGameRef = useRef<Phaser.Game | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [joystickEpoch, setJoystickEpoch] = useState<number>(0);
 
   // Real-time Player Stats updated via Phaser game.events
   const [stats, setStats] = useState<PlayerStats>(createInitialPlayerStats());
@@ -256,22 +255,29 @@ export default function BombermanGame() {
   }, []);
 
   const handleCopyExport = useCallback(() => {
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+    if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(exportJsonString).then(() => {
         setCopiedExport(true);
         setTimeout(() => setCopiedExport(false), 2000);
+      }).catch(() => {
+        // Clipboard access rejected or headless environment
       });
     }
   }, [exportJsonString]);
 
   const handleDownloadExport = useCallback(() => {
-    const blob = new Blob([exportJsonString], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `bomberman_save_${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    try {
+      const blob = new Blob([exportJsonString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `bomberman_save_${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.warn('Save file download fallback triggered:', err);
+    }
   }, [exportJsonString]);
 
   const handleExecuteImport = useCallback(() => {
@@ -385,31 +391,44 @@ export default function BombermanGame() {
   };
 
   useEffect(() => {
-    // Check if mobile based on touch support or screen size
+    // Check if mobile based on touch support, screen size, or orientation
     const checkMobile = () => {
-      setIsMobile(
-        window.innerWidth < 768 ||
-        'ontouchstart' in window ||
-        navigator.maxTouchPoints > 0
-      );
+      if (typeof window === 'undefined') return;
+      const hasTouch = ('ontouchstart' in window) ||
+        (typeof navigator !== 'undefined' && (navigator.maxTouchPoints || 0) > 0);
+      setIsMobile(window.innerWidth < 768 || hasTouch);
     };
+
+    const handleViewportChange = () => {
+      checkMobile();
+      if (phaserGameRef.current && phaserGameRef.current.scale) {
+        phaserGameRef.current.scale.refresh();
+      }
+      setJoystickEpoch((k) => k + 1);
+    };
+
     checkMobile();
-    window.addEventListener('resize', checkMobile);
+    window.addEventListener('resize', handleViewportChange);
+    window.addEventListener('orientationchange', handleViewportChange);
+    if (typeof window !== 'undefined' && window.screen && window.screen.orientation) {
+      window.screen.orientation.addEventListener('change', handleViewportChange);
+    }
 
     // Initialize global input state
-    window.mobileInput = { up: false, down: false, left: false, right: false, bomb: false, dash: false, ultimate: false };
+    window.mobileInput = createDefaultMobileInputState();
 
     const resetInputState = () => {
       if (typeof window !== 'undefined' && window.mobileInput) {
-        window.mobileInput.up = false;
-        window.mobileInput.down = false;
-        window.mobileInput.left = false;
-        window.mobileInput.right = false;
-        window.mobileInput.bomb = false;
-        window.mobileInput.dash = false;
-        window.mobileInput.ultimate = false;
+        resetAllMobileInputs(window.mobileInput);
       }
     };
+
+    const handleVisibilityOrBlur = () => {
+      resetInputState();
+    };
+
+    window.addEventListener('blur', handleVisibilityOrBlur);
+    document.addEventListener('visibilitychange', handleVisibilityOrBlur);
 
     // Keyboard controls (Arrow keys + WASD + Spacebar + Shift/E + R/Q)
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -558,7 +577,13 @@ export default function BombermanGame() {
     }
 
     return () => {
-      window.removeEventListener('resize', checkMobile);
+      window.removeEventListener('resize', handleViewportChange);
+      window.removeEventListener('orientationchange', handleViewportChange);
+      if (typeof window !== 'undefined' && window.screen && window.screen.orientation) {
+        window.screen.orientation.removeEventListener('change', handleViewportChange);
+      }
+      window.removeEventListener('blur', handleVisibilityOrBlur);
+      document.removeEventListener('visibilitychange', handleVisibilityOrBlur);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       if (phaserGameRef.current) {
@@ -578,44 +603,59 @@ export default function BombermanGame() {
     };
   }, []);
 
-  // Initialize NippleJS for mobile touch joystick
+  // Initialize NippleJS for mobile touch joystick with orientation & resize repositioning
   useEffect(() => {
-    if (isMobile && joystickRef.current) {
-      const manager = nipplejs.create({
-        zone: joystickRef.current,
-        mode: 'static',
-        position: { left: '50%', top: '50%' },
-        color: 'white',
-        size: 100,
-      });
+    void joystickEpoch;
+    if (!isMobile || !joystickRef.current || typeof window === 'undefined') return;
 
-      manager.on('move', (evt) => {
-        const angle = evt.data.angle.degree;
-        if (evt.data.distance !== undefined && evt.data.distance < 5) {
-          window.mobileInput.up = false;
-          window.mobileInput.down = false;
-          window.mobileInput.left = false;
-          window.mobileInput.right = false;
-          return;
-        }
-        // Multi-directional angle partitioning with 8-way sector coverage
-        // Eliminates dead zones at 135° and 225° by properly including diagonal sector boundaries
-        const norm = ((angle % 360) + 360) % 360;
-        window.mobileInput.up = norm >= 22.5 && norm <= 157.5;
-        window.mobileInput.down = norm >= 202.5 && norm <= 337.5;
-        window.mobileInput.left = norm >= 112.5 && norm <= 247.5;
-        window.mobileInput.right = norm <= 67.5 || norm >= 292.5;
-      });
+    let manager: ReturnType<typeof nipplejs.create> | null = null;
+    let rafId: number | null = null;
 
-      manager.on('end', () => {
-        window.mobileInput = { ...window.mobileInput, up: false, down: false, left: false, right: false };
-      });
+    rafId = requestAnimationFrame(() => {
+      if (!joystickRef.current) return;
+      try {
+        manager = nipplejs.create({
+          zone: joystickRef.current,
+          mode: 'static',
+          position: { left: '50%', top: '50%' },
+          color: 'white',
+          size: 100,
+        });
 
-      return () => {
-        manager.destroy();
-      };
-    }
-  }, [isMobile]);
+        manager.on('move', (evt) => {
+          if (!window.mobileInput) return;
+          const angle = evt.data.angle?.degree ?? 0;
+          const dir = resolveJoystickDirection(angle, evt.data.distance);
+          window.mobileInput.up = dir.up;
+          window.mobileInput.down = dir.down;
+          window.mobileInput.left = dir.left;
+          window.mobileInput.right = dir.right;
+        });
+
+        manager.on('end', () => {
+          if (window.mobileInput) {
+            resetJoystickDirection(window.mobileInput);
+          }
+        });
+      } catch (err) {
+        console.warn('Virtual joystick initialization deferred or fallback activated:', err);
+      }
+    });
+
+    return () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+      if (manager) {
+        try {
+          manager.destroy();
+        } catch {}
+      }
+      if (typeof window !== 'undefined' && window.mobileInput) {
+        resetJoystickDirection(window.mobileInput);
+      }
+    };
+  }, [isMobile, joystickEpoch]);
 
   const handleBombPress = () => {
     if (window.mobileInput) {
@@ -1426,9 +1466,9 @@ export default function BombermanGame() {
             }}
           />
 
-          <div className="w-full max-h-[75vh] bg-slate-900/95 backdrop-blur-xl border-t border-slate-700/80 rounded-t-3xl p-4 shadow-2xl flex flex-col gap-3 overflow-hidden">
+          <div className="w-full max-h-[85vh] sm:max-h-[75vh] bg-slate-900/95 backdrop-blur-xl border-t border-slate-700/80 rounded-t-3xl p-4 pb-6 sm:pb-4 shadow-2xl flex flex-col gap-3 overflow-hidden">
             {/* Drawer Header */}
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800 shrink-0">
               <div className="flex items-center gap-2">
                 <Package className="w-5 h-5 text-amber-400" />
                 <h2 className="text-base font-bold font-mono text-white tracking-wider">
@@ -1453,7 +1493,7 @@ export default function BombermanGame() {
 
             {/* Selected Item Detail Inspector */}
             {selectedMobileItem ? (
-              <div className="p-3 rounded-xl bg-slate-950/90 border border-slate-800 flex flex-col gap-1.5 shadow-inner">
+              <div className="p-3 rounded-xl bg-slate-950/90 border border-slate-800 flex flex-col gap-1.5 shadow-inner shrink-0 max-h-[25vh] overflow-y-auto">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-lg">{selectedMobileItem.badge.split(' ')[0]}</span>
@@ -1485,13 +1525,13 @@ export default function BombermanGame() {
                 </p>
               </div>
             ) : (
-              <div className="py-2.5 px-3 rounded-xl bg-slate-950/60 border border-slate-800/80 text-center text-xs text-slate-400 font-mono">
+              <div className="py-2.5 px-3 rounded-xl bg-slate-950/60 border border-slate-800/80 text-center text-xs text-slate-400 font-mono shrink-0">
                 Tap any item below to inspect detailed stats, lore & mechanics.
               </div>
             )}
 
             {/* Grid of collected items with 48px touch targets */}
-            <div className="overflow-y-auto max-h-[40vh] pr-1 grid grid-cols-4 sm:grid-cols-6 gap-2.5 pb-2">
+            <div className="flex-1 min-h-0 overflow-y-auto max-h-[45vh] pr-1 grid grid-cols-4 sm:grid-cols-6 gap-2.5 pb-2">
               {collectedItems.map((item) => {
                 const style = getRarityBadgeStyle(item.rarity);
                 const isSelected = selectedMobileItem?.id === item.id;

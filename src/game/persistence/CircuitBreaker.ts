@@ -132,6 +132,9 @@ export class APIQuotaCircuitBreaker {
     if (this.state === CircuitBreakerState.OPEN) {
       if (Date.now() >= this.nextAttemptTime) {
         this.setState(CircuitBreakerState.HALF_OPEN);
+        if ((this.state as CircuitBreakerState) === CircuitBreakerState.HALF_OPEN) {
+          void this.drainQueue();
+        }
       }
     }
   }
@@ -177,7 +180,7 @@ export class APIQuotaCircuitBreaker {
    * Immediate handling of an HTTP 429 Quota Exceeded error.
    * Optionally triggers an emergency state save function before scheduling backoff.
    */
-  public handleQuotaError(saveFn?: () => void, error?: unknown): number {
+  public handleQuotaError(saveFn?: () => unknown, error?: unknown): number {
     this.consecutive429Count++;
     this.consecutiveFailures++;
 
@@ -187,7 +190,12 @@ export class APIQuotaCircuitBreaker {
 
     if (saveFn) {
       try {
-        saveFn();
+        const res = saveFn();
+        if (Boolean(res) && typeof (res as Record<string, unknown>).catch === 'function') {
+          (res as Promise<unknown>).catch((err: unknown) => {
+            console.error('CircuitBreaker: Error in async saveFn during 429 quota handling', err);
+          });
+        }
       } catch (err) {
         console.error('CircuitBreaker: Error executing saveFn during 429 quota handling', err);
       }
@@ -258,7 +266,17 @@ export class APIQuotaCircuitBreaker {
   }
 
   public static isQuotaError(error: unknown): boolean {
-    if (!error || typeof error !== 'object') return false;
+    if (!error) return false;
+    if (typeof error === 'string') {
+      const lower = error.toLowerCase();
+      return (
+        lower.includes('429') ||
+        lower.includes('quota') ||
+        lower.includes('rate limit') ||
+        error === 'RESOURCE_EXHAUSTED'
+      );
+    }
+    if (typeof error !== 'object') return false;
     const err = error as Record<string, unknown>;
     return (
       err.status === 429 ||
@@ -349,10 +367,15 @@ export class APIQuotaCircuitBreaker {
               if (this.retryTimer) {
                 clearTimeout(this.retryTimer as NodeJS.Timeout);
               }
-              this.retryTimer = setTimeout(() => {
+              const timer = setTimeout(() => {
                 this.retryTimer = null;
                 void this.drainQueue();
               }, retryDelay);
+              const timerWithUnref = timer as unknown as { unref?: () => void };
+              if (typeof timerWithUnref.unref === 'function') {
+                timerWithUnref.unref();
+              }
+              this.retryTimer = timer;
             }
           }
           break;

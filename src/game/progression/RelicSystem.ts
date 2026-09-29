@@ -240,9 +240,11 @@ export class RelicManager {
    * Internal Cooldown Guard (500ms) to prevent infinite loop procs (Edge Case 21)
    */
   private checkAndSetIcd(procKey: string, nowMs: number): boolean {
-    const last = this.lastProcTimes.get(procKey) || 0;
-    if (nowMs - last < 500) {
-      return false; // Suppressed by 500ms ICD guard
+    const last = this.lastProcTimes.get(procKey);
+    if (last !== undefined) {
+      if (nowMs < last || nowMs - last < 500) {
+        return false; // Suppressed by 500ms ICD guard / non-monotonic timestamp
+      }
     }
     this.lastProcTimes.set(procKey, nowMs);
     return true;

@@ -5,6 +5,10 @@
  * double-release guards, and typed-array index management with ZERO runtime allocations.
  */
 
+export interface IPoolable {
+  reset(): void;
+}
+
 export interface ObjectPoolOptions<T> {
   capacity: number;
   factory: (index: number) => T;
@@ -25,9 +29,22 @@ export class ObjectPool<T> {
   private resetCallback?: (item: T) => void;
   private readonly acquireCallback?: (item: T) => void;
 
-  constructor(options: ObjectPoolOptions<T>) {
-    if (options.capacity <= 0) {
-      throw new Error(`ObjectPool capacity must be greater than 0, got ${options.capacity}`);
+  constructor(
+    optionsOrFactory: ObjectPoolOptions<T> | ((index: number) => T),
+    resetArg?: (item: T) => void,
+    capacityArg?: number
+  ) {
+    const options: ObjectPoolOptions<T> =
+      typeof optionsOrFactory === 'function'
+        ? {
+            factory: optionsOrFactory,
+            reset: resetArg,
+            capacity: capacityArg ?? 64,
+          }
+        : optionsOrFactory;
+
+    if (!options || typeof options.capacity !== 'number' || options.capacity <= 0) {
+      throw new Error(`ObjectPool capacity must be greater than 0, got ${options?.capacity}`);
     }
 
     this.capacity = options.capacity;
@@ -123,6 +140,12 @@ export class ObjectPool<T> {
       } catch {
         // Guard against custom reset callback errors corrupting pool invariants
       }
+    } else if (item && typeof (item as unknown as IPoolable).reset === 'function') {
+      try {
+        (item as unknown as IPoolable).reset();
+      } catch {
+        // Guard against custom reset method errors corrupting pool invariants
+      }
     }
 
     return true;
@@ -162,6 +185,10 @@ export class ObjectPool<T> {
       if (this.resetCallback) {
         try {
           this.resetCallback(this.storage[itemIndex]);
+        } catch {}
+      } else if (this.storage[itemIndex] && typeof (this.storage[itemIndex] as unknown as IPoolable).reset === 'function') {
+        try {
+          (this.storage[itemIndex] as unknown as IPoolable).reset();
         } catch {}
       }
     }

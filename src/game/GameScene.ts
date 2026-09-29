@@ -140,6 +140,16 @@ import type { SerializedRunState } from './persistence/PersistenceTypes.ts';
 
 export { RENDER_DEPTH };
 
+export const DEFAULT_MOBILE_INPUT = Object.freeze({
+  up: false,
+  down: false,
+  left: false,
+  right: false,
+  bomb: false,
+  dash: false,
+  ultimate: false,
+});
+
 export interface DeclutterEntity {
   x: number;
   y: number;
@@ -151,6 +161,9 @@ export interface DeclutterEntity {
 
 export class OverheadUIManager {
   public smoothOuterBubble: boolean = false;
+  private readonly _scratchActive: DeclutterEntity[] = [];
+  private _offsetsX: Float32Array = new Float32Array(64);
+  private _offsetsY: Float32Array = new Float32Array(64);
 
   constructor(smoothOuterBubble: boolean = false) {
     this.smoothOuterBubble = smoothOuterBubble;
@@ -170,9 +183,14 @@ export class OverheadUIManager {
     immediate: boolean = false,
     smoothOuterBubble?: boolean
   ): void {
-    const active = entities.filter(
-      (e) => e && e.active && !e.isDead && e.overheadUI && !e.overheadUI.isDestroyed
-    );
+    this._scratchActive.length = 0;
+    for (let k = 0; k < entities.length; k++) {
+      const e = entities[k];
+      if (e && e.active && !e.isDead && e.overheadUI && !e.overheadUI.isDestroyed) {
+        this._scratchActive.push(e);
+      }
+    }
+    const active = this._scratchActive;
 
     // 1. Unified 2.5D dynamic Y-sorting depth pass
     for (const entity of active) {
@@ -230,8 +248,15 @@ export class OverheadUIManager {
     }
 
     // 3. AABB Collision Detection, Horizontal Spring Repulsion & Vertical Staggering
-    const offsetsX = new Float32Array(active.length);
-    const offsetsY = new Float32Array(active.length);
+    if (this._offsetsX.length < active.length) {
+      const newCap = Math.max(active.length, this._offsetsX.length * 2);
+      this._offsetsX = new Float32Array(newCap);
+      this._offsetsY = new Float32Array(newCap);
+    }
+    this._offsetsX.fill(0, 0, active.length);
+    this._offsetsY.fill(0, 0, active.length);
+    const offsetsX = this._offsetsX;
+    const offsetsY = this._offsetsY;
 
     for (let i = 0; i < active.length; i++) {
       const eA = active[i];
@@ -361,39 +386,69 @@ export interface ActiveFloatingText {
 }
 
 export class FloatingTextManager {
-  private activeTexts: ActiveFloatingText[] = [];
+  public static readonly MAX_POOL = 1024;
+  private static readonly MASK = 1023;
+  private readonly poolX: Float32Array = new Float32Array(FloatingTextManager.MAX_POOL);
+  private readonly poolY: Float32Array = new Float32Array(FloatingTextManager.MAX_POOL);
+  private readonly poolTime: Float64Array = new Float64Array(FloatingTextManager.MAX_POOL);
   private head: number = 0;
+  private tail: number = 0;
+  private size: number = 0;
+
+  constructor() {
+    this.poolTime.fill(-1);
+  }
 
   public getCascadeOffset(x: number, y: number, currentTime: number): number {
     const cutoff = currentTime - 450;
-    const len = this.activeTexts.length;
-    while (this.head < len && this.activeTexts[this.head].spawnTime < cutoff) {
-      this.head++;
+    const poolX = this.poolX;
+    const poolY = this.poolY;
+    const poolTime = this.poolTime;
+    const mask = FloatingTextManager.MASK;
+
+    while (this.size > 0 && poolTime[this.head] < cutoff) {
+      this.head = (this.head + 1) & mask;
+      this.size--;
     }
 
-    // Reset buffer if all expired
-    if (this.head >= len) {
-      this.activeTexts.length = 0;
+    if (this.size === 0) {
       this.head = 0;
-    } else if (this.head > 128) {
-      this.activeTexts = this.activeTexts.slice(this.head);
-      this.head = 0;
+      this.tail = 0;
     }
 
-    const currentHead = this.head;
-    const currentLen = this.activeTexts.length;
+    const head = this.head;
+    const size = this.size;
     let nearbyCount = 0;
-    for (let i = currentHead; i < currentLen; i++) {
-      const item = this.activeTexts[i];
-      const dx = item.x - x;
-      const dy = item.y - y;
+    for (let i = 0; i < size; i++) {
+      const idx = (head + i) & mask;
+      const dy = poolY[idx] - y;
+      if (dy > 30 || dy < -30) continue;
+      const dx = poolX[idx] - x;
+      if (dx > 30 || dx < -30) continue;
       if (dx * dx + dy * dy <= 900) {
         nearbyCount++;
       }
     }
 
     const offset = nearbyCount * 16;
-    this.activeTexts.push({ x, y, spawnTime: currentTime });
+
+    if (this.size < FloatingTextManager.MAX_POOL) {
+      const tail = this.tail;
+      poolX[tail] = x;
+      poolY[tail] = y;
+      poolTime[tail] = currentTime;
+      this.tail = (tail + 1) & mask;
+      this.size++;
+    } else {
+      // Pool saturated: overwrite oldest active entry at head and advance both pointers
+      const h = this.head;
+      poolX[h] = x;
+      poolY[h] = y;
+      poolTime[h] = currentTime;
+      this.head = (h + 1) & mask;
+      this.tail = (this.tail + 1) & mask;
+    }
+
     return offset;
   }
 
@@ -401,13 +456,28 @@ export class FloatingTextManager {
     return this.getCascadeOffset(x, y, currentTime);
   }
 
-  public getActiveCount(): number {
-    return Math.max(0, this.activeTexts.length - this.head);
+  public getActiveCount(currentTime?: number): number {
+    if (currentTime !== undefined) {
+      const cutoff = currentTime - 450;
+      const poolTime = this.poolTime;
+      const mask = FloatingTextManager.MASK;
+      while (this.size > 0 && poolTime[this.head] < cutoff) {
+        this.head = (this.head + 1) & mask;
+        this.size--;
+      }
+      if (this.size === 0) {
+        this.head = 0;
+        this.tail = 0;
+      }
+    }
+    return this.size;
   }
 
   public reset(): void {
-    this.activeTexts.length = 0;
     this.head = 0;
+    this.tail = 0;
+    this.size = 0;
+    this.poolTime.fill(-1);
   }
 }
 
@@ -508,6 +578,55 @@ export default class GameScene extends Phaser.Scene {
   public baseSpeedBonus: number = 0;
   public destroyedBlocksThisTick: Set<string> = new Set();
   public bossHitBombIds: Set<string> = new Set();
+
+  // Scratch vectors & buffers for Zero-GC hot loops
+  private readonly scratchPlayerPos = { r: 0, c: 0, x: 0, y: 0 };
+  private readonly scratchPlayerVector = { x: 0, y: 0 };
+  private readonly scratchExpVector = { x: 0, y: 0 };
+  private readonly scratchActiveEntities: BaseEntity[] = [];
+
+  private getConveyorAt(row: number, col: number): ConveyorConfig | undefined {
+    for (let i = 0; i < this.conveyors.length; i++) {
+      const c = this.conveyors[i];
+      if (c.row === row && c.col === col) return c;
+    }
+    return undefined;
+  }
+
+  private collectActiveEntitiesFromGroup(group?: Phaser.Physics.Arcade.Group): void {
+    if (!group) return;
+    const children = group.getChildren();
+    for (let i = 0; i < children.length; i++) {
+      const e = children[i] as BaseEntity;
+      if (e && e.active && !e.isDead && e.overheadUI) {
+        this.scratchActiveEntities.push(e);
+      }
+    }
+  }
+
+  private isTilePassableForPlayer(r: number, c: number, playerRow: number, playerCol: number): boolean {
+    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
+    if (this.map[r][c] === TILE_WALL) return false;
+    if (this.map[r][c] === TILE_BLOCK && !this.hasWallPass) return false;
+
+    if (!this.hasBombPass && this.bombs) {
+      const bombsList = this.bombs.getChildren();
+      for (let i = 0; i < bombsList.length; i++) {
+        const b = bombsList[i] as Phaser.Physics.Arcade.Sprite;
+        if (b.active) {
+          const br = Math.floor(b.y / TILE_SIZE);
+          const bc = Math.floor(b.x / TILE_SIZE);
+          if (br === r && bc === c) {
+            // Allow stepping off a bomb if player is currently on it
+            if (!(playerRow === r && playerCol === c)) {
+              return false;
+            }
+          }
+        }
+      }
+    }
+    return true;
+  }
   private statsTimerAccumulator: number = 0;
 
   // Crisis Subsystem Integration
@@ -823,6 +942,7 @@ export default class GameScene extends Phaser.Scene {
       this.blockDebrisEmitter.destroy();
       this.blockDebrisEmitter = undefined;
     }
+    webAudioSynth.destroy();
   }
 
   constructor() {
@@ -1271,19 +1391,26 @@ export default class GameScene extends Phaser.Scene {
       }
       // Shield Guard absorption check
       let absorbed = false;
-      this.allies.getChildren().forEach((child) => {
+      const allies = this.allies.getChildren();
+      for (let i = 0; i < allies.length; i++) {
+        const child = allies[i];
         if (child.active && child instanceof ShieldGuardAlly) {
+          this.scratchPlayerVector.x = this.player.x;
+          this.scratchPlayerVector.y = this.player.y;
+          this.scratchExpVector.x = exp.x;
+          this.scratchExpVector.y = exp.y;
           if (
             child.tryAbsorbExplosionForPlayer(
-              { x: this.player.x, y: this.player.y },
-              { x: exp.x, y: exp.y },
+              this.scratchPlayerVector,
+              this.scratchExpVector,
               owner
             )
           ) {
             absorbed = true;
+            break;
           }
         }
-      });
+      }
       if (absorbed) return;
       this.playerDie();
     });
@@ -1736,7 +1863,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // 2. Dash skill trigger check
-    const mInput = window.mobileInput || { up: false, down: false, left: false, right: false, bomb: false, dash: false, ultimate: false };
+    const mInput = window.mobileInput || DEFAULT_MOBILE_INPUT;
     const dashPressed = Boolean(this.shiftKey?.isDown || this.eKey?.isDown || mInput.dash);
     if (mInput.dash) mInput.dash = false; // consume mobile dash
 
@@ -1776,7 +1903,7 @@ export default class GameScene extends Phaser.Scene {
     // 5. Conveyor belt push drift for player (PHYS-03: AABB bounds check)
     const pCol = Math.floor(this.player.x / TILE_SIZE);
     const pRow = Math.floor(this.player.y / TILE_SIZE);
-    const belt = this.conveyors.find((c) => c.row === pRow && c.col === pCol);
+    const belt = this.getConveyorAt(pRow, pCol);
     if (belt && !this.isDashing) {
       const drift = CONVEYOR_DRIFT_SPEED * (delta / 1000);
       const nextX = this.player.x + belt.dirX * drift;
@@ -1862,7 +1989,7 @@ export default class GameScene extends Phaser.Scene {
         }
       } else {
         // Not sliding: check conveyor drift (PHYS-03: AABB bounds check)
-        const bBelt = this.conveyors.find((c) => c.row === bRow && c.col === bCol);
+        const bBelt = this.getConveyorAt(bRow, bCol);
         if (bBelt) {
           const drift = CONVEYOR_DRIFT_SPEED * (delta / 1000);
           const nextX = bomb.x + bBelt.dirX * drift;
@@ -1878,11 +2005,17 @@ export default class GameScene extends Phaser.Scene {
           const perpY = bBelt.dirX !== 0 ? 15 : 0;
 
           // Prevent bomb stacking: check if target cell already contains another bomb (PHYS-REV-04)
-          const bombBlocking = (leadRow !== bRow || leadCol !== bCol) && this.bombs.getChildren().some((other) => {
-            if (other === bomb) return false;
-            const ob = other as Phaser.Physics.Arcade.Sprite;
-            return ob.active && Math.floor(ob.y / TILE_SIZE) === leadRow && Math.floor(ob.x / TILE_SIZE) === leadCol;
-          });
+          let bombBlocking = false;
+          if (leadRow !== bRow || leadCol !== bCol) {
+            const allBombs = this.bombs.getChildren();
+            for (let bi = 0; bi < allBombs.length; bi++) {
+              const other = allBombs[bi] as Phaser.Physics.Arcade.Sprite;
+              if (other !== bomb && other.active && Math.floor(other.y / TILE_SIZE) === leadRow && Math.floor(other.x / TILE_SIZE) === leadCol) {
+                bombBlocking = true;
+                break;
+              }
+            }
+          }
 
           const canMove =
             !bombBlocking &&
@@ -2054,22 +2187,13 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    const activeEntities: BaseEntity[] = [];
-    const collectActive = (group?: Phaser.Physics.Arcade.Group) => {
-      if (!group) return;
-      group.getChildren().forEach((child) => {
-        const e = child as BaseEntity;
-        if (e && e.active && !e.isDead && e.overheadUI) {
-          activeEntities.push(e);
-        }
-      });
-    };
-    collectActive(this.enemies);
-    collectActive(this.allies);
-    collectActive(this.neutrals);
+    this.scratchActiveEntities.length = 0;
+    this.collectActiveEntitiesFromGroup(this.enemies);
+    this.collectActiveEntitiesFromGroup(this.allies);
+    this.collectActiveEntitiesFromGroup(this.neutrals);
 
     if (this.overheadUIManager) {
-      this.overheadUIManager.update(activeEntities, this.player, delta);
+      this.overheadUIManager.update(this.scratchActiveEntities, this.player, delta);
     }
 
     // 10.5 Update Relic Manager (ARCH-RELIC-01)
@@ -2181,13 +2305,11 @@ export default class GameScene extends Phaser.Scene {
     if (this.crisisManager && this.crisisManager.getActiveCrisis()) {
       const activeCrisis = this.crisisManager.getActiveCrisis();
       if (activeCrisis && activeCrisis.getStage() !== CrisisStage.INACTIVE) {
-        const playerPos = {
-          r: Math.floor(this.player.y / TILE_SIZE),
-          c: Math.floor(this.player.x / TILE_SIZE),
-          x: this.player.x,
-          y: this.player.y,
-        };
-        this.crisisManager.update(delta, playerPos);
+        this.scratchPlayerPos.r = Math.floor(this.player.y / TILE_SIZE);
+        this.scratchPlayerPos.c = Math.floor(this.player.x / TILE_SIZE);
+        this.scratchPlayerPos.x = this.player.x;
+        this.scratchPlayerPos.y = this.player.y;
+        this.crisisManager.update(delta, this.scratchPlayerPos);
         if (this.situationLog) {
           this.situationLog.updateFromCrisisManager(this.crisisManager, Date.now());
         }
@@ -2325,7 +2447,7 @@ export default class GameScene extends Phaser.Scene {
   private updatePlayerMovement() {
     if (!this.player || !this.player.body) return;
 
-    const mInput = window.mobileInput || { up: false, down: false, left: false, right: false, bomb: false, dash: false };
+    const mInput = window.mobileInput || DEFAULT_MOBILE_INPUT;
     const left = Boolean(this.cursors?.left?.isDown || mInput.left);
     const right = Boolean(this.cursors?.right?.isDown || mInput.right);
     const up = Boolean(this.cursors?.up?.isDown || mInput.up);
@@ -2372,32 +2494,6 @@ export default class GameScene extends Phaser.Scene {
     const diffX = px - colCenterX;
     const diffY = py - rowCenterY;
 
-    // Fast check for tile passability avoiding walls, blocks, and other active bombs (PHYS-07)
-    const isPassable = (r: number, c: number): boolean => {
-      if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
-      if (this.map[r][c] === TILE_WALL) return false;
-      if (this.map[r][c] === TILE_BLOCK && !this.hasWallPass) return false;
-
-      if (!this.hasBombPass) {
-        let hasBomb = false;
-        this.bombs.getChildren().forEach((child) => {
-          const b = child as Phaser.Physics.Arcade.Sprite;
-          if (b.active) {
-            const br = Math.floor(b.y / TILE_SIZE);
-            const bc = Math.floor(b.x / TILE_SIZE);
-            if (br === r && bc === c) {
-              // Allow stepping off a bomb if player is currently on it
-              if (!(row === r && col === c)) {
-                hasBomb = true;
-              }
-            }
-          }
-        });
-        if (hasBomb) return false;
-      }
-      return true;
-    };
-
     // Directional intent
     let wantX = 0;
     let wantY = 0;
@@ -2410,8 +2506,8 @@ export default class GameScene extends Phaser.Scene {
     // Resolve dominant axis when multiple inputs are pressed
     let primaryAxis: 'x' | 'y' = 'x';
     if (wantX !== 0 && wantY !== 0) {
-      const xOpen = isPassable(row, col + wantX);
-      const yOpen = isPassable(row + wantY, col);
+      const xOpen = this.isTilePassableForPlayer(row, col + wantX, row, col);
+      const yOpen = this.isTilePassableForPlayer(row + wantY, col, row, col);
 
       if (xOpen && !yOpen) {
         primaryAxis = 'x';
@@ -2438,7 +2534,7 @@ export default class GameScene extends Phaser.Scene {
       this.player.anims.play('player_side', true);
 
       const nextCol = col + wantX;
-      const directOpen = isPassable(row, nextCol);
+      const directOpen = this.isTilePassableForPlayer(row, nextCol, row, col);
 
       if (directOpen) {
         // Phase 1: Corridor Centering
@@ -2450,8 +2546,8 @@ export default class GameScene extends Phaser.Scene {
         }
       } else {
         // Phase 2: Corner Rounding (PHYS-07: cornerSlideTolerance & zero dead zone)
-        const canRoundUp = diffY <= 0 && Math.abs(diffY) <= tol && isPassable(row - 1, col) && isPassable(row - 1, nextCol);
-        const canRoundDown = diffY >= 0 && Math.abs(diffY) <= tol && isPassable(row + 1, col) && isPassable(row + 1, nextCol);
+        const canRoundUp = diffY <= 0 && Math.abs(diffY) <= tol && this.isTilePassableForPlayer(row - 1, col, row, col) && this.isTilePassableForPlayer(row - 1, nextCol, row, col);
+        const canRoundDown = diffY >= 0 && Math.abs(diffY) <= tol && this.isTilePassableForPlayer(row + 1, col, row, col) && this.isTilePassableForPlayer(row + 1, nextCol, row, col);
 
         if (canRoundUp && canRoundDown) {
           vy = diffY < 0 ? -slideSpeed : diffY > 0 ? slideSpeed : -slideSpeed;
@@ -2469,7 +2565,7 @@ export default class GameScene extends Phaser.Scene {
       this.player.anims.play(wantY < 0 ? 'player_up' : 'player_down', true);
 
       const nextRow = row + wantY;
-      const directOpen = isPassable(nextRow, col);
+      const directOpen = this.isTilePassableForPlayer(nextRow, col, row, col);
 
       if (directOpen) {
         // Phase 1: Corridor Centering
@@ -2481,8 +2577,8 @@ export default class GameScene extends Phaser.Scene {
         }
       } else {
         // Phase 2: Corner Rounding (PHYS-07: cornerSlideTolerance & zero dead zone)
-        const canRoundLeft = diffX <= 0 && Math.abs(diffX) <= tol && isPassable(row, col - 1) && isPassable(nextRow, col - 1);
-        const canRoundRight = diffX >= 0 && Math.abs(diffX) <= tol && isPassable(row, col + 1) && isPassable(nextRow, col + 1);
+        const canRoundLeft = diffX <= 0 && Math.abs(diffX) <= tol && this.isTilePassableForPlayer(row, col - 1, row, col) && this.isTilePassableForPlayer(nextRow, col - 1, row, col);
+        const canRoundRight = diffX >= 0 && Math.abs(diffX) <= tol && this.isTilePassableForPlayer(row, col + 1, row, col) && this.isTilePassableForPlayer(nextRow, col + 1, row, col);
 
         if (canRoundLeft && canRoundRight) {
           if (diffX < 0) {
@@ -2985,6 +3081,18 @@ export default class GameScene extends Phaser.Scene {
 
     // Spawn Epicenter Explosion (isCenter = true, passing bombId for PHYS-06)
     this.spawnExplosion(actualRow, actualCol, true, owner, bombId);
+
+    // Epicenter chain reaction: detonate any other active bombs stacked on the same tile
+    this.bombs.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
+      const otherBomb = child as Phaser.Physics.Arcade.Sprite;
+      if (otherBomb.active && otherBomb !== bomb) {
+        const bCol = Math.floor(otherBomb.x / TILE_SIZE);
+        const bRow = Math.floor(otherBomb.y / TILE_SIZE);
+        if (bRow === actualRow && bCol === actualCol) {
+          this.explodeBomb(otherBomb, bRow, bCol);
+        }
+      }
+    });
 
     const directions = [
       { dr: -1, dc: 0 }, // up
@@ -3968,7 +4076,14 @@ export default class GameScene extends Phaser.Scene {
 
     // Initiate sliding bomb
     bomb.setData('isSliding', true);
-    bomb.setData('slideDir', { x: dirX, y: dirY });
+    let slideDir = bomb.getData('slideDir') as { x: number; y: number } | undefined;
+    if (!slideDir) {
+      slideDir = { x: dirX, y: dirY };
+      bomb.setData('slideDir', slideDir);
+    } else {
+      slideDir.x = dirX;
+      slideDir.y = dirY;
+    }
     (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(false);
     bomb.setVelocity(dirX * BOMB_KICK_SPEED, dirY * BOMB_KICK_SPEED);
   }

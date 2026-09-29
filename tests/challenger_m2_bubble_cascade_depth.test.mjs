@@ -452,17 +452,20 @@ test('Challenger 2.8 [Floating Text]: Sliding window pruning (450ms) prevents un
 
 test('Challenger 2.9 [Floating Text]: 10,000 rapid calls benchmark completes in < 30ms with 0 NaN', () => {
   const ftManager = new FloatingTextManager();
-  const start = performance.now();
+  let nanOrNegativeCount = 0;
   let time = 0;
 
+  const start = performance.now();
   for (let i = 0; i < 10000; i++) {
     time += (i % 5 === 0) ? 50 : 2; // mix of bursts and advances
     const offset = ftManager.getCascadeOffset(150 + (i % 50), 200, time);
-    assert.ok(!Number.isNaN(offset), 'Offset must never be NaN');
-    assert.ok(offset >= 0, 'Offset must be non-negative');
+    if (Number.isNaN(offset) || offset < 0) {
+      nanOrNegativeCount++;
+    }
   }
-
   const duration = performance.now() - start;
+
+  assert.equal(nanOrNegativeCount, 0, 'Offset must never be NaN or negative');
   assert.ok(duration < 30, `10,000 cascade calls must complete in < 30ms (took ${duration.toFixed(2)}ms)`);
 });
 

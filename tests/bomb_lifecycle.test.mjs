@@ -37,6 +37,7 @@ class BombLifecycleSimulator {
     this.bombs = []; // { id, row, col, x, y, timeElapsed, stage, active }
     this.explosions = []; // { row, col, isCenter }
     this.destroyedBlocks = [];
+    this.destroyedBlocksThisTick = new Set();
     this.nextId = 1;
   }
 
@@ -71,6 +72,7 @@ class BombLifecycleSimulator {
   }
 
   update(deltaMs) {
+    this.destroyedBlocksThisTick.clear();
     const toExplode = [];
     for (const bomb of this.bombs) {
       if (!bomb.active) continue;
@@ -130,10 +132,16 @@ class BombLifecycleSimulator {
         if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) break;
         if (this.map[nr][nc] === TILE_WALL) break; // Halts on indestructible wall
 
-        if (this.map[nr][nc] === TILE_BLOCK) {
-          // Destroys block and halts propagation
-          this.map[nr][nc] = TILE_EMPTY;
-          this.destroyedBlocks.push({ row: nr, col: nc });
+        // PHYS-05: Prevent simultaneous blast ray piercing through destroyed blocks
+        const key = `${nr},${nc}`;
+        const isBlock = this.map[nr][nc] === TILE_BLOCK || this.destroyedBlocksThisTick.has(key);
+
+        if (isBlock) {
+          this.destroyedBlocksThisTick.add(key);
+          if (this.map[nr][nc] === TILE_BLOCK) {
+            this.map[nr][nc] = TILE_EMPTY;
+            this.destroyedBlocks.push({ row: nr, col: nc });
+          }
           this.explosions.push({ row: nr, col: nc, isCenter: false });
           break;
         }
@@ -504,5 +512,202 @@ test('PHYS-06: Single bomb blast damages active boss exactly once despite multip
   const hitOtherBomb = onExplosionTileNearBoss(80, 80, 'bomb_other_02');
   assert.equal(hitOtherBomb, true, 'Different bombId is accepted');
   assert.equal(bossHp, 8);
+});
+
+/* ==============================================================================
+ * SUITE: CHAOS QA AGENT 5 - BOMB CASCADES, ATOMIC BREAK & HARD WALL AUDIT
+ * ============================================================================== */
+
+test('CHAOS-05-01: Simultaneous opposing detonations resolve deterministically with atomic soft block destruction', () => {
+  const map = createStandardMap();
+  map[1][2] = TILE_BLOCK; // Soft block separating (1, 1) and (1, 3)
+
+  const sim = new BombLifecycleSimulator(map, 2, 3); // power = 3
+
+  // Place Bomb A at (1, 1) and Bomb B at (1, 3)
+  const bA = sim.placeBomb(60, 60);  // (1, 1)
+  const bB = sim.placeBomb(140, 60); // (1, 3)
+  assert.ok(bA && bB);
+  assert.equal(sim.activeBombs, 2);
+
+  // Both bombs detonate simultaneously at t = 2000ms
+  sim.update(2000);
+
+  // 1. Both bombs cleanly deactivated
+  assert.equal(bA.active, false);
+  assert.equal(bB.active, false);
+  assert.equal(sim.activeBombs, 0);
+
+  // 2. Soft block destroyed atomically (exactly 1 destruction record)
+  assert.equal(sim.destroyedBlocks.length, 1);
+  assert.equal(sim.destroyedBlocks[0].row, 1);
+  assert.equal(sim.destroyedBlocks[0].col, 2);
+  assert.equal(sim.map[1][2], TILE_EMPTY);
+
+  // 3. Rays terminate at the soft block (1, 2) without piercing through to opposing bomb
+  // Bomb A ray moving right (dr=0, dc=1): (1, 2) hit, should NOT reach (1, 3) or (1, 4)
+  // Bomb B ray moving left (dr=0, dc=-1): (1, 2) hit, should NOT reach (1, 1) or (1, 0)
+  const nonCenterExplosionsAt1_3 = sim.explosions.filter(e => e.row === 1 && e.col === 3 && !e.isCenter);
+  const nonCenterExplosionsAt1_1 = sim.explosions.filter(e => e.row === 1 && e.col === 1 && !e.isCenter);
+  assert.equal(nonCenterExplosionsAt1_3.length, 0, 'Bomb A ray must not penetrate soft block into (1, 3)');
+  assert.equal(nonCenterExplosionsAt1_1.length, 0, 'Bomb B ray must not penetrate soft block into (1, 1)');
+});
+
+test('CHAOS-05-02: 4-way simultaneous blast wave cascade on a single soft block breaks it atomically exactly once without piercing', () => {
+  const map = createStandardMap();
+  // (3, 3) is surrounded by valid corridors: (2, 3) North, (4, 3) South, (3, 2) West, (3, 4) East
+  map[3][3] = TILE_BLOCK;
+
+  const sim = new BombLifecycleSimulator(map, 4, 3); // power = 3
+
+  const bNorth = sim.placeBomb(3 * TILE_SIZE + 20, 2 * TILE_SIZE + 20); // (2, 3)
+  const bSouth = sim.placeBomb(3 * TILE_SIZE + 20, 4 * TILE_SIZE + 20); // (4, 3)
+  const bWest  = sim.placeBomb(2 * TILE_SIZE + 20, 3 * TILE_SIZE + 20); // (3, 2)
+  const bEast  = sim.placeBomb(4 * TILE_SIZE + 20, 3 * TILE_SIZE + 20); // (3, 4)
+  assert.ok(bNorth && bSouth && bWest && bEast);
+  assert.equal(sim.activeBombs, 4);
+
+  // Detonate all 4 simultaneously at t = 2000ms
+  sim.update(2000);
+
+  // 1. All 4 bombs cleanly cleared
+  assert.equal(sim.activeBombs, 0);
+
+  // 2. Soft block at (3, 3) destroyed atomically (exactly 1 record)
+  assert.equal(sim.destroyedBlocks.length, 1, 'Block must be destroyed exactly once across all 4 converging rays');
+  assert.equal(sim.destroyedBlocks[0].row, 3);
+  assert.equal(sim.destroyedBlocks[0].col, 3);
+  assert.equal(sim.map[3][3], TILE_EMPTY);
+
+  // 3. No ray pierces across (3, 3) to strike opposite bomb tiles
+  // For example, North bomb ray (downwards) must stop at (3, 3) and not hit (4, 3) as a non-center blast
+  const northRayAtSouth = sim.explosions.filter(e => e.row === 4 && e.col === 3 && !e.isCenter);
+  const southRayAtNorth = sim.explosions.filter(e => e.row === 2 && e.col === 3 && !e.isCenter);
+  const westRayAtEast   = sim.explosions.filter(e => e.row === 3 && e.col === 4 && !e.isCenter);
+  const eastRayAtWest   = sim.explosions.filter(e => e.row === 3 && e.col === 2 && !e.isCenter);
+
+  assert.equal(northRayAtSouth.length, 0, 'North ray must terminate at block (3, 3) without piercing South');
+  assert.equal(southRayAtNorth.length, 0, 'South ray must terminate at block (3, 3) without piercing North');
+  assert.equal(westRayAtEast.length, 0, 'West ray must terminate at block (3, 3) without piercing East');
+  assert.equal(eastRayAtWest.length, 0, 'East ray must terminate at block (3, 3) without piercing West');
+});
+
+test('CHAOS-05-03: Contiguous 8-bomb chain reaction cascades in single tick deterministically without duplicate epicenters or re-entrancy leaks', () => {
+  const map = createStandardMap();
+  const sim = new BombLifecycleSimulator(map, 8, 2); // power = 2
+
+  // Place 8 bombs along corridor row 1: cols 1 through 8
+  const bombs = [];
+  for (let c = 1; c <= 8; c++) {
+    const b = sim.placeBomb(c * TILE_SIZE + 20, 1 * TILE_SIZE + 20);
+    assert.ok(b, `Bomb at col ${c} placed`);
+    bombs.push(b);
+  }
+  assert.equal(sim.activeBombs, 8);
+
+  // Trigger cascade by advancing to 2000ms
+  sim.update(2000);
+
+  // 1. All 8 bombs must be deactivated
+  assert.equal(sim.activeBombs, 0, 'All 8 bombs in cascade must be deactivated');
+  for (let i = 0; i < 8; i++) {
+    assert.equal(bombs[i].active, false, `Bomb ${i + 1} must be deactivated`);
+  }
+
+  // 2. Exactly 8 epicenter explosions must be spawned (1 per bomb)
+  const centerExplosions = sim.explosions.filter(e => e.isCenter);
+  assert.equal(centerExplosions.length, 8, 'Exactly 8 epicenter explosions spawned');
+
+  // Verify unique coordinates for each epicenter
+  const centerCoords = new Set(centerExplosions.map(e => `${e.row},${e.col}`));
+  assert.equal(centerCoords.size, 8, 'All 8 epicenters must occupy unique tiles');
+  for (let c = 1; c <= 8; c++) {
+    assert.ok(centerCoords.has(`1,${c}`), `Tile (1, ${c}) must have an epicenter explosion`);
+  }
+});
+
+test('CHAOS-05-04: Maximum power blast raycasts (power = 8 and power = 15) terminate strictly at outer walls and interior pillars without wall damage or bounds escape', () => {
+  const map = createStandardMap();
+  const sim = new BombLifecycleSimulator(map, 2, 15); // extreme power = 15
+
+  // Place bomb at (1, 1)
+  sim.placeBomb(60, 60);
+
+  // Detonate
+  sim.update(2000);
+
+  // Verify all explosions are within playable open boundaries
+  for (const exp of sim.explosions) {
+    // 1. Must never be outside grid bounds
+    assert.ok(exp.row >= 0 && exp.row < ROWS, `Row ${exp.row} must be within bounds`);
+    assert.ok(exp.col >= 0 && exp.col < COLS, `Col ${exp.col} must be within bounds`);
+
+    // 2. Must NEVER be spawned on an indestructible wall
+    assert.notEqual(
+      map[exp.row][exp.col],
+      TILE_WALL,
+      `Explosion must never spawn on wall tile (${exp.row}, ${exp.col})`
+    );
+
+    // 3. Perimeter walls (row 0, row ROWS-1, col 0, col COLS-1) must never contain explosions
+    assert.ok(exp.row > 0 && exp.row < ROWS - 1, `Explosion row ${exp.row} cannot be outer perimeter wall`);
+    assert.ok(exp.col > 0 && exp.col < COLS - 1, `Explosion col ${exp.col} cannot be outer perimeter wall`);
+  }
+
+  // Verify interior pillars are unmarred
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (r % 2 === 0 && c % 2 === 0) {
+        assert.equal(map[r][c], TILE_WALL, `Interior pillar at (${r}, ${c}) must remain intact`);
+      }
+    }
+  }
+});
+
+test('CHAOS-05-05: Kicked bomb sliding into active chain reaction detonates at current grid coordinates and triggers secondary cascades deterministically', () => {
+  const map = createStandardMap();
+  const sim = new BombLifecycleSimulator(map, 3, 3); // power = 3
+
+  // Bomb 1 at (1, 1)
+  const b1 = sim.placeBomb(60, 60);
+  // Bomb 2 at (1, 2)
+  const b2 = sim.placeBomb(100, 60);
+  // Bomb 3 at (1, 6)
+  const b3 = sim.placeBomb(260, 60);
+
+  // Simulate kicking Bomb 2 to the right, sliding from (1, 2) to (1, 4)
+  b2.x = 4 * TILE_SIZE + 20; // 180
+  b2.y = 1 * TILE_SIZE + 20; // 60
+  b2.col = 4;
+  b2.row = 1;
+
+  // Bomb 1 reaches 2000ms and detonates
+  sim.update(2000);
+
+  // Bomb 1 at (1, 1) with power 3 reaches:
+  // (1, 2) [empty, was old b2 pos]
+  // (1, 3) [empty]
+  // (1, 4) [hits b2 at its NEW position!] -> triggers chain detonation of Bomb 2!
+  // Bomb 2 at (1, 4) with power 3 reaches:
+  // (1, 5) [empty]
+  // (1, 6) [hits b3!] -> triggers chain detonation of Bomb 3!
+  assert.equal(b1.active, false);
+  assert.equal(b2.active, false);
+  assert.equal(b3.active, false);
+  assert.equal(sim.activeBombs, 0);
+
+  // Verify Bomb 2 epicenter is at (1, 4) and Bomb 3 epicenter is at (1, 6)
+  assert.ok(
+    sim.explosions.some(e => e.row === 1 && e.col === 4 && e.isCenter),
+    'Bomb 2 epicenter must be at current position (1, 4)'
+  );
+  assert.ok(
+    sim.explosions.some(e => e.row === 1 && e.col === 6 && e.isCenter),
+    'Bomb 3 epicenter must be at position (1, 6)'
+  );
+  assert.ok(
+    !sim.explosions.some(e => e.row === 1 && e.col === 2 && e.isCenter),
+    'Old Bomb 2 tile (1, 2) must NOT be an epicenter'
+  );
 });
 

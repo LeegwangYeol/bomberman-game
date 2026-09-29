@@ -240,26 +240,26 @@ export class OverheadUI {
   public setAlpha(alpha: number): void {
     if (this.isDestroyed) return;
     this.currentAlpha = alpha;
-    if (this.hpGraphics && this.hpGraphics.active) {
+    if (this.hpGraphics && this.hpGraphics.active && typeof this.hpGraphics.setAlpha === 'function') {
       this.hpGraphics.setAlpha(alpha);
     }
-    if (this.nameTag && this.nameTag.active) {
+    if (this.nameTag && this.nameTag.active && typeof this.nameTag.setAlpha === 'function') {
       this.nameTag.setAlpha(alpha);
     }
-    if (this.indicator && this.indicator.active) {
+    if (this.indicator && this.indicator.active && typeof this.indicator.setAlpha === 'function') {
       this.indicator.setAlpha(alpha);
     }
   }
 
   public setDepth(baseDepth: number): void {
     if (this.isDestroyed) return;
-    if (this.hpGraphics && this.hpGraphics.active) {
+    if (this.hpGraphics && this.hpGraphics.active && typeof this.hpGraphics.setDepth === 'function') {
       this.hpGraphics.setDepth(baseDepth + RENDER_DEPTH.OFFSET_HP_BAR);
     }
-    if (this.nameTag && this.nameTag.active) {
+    if (this.nameTag && this.nameTag.active && typeof this.nameTag.setDepth === 'function') {
       this.nameTag.setDepth(baseDepth + RENDER_DEPTH.OFFSET_NAME_TAG);
     }
-    if (this.indicator && this.indicator.active) {
+    if (this.indicator && this.indicator.active && typeof this.indicator.setDepth === 'function') {
       this.indicator.setDepth(baseDepth + RENDER_DEPTH.OFFSET_INTENT_BADGE);
     }
   }

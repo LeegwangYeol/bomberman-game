@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
-import { BaseEntity, applyPhysicsBodyInvariantGuard } from './BaseEntity';
-import { ENEMY_ARCHETYPES, FACTIONS } from './types';
+import { BaseEntity, applyPhysicsBodyInvariantGuard } from './BaseEntity.ts';
+import { ENEMY_ARCHETYPES, FACTIONS } from './types.ts';
 import {
   ROWS,
   COLS,
@@ -18,7 +18,7 @@ import {
   FlatHazardMask,
   isTileInHazardMask,
   cloneBombTilesAsSet,
-} from '../pathfinding';
+} from '../pathfinding.ts';
 
 /**
  * Enemy AI States

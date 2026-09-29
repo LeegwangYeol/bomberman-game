@@ -988,14 +988,27 @@ export function getBlastTiles(
   const isUint8 = outMask instanceof Uint8Array;
   const blast = outMask || new Set<string>();
 
-  if (center.r >= 0 && center.r < ROWS && center.c >= 0 && center.c < COLS) {
-    if (isFlat) {
-      (blast as FlatHazardMask).setCoord(center.r, center.c, 1);
-    } else if (isUint8) {
-      (blast as Uint8Array)[center.r * COLS + center.c] = 1;
-    } else {
-      (blast as Set<string>).add(`${center.r},${center.c}`);
-    }
+  if (
+    !center ||
+    !Number.isInteger(center.r) ||
+    !Number.isInteger(center.c) ||
+    center.r < 0 ||
+    center.r >= ROWS ||
+    center.c < 0 ||
+    center.c >= COLS ||
+    !map ||
+    !Number.isFinite(power) ||
+    power < 0
+  ) {
+    return blast;
+  }
+
+  if (isFlat) {
+    (blast as FlatHazardMask).setCoord(center.r, center.c, 1);
+  } else if (isUint8) {
+    (blast as Uint8Array)[center.r * COLS + center.c] = 1;
+  } else {
+    (blast as Set<string>).add(`${center.r},${center.c}`);
   }
 
   const directions = [
@@ -1005,13 +1018,14 @@ export function getBlastTiles(
     { dr: 0, dc: 1 },  // Right
   ];
 
+  const intPower = Math.floor(power);
   for (const dir of directions) {
-    for (let i = 1; i <= power; i++) {
+    for (let i = 1; i <= intPower; i++) {
       const nr = center.r + dir.dr * i;
       const nc = center.c + dir.dc * i;
 
       if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) break;
-      if (map[nr][nc] === TILE_WALL) break;
+      if (!map[nr] || map[nr][nc] === TILE_WALL) break;
 
       if (isFlat) {
         (blast as FlatHazardMask).setCoord(nr, nc, 1);
@@ -1117,6 +1131,12 @@ export function isTileInBlastRange(
   return true;
 }
 
+const sharedBlockTargetResult: BlockTargetResult = {
+  targetBlock: { r: 0, c: 0 },
+  approachTile: { r: 0, c: 0 },
+  placementTile: { r: 0, c: 0 },
+};
+
 /**
  * Identifies the first destructible block blocking the shortest demolition route to the target,
  * and the approach tile adjacent to it where the entity should stand to place the bomb.
@@ -1153,11 +1173,14 @@ export function findTargetBlockBFS(
   const stagingR = idxToRow(res.stagingTileIdx);
   const stagingC = idxToCol(res.stagingTileIdx);
 
-  return {
-    targetBlock: { r: targetR, c: targetC },
-    approachTile: { r: stagingR, c: stagingC },
-    placementTile: { r: stagingR, c: stagingC },
-  };
+  sharedBlockTargetResult.targetBlock.r = targetR;
+  sharedBlockTargetResult.targetBlock.c = targetC;
+  sharedBlockTargetResult.approachTile.r = stagingR;
+  sharedBlockTargetResult.approachTile.c = stagingC;
+  sharedBlockTargetResult.placementTile.r = stagingR;
+  sharedBlockTargetResult.placementTile.c = stagingC;
+
+  return sharedBlockTargetResult;
 }
 
 export const findDemolitionTarget = findTargetBlockBFS;
@@ -1404,7 +1427,8 @@ export function getSafeBombEscapePath(
   // AI-02 boundary guard
   if (
     !Number.isInteger(r) || !Number.isInteger(c) ||
-    r < 0 || r >= ROWS || c < 0 || c >= COLS
+    r < 0 || r >= ROWS || c < 0 || c >= COLS ||
+    !Number.isFinite(power) || power <= 0
   ) {
     return null;
   }
@@ -1453,6 +1477,9 @@ export function getSafeBombEscapePath(
   return findEscapePathBFS({ r, c }, dangerMask, map, simulatedBombs, maxEscapeSteps);
 }
 
+const sharedPosScratch: GridCoord = { r: 0, c: 0 };
+const sharedHazardScratch: GridCoord = { r: 0, c: 0 };
+
 /**
  * Suicide prevention validator: returns true if bomb can be safely dropped without trapping the planter.
  * Uses zero-allocation early-exit check to determine reachability of a safe tile without allocating path arrays.
@@ -1470,7 +1497,8 @@ export function canSafelyPlaceBomb(
   // AI-02 boundary guard
   if (
     !Number.isInteger(r) || !Number.isInteger(c) ||
-    r < 0 || r >= ROWS || c < 0 || c >= COLS
+    r < 0 || r >= ROWS || c < 0 || c >= COLS ||
+    !Number.isFinite(power) || power <= 0
   ) {
     return false;
   }
@@ -1481,7 +1509,9 @@ export function canSafelyPlaceBomb(
   populateObstacleMask(map, sharedObstacleMask);
 
   sharedDangerMask.fill(0);
-  getBlastTiles({ r, c }, power, map, sharedDangerMask);
+  sharedPosScratch.r = r;
+  sharedPosScratch.c = c;
+  getBlastTiles(sharedPosScratch, power, map, sharedDangerMask);
 
   populateMaskFromSetOrArray(existingBombs, sharedBombMask);
 
@@ -1489,7 +1519,9 @@ export function canSafelyPlaceBomb(
     if (existingBombs instanceof FlatHazardMask) {
       existingBombs.forEachHazard((br, bc) => {
         if (br !== r || bc !== c) {
-          getBlastTiles({ r: br, c: bc }, power, map, sharedDangerMask);
+          sharedHazardScratch.r = br;
+          sharedHazardScratch.c = bc;
+          getBlastTiles(sharedHazardScratch, power, map, sharedDangerMask);
         }
       });
     } else if (existingBombs instanceof Uint8Array) {
@@ -1498,7 +1530,9 @@ export function canSafelyPlaceBomb(
           const br = (i / COLS) | 0;
           const bc = i % COLS;
           if (br !== r || bc !== c) {
-            getBlastTiles({ r: br, c: bc }, power, map, sharedDangerMask);
+            sharedHazardScratch.r = br;
+            sharedHazardScratch.c = bc;
+            getBlastTiles(sharedHazardScratch, power, map, sharedDangerMask);
           }
         }
       }
@@ -1510,7 +1544,9 @@ export function canSafelyPlaceBomb(
           const bc = parseInt(bStr.slice(comma + 1), 10);
           if (br >= 0 && br < ROWS && bc >= 0 && bc < COLS) {
             if (br !== r || bc !== c) {
-              getBlastTiles({ r: br, c: bc }, power, map, sharedDangerMask);
+              sharedHazardScratch.r = br;
+              sharedHazardScratch.c = bc;
+              getBlastTiles(sharedHazardScratch, power, map, sharedDangerMask);
             }
           }
         }
