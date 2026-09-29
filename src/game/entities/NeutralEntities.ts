@@ -103,8 +103,12 @@ export class MerchantNPC extends BaseEntity {
 
     if (nearBomb) {
       this.overheadUI.setIntent('😱', true);
-      if (this.fleePath.length === 0) {
-        const escape = findEscapePathBFS({ r: mr, c: mc }, allBlastTiles, map, bombTiles, 4);
+      // Re-evaluate escape path if current path is empty OR if current destination is within active blast tiles
+      const currentDest = this.fleePath.length > 0 ? this.fleePath[this.fleePath.length - 1] : null;
+      const isDestDangerous = currentDest ? allBlastTiles.has(`${currentDest.r},${currentDest.c}`) : true;
+
+      if (this.fleePath.length === 0 || isDestDangerous) {
+        const escape = findEscapePathBFS({ r: mr, c: mc }, allBlastTiles, map, bombTiles, 8);
         if (escape && escape.length > 0) this.fleePath = escape;
       }
 
@@ -151,7 +155,7 @@ export class MerchantNPC extends BaseEntity {
       return;
     }
 
-    // Count open orthogonal corridor directions
+    // Count open orthogonal corridor directions, strictly filtering out any active blast hazard tiles
     const openDirs: Array<{ x: number; y: number }> = [];
     const dirs = [
       { x: 1, y: 0 },
@@ -162,7 +166,14 @@ export class MerchantNPC extends BaseEntity {
     for (const d of dirs) {
       const nr = mr + d.y;
       const nc = mc + d.x;
-      if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && map[nr][nc] === TILE_EMPTY) {
+      if (
+        nr >= 0 &&
+        nr < ROWS &&
+        nc >= 0 &&
+        nc < COLS &&
+        map[nr][nc] === TILE_EMPTY &&
+        !allBlastTiles.has(`${nr},${nc}`)
+      ) {
         openDirs.push(d);
       }
     }
@@ -179,7 +190,7 @@ export class MerchantNPC extends BaseEntity {
       return;
     }
 
-    // Move in current direction or choose new open direction
+    // Move in current direction or choose new open direction that does not enter blast hazard
     const forwardR = mr + this.currentDirection.y;
     const forwardC = mc + this.currentDirection.x;
     const isForwardBlocked =
@@ -187,10 +198,16 @@ export class MerchantNPC extends BaseEntity {
       forwardR >= ROWS ||
       forwardC < 0 ||
       forwardC >= COLS ||
-      map[forwardR][forwardC] !== TILE_EMPTY;
+      map[forwardR][forwardC] !== TILE_EMPTY ||
+      allBlastTiles.has(`${forwardR},${forwardC}`);
 
     if (isForwardBlocked && openDirs.length > 0) {
       this.currentDirection = openDirs[Math.floor(Math.random() * openDirs.length)];
+    } else if (isForwardBlocked && openDirs.length === 0) {
+      // If trapped with no safe direction, stop instead of walking into blast
+      this.setVelocity(0, 0);
+      this.overheadUI.setIntent('😱', true);
+      return;
     }
 
     this.setVelocity(

@@ -72,7 +72,10 @@ export default function BombermanGame() {
   const [equippedRelics, setEquippedRelics] = useState<RelicId[]>([RelicId.POCKET_CHRONOMETER]);
   const [isPerkModalOpen, setIsPerkModalOpen] = useState(false);
   const [isRelicModalOpen, setIsRelicModalOpen] = useState(false);
+  const [isPauseModalOpen, setIsPauseModalOpen] = useState(false);
   const [activeBranch, setActiveBranch] = useState<PerkBranch>(PerkBranch.BAKING);
+
+
 
   const appliedBonuses = useMemo(() => PerkTreeManager.calculateAppliedBonuses(perks), [perks]);
   const activeSynergies = useMemo(() => {
@@ -96,6 +99,24 @@ export default function BombermanGame() {
   const [importInputString, setImportInputString] = useState('');
   const [importError, setImportError] = useState<string | null>(null);
   const [copiedExport, setCopiedExport] = useState(false);
+
+  const isAnyModalOpen = isPerkModalOpen || isRelicModalOpen || isPauseModalOpen || isInventoryOpen || isExportImportModalOpen;
+  const isAnyModalOpenRef = useRef(isAnyModalOpen);
+
+  useEffect(() => {
+    isAnyModalOpenRef.current = isAnyModalOpen;
+    if (isAnyModalOpen) {
+      if (typeof window !== 'undefined' && window.mobileInput) {
+        window.mobileInput.up = false;
+        window.mobileInput.down = false;
+        window.mobileInput.left = false;
+        window.mobileInput.right = false;
+        window.mobileInput.bomb = false;
+        window.mobileInput.dash = false;
+        window.mobileInput.ultimate = false;
+      }
+    }
+  }, [isAnyModalOpen]);
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -378,12 +399,49 @@ export default function BombermanGame() {
     // Initialize global input state
     window.mobileInput = { up: false, down: false, left: false, right: false, bomb: false, dash: false, ultimate: false };
 
+    const resetInputState = () => {
+      if (typeof window !== 'undefined' && window.mobileInput) {
+        window.mobileInput.up = false;
+        window.mobileInput.down = false;
+        window.mobileInput.left = false;
+        window.mobileInput.right = false;
+        window.mobileInput.bomb = false;
+        window.mobileInput.dash = false;
+        window.mobileInput.ultimate = false;
+      }
+    };
+
     // Keyboard controls (Arrow keys + WASD + Spacebar + Shift/E + R/Q)
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.isContentEditable)) {
         return;
       }
+
+      // Escape key listener to dismiss open modal dialogs (SEC-UI-01/02)
+      if (e.key === 'Escape' || e.code === 'Escape') {
+        if (isAnyModalOpenRef.current) {
+          setIsPerkModalOpen(false);
+          setIsRelicModalOpen(false);
+          setIsPauseModalOpen(false);
+          setIsInventoryOpen(false);
+          setIsExportImportModalOpen(false);
+          resetInputState();
+          e.preventDefault();
+          return;
+        } else {
+          setIsPauseModalOpen(true);
+          resetInputState();
+          e.preventDefault();
+          return;
+        }
+      }
+
+      // Prevent background key processing while modal dialogs are open
+      if (isAnyModalOpenRef.current) {
+        return;
+      }
+
       if (!window.mobileInput) return;
       const key = e.key.toLowerCase();
       if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'shift', 'e', 'r', 'q'].includes(key) || e.code === 'Space') {
@@ -408,6 +466,10 @@ export default function BombermanGame() {
     const handleKeyUp = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.isContentEditable)) {
+        return;
+      }
+      if (isAnyModalOpenRef.current) {
+        resetInputState();
         return;
       }
       if (!window.mobileInput) return;
@@ -445,6 +507,10 @@ export default function BombermanGame() {
           arcade: {
             gravity: { y: 0, x: 0 },
             debug: false,
+            x: 0,
+            y: 0,
+            width: 600,
+            height: 520,
           },
         },
         scene: [GameScene],
@@ -1823,6 +1889,43 @@ export default function BombermanGame() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pause Modal (SEC-UI-01/02) */}
+      {isPauseModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
+          <div className="relative w-full max-w-sm bg-slate-900 border border-slate-700/80 rounded-2xl p-6 shadow-2xl flex flex-col items-center gap-4 text-center">
+            <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 text-2xl font-bold">
+              ⏸️
+            </div>
+            <div>
+              <h2 className="text-lg font-bold font-mono tracking-wider text-white uppercase">
+                Game Paused
+              </h2>
+              <p className="text-xs text-slate-400 font-mono mt-1">
+                Press ESC or click Resume to continue playing.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setIsPauseModalOpen(false);
+                if (typeof window !== 'undefined' && window.mobileInput) {
+                  window.mobileInput.up = false;
+                  window.mobileInput.down = false;
+                  window.mobileInput.left = false;
+                  window.mobileInput.right = false;
+                  window.mobileInput.bomb = false;
+                  window.mobileInput.dash = false;
+                  window.mobileInput.ultimate = false;
+                }
+              }}
+              className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold font-mono text-sm transition-all shadow-lg cursor-pointer"
+            >
+              Resume Game
+            </button>
           </div>
         </div>
       )}

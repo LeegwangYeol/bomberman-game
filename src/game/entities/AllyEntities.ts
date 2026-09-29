@@ -237,8 +237,33 @@ export class PetDroneAlly extends BaseEntity {
       const angle = Phaser.Math.Angle.Between(closestItem.x, closestItem.y, player.x, player.y);
       const pullSpeed = 150;
       const pullStep = pullSpeed * (delta / 1000);
+      const pullVx = Math.cos(angle) * pullSpeed;
+      const pullVy = Math.sin(angle) * pullSpeed;
+
       closestItem.x += Math.cos(angle) * pullStep;
       closestItem.y += Math.sin(angle) * pullStep;
+
+      // Coordinate pull velocity with Arcade Body physics and scene item shadow if present
+      const itemBody = closestItem.body as Phaser.Physics.Arcade.Body | undefined;
+      if (itemBody) {
+        if (typeof itemBody.setVelocity === 'function') {
+          itemBody.setVelocity(pullVx, pullVy);
+        } else if (itemBody.velocity) {
+          itemBody.velocity.x = pullVx;
+          itemBody.velocity.y = pullVy;
+        }
+        if (itemBody.position) {
+          const hw = itemBody.halfWidth ?? (itemBody.width ? itemBody.width / 2 : 0);
+          const hh = itemBody.halfHeight ?? (itemBody.height ? itemBody.height / 2 : 0);
+          itemBody.position.x = closestItem.x - hw;
+          itemBody.position.y = closestItem.y - hh;
+        }
+      }
+      const itemShadow = closestItem.getData && (closestItem.getData('shadow') as Phaser.GameObjects.Sprite | undefined);
+      if (itemShadow && itemShadow.active) {
+        itemShadow.x = closestItem.x;
+        itemShadow.y = closestItem.y + 14;
+      }
 
       const toItemAngle = Phaser.Math.Angle.Between(this.x, this.y, closestItem.x, closestItem.y);
       this.setVelocity(
@@ -424,3 +449,4 @@ export class ShieldGuardAlly extends BaseEntity {
     return false;
   }
 }
+

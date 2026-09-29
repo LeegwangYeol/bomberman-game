@@ -134,6 +134,9 @@ import {
   HazardType,
   SituationLog,
 } from './crises/index.ts';
+import { PerkTreeManager, RelicManager, type RelicId } from './progression/index.ts';
+import { decompressGrid } from './persistence/GameStatePersistence.ts';
+import type { SerializedRunState } from './persistence/PersistenceTypes.ts';
 
 export { RENDER_DEPTH };
 
@@ -147,6 +150,12 @@ export interface DeclutterEntity {
 }
 
 export class OverheadUIManager {
+  public smoothOuterBubble: boolean = false;
+
+  constructor(smoothOuterBubble: boolean = false) {
+    this.smoothOuterBubble = smoothOuterBubble;
+  }
+
   /**
    * Centralized decluttering and dynamic depth coordinator:
    * 1. Dynamic continuous 2.5D Y-sorting depth pass.
@@ -158,7 +167,8 @@ export class OverheadUIManager {
     entities: DeclutterEntity[],
     player: { x: number; y: number } | null,
     delta: number = 16,
-    immediate: boolean = false
+    immediate: boolean = false,
+    smoothOuterBubble?: boolean
   ): void {
     const active = entities.filter(
       (e) => e && e.active && !e.isDead && e.overheadUI && !e.overheadUI.isDestroyed
@@ -255,13 +265,29 @@ export class OverheadUIManager {
             }
           } else {
             // Tightly stacked horizontally (dx < 24px) -> vertical staggering!
-            // Northern entity gets elevated tier (-14px), Southern entity under-foot (+46px -> y + 24)
+            // Directional accumulation / 3-way staggering prevents overwrite in vertical clusters
             if (eA.y <= eB.y) {
-              offsetsY[i] = -14;
-              offsetsY[j] = 46;
+              if (offsetsY[i] === 0) {
+                offsetsY[i] = -14;
+              } else if (offsetsY[i] < 0) {
+                offsetsY[i] -= 14;
+              }
+              if (offsetsY[j] === 0) {
+                offsetsY[j] = 46;
+              } else if (offsetsY[j] < offsetsY[i] + 30) {
+                offsetsY[j] = Math.max(offsetsY[j] + 30, offsetsY[i] + 46);
+              }
             } else {
-              offsetsY[i] = 46;
-              offsetsY[j] = -14;
+              if (offsetsY[j] === 0) {
+                offsetsY[j] = -14;
+              } else if (offsetsY[j] < 0) {
+                offsetsY[j] -= 14;
+              }
+              if (offsetsY[i] === 0) {
+                offsetsY[i] = 46;
+              } else if (offsetsY[i] < offsetsY[j] + 30) {
+                offsetsY[i] = Math.max(offsetsY[i] + 30, offsetsY[j] + 46);
+              }
             }
           }
         }
@@ -279,7 +305,19 @@ export class OverheadUIManager {
       }
     }
 
+    // Clamp vertical offsets to stay on-screen ([20, 500])
+    for (let i = 0; i < active.length; i++) {
+      const entity = active[i];
+      const intendedY = entity.y + offsetsY[i];
+      if (intendedY < 20) {
+        offsetsY[i] = 20 - entity.y;
+      } else if (intendedY > 500) {
+        offsetsY[i] = 500 - entity.y;
+      }
+    }
+
     // 4. Player Protection Bubble (R = 38px)
+    const useSmooth = smoothOuterBubble !== undefined ? smoothOuterBubble : this.smoothOuterBubble;
     for (let i = 0; i < active.length; i++) {
       const entity = active[i];
       const ox = offsetsX[i];
@@ -297,6 +335,8 @@ export class OverheadUIManager {
           targetAlpha = 0.0;
         } else if (effectiveDist <= 38) {
           targetAlpha = Math.min(0.15, 0.15 * ((effectiveDist - 20) / (38 - 20)));
+        } else if (useSmooth && effectiveDist <= 50) {
+          targetAlpha = 0.15 + (1.0 - 0.15) * ((effectiveDist - 38) / (50 - 38));
         }
       }
 
@@ -484,6 +524,11 @@ export default class GameScene extends Phaser.Scene {
   public playerBobOffset: number = 0;
   private lastHitStopMs: number = 0;
   public isHitStopActive: boolean = false;
+  public relicManager!: RelicManager;
+  public perkManager?: {
+    triggerSecondWind(): boolean;
+    [key: string]: unknown;
+  };
   public baseScrollX: number = -100;
   public baseScrollY: number = -40;
 
@@ -497,14 +542,14 @@ export default class GameScene extends Phaser.Scene {
       this.physics.world.pause();
       if (this.time && this.time.delayedCall) {
         this.time.delayedCall(durationMs, () => {
-          if (this.physics && this.physics.world) {
+          if (this.physics && this.physics.world && this.physics.world.isPaused) {
             this.physics.world.resume();
           }
           this.isHitStopActive = false;
         });
       } else {
         setTimeout(() => {
-          if (this.physics && this.physics.world) {
+          if (this.physics && this.physics.world && this.physics.world.isPaused) {
             this.physics.world.resume();
           }
           this.isHitStopActive = false;
@@ -623,6 +668,18 @@ export default class GameScene extends Phaser.Scene {
       }
     }
     if (perks) {
+      const bonuses = PerkTreeManager.calculateAppliedBonuses(perks);
+      let secondWindConsumed = false;
+      this.perkManager = {
+        triggerSecondWind: () => {
+          const res = PerkTreeManager.triggerSecondWind(bonuses, secondWindConsumed);
+          if (res.saved) {
+            secondWindConsumed = true;
+            return true;
+          }
+          return false;
+        },
+      };
       const cornerLvl = typeof perks['corner_magnet'] === 'number' ? perks['corner_magnet'] : 0;
       this.cornerSlideTolerance = cornerLvl === 1 ? 11 : cornerLvl >= 2 ? 14 : 8;
       const bouncy = typeof perks['bouncy_soles'] === 'number' ? perks['bouncy_soles'] : 0;
@@ -638,13 +695,101 @@ export default class GameScene extends Phaser.Scene {
     }
   };
 
-  private onRelicsUpdated = (_relics: unknown) => {
-    void _relics;
+  private onRelicsUpdated = (relicsPayload: unknown) => {
+    if (this.relicManager) {
+      const equipped = this.relicManager.getEquippedRelics();
+      for (const r of equipped) {
+        this.relicManager.unequipRelic(r);
+      }
+      if (Array.isArray(relicsPayload)) {
+        for (const r of relicsPayload) {
+          this.relicManager.equipRelic(r as RelicId);
+        }
+      } else if (relicsPayload && typeof relicsPayload === 'object' && 'equipped' in relicsPayload && Array.isArray((relicsPayload as { equipped: RelicId[] }).equipped)) {
+        for (const r of (relicsPayload as { equipped: RelicId[] }).equipped) {
+          this.relicManager.equipRelic(r as RelicId);
+        }
+      }
+    }
     this.emitStatsUpdate();
   };
 
-  private onResumeRunState = (_savedRun: unknown) => {
-    void _savedRun;
+  private onResumeRunState = (savedRun: unknown) => {
+    if (!savedRun || typeof savedRun !== 'object') {
+      this.emitStatsUpdate();
+      return;
+    }
+    const state = savedRun as Partial<SerializedRunState>;
+
+    // 1. Restore score
+    if (state.meta && typeof state.meta.score === 'number') {
+      this.score = state.meta.score;
+    }
+
+    // 2. Restore board
+    if (state.board) {
+      let restoredMap: number[][] | undefined = state.board.map;
+      if ((!restoredMap || restoredMap.length === 0) && state.board.mapRLE) {
+        try {
+          restoredMap = decompressGrid(state.board.mapRLE, state.board.rows || ROWS, state.board.cols || COLS);
+        } catch {
+          // ignore decompression failure
+        }
+      }
+      if (restoredMap && restoredMap.length === ROWS && restoredMap[0]?.length === COLS) {
+        this.map = restoredMap.map((row) => [...row]);
+        if (this.blocks) {
+          this.blocks.clear(true, true);
+          for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+              if (this.map[r][c] === TILE_BLOCK) {
+                const block = this.blocks.create(
+                  c * TILE_SIZE + TILE_SIZE / 2,
+                  r * TILE_SIZE + TILE_SIZE / 2,
+                  'block'
+                ) as Phaser.Physics.Arcade.Sprite;
+                block.setDepth(RENDER_DEPTH.BLOCKS);
+                block.setImmovable(true);
+                (block.body as Phaser.Physics.Arcade.StaticBody)?.updateFromGameObject();
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Restore player stats & position
+    if (state.player) {
+      if (typeof state.player.x === 'number' && typeof state.player.y === 'number' && this.player) {
+        this.player.setPosition(state.player.x, state.player.y);
+        this.player.body?.reset(state.player.x, state.player.y);
+      }
+      if (state.player.facing) {
+        this.playerFacing = state.player.facing;
+      }
+      if (state.player.stats) {
+        const s = state.player.stats;
+        if (typeof s.bombPower === 'number') this.bombPower = s.bombPower;
+        if (typeof s.maxBombs === 'number') this.maxBombs = s.maxBombs;
+        if (typeof s.hasKick === 'boolean') this.hasKick = s.hasKick;
+        if (typeof s.hasShield === 'boolean') this.hasShield = s.hasShield;
+        if (typeof s.shieldCharges === 'number') this.shieldCharges = s.shieldCharges;
+        if (typeof s.hasWallPass === 'boolean') this.hasWallPass = s.hasWallPass;
+        if (typeof s.hasBombPass === 'boolean') this.hasBombPass = s.hasBombPass;
+        if (typeof s.extraLives === 'number') this.extraLives = s.extraLives;
+      }
+    }
+
+    // 4. Restore items
+    if (this.items && Array.isArray(state.activeItems)) {
+      this.items.clear(true, true);
+      for (const it of state.activeItems) {
+        if (it && typeof it.row === 'number' && typeof it.col === 'number' && it.itemType) {
+          this.spawnItem(it.row, it.col, it.itemType as ItemType);
+        }
+      }
+    }
+
     this.emitStatsUpdate();
   };
 
@@ -654,6 +799,10 @@ export default class GameScene extends Phaser.Scene {
       this.game.events.off('perks-updated', this.onPerksUpdated);
       this.game.events.off('relics-updated', this.onRelicsUpdated);
       this.game.events.off('resume-run-state', this.onResumeRunState);
+    }
+    this.isHitStopActive = false;
+    if (this.physics && this.physics.world && this.physics.world.isPaused) {
+      this.physics.world.resume();
     }
     this.dismissBoss();
     this.stopCrisisMode();
@@ -705,6 +854,14 @@ export default class GameScene extends Phaser.Scene {
 
   create() {
     this.isGameOver = false;
+    this.isHitStopActive = false;
+    if (this.physics && this.physics.world && this.physics.world.isPaused) {
+      this.physics.world.resume();
+    }
+    if (this.physics && this.physics.world) {
+      this.physics.world.setBounds(0, 0, 600, 520);
+    }
+    this.relicManager = new RelicManager();
     this.playerFacing = 'down';
     this.playerSpeed = BASE_PLAYER_SPEED;
     this.speedLevel = 1;
@@ -740,7 +897,7 @@ export default class GameScene extends Phaser.Scene {
     this.ultimateLockoutRemaining = 0;
     this.activeUltimate = 'METEOR_STRIKE';
     this.cameraTrauma = new CameraTraumaSimulator();
-    this.overheadUIManager = new OverheadUIManager();
+    this.overheadUIManager = new OverheadUIManager(true);
     this.floatingTextManager = new FloatingTextManager();
     this.lastSurvivalTickMs = 0;
     this.isAegisOverdriveActive = false;
@@ -956,8 +1113,9 @@ export default class GameScene extends Phaser.Scene {
     this.physics.add.collider(this.neutrals, this.walls);
     this.physics.add.collider(this.neutrals, this.blocks);
     this.physics.add.collider(this.neutrals, this.bombs, undefined, (neutralObj, bombObj) => {
-      const n = neutralObj as Phaser.Physics.Arcade.Sprite;
       const b = bombObj as Phaser.Physics.Arcade.Sprite;
+      if (b && b.getData('isSliding')) return false;
+      const n = neutralObj as Phaser.Physics.Arcade.Sprite;
       const ignoring = b.getData('ignoringColliders') as Set<Phaser.GameObjects.GameObject> | undefined;
       if (ignoring && ignoring.has(n)) {
         const entityBody = n.body as Phaser.Physics.Arcade.Body;
@@ -984,8 +1142,9 @@ export default class GameScene extends Phaser.Scene {
     });
     this.physics.add.collider(this.allies, this.bombs, undefined, (allyObj, bombObj) => {
       if (allyObj instanceof PetDroneAlly) return false;
-      const a = allyObj as Phaser.Physics.Arcade.Sprite;
       const b = bombObj as Phaser.Physics.Arcade.Sprite;
+      if (b && b.getData('isSliding')) return false;
+      const a = allyObj as Phaser.Physics.Arcade.Sprite;
       const ignoring = b.getData('ignoringColliders') as Set<Phaser.GameObjects.GameObject> | undefined;
       if (ignoring && ignoring.has(a)) {
         const entityBody = a.body as Phaser.Physics.Arcade.Body;
@@ -1026,6 +1185,33 @@ export default class GameScene extends Phaser.Scene {
         const bCol = Math.floor(bomb.x / TILE_SIZE);
         const bRow = Math.floor(bomb.y / TILE_SIZE);
         this.explodeBomb(bomb, bRow, bCol);
+      }
+    });
+
+    // Sliding bomb hits allies or neutrals gracefully without jittering (PHYS-REV-05)
+    this.physics.add.overlap(this.bombs, this.allies, (bombObj, allyObj) => {
+      const bomb = bombObj as Phaser.Physics.Arcade.Sprite;
+      const ally = allyObj as BaseEntity;
+      if (bomb.active && bomb.getData('isSliding') && ally && ally.active) {
+        const bCol = Math.floor(bomb.x / TILE_SIZE);
+        const bRow = Math.floor(bomb.y / TILE_SIZE);
+        bomb.setVelocity(0, 0);
+        bomb.setData('isSliding', false);
+        (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(true);
+        bomb.setPosition(bCol * TILE_SIZE + TILE_SIZE / 2, bRow * TILE_SIZE + TILE_SIZE / 2);
+      }
+    });
+
+    this.physics.add.overlap(this.bombs, this.neutrals, (bombObj, neutralObj) => {
+      const bomb = bombObj as Phaser.Physics.Arcade.Sprite;
+      const neutral = neutralObj as BaseEntity;
+      if (bomb.active && bomb.getData('isSliding') && neutral && neutral.active) {
+        const bCol = Math.floor(bomb.x / TILE_SIZE);
+        const bRow = Math.floor(bomb.y / TILE_SIZE);
+        bomb.setVelocity(0, 0);
+        bomb.setData('isSliding', false);
+        (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(true);
+        bomb.setPosition(bCol * TILE_SIZE + TILE_SIZE / 2, bRow * TILE_SIZE + TILE_SIZE / 2);
       }
     });
 
@@ -1690,7 +1876,16 @@ export default class GameScene extends Phaser.Scene {
 
           const perpX = bBelt.dirY !== 0 ? 15 : 0;
           const perpY = bBelt.dirX !== 0 ? 15 : 0;
+
+          // Prevent bomb stacking: check if target cell already contains another bomb (PHYS-REV-04)
+          const bombBlocking = (leadRow !== bRow || leadCol !== bCol) && this.bombs.getChildren().some((other) => {
+            if (other === bomb) return false;
+            const ob = other as Phaser.Physics.Arcade.Sprite;
+            return ob.active && Math.floor(ob.y / TILE_SIZE) === leadRow && Math.floor(ob.x / TILE_SIZE) === leadCol;
+          });
+
           const canMove =
+            !bombBlocking &&
             leadRow >= 0 && leadRow < ROWS && leadCol >= 0 && leadCol < COLS &&
             this.map[leadRow]?.[leadCol] === TILE_EMPTY &&
             this.map[Math.floor((leadY + perpY) / TILE_SIZE)]?.[Math.floor((leadX + perpX) / TILE_SIZE)] === TILE_EMPTY &&
@@ -1877,9 +2072,54 @@ export default class GameScene extends Phaser.Scene {
       this.overheadUIManager.update(activeEntities, this.player, delta);
     }
 
+    // 10.5 Update Relic Manager (ARCH-RELIC-01)
+    if (this.relicManager) {
+      const pCol = Math.floor(this.player.x / TILE_SIZE);
+      const pRow = Math.floor(this.player.y / TILE_SIZE);
+      const north = pRow > 0 && this.map[pRow - 1]?.[pCol] === TILE_EMPTY;
+      const south = pRow < ROWS - 1 && this.map[pRow + 1]?.[pCol] === TILE_EMPTY;
+      const west = pCol > 0 && this.map[pRow]?.[pCol - 1] === TILE_EMPTY;
+      const east = pCol < COLS - 1 && this.map[pRow]?.[pCol + 1] === TILE_EMPTY;
+      const isOpenCorridor = (north && south) || (west && east);
+
+      const relicRes = this.relicManager.update(delta, Date.now(), 60, isOpenCorridor);
+      if (relicRes.solarShieldGranted) {
+        this.shieldCharges = Math.min(3, this.shieldCharges + 1);
+        this.hasShield = true;
+        this.emitStatsUpdate();
+      }
+    }
+
     // 11. Update Active Boss & Telegraphs
     if (this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED) {
       this.activeBoss.update(delta, this.player.x, this.player.y);
+
+      // Boss contact damage to player (AI-BOSS-01)
+      const bossRadius = this.activeBoss.config.colliderRadius || 35;
+      const bossDist = Phaser.Math.Distance.Between(this.player.x, this.player.y, this.activeBoss.x, this.activeBoss.y);
+      if (bossDist < bossRadius + 14) {
+        if (!this.isInvulnerable && !this.isAegisOverdriveActive && this.activeBoss.bossState !== BossState.STUNNED) {
+          this.playerDie();
+        }
+      }
+
+      // Boss crater / bomb collision stun check (AI-BOSS-01)
+      this.bombs.getChildren().forEach((child) => {
+        const bomb = child as Phaser.Physics.Arcade.Sprite;
+        if (bomb.active && this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED) {
+          const bDist = Phaser.Math.Distance.Between(bomb.x, bomb.y, this.activeBoss.x, this.activeBoss.y);
+          if (bDist < bossRadius + 16) {
+            this.activeBoss.takeBombDamage(1, 'bomb');
+            this.activeBoss.applyStun(2.5);
+            if (this.bossHUD) {
+              this.bossHUD.triggerStun(2.5, 'Bomb Collision Stun!');
+            }
+            const bCol = Math.floor(bomb.x / TILE_SIZE);
+            const bRow = Math.floor(bomb.y / TILE_SIZE);
+            this.explodeBomb(bomb, bRow, bCol);
+          }
+        }
+      });
 
       if (this.telegraphEngine) {
         this.telegraphEngine.update(delta);
@@ -2335,8 +2575,38 @@ export default class GameScene extends Phaser.Scene {
     bomb.setDepth(RENDER_DEPTH.BOMBS);
     (bomb.body as Phaser.Physics.Arcade.Body)?.setSize(32, 32).setOffset(4, 4);
     (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(true);
+    applyPhysicsBodyInvariantGuard(bomb, 32, 32, 4, 4);
 
     this.populateBombIgnoringColliders(bomb, this.player);
+
+    if (this.relicManager) {
+      const activeEnemies: { id: string; r: number; c: number }[] = [];
+      this.enemies.getChildren().forEach((child) => {
+        const e = child as BaseEntity;
+        if (e && e.active && !e.isDead) {
+          activeEnemies.push({
+            id: (e as unknown as { id?: string }).id || `e_${e.x}_${e.y}`,
+            r: Math.floor(e.y / TILE_SIZE),
+            c: Math.floor(e.x / TILE_SIZE),
+          });
+        }
+      });
+      const pullResult = this.relicManager.onBombPlaced({ r: row, c: col }, activeEnemies, Date.now());
+      if (pullResult.pulledEnemyIds.length > 0) {
+        this.enemies.getChildren().forEach((child) => {
+          const e = child as BaseEntity;
+          const eId = (e as unknown as { id?: string }).id || `e_${e.x}_${e.y}`;
+          if (pullResult.pulledEnemyIds.includes(eId) && e.body) {
+            const dirX = centerX - e.x;
+            const dirY = centerY - e.y;
+            const len = Math.sqrt(dirX * dirX + dirY * dirY);
+            if (len > 0) {
+              e.setVelocity((dirX / len) * 80, (dirY / len) * 80);
+            }
+          }
+        });
+      }
+    }
 
     // Multi-stage 4-phase asymmetric accelerating pulse tween chain with 100ms pre-detonation whiteout contraction
     const tweenChain = this.tweens.chain({
@@ -2441,6 +2711,7 @@ export default class GameScene extends Phaser.Scene {
     bomb.setDepth(RENDER_DEPTH.BOMBS);
     (bomb.body as Phaser.Physics.Arcade.Body)?.setSize(32, 32).setOffset(4, 4);
     (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(true);
+    applyPhysicsBodyInvariantGuard(bomb, 32, 32, 4, 4);
 
     this.populateBombIgnoringColliders(bomb, enemy as Phaser.GameObjects.GameObject);
 
@@ -2661,6 +2932,27 @@ export default class GameScene extends Phaser.Scene {
       this.crisisManager.handleBombBlast(actualRow, actualCol, bombPower);
     }
 
+    // Relic proc on bomb exploded: Pyroclastic Prism (ARCH-RELIC-01)
+    if (owner === 'player' && this.relicManager) {
+      const relicExp = this.relicManager.onBombExploded({ r: actualRow, c: actualCol }, Date.now());
+      if (relicExp.spawnDiagonalShards) {
+        for (const shard of relicExp.shards) {
+          for (let step = 1; step <= shard.maxDist; step++) {
+            const sr = actualRow + shard.dr * step;
+            const sc = actualCol + shard.dc * step;
+            if (sr >= 0 && sr < ROWS && sc >= 0 && sc < COLS) {
+              if (this.map[sr][sc] === TILE_WALL) break;
+              this.spawnExplosion(sr, sc, false, owner, bombId);
+              if (this.map[sr][sc] === TILE_BLOCK) {
+                this.destroyBlock(sr, sc);
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+
     // 1. Tactile Camera Trauma & Debounced Hit-Stop (Juice M3)
     if (this.cameraTrauma) {
       this.cameraTrauma.addTrauma(0.35);
@@ -2743,16 +3035,22 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  spawnExplosion(row: number, col: number, isCenter: boolean = false, owner: string = 'player', bombId?: string) {
-    const x = col * TILE_SIZE + TILE_SIZE / 2;
-    const y = row * TILE_SIZE + TILE_SIZE / 2;
-
+  public createExplosionSprite(x: number, y: number, owner: string = 'player'): Phaser.Physics.Arcade.Sprite {
     const exp = this.explosions.create(x, y, 'explosion') as Phaser.Physics.Arcade.Sprite;
     exp.setDepth(RENDER_DEPTH.EXPLOSIONS);
     exp.setData('owner', owner);
 
-    // PHYS-04: Inset hitbox by 2px on all sides (36x36 at offset 2,2) to eliminate diagonal corner leakage
+    // PHYS-04 & PHYS-REV-02: Inset hitbox by 2px on all sides (36x36 at offset 2,2) with invariant guard
     (exp.body as Phaser.Physics.Arcade.Body)?.setSize(36, 36).setOffset(2, 2);
+    applyPhysicsBodyInvariantGuard(exp, 36, 36, 2, 2);
+    return exp;
+  }
+
+  spawnExplosion(row: number, col: number, isCenter: boolean = false, owner: string = 'player', bombId?: string) {
+    const x = col * TILE_SIZE + TILE_SIZE / 2;
+    const y = row * TILE_SIZE + TILE_SIZE / 2;
+
+    const exp = this.createExplosionSprite(x, y, owner);
 
     // Center core has bright brilliant tint, arms have hot orange tint
     if (isCenter) {
@@ -2874,6 +3172,8 @@ export default class GameScene extends Phaser.Scene {
     if (this.isGameOver) return;
     if (this.isInvulnerable) return;
 
+    this.relicManager?.onPlayerDamaged();
+
     if (this.hasShield) {
       if (this.shieldCharges > 1) {
         this.shieldCharges--;
@@ -2934,6 +3234,52 @@ export default class GameScene extends Phaser.Scene {
       this.cameras.main.flash(300, 251, 113, 133);
 
       // 3.0s i-frame blink and safe vulnerability restoration (PHYS-01)
+      this.tweens.add({
+        targets: this.player,
+        alpha: 0.3,
+        duration: 100,
+        yoyo: true,
+        repeat: 14,
+        onComplete: () => {
+          if (this.player && this.player.active) {
+            this.player.alpha = 1;
+            if (!this.isDashing && !this.isAegisOverdriveActive) {
+              this.isInvulnerable = false;
+            }
+          }
+        },
+      });
+
+      this.emitStatsUpdate();
+      return;
+    }
+
+    // Check Second Wind perk (ARCH-PERK-01)
+    if (this.perkManager?.triggerSecondWind()) {
+      this.isInvulnerable = true;
+      this.shieldInvulnerableUntil = this.time.now + 3000;
+      this.hasShield = true;
+      this.shieldCharges = 1;
+      this.spawnFloatingText(this.player.x, this.player.y - 12, 'SECOND WIND!', '#fbbf24');
+      this.cameras.main.flash(300, 251, 191, 36);
+
+      // Golden shield VFX burst
+      for (let i = 0; i < 12; i++) {
+        const angle = (i / 12) * Math.PI * 2;
+        const spark = this.add.circle(this.player.x, this.player.y, 5, 0xfbbf24, 0.95);
+        spark.setDepth(RENDER_DEPTH.DEBRIS_PARTICLES);
+        this.tweens.add({
+          targets: spark,
+          x: this.player.x + Math.cos(angle) * 35,
+          y: this.player.y + Math.sin(angle) * 35,
+          alpha: 0,
+          scale: 0.2,
+          duration: 350,
+          onComplete: () => spark.destroy(),
+        });
+      }
+
+      // 3.0s i-frame blink and safe vulnerability restoration
       this.tweens.add({
         targets: this.player,
         alpha: 0.3,
@@ -3351,10 +3697,7 @@ export default class GameScene extends Phaser.Scene {
             }
           });
 
-          const exp = this.explosions.create(targetX, targetY, 'explosion') as Phaser.Physics.Arcade.Sprite;
-          exp.setDepth(RENDER_DEPTH.EXPLOSIONS);
-          exp.setData('owner', 'player');
-          (exp.body as Phaser.Physics.Arcade.Body)?.setSize(36, 36).setOffset(2, 2);
+          const exp = this.createExplosionSprite(targetX, targetY, 'player');
           this.time.delayedCall(280, () => {
             if (exp.active) exp.destroy();
           });
@@ -3445,6 +3788,31 @@ export default class GameScene extends Phaser.Scene {
       onYoyo: () => {
         if (this.player && this.player.active) {
           this.player.setPosition(targetX, targetY);
+          this.player.body?.reset(targetX, targetY);
+
+          // Add destination portal bomb to ignoringColliders to prevent collision ejection (PHYS-REV-06)
+          this.bombs.getChildren().forEach((child) => {
+            const b = child as Phaser.Physics.Arcade.Sprite;
+            if (b.active) {
+              const bCol = Math.floor(b.x / TILE_SIZE);
+              const bRow = Math.floor(b.y / TILE_SIZE);
+              if (bRow === toRow && bCol === toCol) {
+                let ignoring = b.getData('ignoringColliders') as Set<Phaser.GameObjects.GameObject> | undefined;
+                if (!ignoring) {
+                  ignoring = new Set();
+                  b.setData('ignoringColliders', ignoring);
+                }
+                ignoring.add(this.player);
+
+                let playerIgnoring = this.player.getData('ignoringColliders') as Set<Phaser.GameObjects.GameObject> | undefined;
+                if (!playerIgnoring) {
+                  playerIgnoring = new Set();
+                  this.player.setData('ignoringColliders', playerIgnoring);
+                }
+                playerIgnoring.add(b);
+              }
+            }
+          });
         }
       },
     });

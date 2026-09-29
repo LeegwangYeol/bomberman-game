@@ -35,6 +35,7 @@ export const EnemyState = {
   ENRAGED: 'ENRAGED',
   PHASING: 'PHASING',
   MATERIALIZED: 'MATERIALIZED',
+  STUNNED: 'STUNNED',
 } as const;
 
 export type EnemyState = typeof EnemyState[keyof typeof EnemyState];
@@ -117,6 +118,11 @@ export class ChaserEnemy extends BaseEntity {
         this.stunUntil = (this.scene?.time?.now || 0) + this.config.stunMs;
         this.stateTimer = this.config.stunMs;
         break;
+      case EnemyState.STUNNED:
+        this.overheadUI.setIntent('💫', true);
+        this.setVelocity(0, 0);
+        this.isStunned = true;
+        break;
     }
   }
 
@@ -143,11 +149,25 @@ export class ChaserEnemy extends BaseEntity {
 
     this.bombCooldownTimer -= delta;
 
-    // AI-03: Unified stun & cooldown state recovery in exactly config.stunMs (900ms)
-    if (this.isStunned || this.aiState === EnemyState.COOLDOWN) {
-      this.stateTimer -= delta;
-      if (currentTime >= this.stunUntil || this.stateTimer <= 0) {
+    // AI-03: Stun & cooldown state recovery. Do NOT cancel external stuns early when stateTimer <= 0
+    if (this.isStunned) {
+      this.setVelocity(0, 0);
+      if (this.stateTimer > 0) {
+        this.stateTimer -= delta;
+      }
+      if (currentTime >= this.stunUntil) {
         this.isStunned = false;
+        if (this.aiState === EnemyState.COOLDOWN || this.aiState === EnemyState.STUNNED) {
+          this.changeState(EnemyState.TRACKING);
+        }
+      }
+      return;
+    }
+
+    if (this.aiState === EnemyState.COOLDOWN) {
+      this.setVelocity(0, 0);
+      this.stateTimer -= delta;
+      if (this.stateTimer <= 0) {
         this.changeState(EnemyState.TRACKING);
       }
       return;
@@ -522,6 +542,11 @@ export class BomberEnemy extends BaseEntity {
     if (this.isDead || !this.active) return;
     this.updateEntity(delta, currentTime);
 
+    if (this.isStunned) {
+      this.setVelocity(0, 0);
+      return;
+    }
+
     this.bombCooldownTimer -= delta;
 
     if (!player || !player.active) {
@@ -589,6 +614,7 @@ export class BomberEnemy extends BaseEntity {
       const trapTile = findCorneringBombTile({ r: er, c: ec }, { r: pr, c: pc }, map, bombTiles, true);
       const isAtTrapTile = trapTile !== null && trapTile.r === er && trapTile.c === ec;
       if (
+        this.canDropBombs &&
         this.bombCooldownTimer <= 0 &&
         this.activeBombs < this.maxBombs &&
         (dist <= this.bombPower || isAtTrapTile)
@@ -636,6 +662,7 @@ export class BomberEnemy extends BaseEntity {
         const isAdjacentToBlock = Math.abs(er - targetBlock.r) + Math.abs(ec - targetBlock.c) === 1;
 
         if (
+          this.canDropBombs &&
           (isAtApproach || isAdjacentToBlock) &&
           this.bombCooldownTimer <= 0 &&
           this.activeBombs < this.maxBombs
@@ -793,6 +820,11 @@ export class TankEnemy extends BaseEntity {
     if (this.isDead || !this.active) return;
     this.updateEntity(delta, currentTime);
 
+    if (this.isStunned) {
+      this.setVelocity(0, 0);
+      return;
+    }
+
     const er = Math.floor(this.y / TILE_SIZE);
     const ec = Math.floor(this.x / TILE_SIZE);
 
@@ -921,6 +953,11 @@ export class GhostEnemy extends BaseEntity {
     if (this.isDead || !this.active) return;
     this.updateEntity(delta, currentTime);
 
+    if (this.isStunned) {
+      this.setVelocity(0, 0);
+      return;
+    }
+
     if (this.isMaterialized) {
       if (currentTime >= this.materializeUntil) {
         this.isMaterialized = false;
@@ -994,6 +1031,8 @@ export class GhostEnemy extends BaseEntity {
       } else {
         this.setVelocity(0, Math.sign(dy) * speed);
       }
+    } else {
+      this.setVelocity(0, 0);
     }
   }
 }
@@ -1085,6 +1124,11 @@ export class SplitterEnemy extends BaseEntity {
     if (this.isDead || !this.active) return;
     this.updateEntity(delta, currentTime);
 
+    if (this.isStunned) {
+      this.setVelocity(0, 0);
+      return;
+    }
+
     if (!player || !player.active) {
       this.setVelocity(0, 0);
       return;
@@ -1113,6 +1157,8 @@ export class SplitterEnemy extends BaseEntity {
       } else {
         this.setVelocity(0, Math.sign(dy) * this.config.parentSpeed);
       }
+    } else {
+      this.setVelocity(0, 0);
     }
   }
 }
@@ -1160,6 +1206,11 @@ export class MiniSplitterEnemy extends BaseEntity {
     if (this.isDead || !this.active) return;
     this.updateEntity(delta, currentTime);
 
+    if (this.isStunned) {
+      this.setVelocity(0, 0);
+      return;
+    }
+
     if (!player || !player.active) {
       this.setVelocity(0, 0);
       return;
@@ -1188,6 +1239,8 @@ export class MiniSplitterEnemy extends BaseEntity {
       } else {
         this.setVelocity(0, Math.sign(dy) * this.config.trackSpeed);
       }
+    } else {
+      this.setVelocity(0, 0);
     }
   }
 }

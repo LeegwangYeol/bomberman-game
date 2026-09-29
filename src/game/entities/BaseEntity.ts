@@ -13,7 +13,7 @@ interface MutableArcadeBody extends Phaser.Physics.Arcade.Body {
   height: number;
   halfWidth: number;
   halfHeight: number;
-  transform: { x: number; y: number };
+  transform: { x: number; y: number; rotation?: number; scaleX?: number; scaleY?: number };
 }
 
 export function applyPhysicsBodyInvariantGuard(
@@ -33,6 +33,13 @@ export function applyPhysicsBodyInvariantGuard(
 
   const mutableBody = body as unknown as MutableArcadeBody;
   mutableBody.updateBounds = function(this: MutableArcadeBody) {
+    if (this.transform) {
+      this.transform.x = sprite.x;
+      this.transform.y = sprite.y;
+      this.transform.rotation = sprite.rotation ?? 0;
+      this.transform.scaleX = sprite.scaleX ?? 1;
+      this.transform.scaleY = sprite.scaleY ?? 1;
+    }
     this.width = targetWidth;
     this.height = targetHeight;
     this.halfWidth = fixedHalfW;
@@ -41,8 +48,8 @@ export function applyPhysicsBodyInvariantGuard(
   };
   mutableBody.updateFromGameObject = function(this: MutableArcadeBody) {
     this.updateBounds();
-    this.position.x = this.transform.x + fixedRelX;
-    this.position.y = this.transform.y + fixedRelY;
+    this.position.x = sprite.x + fixedRelX;
+    this.position.y = sprite.y + fixedRelY;
     this.updateCenter();
   };
 }
@@ -70,7 +77,25 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
   public stepCycle: number = 0;
   public bobOffset: number = 0;
   public baseDisplayOriginY: number = 20;
+  public baseScaleX: number = 1.0;
+  public baseScaleY: number = 1.0;
+  private _isSquashStretching: boolean = false;
   public dropShadow?: Phaser.GameObjects.Sprite;
+
+  public override setScale(x?: number, y?: number): this {
+    super.setScale(x, y);
+    if (!this._isSquashStretching && x !== undefined) {
+      this.baseScaleX = x;
+      this.baseScaleY = y !== undefined ? y : x;
+    }
+    return this;
+  }
+
+  public setBaseScale(x: number, y: number = x): this {
+    this.baseScaleX = x;
+    this.baseScaleY = y;
+    return super.setScale(x, y);
+  }
 
   constructor(
     scene: Phaser.Scene,
@@ -235,7 +260,8 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
     const vy = body ? body.velocity.y : 0;
     const isMoving = Math.abs(vx) > 1 || Math.abs(vy) > 1;
 
-    if (this.entityType === 'ghost') {
+    const typeLower = (this.entityType || '').toLowerCase();
+    if (typeLower === 'ghost') {
       // Ghost float hover: smooth sine wave
       const hover = Math.sin(currentTime * 0.003) * 4;
       this.bobOffset = hover;
@@ -249,16 +275,22 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
       this.bobOffset = hop;
       this.displayOriginY = this.baseDisplayOriginY - hop;
 
-      // Squash and stretch: 1.08/0.92 at ground, 0.94/1.06 at apex
-      if (this.entityType === 'tank') {
+      // Squash and stretch: respect baseScaleX and baseScaleY
+      if (typeLower === 'tank') {
         const stompNorm = hop / 3;
-        this.setScale(1.0 + 0.15 * (1 - stompNorm), 1.0 - 0.15 * (1 - stompNorm));
+        const factorX = 1.0 + 0.15 * (1 - stompNorm);
+        const factorY = 1.0 - 0.15 * (1 - stompNorm);
+        this._isSquashStretching = true;
+        this.setScale(this.baseScaleX * factorX, this.baseScaleY * factorY);
+        this._isSquashStretching = false;
         this.setAngle(vx !== 0 ? Math.sign(vx) * 2.0 : 0);
       } else {
         const apexNorm = hop / 3;
-        const scaleX = 1.08 - 0.14 * apexNorm;
-        const scaleY = 0.92 + 0.14 * apexNorm;
-        this.setScale(scaleX, scaleY);
+        const factorX = 1.08 - 0.14 * apexNorm;
+        const factorY = 0.92 + 0.14 * apexNorm;
+        this._isSquashStretching = true;
+        this.setScale(this.baseScaleX * factorX, this.baseScaleY * factorY);
+        this._isSquashStretching = false;
         this.setAngle(vx !== 0 ? Math.sign(vx) * 3.5 : 0);
       }
 
@@ -273,7 +305,13 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
       this.setAngle(0);
       if (!this.isStunned) {
         const breathe = Math.sin(currentTime * 0.003) * 0.02;
-        this.setScale(1.0 - breathe, 1.0 + breathe);
+        this._isSquashStretching = true;
+        this.setScale(this.baseScaleX * (1.0 - breathe), this.baseScaleY * (1.0 + breathe));
+        this._isSquashStretching = false;
+      } else {
+        this._isSquashStretching = true;
+        this.setScale(this.baseScaleX, this.baseScaleY);
+        this._isSquashStretching = false;
       }
     }
 

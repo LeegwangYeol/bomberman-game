@@ -342,7 +342,7 @@ export class GameStatePersistence {
     const cloned = JSON.parse(JSON.stringify(state)) as SerializedRunState;
 
     // Ensure RLE compressed map is present if 2D grid provided
-    if (cloned.board.map && (!cloned.board.mapRLE || cloned.board.mapRLE === '')) {
+    if (cloned.board?.map && (!cloned.board.mapRLE || cloned.board.mapRLE === '')) {
       cloned.board.mapRLE = compressGrid(cloned.board.map);
     }
 
@@ -526,20 +526,46 @@ export class GameStatePersistence {
         const node = Object.prototype.hasOwnProperty.call(CONFECTIONERY_PERKS, key)
           ? CONFECTIONERY_PERKS[key]
           : null;
-        const maxLevel = node ? node.maxLevel : 10;
+        if (!node) {
+          continue;
+        }
+        const maxLevel = node.maxLevel;
         const numVal = typeof val === 'number' && Number.isFinite(val) ? Math.floor(val) : 0;
         sanitizedPerks[key] = Math.max(0, Math.min(numVal, maxLevel));
       }
     }
 
+    const MAX_CURRENCY = 999_999_999;
     const safeNumber = (val: unknown, fallback: number): number => {
       if (typeof val === 'number' && Number.isFinite(val) && !Number.isNaN(val)) {
-        return Math.max(0, Math.floor(val));
+        return Math.min(Math.max(0, Math.floor(val)), MAX_CURRENCY);
       }
       return fallback;
     };
 
     const isString = (m: unknown): m is string => typeof m === 'string';
+    const validGameModes = new Set<string>([
+      ...Object.values(GameModeType),
+      ...Object.values(GameModeType).map((v) => v.toLowerCase()),
+    ]);
+    const validRelicIds = new Set<string>(Object.values(RelicId));
+    const MAX_RELIC_SLOTS = 2;
+
+    const sanitizedUnlockedModes = Array.isArray(p.unlockedModes)
+      ? (p.unlockedModes as unknown[]).filter(
+          (m): m is GameModeType => typeof m === 'string' && validGameModes.has(m)
+        )
+      : defaultProfile.unlockedModes;
+
+    const sanitizedDiscoveredRelics = Array.isArray(p.discoveredRelics)
+      ? (p.discoveredRelics as unknown[]).filter(isString) as RelicId[]
+      : defaultProfile.discoveredRelics;
+
+    const sanitizedEquippedRelics = Array.isArray(p.equippedRelics)
+      ? (p.equippedRelics as unknown[])
+          .filter((r): r is RelicId => typeof r === 'string' && validRelicIds.has(r))
+          .slice(0, MAX_RELIC_SLOTS)
+      : defaultProfile.equippedRelics;
 
     return {
       version: STORAGE_SCHEMA_VERSION,
@@ -547,9 +573,9 @@ export class GameStatePersistence {
       cosmicEssence: safeNumber(p.cosmicEssence, defaultProfile.cosmicEssence),
       starCandies: safeNumber(p.starCandies, defaultProfile.starCandies),
       perks: sanitizedPerks,
-      unlockedModes: Array.isArray(p.unlockedModes) ? (p.unlockedModes as unknown[]).filter(isString) as GameModeType[] : defaultProfile.unlockedModes,
-      discoveredRelics: Array.isArray(p.discoveredRelics) ? (p.discoveredRelics as unknown[]).filter(isString) as RelicId[] : defaultProfile.discoveredRelics,
-      equippedRelics: Array.isArray(p.equippedRelics) ? (p.equippedRelics as unknown[]).filter(isString) as RelicId[] : defaultProfile.equippedRelics,
+      unlockedModes: sanitizedUnlockedModes,
+      discoveredRelics: sanitizedDiscoveredRelics,
+      equippedRelics: sanitizedEquippedRelics,
       highestWaveReached: typeof p.highestWaveReached === 'object' && p.highestWaveReached !== null ? p.highestWaveReached as Record<GameModeType, number> : defaultProfile.highestWaveReached,
       bestSurvivalTimesSeconds: typeof p.bestSurvivalTimesSeconds === 'object' && p.bestSurvivalTimesSeconds !== null ? p.bestSurvivalTimesSeconds as Record<string, number> : defaultProfile.bestSurvivalTimesSeconds,
       bestBossRushTimeSeconds: typeof p.bestBossRushTimeSeconds === 'number' && Number.isFinite(p.bestBossRushTimeSeconds) ? Math.max(0, p.bestBossRushTimeSeconds) : null,
@@ -653,14 +679,10 @@ export class GameStatePersistence {
    * -------------------------------------------------------------------------- */
 
   public async handleApiError(
-    error: { status?: number; statusCode?: number; message?: string } | unknown,
+    error: { status?: number; statusCode?: number; message?: string; code?: unknown } | unknown,
     currentStateProvider?: () => SerializedRunState | null
   ): Promise<void> {
-    const is429 =
-      error &&
-      typeof error === 'object' &&
-      (('status' in error && (error as { status: number }).status === 429) ||
-        ('statusCode' in error && (error as { statusCode: number }).statusCode === 429));
+    const is429 = this.circuitBreaker.isQuotaError(error);
 
     if (is429) {
       const emergencySave = () => {

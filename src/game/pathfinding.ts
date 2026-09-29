@@ -169,6 +169,21 @@ export class FlatHazardMask implements Iterable<string> {
     return this;
   }
 
+  public copyFrom(source: FlatHazardMask | Uint8Array): this {
+    if (source instanceof FlatHazardMask) {
+      this.mask.set(source.mask);
+      this._size = source.size;
+    } else {
+      this.mask.set(source);
+      let count = 0;
+      for (let i = 0; i < source.length; i++) {
+        if (source[i] !== 0) count++;
+      }
+      this._size = count;
+    }
+    return this;
+  }
+
   public get size(): number {
     return this._size;
   }
@@ -561,6 +576,81 @@ export class ZeroGCPathfinder {
   }
 
   /**
+   * Fast early-exit check to determine if at least one safe tile is reachable within maxSteps.
+   * Zero heap allocations, returns immediately on first safe tile discovered.
+   */
+  public hasSafeTile(
+    startIdx: number,
+    dangerMask: Uint8Array,
+    obstacleMask: Uint8Array,
+    existingBombsMask: Uint8Array | null,
+    maxSteps: number
+  ): boolean {
+    if (
+      typeof startIdx !== 'number' ||
+      !Number.isInteger(startIdx) ||
+      startIdx < 0 ||
+      startIdx >= this.totalTiles
+    ) {
+      return false;
+    }
+
+    if (dangerMask[startIdx] === 0) return false;
+
+    const cols = this.cols;
+    const rows = this.rows;
+
+    this.resetVisited();
+    const gen = this.generation;
+    const visited = this.visited;
+    const queue = this.queue;
+    const dist = this.dist;
+
+    let head = 0;
+    let tail = 0;
+
+    queue[tail++] = startIdx;
+    visited[startIdx] = gen;
+    dist[startIdx] = 0;
+
+    while (head < tail) {
+      const curr = queue[head++];
+      const d = dist[curr];
+
+      if (dangerMask[curr] === 0) {
+        return true;
+      }
+
+      if (d >= maxSteps) continue;
+
+      const currR = (curr / cols) | 0;
+      const currC = curr % cols;
+
+      for (let dir = 0; dir < 4; dir++) {
+        let nr = currR;
+        let nc = currC;
+        if (dir === 0) nr--;
+        else if (dir === 1) nr++;
+        else if (dir === 2) nc--;
+        else nc++;
+
+        if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+        const nIdx = nr * cols + nc;
+
+        if (visited[nIdx] === gen) continue;
+        if (obstacleMask[nIdx] === TILE_WALL || obstacleMask[nIdx] === TILE_BLOCK) continue;
+        if (existingBombsMask && existingBombsMask[nIdx] !== 0 && nIdx !== startIdx) continue;
+
+        visited[nIdx] = gen;
+        dist[nIdx] = d + 1;
+        queue[tail++] = nIdx;
+      }
+    }
+
+    return false;
+  }
+
+  /**
    * Soft-block-aware demolition pathfinder using pre-allocated min-heap Dijkstra.
    * Traverses through breakable blocks with blockPenalty weight to identify the optimal corridor.
    * Returns DemolitionPathResult with first blocking block and staging tile.
@@ -875,14 +965,38 @@ export function findPathBFS(
 /**
  * Backward-compatible getBlastTiles:
  * Computes all grid tiles engulfed by an explosion at `center` with radius `power`.
+ * Accepts optional outMask (FlatHazardMask, Uint8Array, or Set<string>) to eliminate allocations.
  */
 export function getBlastTiles(
   center: GridCoord,
   power: number,
   map: number[][]
-): Set<string> {
-  const blast = new Set<string>();
-  blast.add(`${center.r},${center.c}`);
+): Set<string>;
+export function getBlastTiles<T extends Set<string> | Uint8Array | FlatHazardMask>(
+  center: GridCoord,
+  power: number,
+  map: number[][],
+  outMask: T
+): T;
+export function getBlastTiles(
+  center: GridCoord,
+  power: number,
+  map: number[][],
+  outMask?: Set<string> | Uint8Array | FlatHazardMask
+): Set<string> | FlatHazardMask | Uint8Array {
+  const isFlat = outMask instanceof FlatHazardMask;
+  const isUint8 = outMask instanceof Uint8Array;
+  const blast = outMask || new Set<string>();
+
+  if (center.r >= 0 && center.r < ROWS && center.c >= 0 && center.c < COLS) {
+    if (isFlat) {
+      (blast as FlatHazardMask).setCoord(center.r, center.c, 1);
+    } else if (isUint8) {
+      (blast as Uint8Array)[center.r * COLS + center.c] = 1;
+    } else {
+      (blast as Set<string>).add(`${center.r},${center.c}`);
+    }
+  }
 
   const directions = [
     { dr: -1, dc: 0 }, // Up
@@ -899,7 +1013,14 @@ export function getBlastTiles(
       if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) break;
       if (map[nr][nc] === TILE_WALL) break;
 
-      blast.add(`${nr},${nc}`);
+      if (isFlat) {
+        (blast as FlatHazardMask).setCoord(nr, nc, 1);
+      } else if (isUint8) {
+        (blast as Uint8Array)[nr * COLS + nc] = 1;
+      } else {
+        (blast as Set<string>).add(`${nr},${nc}`);
+      }
+
       if (map[nr][nc] === TILE_BLOCK) break;
     }
   }
@@ -1064,12 +1185,74 @@ export function isTileInHazardMask(
 }
 
 /**
- * Converts or clones any duck-typed bomb collection (Set<string>, Uint8Array, FlatHazardMask) into a Set<string>.
+ * Converts or clones any duck-typed bomb collection (Set<string>, Uint8Array, FlatHazardMask) into a Set<string>
+ * or reuses/populates a provided outTarget (Set<string>, FlatHazardMask, or Uint8Array) to reduce GC churn.
  */
 export function cloneBombTilesAsSet(
   bombTiles?: Set<string> | Uint8Array | FlatHazardMask | null
-): Set<string> {
-  const s = new Set<string>();
+): Set<string>;
+export function cloneBombTilesAsSet<T extends Set<string> | Uint8Array | FlatHazardMask>(
+  bombTiles: Set<string> | Uint8Array | FlatHazardMask | null | undefined,
+  outTarget: T
+): T;
+export function cloneBombTilesAsSet(
+  bombTiles?: Set<string> | Uint8Array | FlatHazardMask | null,
+  outTarget?: Set<string> | Uint8Array | FlatHazardMask
+): Set<string> | FlatHazardMask | Uint8Array {
+  if (outTarget instanceof FlatHazardMask) {
+    outTarget.clear();
+    if (!bombTiles) return outTarget;
+    if (bombTiles instanceof FlatHazardMask) {
+      outTarget.copyFrom(bombTiles);
+    } else if (bombTiles instanceof Uint8Array) {
+      outTarget.copyFrom(bombTiles);
+    } else if (bombTiles instanceof Set) {
+      for (const item of bombTiles) outTarget.add(item);
+    } else if (typeof (bombTiles as { [Symbol.iterator]?: () => Iterator<unknown> })[Symbol.iterator] === 'function') {
+      for (const item of (bombTiles as Iterable<unknown>)) {
+        if (typeof item === 'string' || typeof item === 'number') outTarget.add(item as string);
+      }
+    }
+    return outTarget;
+  }
+
+  if (outTarget instanceof Uint8Array) {
+    outTarget.fill(0);
+    if (!bombTiles) return outTarget;
+    if (bombTiles instanceof FlatHazardMask) {
+      outTarget.set(bombTiles.mask);
+    } else if (bombTiles instanceof Uint8Array) {
+      outTarget.set(bombTiles);
+    } else if (bombTiles instanceof Set) {
+      for (const bStr of bombTiles) {
+        const comma = bStr.indexOf(',');
+        if (comma !== -1) {
+          const r = parseInt(bStr.slice(0, comma), 10);
+          const c = parseInt(bStr.slice(comma + 1), 10);
+          if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+            outTarget[r * COLS + c] = 1;
+          }
+        }
+      }
+    } else if (typeof (bombTiles as { [Symbol.iterator]?: () => Iterator<unknown> })[Symbol.iterator] === 'function') {
+      for (const item of (bombTiles as Iterable<unknown>)) {
+        if (typeof item === 'string') {
+          const comma = item.indexOf(',');
+          if (comma !== -1) {
+            const r = parseInt(item.slice(0, comma), 10);
+            const c = parseInt(item.slice(comma + 1), 10);
+            if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+              outTarget[r * COLS + c] = 1;
+            }
+          }
+        }
+      }
+    }
+    return outTarget;
+  }
+
+  const s = (outTarget as Set<string>) || new Set<string>();
+  if (outTarget) s.clear();
   if (!bombTiles) return s;
   if (bombTiles instanceof Set) {
     for (const item of bombTiles) s.add(item);
@@ -1213,7 +1396,7 @@ export function getSafeBombEscapePath(
   power: number,
   map: number[][],
   existingBombs?: Set<string> | Uint8Array | FlatHazardMask,
-  maxEscapeSteps: number = 4
+  maxEscapeSteps: number = 8
 ): GridCoord[] | null {
   const r = typeof pos === 'number' ? (pos / COLS) | 0 : pos.r;
   const c = typeof pos === 'number' ? pos % COLS : pos.c;
@@ -1229,60 +1412,50 @@ export function getSafeBombEscapePath(
   const startTileVal = map[r]?.[c];
   if (startTileVal === TILE_WALL || startTileVal === TILE_BLOCK) return null;
 
-  const dangerTiles = getBlastTiles({ r, c }, power, map);
+  const dangerMask = new FlatHazardMask(TOTAL_TILES);
+  getBlastTiles({ r, c }, power, map, dangerMask);
   if (existingBombs) {
     if (existingBombs instanceof FlatHazardMask) {
       existingBombs.forEachHazard((br, bc) => {
         if (br !== r || bc !== c) {
-          const bBlast = getBlastTiles({ r: br, c: bc }, power, map);
-          for (const tile of bBlast) dangerTiles.add(tile);
+          getBlastTiles({ r: br, c: bc }, power, map, dangerMask);
         }
       });
-    } else if (existingBombs instanceof Set) {
-      for (const bStr of existingBombs) {
-        const comma = bStr.indexOf(',');
-        if (comma !== -1) {
-          const br = parseInt(bStr.slice(0, comma), 10);
-          const bc = parseInt(bStr.slice(comma + 1), 10);
-          if (br !== r || bc !== c) {
-            const bBlast = getBlastTiles({ r: br, c: bc }, power, map);
-            for (const tile of bBlast) dangerTiles.add(tile);
-          }
-        }
-      }
     } else if (existingBombs instanceof Uint8Array) {
       for (let i = 0; i < existingBombs.length; i++) {
         if (existingBombs[i] !== 0) {
           const br = (i / COLS) | 0;
           const bc = i % COLS;
           if (br !== r || bc !== c) {
-            const bBlast = getBlastTiles({ r: br, c: bc }, power, map);
-            for (const tile of bBlast) dangerTiles.add(tile);
+            getBlastTiles({ r: br, c: bc }, power, map, dangerMask);
+          }
+        }
+      }
+    } else if (existingBombs instanceof Set) {
+      for (const bStr of existingBombs) {
+        const comma = bStr.indexOf(',');
+        if (comma !== -1) {
+          const br = parseInt(bStr.slice(0, comma), 10);
+          const bc = parseInt(bStr.slice(comma + 1), 10);
+          if (br >= 0 && br < ROWS && bc >= 0 && bc < COLS) {
+            if (br !== r || bc !== c) {
+              getBlastTiles({ r: br, c: bc }, power, map, dangerMask);
+            }
           }
         }
       }
     }
   }
 
-  const simulatedBombs = new Set<string>();
-  if (existingBombs instanceof FlatHazardMask) {
-    existingBombs.forEachHazard((br, bc) => simulatedBombs.add(`${br},${bc}`));
-  } else if (existingBombs instanceof Set) {
-    for (const s of existingBombs) simulatedBombs.add(s);
-  } else if (existingBombs instanceof Uint8Array) {
-    for (let i = 0; i < existingBombs.length; i++) {
-      if (existingBombs[i] !== 0) {
-        simulatedBombs.add(`${(i / COLS) | 0},${i % COLS}`);
-      }
-    }
-  }
+  const simulatedBombs = cloneBombTilesAsSet(existingBombs);
   simulatedBombs.add(`${r},${c}`);
 
-  return findEscapePathBFS({ r, c }, dangerTiles, map, simulatedBombs, maxEscapeSteps);
+  return findEscapePathBFS({ r, c }, dangerMask, map, simulatedBombs, maxEscapeSteps);
 }
 
 /**
  * Suicide prevention validator: returns true if bomb can be safely dropped without trapping the planter.
+ * Uses zero-allocation early-exit check to determine reachability of a safe tile without allocating path arrays.
  */
 export function canSafelyPlaceBomb(
   pos: GridCoord | number,
@@ -1291,8 +1464,69 @@ export function canSafelyPlaceBomb(
   existingBombs?: Set<string> | Uint8Array | FlatHazardMask,
   maxEscapeSteps: number = 8
 ): boolean {
-  const path = getSafeBombEscapePath(pos, power, map, existingBombs, maxEscapeSteps);
-  return path !== null && path.length > 0;
+  const r = typeof pos === 'number' ? (pos / COLS) | 0 : pos.r;
+  const c = typeof pos === 'number' ? pos % COLS : pos.c;
+
+  // AI-02 boundary guard
+  if (
+    !Number.isInteger(r) || !Number.isInteger(c) ||
+    r < 0 || r >= ROWS || c < 0 || c >= COLS
+  ) {
+    return false;
+  }
+
+  const startTileVal = map[r]?.[c];
+  if (startTileVal === TILE_WALL || startTileVal === TILE_BLOCK) return false;
+
+  populateObstacleMask(map, sharedObstacleMask);
+
+  sharedDangerMask.fill(0);
+  getBlastTiles({ r, c }, power, map, sharedDangerMask);
+
+  populateMaskFromSetOrArray(existingBombs, sharedBombMask);
+
+  if (existingBombs) {
+    if (existingBombs instanceof FlatHazardMask) {
+      existingBombs.forEachHazard((br, bc) => {
+        if (br !== r || bc !== c) {
+          getBlastTiles({ r: br, c: bc }, power, map, sharedDangerMask);
+        }
+      });
+    } else if (existingBombs instanceof Uint8Array) {
+      for (let i = 0; i < existingBombs.length; i++) {
+        if (existingBombs[i] !== 0) {
+          const br = (i / COLS) | 0;
+          const bc = i % COLS;
+          if (br !== r || bc !== c) {
+            getBlastTiles({ r: br, c: bc }, power, map, sharedDangerMask);
+          }
+        }
+      }
+    } else if (existingBombs instanceof Set) {
+      for (const bStr of existingBombs) {
+        const comma = bStr.indexOf(',');
+        if (comma !== -1) {
+          const br = parseInt(bStr.slice(0, comma), 10);
+          const bc = parseInt(bStr.slice(comma + 1), 10);
+          if (br >= 0 && br < ROWS && bc >= 0 && bc < COLS) {
+            if (br !== r || bc !== c) {
+              getBlastTiles({ r: br, c: bc }, power, map, sharedDangerMask);
+            }
+          }
+        }
+      }
+    }
+  }
+  sharedBombMask[r * COLS + c] = 1;
+
+  const startIdx = r * COLS + c;
+  return zeroGCPathfinder.hasSafeTile(
+    startIdx,
+    sharedDangerMask,
+    sharedObstacleMask,
+    sharedBombMask,
+    maxEscapeSteps
+  );
 }
 
 /**

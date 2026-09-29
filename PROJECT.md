@@ -30,6 +30,7 @@
   - Defect inventory established covering 30+ physical, logical, visual, and architectural issues (PHYS-01..07, AI-01..08, MEM-01..03, UI-01..06, SEC-01..04, ARCH-01..04).
   - Autonomous remediation across GameScene, pathfinding, entities, bosses, persistence, and React bridge.
   - Permanent defensive regression tests and 100% test pass (`npm run test`), lint clean (`npm run lint`), build success (`npm run build`).
+  - Final Verification Metrics: 708/708 automated tests passed (100%), 0 lint errors, 10,000-frame Zero-GC soak test passed (heap drift -0.22MB <= 0.25MB budget), clean Next.js 16.3.5 Turbopack production build (exit code 0).
 - **Game Feel, Juice, UI Depth & Aggressive AI Subsystem** (COMPLETED & AUDITED):
   - `Arcade Physics Clearance`: `ignoringColliders` Set on bombs resolving separation lock, permitting live demolition and 0.0% suicide rate.
   - `Aggressive Pathfinding`: 8-step BFS escape (`findEscapePathBFS`), multi-angle soft block targeting, anti-freeze fallback patrol, spawn corridor clearance.
@@ -89,6 +90,9 @@
 | 47 | JUICE-ZERO-GC-VFX | Pre-allocated particle emitters for walking dust, bomb sparks, block debris | M13 | game_feel |
 | 48 | JUICE-DROP-SHADOW | Dynamic drop shadow layer (depth 6) with height-reactive scale/alpha & block AO | M13 | game_feel |
 | 49 | QA-REGRESSION-BUILD | 100% pass across all tests (644/644), 0 lint errors, clean production build | M14 | game_feel |
+| 50 | TOTAL-INSPECTION-AUDIT | 6-domain total inspection survey & physical/system defect remediation (PHYS, AI, MEM, UI, SEC, ARCH) | M15-M16 | total_inspection |
+| 51 | TOTAL-INSPECTION-VERIF | Multi-agent adversarial verification, challenger chaos stress tests, forensic integrity audit CLEAN | M17 | total_inspection |
+| 52 | FINAL-SOAK-RELEASE | 10k-frame Zero-GC soak test passed, 708/708 tests passed, 0 lint errors, clean Turbopack build | M18 | total_inspection |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
@@ -107,6 +111,10 @@
 | M12| UI Depth & Text Occlusion | Unified 2.5D `RENDER_DEPTH`, `OverheadUIManager` AABB repulsion, adaptive LOD, player bubble (R=38px), float cascade | M11 | DONE |
 | M13| Massive Juice & Animation | Bobbing via `displayOriginY`, physics body invariant guard (24x24), 4-phase bomb pulse, camera trauma $T^2$, hit-stop, drop shadows | M11, M12 | DONE |
 | M14| Full QA & E2E Verification | 644/644 tests passed across 41 suites, 0 lint errors, clean Turbopack build, COLLABORATION & PROJECT sync | M11-M13 | DONE |
+| M15| Multi-Domain Total Codebase Inspection | Exhaustive 6-domain inspection (Physics, AI, Memory, UI, Security, Architecture) via 6 parallel Explorers | M14 | DONE |
+| M16| Physical & Structural Error Remediation | Remediation across Core Physics, Entities, Scene UI, Persistence, Crises & Defensive Tests (4 Workers) | M15 | DONE |
+| M17| Adversarial Verification & Integrity Audit | Multi-agent swarm verification: Reviewers, Challengers, Forensic Auditor Iteration 1 & 2 (All APPROVE / CLEAN) | M16 | DONE |
+| M18| Final Integration, Soak Verification & Release | 10k-frame Zero-GC soak test (-0.22MB drift), 708/708 tests (100%), 0 lint errors, clean Turbopack build, release commit | M17 | DONE |
 
 ## Interface Contracts
 ### GameScene ↔ Entities & Bombs

@@ -223,5 +223,7 @@ export interface ICrisis {
   getActiveHazardTiles(): HazardTile[];
   isTileHazardous(r: number, c: number): boolean;
   getHazardAt(r: number, c: number): HazardTile | null;
+  resolveCrisis(victoryMessage?: string): void;
+  failCrisis(failureMessage?: string): void;
   reset(): void;
 }

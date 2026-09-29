@@ -322,7 +322,7 @@ test('Meta-Profile: saves and loads meta-progression profile with checksum envel
     ...persistence.createDefaultMetaProfile(),
     cosmicEssence: 750,
     starCandies: 300,
-    perks: { BAKE_1: 2, SPEED_1: 1 },
+    perks: { sugar_spark: 2, quick_wick: 1 },
     equippedRelics: [RelicId.POCKET_CHRONOMETER, RelicId.GELATINOUS_CORE],
     trophiesUnlocked: ['FIRST_BLOOD', 'CRISIS_SURVIVOR'],
   };
@@ -333,7 +333,7 @@ test('Meta-Profile: saves and loads meta-progression profile with checksum envel
   const loaded = persistence.loadMetaProfile();
   assert.equal(loaded.cosmicEssence, 750);
   assert.equal(loaded.starCandies, 300);
-  assert.equal(loaded.perks.BAKE_1, 2);
+  assert.equal(loaded.perks.sugar_spark, 2);
   assert.deepEqual(loaded.equippedRelics, [
     RelicId.POCKET_CHRONOMETER,
     RelicId.GELATINOUS_CORE,
@@ -769,6 +769,6 @@ test('SEC-04: GameStatePersistence sanitizes imported profile against corrupted 
   assert.equal(Object.prototype.hasOwnProperty.call(sanitized.perks, 'toString'), false);
 
   // Verify mode array sanitization
-  assert.deepEqual(sanitized.unlockedModes, ['boss_rush', '__proto__']);
+  assert.deepEqual(sanitized.unlockedModes, ['boss_rush']);
 });
 

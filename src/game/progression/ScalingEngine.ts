@@ -228,6 +228,9 @@ export class ScalingEngine {
       (mutator1.id === WaveMutatorId.DENSE_FORTIFICATION && mutator2.id === WaveMutatorId.GLASS_CANNON)
     ) {
       idx2 = (idx2 + 1) % allKeys.length;
+      if (idx2 === idx1) {
+        idx2 = (idx2 + 1) % allKeys.length;
+      }
       mutator2 = WAVE_MUTATOR_CATALOG[allKeys[idx2]];
     }
 

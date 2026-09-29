@@ -10,6 +10,7 @@
  */
 
 import type Phaser from 'phaser';
+import { RENDER_DEPTH } from './entities/types.ts';
 
 /* ==============================================================================
  * ULTIMATE SKILLS SPECIFICATION & REGISTRY
@@ -733,11 +734,11 @@ export function renderMeteorStreak(
   const startY = targetY - 260;
 
   const meteor = scene.add.circle(startX, startY, 9, 0xffedd5, 1.0);
-  meteor.setDepth(24);
+  meteor.setDepth(RENDER_DEPTH.EXPLOSIONS + 5);
 
   // Flaming corona
   const corona = scene.add.circle(startX, startY, 16, 0xf97316, 0.6);
-  corona.setDepth(23);
+  corona.setDepth(RENDER_DEPTH.EXPLOSIONS + 5);
 
   scene.tweens.add({
     targets: [meteor, corona],
@@ -755,7 +756,7 @@ export function renderMeteorStreak(
           0xfbbf24,
           0.8
         );
-        ember.setDepth(22);
+        ember.setDepth(RENDER_DEPTH.EXPLOSIONS + 5);
         scene.tweens.add({
           targets: ember,
           alpha: 0,
@@ -785,7 +786,7 @@ export function renderSuperNovaWave(
 ): void {
   if (!scene || !scene.add || !scene.tweens) return;
   const g = scene.add.graphics();
-  g.setDepth(25);
+  g.setDepth(RENDER_DEPTH.SHOCKWAVES);
 
   const colors = [0xffffff, 0xfbbf24, 0xf43f5e];
 
@@ -833,11 +834,11 @@ export function renderChronoStasisVFX(scene: Phaser.Scene, durationMs: number = 
     0x0284c7,
     0.28
   );
-  overlay.setDepth(30);
+  overlay.setDepth(RENDER_DEPTH.SCREEN_OVERLAY);
 
   // Vignette border
   const border = scene.add.graphics();
-  border.setDepth(31);
+  border.setDepth(RENDER_DEPTH.SCREEN_OVERLAY);
   border.lineStyle(6, 0x38bdf8, 0.75);
   border.strokeRect(4, 4, scene.scale.width - 8, scene.scale.height - 8);
 

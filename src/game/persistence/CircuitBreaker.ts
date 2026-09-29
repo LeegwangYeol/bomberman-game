@@ -30,6 +30,7 @@ export class APIQuotaCircuitBreaker {
   private offlineQueue: QueuedApiRequest[] = [];
   private isDraining = false;
   private retryTimer: NodeJS.Timeout | number | null = null;
+  private wakeupTimer: NodeJS.Timeout | number | null = null;
 
   private readonly failureThreshold: number;
   private readonly resetTimeoutMs: number;
@@ -88,10 +89,39 @@ export class APIQuotaCircuitBreaker {
     return this.nextAttemptTime;
   }
 
+  private clearWakeupTimer(): void {
+    if (this.wakeupTimer) {
+      clearTimeout(this.wakeupTimer as NodeJS.Timeout);
+      this.wakeupTimer = null;
+    }
+  }
+
+  private scheduleWakeupTimer(delayMs: number): void {
+    this.clearWakeupTimer();
+    const delay = Math.max(1, delayMs);
+    const timer = setTimeout(() => {
+      this.wakeupTimer = null;
+      if (this.state === CircuitBreakerState.OPEN) {
+        this.setState(CircuitBreakerState.HALF_OPEN);
+      }
+      if (this.state === CircuitBreakerState.HALF_OPEN) {
+        void this.drainQueue();
+      }
+    }, delay);
+    const timerWithUnref = timer as unknown as { unref?: () => void };
+    if (typeof timerWithUnref.unref === 'function') {
+      timerWithUnref.unref();
+    }
+    this.wakeupTimer = timer;
+  }
+
   private setState(newState: CircuitBreakerState): void {
     if (this.state !== newState) {
       const oldState = this.state;
       this.state = newState;
+      if (newState !== CircuitBreakerState.OPEN) {
+        this.clearWakeupTimer();
+      }
       if (this.onStateChange) {
         this.onStateChange(oldState, newState);
       }
@@ -180,11 +210,13 @@ export class APIQuotaCircuitBreaker {
     this.currentBackoffMs = backoff;
     this.nextAttemptTime = Date.now() + backoff;
     this.setState(CircuitBreakerState.OPEN);
+    this.scheduleWakeupTimer(backoff);
 
     return backoff;
   }
 
   public recordSuccess(): void {
+    this.clearWakeupTimer();
     if (this.retryTimer) {
       clearTimeout(this.retryTimer as NodeJS.Timeout);
       this.retryTimer = null;
@@ -216,14 +248,16 @@ export class APIQuotaCircuitBreaker {
       this.currentBackoffMs = backoff;
       this.nextAttemptTime = Date.now() + backoff;
       this.setState(CircuitBreakerState.OPEN);
+      this.scheduleWakeupTimer(backoff);
     } else if (this.consecutiveFailures >= this.failureThreshold) {
       this.currentBackoffMs = this.resetTimeoutMs;
       this.nextAttemptTime = Date.now() + this.resetTimeoutMs;
       this.setState(CircuitBreakerState.OPEN);
+      this.scheduleWakeupTimer(this.resetTimeoutMs);
     }
   }
 
-  private isQuotaError(error: unknown): boolean {
+  public static isQuotaError(error: unknown): boolean {
     if (!error || typeof error !== 'object') return false;
     const err = error as Record<string, unknown>;
     return (
@@ -236,6 +270,10 @@ export class APIQuotaCircuitBreaker {
           err.message.toLowerCase().includes('quota') ||
           err.message.toLowerCase().includes('rate limit')))
     );
+  }
+
+  public isQuotaError(error: unknown): boolean {
+    return APIQuotaCircuitBreaker.isQuotaError(error);
   }
 
   /**
@@ -328,6 +366,7 @@ export class APIQuotaCircuitBreaker {
   }
 
   public clearQueue(): void {
+    this.clearWakeupTimer();
     if (this.retryTimer) {
       clearTimeout(this.retryTimer as NodeJS.Timeout);
       this.retryTimer = null;

@@ -40,6 +40,15 @@ export class OverheadUI {
   public nameTag: Phaser.GameObjects.Text | null = null;
   public indicator: Phaser.GameObjects.Text | null = null;
 
+  private lastRenderedHp: number = -1;
+  private lastRenderedMaxHp: number = -1;
+  private lastRenderedBarX: number = -999999;
+  private lastRenderedBarY: number = -999999;
+  private lastRenderedWidth: number = -1;
+  private lastRenderedFaction?: EntityFaction;
+  private lastRenderedColor?: number;
+  private lastRenderedVisible: boolean = true;
+
   constructor(
     scene: Phaser.Scene | null,
     name: string,
@@ -63,7 +72,7 @@ export class OverheadUI {
       // Tier 1: HP Bar Graphics
       if (typeof scene.add.graphics === 'function') {
         this.hpGraphics = scene.add.graphics();
-        this.hpGraphics.setDepth(16);
+        this.hpGraphics.setDepth(RENDER_DEPTH.ENTITY_Y_BASE + RENDER_DEPTH.OFFSET_HP_BAR);
       }
 
       // Tier 2: Name Tag Text
@@ -83,7 +92,7 @@ export class OverheadUI {
             strokeThickness: 2,
           })
           .setOrigin(0.5, 0.5)
-          .setDepth(16);
+          .setDepth(RENDER_DEPTH.ENTITY_Y_BASE + RENDER_DEPTH.OFFSET_NAME_TAG);
 
         // Tier 3: Intent Indicator Badge
         this.indicator = scene.add
@@ -96,7 +105,7 @@ export class OverheadUI {
             strokeThickness: 2,
           })
           .setOrigin(0.5, 0.5)
-          .setDepth(17)
+          .setDepth(RENDER_DEPTH.ENTITY_Y_BASE + RENDER_DEPTH.OFFSET_INTENT_BADGE)
           .setVisible(false);
       }
     }
@@ -132,10 +141,35 @@ export class OverheadUI {
     this.renderHpBar(barX, barY);
   }
 
-  public renderHpBar(barX: number, barY: number): void {
+  public renderHpBar(barX: number, barY: number, force: boolean = false): void {
     if (!this.hpGraphics || !this.hpGraphics.active) return;
 
+    const isVisible = (this.hpGraphics as unknown as { visible?: boolean }).visible !== false;
+    if (
+      !force &&
+      this.currentHp === this.lastRenderedHp &&
+      this.maxHp === this.lastRenderedMaxHp &&
+      barX === this.lastRenderedBarX &&
+      barY === this.lastRenderedBarY &&
+      this.barWidth === this.lastRenderedWidth &&
+      this.faction === this.lastRenderedFaction &&
+      this.hpBarColor === this.lastRenderedColor &&
+      isVisible === this.lastRenderedVisible
+    ) {
+      return;
+    }
+
+    this.lastRenderedHp = this.currentHp;
+    this.lastRenderedMaxHp = this.maxHp;
+    this.lastRenderedBarX = barX;
+    this.lastRenderedBarY = barY;
+    this.lastRenderedWidth = this.barWidth;
+    this.lastRenderedFaction = this.faction;
+    this.lastRenderedColor = this.hpBarColor;
+    this.lastRenderedVisible = isVisible;
+
     this.hpGraphics.clear();
+    if (!isVisible) return;
 
     if (this.currentHp > 0) {
       // Dark background bar

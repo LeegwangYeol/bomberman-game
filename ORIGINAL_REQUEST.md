@@ -230,3 +230,13 @@ Implement industry-standard "game feel" mechanics. Add squash-and-stretch tweeni
 - [ ] Explosions trigger screen shake and spawn particle emitters for debris/fire.
 - [ ] The game builds successfully with 0 lint errors, and 100% of existing tests still pass.
 
+## 2026-09-29T13:56:46Z
+
+Exhaustively inspect the Bomberman codebase, identify past physical errors, and fix them.
+Working directory: /Users/user/src/bomberman
+
+## Objectives
+1. **Total Inspection (총검사):** Deploy a massive team of 100+ agents including specialized subagents for QA, Security, and Architecture.
+2. **Exhaustive Review:** Thoroughly audit the entire codebase for edge cases, memory leaks, physics glitches, collision issues, AI clipping, UI desync, and potential vulnerabilities. Ensure Zero-GC pooling is not violated.
+3. **Fix and Robustness:** Autonomously remediate all discovered issues. Enhance test coverage with permanent defensive tests to prevent repeat mistakes.
+4. **Continuous Execution:** Do not stop until the system is completely robust, optimized, and zero-defect verified. Push all fixes to main.

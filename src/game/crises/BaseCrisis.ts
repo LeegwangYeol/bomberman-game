@@ -184,14 +184,22 @@ export abstract class BaseCrisis implements ICrisis {
     this.onStageEnter(newStage);
   }
 
-  public resolveCrisis(victoryMessage: string = 'Crisis successfully stabilized!'): void {
+  public resolveCrisis(victoryMessage?: string): void {
     this.transitionToStage(CrisisStage.RESOLVED);
-    this.triggerAlert('resolved', 'CRISIS STABILIZED', victoryMessage, 'info', '✨', 5000);
+    this.stage = CrisisStage.RESOLVED;
+    this.isVictorious = true;
+    this.threatMeter = 0;
+    const msg = victoryMessage || 'Crisis successfully stabilized!';
+    this.triggerAlert('resolved', 'CRISIS STABILIZED', msg, 'info', '✨', 5000);
   }
 
-  public failCrisis(failMessage: string = 'Catastrophic failure: Area consumed!'): void {
+  public failCrisis(failureMessage?: string): void {
     this.transitionToStage(CrisisStage.FAILED);
-    this.triggerAlert('failed', 'CRISIS UNCONTAINED', failMessage, 'critical', '💀', 5000);
+    this.stage = CrisisStage.FAILED;
+    this.isDefeated = true;
+    this.threatMeter = 100;
+    const msg = failureMessage || 'Catastrophic failure: Area consumed!';
+    this.triggerAlert('failed', 'CRISIS UNCONTAINED', msg, 'critical', '💀', 5000);
   }
 
   public handleBombBlast(r: number, c: number, radius: number = 1): void {

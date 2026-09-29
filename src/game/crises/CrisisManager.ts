@@ -26,6 +26,7 @@ export class CrisisManager {
   private crisesRegistry: Map<CrisisType, ICrisis> = new Map();
   private activeCrisis: ICrisis | null = null;
   private totalCrisesResolved: number = 0;
+  private hasCountedResolution: boolean = false;
 
   constructor() {
     this.registerCrises();
@@ -51,6 +52,7 @@ export class CrisisManager {
       throw new Error(`Unknown crisis type: ${type}`);
     }
 
+    this.hasCountedResolution = false;
     this.activeCrisis = crisis;
     this.activeCrisis.init();
   }
@@ -64,7 +66,10 @@ export class CrisisManager {
     const status = this.activeCrisis.getStatus();
 
     if (status.isVictorious && status.stage === CrisisStage.RESOLVED) {
-      this.totalCrisesResolved++;
+      if (!this.hasCountedResolution) {
+        this.totalCrisesResolved++;
+        this.hasCountedResolution = true;
+      }
     }
 
     return status;
@@ -114,14 +119,27 @@ export class CrisisManager {
     return this.totalCrisesResolved;
   }
 
-  public stopCrisis(result: 'resolved' | 'failed' | 'reset' = 'reset'): void {
+  public resolveCrisis(victoryMessage?: string): void {
+    if (this.activeCrisis) {
+      this.activeCrisis.resolveCrisis(victoryMessage);
+      if (!this.hasCountedResolution) {
+        this.totalCrisesResolved++;
+        this.hasCountedResolution = true;
+      }
+    }
+  }
+
+  public stopCrisis(result: 'resolved' | 'failed' | 'reset' = 'reset', message?: string): void {
     if (!this.activeCrisis) return;
 
     if (result === 'resolved') {
-      this.activeCrisis.resolveObjective('all', 999);
-      this.totalCrisesResolved++;
+      this.activeCrisis.resolveCrisis(message);
+      if (!this.hasCountedResolution) {
+        this.totalCrisesResolved++;
+        this.hasCountedResolution = true;
+      }
     } else if (result === 'failed') {
-      this.activeCrisis.reset();
+      this.activeCrisis.failCrisis(message);
     } else {
       this.activeCrisis.reset();
     }
@@ -134,6 +152,7 @@ export class CrisisManager {
       this.activeCrisis = null;
     }
     this.totalCrisesResolved = 0;
+    this.hasCountedResolution = false;
   }
 
   public getSituationLogState(): SituationLogState {
