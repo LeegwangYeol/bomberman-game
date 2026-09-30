@@ -33,6 +33,8 @@ import {
   ITEM_DEFINITIONS,
   type ActiveBuff,
   createInitialPlayerStats,
+  calculateClampedPlayerSpeed,
+  updateInvulnerabilityExpiry,
   ITEM_GRACE_PERIOD_MS,
 } from './gameplay_mechanics';
 
@@ -52,6 +54,8 @@ export {
   applyItemUpgrade,
   applyItemEffect,
   calculateSpeedLevel,
+  calculateClampedPlayerSpeed,
+  updateInvulnerabilityExpiry,
   createInitialPlayerStats,
   isItemProtectedFromExplosion,
   ITEM_DEFINITIONS,
@@ -134,6 +138,17 @@ import {
   HazardType,
   SituationLog,
 } from './crises/index.ts';
+import {
+  DynamicHazard,
+  HazardSubtype,
+  HYPER_FUSE_MS,
+  HazardLifecycleState,
+  TelegraphPhase,
+  PHASE_JITTER_DURATION_MS,
+  TUNNELING_INVULNERABILITY_MS,
+  FLOATING_TEXT_QUANTUM_PHASED,
+  type EnemyCollisionResult,
+} from './hazards/index.ts';
 import { PerkTreeManager, RelicManager, type RelicId } from './progression/index.ts';
 import { decompressGrid } from './persistence/GameStatePersistence.ts';
 import type { SerializedRunState } from './persistence/PersistenceTypes.ts';
@@ -149,6 +164,13 @@ export const DEFAULT_MOBILE_INPUT = Object.freeze({
   dash: false,
   ultimate: false,
 });
+
+export const CARDINAL_DIRECTIONS = Object.freeze([
+  { dr: -1, dc: 0 }, // up
+  { dr: 1, dc: 0 },  // down
+  { dr: 0, dc: -1 }, // left
+  { dr: 0, dc: 1 },  // right
+]);
 
 export interface DeclutterEntity {
   x: number;
@@ -419,14 +441,36 @@ export class FloatingTextManager {
     const head = this.head;
     const size = this.size;
     let nearbyCount = 0;
-    for (let i = 0; i < size; i++) {
-      const idx = (head + i) & mask;
-      const dy = poolY[idx] - y;
-      if (dy > 30 || dy < -30) continue;
-      const dx = poolX[idx] - x;
-      if (dx > 30 || dx < -30) continue;
-      if (dx * dx + dy * dy <= 900) {
-        nearbyCount++;
+    const end = head + size;
+    if (end <= FloatingTextManager.MAX_POOL) {
+      for (let idx = head; idx < end; idx++) {
+        const dy = poolY[idx] - y;
+        if (dy > 30 || dy < -30) continue;
+        const dx = poolX[idx] - x;
+        if (dx > 30 || dx < -30) continue;
+        if (dx * dx + dy * dy <= 900) {
+          nearbyCount++;
+        }
+      }
+    } else {
+      for (let idx = head; idx < FloatingTextManager.MAX_POOL; idx++) {
+        const dy = poolY[idx] - y;
+        if (dy > 30 || dy < -30) continue;
+        const dx = poolX[idx] - x;
+        if (dx > 30 || dx < -30) continue;
+        if (dx * dx + dy * dy <= 900) {
+          nearbyCount++;
+        }
+      }
+      const wrapEnd = end & mask;
+      for (let idx = 0; idx < wrapEnd; idx++) {
+        const dy = poolY[idx] - y;
+        if (dy > 30 || dy < -30) continue;
+        const dx = poolX[idx] - x;
+        if (dx > 30 || dx < -30) continue;
+        if (dx * dx + dy * dy <= 900) {
+          nearbyCount++;
+        }
       }
     }
 
@@ -523,6 +567,9 @@ export default class GameScene extends Phaser.Scene {
   public activeBombType: ItemType | 'REGULAR' = 'REGULAR';
   public isDashing: boolean = false;
   public dashCooldownRemaining: number = 0;
+  public dashStartTime: number = 0;
+  public phaseJitterRemaining: number = 0;
+  public lastQuantumTunnelTimestampMs: number = 0;
   public isInvulnerable: boolean = false;
   public shieldInvulnerableUntil: number = 0;
   public portalCooldown: number = 0;
@@ -584,6 +631,8 @@ export default class GameScene extends Phaser.Scene {
   private readonly scratchPlayerVector = { x: 0, y: 0 };
   private readonly scratchExpVector = { x: 0, y: 0 };
   private readonly scratchActiveEntities: BaseEntity[] = [];
+  private readonly scratchActiveEnemies: BaseEntity[] = [];
+  private readonly scratchActiveItems: Phaser.Physics.Arcade.Sprite[] = [];
 
   private getConveyorAt(row: number, col: number): ConveyorConfig | undefined {
     for (let i = 0; i < this.conveyors.length; i++) {
@@ -633,6 +682,10 @@ export default class GameScene extends Phaser.Scene {
   public crisisManager: CrisisManager = new CrisisManager();
   public situationLog: SituationLog | null = null;
   public crisisGraphics: Phaser.GameObjects.Graphics | null = null;
+
+  // Dynamic Hazard System Integration
+  public dynamicHazard: DynamicHazard = new DynamicHazard();
+  public hazardGraphics: Phaser.GameObjects.Graphics | null = null;
 
   // Juice & Polish Engine
   public dustEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
@@ -762,6 +815,9 @@ export default class GameScene extends Phaser.Scene {
     if (this.situationLog) {
       this.situationLog.updateFromCrisisManager(this.crisisManager, Date.now(), true);
     }
+    if (this.dynamicHazard) {
+      this.dynamicHazard.start(type === CrisisType.DIMENSIONAL_RIFTS ? 'OUTBREAK' : 'WHISPERS');
+    }
   }
 
   public stopCrisisMode(): void {
@@ -773,6 +829,12 @@ export default class GameScene extends Phaser.Scene {
     }
     if (this.crisisGraphics) {
       this.crisisGraphics.clear();
+    }
+    if (this.dynamicHazard) {
+      this.dynamicHazard.stop();
+    }
+    if (this.hazardGraphics) {
+      this.hazardGraphics.clear();
     }
   }
 
@@ -1002,6 +1064,9 @@ export default class GameScene extends Phaser.Scene {
     this.activeBombType = 'REGULAR';
     this.isDashing = false;
     this.dashCooldownRemaining = 0;
+    this.dashStartTime = 0;
+    this.phaseJitterRemaining = 0;
+    this.lastQuantumTunnelTimestampMs = 0;
     this.isInvulnerable = false;
     this.shieldInvulnerableUntil = 0;
     this.portalCooldown = 0;
@@ -1699,6 +1764,11 @@ export default class GameScene extends Phaser.Scene {
     this.crisisGraphics = this.add.graphics();
     this.crisisGraphics.setDepth(RENDER_DEPTH.CRISIS_HAZARDS);
 
+    // Initialize Dynamic Hazard System (Quantum Spire Hazard)
+    this.dynamicHazard.init(this.map);
+    this.hazardGraphics = this.add.graphics();
+    this.hazardGraphics.setDepth(RENDER_DEPTH.CRISIS_HAZARDS);
+
 
     // Wire Game Mode Changes & Meta-Progression Events (UI-06, MEM-01)
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
@@ -1745,6 +1815,11 @@ export default class GameScene extends Phaser.Scene {
 
   update(_time: number, delta: number) {
     this.destroyedBlocksThisTick.clear();
+
+    // 0c. Dynamic Hazard FSM update
+    if (this.dynamicHazard && this.dynamicHazard.getState() !== HazardLifecycleState.INACTIVE) {
+      this.dynamicHazard.update(delta);
+    }
 
     // Fail-safe reset for extra-life/shield invulnerability
     if (
@@ -1827,7 +1902,11 @@ export default class GameScene extends Phaser.Scene {
       this.portalCooldown = Math.max(0, this.portalCooldown - delta);
     }
 
-    // 1b. Active buffs countdown
+    // 1b. Active buffs countdown & Phase Jitter decrement
+    if (this.phaseJitterRemaining > 0) {
+      this.phaseJitterRemaining = Math.max(0, this.phaseJitterRemaining - delta);
+    }
+
     if (this.activeBuffs && this.activeBuffs.length > 0) {
       let buffChanged = false;
       this.activeBuffs.forEach((b) => {
@@ -1862,12 +1941,18 @@ export default class GameScene extends Phaser.Scene {
       });
     }
 
-    // 2. Dash skill trigger check
+    // 2. Dash skill trigger check (disabled during Phase Jitter)
     const mInput = window.mobileInput || DEFAULT_MOBILE_INPUT;
     const dashPressed = Boolean(this.shiftKey?.isDown || this.eKey?.isDown || mInput.dash);
     if (mInput.dash) mInput.dash = false; // consume mobile dash
 
-    if (dashPressed && !this.isDashing && this.dashCooldownRemaining <= 0 && !this.isGameOver) {
+    if (
+      dashPressed &&
+      !this.isDashing &&
+      this.dashCooldownRemaining <= 0 &&
+      this.phaseJitterRemaining <= 0 &&
+      !this.isGameOver
+    ) {
       this.performDash();
     }
 
@@ -1878,7 +1963,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.num4Key && Phaser.Input.Keyboard.JustDown(this.num4Key)) { this.activeUltimate = 'NUCLEAR_BARRAGE'; this.emitStatsUpdate(); }
     if (this.num5Key && Phaser.Input.Keyboard.JustDown(this.num5Key)) { this.activeUltimate = 'AEGIS_OVERDRIVE'; this.emitStatsUpdate(); }
 
-    // 2c. Ultimate Skill trigger (Hotkeys 'R', 'Q', or mobileInput.ultimate)
+    // 2c. Ultimate Skill trigger (Hotkeys 'R', 'Q', or mobileInput.ultimate - disabled during Phase Jitter)
     const ultPressed = Boolean(
       (this.rKey && Phaser.Input.Keyboard.JustDown(this.rKey)) ||
       (this.qKey && Phaser.Input.Keyboard.JustDown(this.qKey)) ||
@@ -1886,12 +1971,12 @@ export default class GameScene extends Phaser.Scene {
     );
     if (mInput.ultimate) mInput.ultimate = false; // consume mobile ultimate
 
-    if (ultPressed && !this.isGameOver) {
+    if (ultPressed && this.phaseJitterRemaining <= 0 && !this.isGameOver) {
       this.triggerUltimate(this.activeUltimate);
     }
 
     // 3. Movement & Juice
-    this.updatePlayerMovement();
+    this.updatePlayerMovement(delta);
     this.updatePlayerJuice(delta, _time);
 
     // 4. Bomb placement
@@ -1924,8 +2009,7 @@ export default class GameScene extends Phaser.Scene {
         this.map[Math.floor((leadY - perpY) / TILE_SIZE)]?.[Math.floor((leadX - perpX) / TILE_SIZE)] === TILE_EMPTY;
 
       if (canMove) {
-        this.player.x = nextX;
-        this.player.y = nextY;
+        this.player.setPosition(nextX, nextY);
       }
     }
 
@@ -2139,10 +2223,25 @@ export default class GameScene extends Phaser.Scene {
       }
 
       if (this.allies) {
-        const activeEnemies = this.enemies
-          .getChildren()
-          .filter((c) => c.active && c instanceof BaseEntity) as BaseEntity[];
-        const activeItems = this.items.getChildren().filter((c) => c.active);
+        this.scratchActiveEnemies.length = 0;
+        const enemyChildren = this.enemies.getChildren();
+        for (let ei = 0; ei < enemyChildren.length; ei++) {
+          const c = enemyChildren[ei];
+          if (c && c.active && c instanceof BaseEntity) {
+            this.scratchActiveEnemies.push(c);
+          }
+        }
+
+        this.scratchActiveItems.length = 0;
+        const itemChildren = this.items.getChildren();
+        for (let ii = 0; ii < itemChildren.length; ii++) {
+          const c = itemChildren[ii] as Phaser.Physics.Arcade.Sprite;
+          if (c && c.active) {
+            this.scratchActiveItems.push(c);
+          }
+        }
+        const activeEnemies = this.scratchActiveEnemies;
+        const activeItems = this.scratchActiveItems;
 
         this.allies.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
           if (child && child.active) {
@@ -2196,6 +2295,33 @@ export default class GameScene extends Phaser.Scene {
       this.overheadUIManager.update(this.scratchActiveEntities, this.player, delta);
     }
 
+    // 10c. Dynamic Hazard Environmental Vaporization for Enemies
+    if (this.dynamicHazard && this.dynamicHazard.getState() === HazardLifecycleState.ACTIVE) {
+      if (this.enemies) {
+        this.enemies.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
+          const enemy = child as BaseEntity;
+          if (enemy && enemy.active && !enemy.isDead) {
+            const enemyTileR = Math.floor(enemy.y / TILE_SIZE);
+            const enemyTileC = Math.floor(enemy.x / TILE_SIZE);
+            const col = this.dynamicHazard.checkEnemyCollision(enemyTileR, enemyTileC, false);
+            if (col.hit && col.isVaporized) {
+              this.score += col.scoreBonus;
+              this.addUltimateCharge(col.ultimateChargeBonus || 5);
+              this.emitStatsUpdate();
+              this.spawnFloatingText(enemy.x, enemy.y - 10, col.floatingText || '⚡ VAPORIZED!', '#38BDF8');
+              this.spawnPickupParticles(enemy.x, enemy.y, '#38BDF8');
+              if (typeof enemy.takeDamage === 'function') {
+                enemy.takeDamage(col.damage, 'hazard', this.time.now);
+              }
+              if (enemy.active && !enemy.isDead) {
+                enemy.die(this.time.now);
+              }
+            }
+          }
+        });
+      }
+    }
+
     // 10.5 Update Relic Manager (ARCH-RELIC-01)
     if (this.relicManager) {
       const pCol = Math.floor(this.player.x / TILE_SIZE);
@@ -2244,6 +2370,55 @@ export default class GameScene extends Phaser.Scene {
           }
         }
       });
+
+      // Boss Dynamic Hazard Beam Collision (Environmental Overcharge)
+      if (this.dynamicHazard && this.dynamicHazard.getState() === HazardLifecycleState.ACTIVE) {
+        const bossRadius = this.activeBoss.config.colliderRadius || 35;
+        const minR = Math.max(0, Math.floor((this.activeBoss.y - bossRadius) / TILE_SIZE));
+        const maxR = Math.min(ROWS - 1, Math.floor((this.activeBoss.y + bossRadius) / TILE_SIZE));
+        const minC = Math.max(0, Math.floor((this.activeBoss.x - bossRadius) / TILE_SIZE));
+        const maxC = Math.min(COLS - 1, Math.floor((this.activeBoss.x + bossRadius) / TILE_SIZE));
+
+        let bossHit = false;
+        let colResult: EnemyCollisionResult | null = null;
+
+        const centerR = Math.floor(this.activeBoss.y / TILE_SIZE);
+        const centerC = Math.floor(this.activeBoss.x / TILE_SIZE);
+        const centerRes = this.dynamicHazard.checkEnemyCollision(centerR, centerC, true);
+        if (centerRes.hit) {
+          bossHit = true;
+          colResult = centerRes;
+        } else {
+          for (let r = minR; r <= maxR && !bossHit; r++) {
+            for (let c = minC; c <= maxC && !bossHit; c++) {
+              const res = this.dynamicHazard.checkEnemyCollision(r, c, true);
+              if (res.hit) {
+                bossHit = true;
+                colResult = res;
+              }
+            }
+          }
+        }
+
+        if (bossHit && colResult && colResult.isStunned) {
+          if (this.activeBoss.bossState !== BossState.STUNNED) {
+            const dmg = (this.activeBoss.maxHp * colResult.damage) / 100;
+            this.activeBoss.currentHp = Math.max(0, this.activeBoss.currentHp - dmg);
+            this.activeBoss.applyStun(colResult.stunDurationMs / 1000);
+            if (this.bossHUD) {
+              this.bossHUD.triggerStun(colResult.stunDurationMs / 1000, '⚡ Overcharge Beam Stun!');
+            }
+            this.spawnFloatingText(this.activeBoss.x, this.activeBoss.y - 20, colResult.floatingText || '⚡ STUNNED (1.5s)!', '#FBBF24');
+            if (this.cameraTrauma) {
+              this.cameraTrauma.addTrauma(0.35);
+            }
+            if (this.activeBoss.currentHp <= 0) {
+              this.score += 5000;
+              this.dismissBoss();
+            }
+          }
+        }
+      }
 
       if (this.telegraphEngine) {
         this.telegraphEngine.update(delta);
@@ -2317,6 +2492,65 @@ export default class GameScene extends Phaser.Scene {
         // Render Crisis Hazard Graphics
         this.renderCrisisHazards(_time);
       }
+    }
+
+    // 13. Update Dynamic Hazard System (Quantum Spire Hazard)
+    if (this.dynamicHazard && this.dynamicHazard.getState() !== HazardLifecycleState.INACTIVE) {
+      this.dynamicHazard.update(delta);
+
+      // Player Collision Check against active beam
+      if (this.dynamicHazard.getState() === HazardLifecycleState.ACTIVE && !this.isGameOver) {
+        const playerRow = Math.floor(this.player.y / TILE_SIZE);
+        const playerCol = Math.floor(this.player.x / TILE_SIZE);
+        const dashElapsed = this.isDashing ? (_time - this.dashStartTime) : 0;
+        const playerHit = this.dynamicHazard.checkPlayerCollision(playerRow, playerCol, this.isDashing, dashElapsed);
+
+        if (playerHit.tunneled && playerHit.phaseShiftGranted) {
+          const now = this.time?.now ?? Date.now();
+          if (now - this.lastQuantumTunnelTimestampMs >= 800) {
+            this.lastQuantumTunnelTimestampMs = now;
+            this.grantQuantumPhaseShift();
+          }
+        } else if (playerHit.hit && playerHit.damage > 0 && !this.isInvulnerable) {
+          this.spawnFloatingText(this.player.x, this.player.y - 14, `-${playerHit.damage} TACHYON SHEAR`, '#ef4444');
+          if (this.cameraTrauma) {
+            this.cameraTrauma.addTrauma(0.35);
+          }
+          if (playerHit.phaseJitterInflicted) {
+            this.applyPhaseJitter(playerHit.jitterDurationMs);
+          }
+          this.playerDie();
+        }
+
+        // Enemy Collision Check against active beam
+        const enemiesList = this.enemies.getChildren();
+        for (let i = 0; i < enemiesList.length; i++) {
+          const enemy = enemiesList[i] as BaseEntity;
+          if (enemy && enemy.active && !enemy.isDead) {
+            const er = Math.floor(enemy.y / TILE_SIZE);
+            const ec = Math.floor(enemy.x / TILE_SIZE);
+            const isBoss = enemy === (this.activeBoss as unknown as BaseEntity);
+            const enemyHit = this.dynamicHazard.checkEnemyCollision(er, ec, isBoss);
+            if (enemyHit.hit) {
+              if (enemyHit.isVaporized) {
+                if (typeof enemy.takeDamage === 'function') {
+                  enemy.takeDamage(enemyHit.damage, 'hazard', this.time.now);
+                }
+                this.score += enemyHit.scoreBonus;
+                this.addUltimateCharge(5);
+              } else if (enemyHit.isStunned && isBoss && this.activeBoss) {
+                this.activeBoss.takeBombDamage(enemyHit.damage);
+                if (this.bossHUD) {
+                  this.bossHUD.triggerStun(enemyHit.stunDurationMs / 1000, 'Tachyon Stasis!');
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Render Dynamic Hazard Visuals (Spires & Beams)
+      this.renderDynamicHazardGraphics(_time);
     }
   }
 
@@ -2411,6 +2645,22 @@ export default class GameScene extends Phaser.Scene {
           this.crisisGraphics.lineBetween(x, y - 18, x, y + 18);
           break;
         }
+        case HazardType.QUANTUM_SPIRE: {
+          const pulse = 0.8 + 0.2 * Math.sin(time / 140 + hazard.idx);
+          this.crisisGraphics.fillStyle(0x00e5ff, 0.3 * pulse);
+          this.crisisGraphics.fillCircle(x, y, 18 * pulse);
+          this.crisisGraphics.fillStyle(0x00ffff, 0.9);
+          this.crisisGraphics.beginPath();
+          this.crisisGraphics.moveTo(x, y - 12);
+          this.crisisGraphics.lineTo(x + 10, y);
+          this.crisisGraphics.lineTo(x, y + 12);
+          this.crisisGraphics.lineTo(x - 10, y);
+          this.crisisGraphics.closePath();
+          this.crisisGraphics.fillPath();
+          this.crisisGraphics.lineStyle(1.5, 0xffffff, 0.9);
+          this.crisisGraphics.strokePath();
+          break;
+        }
         default: {
           this.crisisGraphics.fillStyle(0x8b5cf6, 0.4);
           this.crisisGraphics.fillRect(left + 4, top + 4, TILE_SIZE - 8, TILE_SIZE - 8);
@@ -2440,11 +2690,169 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  grantQuantumPhaseShift(): void {
+    if (this.isGameOver || !this.player || !this.player.active) return;
+    const now = this.time?.now ?? Date.now();
+    this.isInvulnerable = true;
+    this.shieldInvulnerableUntil = Math.max(this.shieldInvulnerableUntil, now + TUNNELING_INVULNERABILITY_MS);
+    this.player.setAlpha(0.65);
+    this.player.setTint(0x00ffff);
+
+    const originalSpeed = this.playerSpeed;
+    this.playerSpeed = this.playerSpeed * 1.30;
+
+    this.spawnFloatingText(this.player.x, this.player.y - 25, FLOATING_TEXT_QUANTUM_PHASED, '#00ffff');
+    if (this.cameras?.main) {
+      this.cameras.main.flash(120, 0, 229, 255);
+    }
+
+    this.time.delayedCall(TUNNELING_INVULNERABILITY_MS, () => {
+      if (this.player && this.player.active) {
+        this.player.setAlpha(1.0);
+        this.player.clearTint();
+        if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
+          this.isInvulnerable = false;
+        }
+      }
+    });
+
+    this.time.delayedCall(2500, () => {
+      this.playerSpeed = originalSpeed;
+    });
+  }
+
+  applyPhaseJitter(durationMs: number = PHASE_JITTER_DURATION_MS): void {
+    if (this.isGameOver) return;
+    this.phaseJitterRemaining = Math.max(this.phaseJitterRemaining, durationMs);
+
+    const existing = this.activeBuffs.find((b) => b.id === 'PHASE_JITTER');
+    if (existing) {
+      existing.remainingMs = durationMs;
+      existing.totalMs = durationMs;
+    } else {
+      this.activeBuffs.push({
+        id: 'PHASE_JITTER',
+        name: 'Phase Jitter',
+        icon: '⚡',
+        color: '#a855f7',
+        remainingMs: durationMs,
+        totalMs: durationMs,
+      });
+    }
+
+    if (this.player && this.player.active) {
+      this.player.setTint(0xa855f7);
+      this.spawnFloatingText(this.player.x, this.player.y - 25, '⚡ PHASE JITTER (-25%)', '#a855f7');
+    }
+
+    this.time.delayedCall(durationMs, () => {
+      if (this.player && this.player.active && !this.isInvulnerable) {
+        this.player.clearTint();
+      }
+    });
+    this.emitStatsUpdate();
+  }
+
+  private renderDynamicHazardGraphics(time: number): void {
+    if (!this.hazardGraphics || !this.dynamicHazard) return;
+    this.hazardGraphics.clear();
+
+    const state = this.dynamicHazard.getState();
+    if (state === HazardLifecycleState.INACTIVE) return;
+
+    // 1. Render Active & Telegraph Beams
+    const beamIndices = this.dynamicHazard.getActiveBeamIndices();
+    const beamCount = this.dynamicHazard.getActiveBeamCount();
+    const dangerMask = this.dynamicHazard.getDangerMask();
+
+    for (let i = 0; i < beamCount; i++) {
+      const idx = beamIndices[i];
+      const r = Math.floor(idx / COLS);
+      const c = idx % COLS;
+      const left = c * TILE_SIZE;
+      const top = r * TILE_SIZE;
+      const code = dangerMask[idx];
+
+      if (code === 1) {
+        // Telegraph phase
+        const phase = this.dynamicHazard.getTelegraphPhase();
+        if (phase === TelegraphPhase.YELLOW) {
+          this.hazardGraphics.lineStyle(2, 0x00e5ff, 0.45);
+          this.hazardGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          this.hazardGraphics.fillStyle(0x00e5ff, 0.15);
+          this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        } else if (phase === TelegraphPhase.AMBER) {
+          this.hazardGraphics.lineStyle(2, 0xa855f7, 0.7);
+          this.hazardGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          this.hazardGraphics.fillStyle(0xa855f7, 0.35);
+          this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        } else if (phase === TelegraphPhase.RED) {
+          const pulse = 0.7 + 0.3 * Math.sin(time / 40);
+          this.hazardGraphics.lineStyle(2.5, 0xef4444, 0.9 * pulse);
+          this.hazardGraphics.strokeRect(left + 1, top + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+          this.hazardGraphics.fillStyle(0xd946ef, 0.55 * pulse);
+          this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        }
+      } else if (code === 2) {
+        // Lethal Active Tachyon Beam (White Flash & Cyan Core)
+        this.hazardGraphics.fillStyle(0xffffff, 0.95);
+        this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        this.hazardGraphics.lineStyle(3, 0x00ffff, 0.9);
+        this.hazardGraphics.strokeRect(left + 1, top + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+      } else if (code === 3) {
+        // Polarized Safe Beam (Radiant Solar Gold Channel)
+        const goldPulse = 0.8 + 0.2 * Math.sin(time / 120);
+        this.hazardGraphics.fillStyle(0xfacc15, 0.45 * goldPulse);
+        this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        this.hazardGraphics.lineStyle(2, 0xffe066, 0.85);
+        this.hazardGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+      }
+    }
+
+    // 2. Render Spire Crystals
+    const spires = this.dynamicHazard.getSpires();
+    for (let i = 0; i < spires.length; i++) {
+      const spire = spires[i];
+      const sx = spire.c * TILE_SIZE + TILE_SIZE / 2;
+      const sy = spire.r * TILE_SIZE + TILE_SIZE / 2;
+
+      if (spire.isPolarized) {
+        // Golden Polarized Spire
+        const aura = 18 + 4 * Math.sin(time / 100 + i);
+        this.hazardGraphics.fillStyle(0xfacc15, 0.35);
+        this.hazardGraphics.fillCircle(sx, sy, aura);
+
+        this.hazardGraphics.fillStyle(0xfde047, 0.95);
+        this.hazardGraphics.fillCircle(sx, sy, 10);
+        this.hazardGraphics.lineStyle(2, 0xffffff, 1.0);
+        this.hazardGraphics.strokeCircle(sx, sy, 10);
+      } else {
+        // Electric Cyan or Magenta Crystal
+        const color = spire.subtype === HazardSubtype.NEXUS ? 0xd946ef : 0x00e5ff;
+        const pulse = 0.8 + 0.2 * Math.sin(time / 180 + i);
+        this.hazardGraphics.fillStyle(color, 0.25 * pulse);
+        this.hazardGraphics.fillCircle(sx, sy, 16 * pulse);
+
+        this.hazardGraphics.fillStyle(color, 0.9);
+        this.hazardGraphics.beginPath();
+        this.hazardGraphics.moveTo(sx, sy - 12);
+        this.hazardGraphics.lineTo(sx + 10, sy);
+        this.hazardGraphics.lineTo(sx, sy + 12);
+        this.hazardGraphics.lineTo(sx - 10, sy);
+        this.hazardGraphics.closePath();
+        this.hazardGraphics.fillPath();
+
+        this.hazardGraphics.lineStyle(1.5, 0xffffff, 0.9);
+        this.hazardGraphics.strokePath();
+      }
+    }
+  }
+
 
   /**
    * Smooth Corridor Centering and Corner-Sliding Movement Controller
    */
-  private updatePlayerMovement() {
+  private updatePlayerMovement(delta: number = 16.666) {
     if (!this.player || !this.player.body) return;
 
     const mInput = window.mobileInput || DEFAULT_MOBILE_INPUT;
@@ -2477,9 +2885,17 @@ export default class GameScene extends Phaser.Scene {
 
     const surgeBonus = this.activeBuffs?.some((b) => b.id === 'SPEED_SURGE') ? 75 : 0;
     const perkSpeedBonus = this.baseSpeedBonus || 0;
-    const speed = (this.isDashing ? DASH_SPEED : this.playerSpeed + perkSpeedBonus) + surgeBonus;
+    const isPhaseJittered = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'PHASE_JITTER')) || this.phaseJitterRemaining > 0;
+    const speed = calculateClampedPlayerSpeed({
+      baseSpeed: this.playerSpeed,
+      perkSpeedBonus,
+      surgeBonus,
+      isDashing: this.isDashing,
+      dashSpeed: DASH_SPEED,
+      phaseJitterActive: isPhaseJittered,
+    });
     const slideSpeed = speed;
-    const snapThreshold = 2;
+    const snapThreshold = Math.max(2, speed * (delta / 1000));
     const tol = this.cornerSlideTolerance || 8;
 
     const px = this.player.x;
@@ -2704,49 +3120,84 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    const bombId = `bomb_${Date.now()}_${Math.random()}`;
+    bomb.setData('id', bombId);
+    bomb.setData('owner', 'player');
+    bomb.setData('power', this.bombPower);
+
+    let fuseDuration = 2000;
+    if (this.dynamicHazard) {
+      const hazardInteraction = this.dynamicHazard.onBombPlaced(bombId, row, col, this.bombPower, 2000);
+      fuseDuration = hazardInteraction.modifiedFuseMs;
+
+      // Subspace Hyper-Fuse: fuse compressed to 1500ms when placed on Spire anchor
+      if (fuseDuration === HYPER_FUSE_MS) {
+        bomb.setTint(0x38bdf8);
+        this.spawnFloatingText(centerX, centerY - 25, '⚡ HYPER-FUSE (1.5s)', '#38bdf8');
+      }
+
+      // Quantum Entanglement: Ghost bomb spawned at paired spire
+      if (
+        hazardInteraction.isEntangled &&
+        hazardInteraction.ghostBombId !== undefined &&
+        hazardInteraction.pairedR !== undefined &&
+        hazardInteraction.pairedC !== undefined
+      ) {
+        this.spawnGhostBomb(
+          hazardInteraction.ghostBombId,
+          bombId,
+          hazardInteraction.pairedR,
+          hazardInteraction.pairedC,
+          this.bombPower,
+          fuseDuration
+        );
+      }
+    }
+
+    const scale = fuseDuration / 2000;
     // Multi-stage 4-phase asymmetric accelerating pulse tween chain with 100ms pre-detonation whiteout contraction
     const tweenChain = this.tweens.chain({
       targets: bomb,
       tweens: [
-        // Phase 1: Asymmetric Rhythmic Heartbeat (0ms - 1000ms: 2 cycles @ 250ms half-period)
+        // Phase 1: Asymmetric Rhythmic Heartbeat (scaled)
         {
           scaleX: 1.14,
           scaleY: 1.04,
-          duration: 250,
+          duration: 250 * scale,
           yoyo: true,
           repeat: 1,
           ease: 'Sine.easeInOut',
         },
-        // Phase 2: Boiling Pressure Amber Swell (1000ms - 1600ms: 2 cycles @ 150ms half-period)
+        // Phase 2: Boiling Pressure Amber Swell (scaled)
         {
           scaleX: 1.22,
           scaleY: 0.92,
-          duration: 150,
+          duration: 150 * scale,
           yoyo: true,
           repeat: 1,
           ease: 'Quad.easeInOut',
           onStart: () => {
-            if (bomb.active) bomb.setTint(0xff8844);
+            if (bomb.active) bomb.setTint(fuseDuration === HYPER_FUSE_MS ? 0x0284c7 : 0xff8844);
           },
         },
-        // Phase 3: Critical Detonation Hyper-Pulse & Micro-Jitter (1600ms - 1900ms: 3 cycles @ 50ms half-period)
+        // Phase 3: Critical Detonation Hyper-Pulse & Micro-Jitter (scaled)
         {
           scaleX: 1.32,
           scaleY: 1.12,
           angle: 3.5,
-          duration: 50,
+          duration: 50 * scale,
           yoyo: true,
           repeat: 2,
           ease: 'Back.easeOut',
           onStart: () => {
-            if (bomb.active) bomb.setTint(0xff2222);
+            if (bomb.active) bomb.setTint(fuseDuration === HYPER_FUSE_MS ? 0x0ea5e9 : 0xff2222);
           },
         },
-        // Phase 4: Detonation Anticipation Gasp & Whiteout Contraction (1900ms - 2000ms: 100ms pre-blast)
+        // Phase 4: Detonation Anticipation Gasp & Whiteout Contraction (scaled)
         {
           scaleX: 0.80,
           scaleY: 0.80,
-          duration: 100,
+          duration: 100 * scale,
           ease: 'Quad.easeIn',
           onStart: () => {
             if (bomb.active) {
@@ -2758,12 +3209,7 @@ export default class GameScene extends Phaser.Scene {
       ],
     });
 
-    const bombId = `bomb_${Date.now()}_${Math.random()}`;
-    bomb.setData('id', bombId);
-    bomb.setData('owner', 'player');
-    bomb.setData('power', this.bombPower);
-
-    const fuseTimer = this.time.delayedCall(2000, () => {
+    const fuseTimer = this.time.delayedCall(fuseDuration, () => {
       if (bomb && bomb.active) {
         const curCol = Math.floor(bomb.x / TILE_SIZE);
         const curRow = Math.floor(bomb.y / TILE_SIZE);
@@ -2775,6 +3221,109 @@ export default class GameScene extends Phaser.Scene {
 
     this.activeBombs++;
     this.emitStatsUpdate();
+  }
+
+  /**
+   * Spawns an Entangled Ghost Bomb at the paired Spire crystal
+   * Cloned properties, holographic visuals, and synchronized detonation
+   */
+  spawnGhostBomb(
+    ghostId: number | string,
+    parentBombId: string,
+    row: number,
+    col: number,
+    power: number,
+    fuseMs: number
+  ): void {
+    const centerX = col * TILE_SIZE + TILE_SIZE / 2;
+    const centerY = row * TILE_SIZE + TILE_SIZE / 2;
+
+    let hasBomb = false;
+    this.bombs.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
+      const b = child as Phaser.Physics.Arcade.Sprite;
+      if (b.active && b.x === centerX && b.y === centerY) {
+        hasBomb = true;
+      }
+    });
+    if (hasBomb) return;
+
+    const ghostBomb = this.bombs.create(centerX, centerY, 'bomb') as Phaser.Physics.Arcade.Sprite;
+    ghostBomb.setDepth(RENDER_DEPTH.BOMBS);
+    (ghostBomb.body as Phaser.Physics.Arcade.Body)?.setSize(32, 32).setOffset(4, 4);
+    (ghostBomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(true);
+    applyPhysicsBodyInvariantGuard(ghostBomb, 32, 32, 4, 4);
+
+    ghostBomb.setData('id', ghostId);
+    ghostBomb.setData('parentBombId', parentBombId);
+    ghostBomb.setData('owner', 'player');
+    ghostBomb.setData('power', power);
+    ghostBomb.setData('isGhostBomb', true);
+
+    // Translucent cyan holographic appearance (GDD spec)
+    ghostBomb.setTint(0x00ffff);
+    ghostBomb.setAlpha(0.8);
+
+    const scale = fuseMs / 2000;
+    const tweenChain = this.tweens.chain({
+      targets: ghostBomb,
+      tweens: [
+        {
+          scaleX: 1.14,
+          scaleY: 1.04,
+          duration: 250 * scale,
+          yoyo: true,
+          repeat: 1,
+          ease: 'Sine.easeInOut',
+        },
+        {
+          scaleX: 1.22,
+          scaleY: 0.92,
+          duration: 150 * scale,
+          yoyo: true,
+          repeat: 1,
+          ease: 'Quad.easeInOut',
+          onStart: () => {
+            if (ghostBomb.active) ghostBomb.setTint(0x38bdf8);
+          },
+        },
+        {
+          scaleX: 1.32,
+          scaleY: 1.12,
+          angle: 3.5,
+          duration: 50 * scale,
+          yoyo: true,
+          repeat: 2,
+          ease: 'Back.easeOut',
+          onStart: () => {
+            if (ghostBomb.active) ghostBomb.setTint(0x67e8f9);
+          },
+        },
+        {
+          scaleX: 0.80,
+          scaleY: 0.80,
+          duration: 100 * scale,
+          ease: 'Quad.easeIn',
+          onStart: () => {
+            if (ghostBomb.active) {
+              ghostBomb.setTint(0xffffff);
+              ghostBomb.setAngle(0);
+            }
+          },
+        },
+      ],
+    });
+
+    const fuseTimer = this.time.delayedCall(fuseMs, () => {
+      if (ghostBomb && ghostBomb.active) {
+        const curCol = Math.floor(ghostBomb.x / TILE_SIZE);
+        const curRow = Math.floor(ghostBomb.y / TILE_SIZE);
+        this.explodeBomb(ghostBomb, curRow, curCol);
+      }
+    });
+    ghostBomb.setData('fuseTimer', fuseTimer);
+    ghostBomb.setData('tweenChain', tweenChain);
+
+    this.spawnFloatingText(centerX, centerY - 25, '✦ QUANTUM ENTANGLED', '#00ffff');
   }
 
   placeEnemyBomb(enemy: Phaser.GameObjects.GameObject, row: number, col: number, power: number, fuseMs: number = 2000): boolean {
@@ -3002,8 +3551,10 @@ export default class GameScene extends Phaser.Scene {
 
     bomb.destroy();
 
-    // Isolated capacity management
-    if (owner === 'player') {
+    const isGhostBomb = Boolean(bomb.getData('isGhostBomb'));
+
+    // Isolated capacity management (ghost bombs do not consume regular bomb slots)
+    if (owner === 'player' && !isGhostBomb) {
       this.activeBombs = Math.max(0, this.activeBombs - 1);
       this.emitStatsUpdate();
     } else if (owner === 'enemy') {
@@ -3023,9 +3574,75 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    // Dynamic Hazard Tactical Bomb Interactions:
+    // 1. Tachyon Overcharge (+2 blast power inside active beam)
+    // 2. Synchronized Entanglement Detonation
+    let effectivePower = bombPower;
+    let isPiercing = false;
+
+    if (this.dynamicHazard) {
+      const detResult = this.dynamicHazard.onBombDetonated(bombId, actualRow, actualCol, bombPower);
+      if (detResult.overcharged) {
+        effectivePower = detResult.modifiedPower;
+        isPiercing = detResult.piercing;
+        const cX = actualCol * TILE_SIZE + TILE_SIZE / 2;
+        const cY = actualRow * TILE_SIZE + TILE_SIZE / 2;
+        this.spawnFloatingText(cX, cY - 25, '⚡ TACHYON OVERCHARGE (+2)', '#38bdf8');
+      }
+
+      // Synchronized Entanglement Detonation: Trigger paired ghost bomb / parent bomb immediately
+      if (detResult.pairedGhostBombIds && detResult.pairedGhostBombIds.length > 0) {
+        const pairedBombsToDetonate: { b: Phaser.Physics.Arcade.Sprite; r: number; c: number }[] = [];
+        const allBombs = this.bombs.getChildren();
+        for (let i = 0; i < allBombs.length; i++) {
+          const b = allBombs[i] as Phaser.Physics.Arcade.Sprite;
+          if (b && b.active && b !== bomb) {
+            const bId = b.getData('id');
+            const parentId = b.getData('parentBombId');
+            if (detResult.pairedGhostBombIds.includes(bId) || (parentId && detResult.pairedGhostBombIds.includes(parentId))) {
+              const bCol = Math.floor(b.x / TILE_SIZE);
+              const bRow = Math.floor(b.y / TILE_SIZE);
+              pairedBombsToDetonate.push({ b, r: bRow, c: bCol });
+            }
+          }
+        }
+        for (let i = 0; i < pairedBombsToDetonate.length; i++) {
+          const target = pairedBombsToDetonate[i];
+          if (target.b.active) {
+            this.explodeBomb(target.b, target.r, target.c);
+          }
+        }
+      }
+    }
+
+    // 3. Polarization Strike helper (blast cleanses spire into golden channel for 8.0s)
+    const checkPolarizationStrike = (r: number, c: number) => {
+      if (this.dynamicHazard) {
+        const impact = this.dynamicHazard.onBombBlastImpact(r, c);
+        if (impact.polarized) {
+          const px = c * TILE_SIZE + TILE_SIZE / 2;
+          const py = r * TILE_SIZE + TILE_SIZE / 2;
+          this.spawnFloatingText(px, py - 20, '★ POLARIZATION STRIKE (8.0s)', '#facc15');
+          this.score += 350;
+          this.emitStatsUpdate();
+
+          // Purge 3x3 surrounding tiles if crisis manager is active
+          if (this.crisisManager && this.crisisManager.getActiveCrisis()) {
+            for (let dr = -1; dr <= 1; dr++) {
+              for (let dc = -1; dc <= 1; dc++) {
+                this.crisisManager.handleBombBlast(r + dr, c + dc, 1);
+              }
+            }
+          }
+        }
+      }
+    };
+
+    checkPolarizationStrike(actualRow, actualCol);
+
     // Crisis blast interaction (clearing void creep, charging prisms)
     if (this.crisisManager && this.crisisManager.getActiveCrisis()) {
-      this.crisisManager.handleBombBlast(actualRow, actualCol, bombPower);
+      this.crisisManager.handleBombBlast(actualRow, actualCol, effectivePower);
     }
 
     // Relic proc on bomb exploded: Pyroclastic Prism (ARCH-RELIC-01)
@@ -3038,7 +3655,8 @@ export default class GameScene extends Phaser.Scene {
             const sc = actualCol + shard.dc * step;
             if (sr >= 0 && sr < ROWS && sc >= 0 && sc < COLS) {
               if (this.map[sr][sc] === TILE_WALL) break;
-              this.spawnExplosion(sr, sc, false, owner, bombId);
+              checkPolarizationStrike(sr, sc);
+              this.spawnExplosion(sr, sc, false, owner, bombId, isPiercing);
               if (this.map[sr][sc] === TILE_BLOCK) {
                 this.destroyBlock(sr, sc);
                 break;
@@ -3080,29 +3698,33 @@ export default class GameScene extends Phaser.Scene {
     });
 
     // Spawn Epicenter Explosion (isCenter = true, passing bombId for PHYS-06)
-    this.spawnExplosion(actualRow, actualCol, true, owner, bombId);
+    this.spawnExplosion(actualRow, actualCol, true, owner, bombId, isPiercing);
 
     // Epicenter chain reaction: detonate any other active bombs stacked on the same tile
-    this.bombs.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
-      const otherBomb = child as Phaser.Physics.Arcade.Sprite;
-      if (otherBomb.active && otherBomb !== bomb) {
+    const sameTileBombs: Phaser.Physics.Arcade.Sprite[] = [];
+    const bombChildren = this.bombs.getChildren();
+    for (let cIdx = 0; cIdx < bombChildren.length; cIdx++) {
+      const otherBomb = bombChildren[cIdx] as Phaser.Physics.Arcade.Sprite;
+      if (otherBomb && otherBomb.active && otherBomb !== bomb) {
         const bCol = Math.floor(otherBomb.x / TILE_SIZE);
         const bRow = Math.floor(otherBomb.y / TILE_SIZE);
         if (bRow === actualRow && bCol === actualCol) {
-          this.explodeBomb(otherBomb, bRow, bCol);
+          sameTileBombs.push(otherBomb);
         }
       }
-    });
+    }
+    for (let i = 0; i < sameTileBombs.length; i++) {
+      const otherBomb = sameTileBombs[i];
+      if (otherBomb.active) {
+        const bCol = Math.floor(otherBomb.x / TILE_SIZE);
+        const bRow = Math.floor(otherBomb.y / TILE_SIZE);
+        this.explodeBomb(otherBomb, bRow, bCol);
+      }
+    }
 
-    const directions = [
-      { dr: -1, dc: 0 }, // up
-      { dr: 1, dc: 0 },  // down
-      { dr: 0, dc: -1 }, // left
-      { dr: 0, dc: 1 },  // right
-    ];
-
-    for (const dir of directions) {
-      for (let i = 1; i <= bombPower; i++) {
+    for (const dir of CARDINAL_DIRECTIONS) {
+      let blocksPierced = 0;
+      for (let i = 1; i <= effectivePower; i++) {
         const nr = actualRow + dir.dr * i;
         const nc = actualCol + dir.dc * i;
 
@@ -3111,6 +3733,8 @@ export default class GameScene extends Phaser.Scene {
         if (this.map[nr][nc] === TILE_WALL) {
           break; // Stop at unbreakable wall
         }
+
+        checkPolarizationStrike(nr, nc);
 
         // PHYS-05: Prevent simultaneous blast ray piercing through destroyed blocks
         const key = `${nr},${nc}`;
@@ -3121,24 +3745,37 @@ export default class GameScene extends Phaser.Scene {
           if (this.map[nr][nc] === TILE_BLOCK) {
             this.destroyBlock(nr, nc);
           }
-          this.spawnExplosion(nr, nc, false, owner, bombId);
-          break;
+          this.spawnExplosion(nr, nc, false, owner, bombId, isPiercing);
+          if (!isPiercing || ++blocksPierced >= 3) {
+            break;
+          }
+          continue;
         }
 
         // Empty tile, spawn explosion
-        this.spawnExplosion(nr, nc, false, owner, bombId);
+        this.spawnExplosion(nr, nc, false, owner, bombId, isPiercing);
 
-        // Check for chain reaction with other bombs
-        this.bombs.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
-          const otherBomb = child as Phaser.Physics.Arcade.Sprite;
-          if (otherBomb.active) {
+        // Check for chain reaction with other bombs (snapshot targets to prevent iteration skips)
+        const chainedBombs: Phaser.Physics.Arcade.Sprite[] = [];
+        const activeBombsList = this.bombs.getChildren();
+        for (let bIdx = 0; bIdx < activeBombsList.length; bIdx++) {
+          const otherBomb = activeBombsList[bIdx] as Phaser.Physics.Arcade.Sprite;
+          if (otherBomb && otherBomb.active) {
             const bCol = Math.floor(otherBomb.x / TILE_SIZE);
             const bRow = Math.floor(otherBomb.y / TILE_SIZE);
             if (bRow === nr && bCol === nc) {
-              this.explodeBomb(otherBomb, bRow, bCol);
+              chainedBombs.push(otherBomb);
             }
           }
-        });
+        }
+        for (let j = 0; j < chainedBombs.length; j++) {
+          const otherBomb = chainedBombs[j];
+          if (otherBomb.active) {
+            const bCol = Math.floor(otherBomb.x / TILE_SIZE);
+            const bRow = Math.floor(otherBomb.y / TILE_SIZE);
+            this.explodeBomb(otherBomb, bRow, bCol);
+          }
+        }
       }
     }
   }
@@ -3154,14 +3791,23 @@ export default class GameScene extends Phaser.Scene {
     return exp;
   }
 
-  spawnExplosion(row: number, col: number, isCenter: boolean = false, owner: string = 'player', bombId?: string) {
+  spawnExplosion(
+    row: number,
+    col: number,
+    isCenter: boolean = false,
+    owner: string = 'player',
+    bombId?: string,
+    isOverchargedPiercing: boolean = false
+  ) {
     const x = col * TILE_SIZE + TILE_SIZE / 2;
     const y = row * TILE_SIZE + TILE_SIZE / 2;
 
     const exp = this.createExplosionSprite(x, y, owner);
 
-    // Center core has bright brilliant tint, arms have hot orange tint
-    if (isCenter) {
+    // Center core has bright brilliant tint, arms have hot orange tint, tachyon overcharge has electric cyan tint
+    if (isOverchargedPiercing) {
+      exp.setTint(0x00ffff);
+    } else if (isCenter) {
       exp.setTint(0xffffcc);
     } else {
       exp.setTint(0xff7722);
@@ -3291,7 +3937,7 @@ export default class GameScene extends Phaser.Scene {
         this.hasShield = false;
       }
       this.isInvulnerable = true;
-      this.shieldInvulnerableUntil = this.time.now + 1500;
+      this.shieldInvulnerableUntil = updateInvulnerabilityExpiry(this.shieldInvulnerableUntil, 1500, this.time.now);
       if (this.cameraTrauma) {
         this.cameraTrauma.addTrauma(0.40);
       }
@@ -3323,7 +3969,7 @@ export default class GameScene extends Phaser.Scene {
         onComplete: () => {
           if (this.player && this.player.active) {
             this.player.alpha = 1;
-            if (!this.isDashing) {
+            if (!this.isDashing && !this.isAegisOverdriveActive && this.time.now >= this.shieldInvulnerableUntil) {
               this.isInvulnerable = false;
             }
           }
@@ -3337,7 +3983,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.extraLives > 0) {
       this.extraLives--;
       this.isInvulnerable = true;
-      this.shieldInvulnerableUntil = this.time.now + 3000;
+      this.shieldInvulnerableUntil = updateInvulnerabilityExpiry(this.shieldInvulnerableUntil, 3000, this.time.now);
       this.spawnFloatingText(this.player.x, this.player.y - 12, '1-UP REVIVED!', '#fb7185');
       this.cameras.main.flash(300, 251, 113, 133);
 
@@ -3351,7 +3997,7 @@ export default class GameScene extends Phaser.Scene {
         onComplete: () => {
           if (this.player && this.player.active) {
             this.player.alpha = 1;
-            if (!this.isDashing && !this.isAegisOverdriveActive) {
+            if (!this.isDashing && !this.isAegisOverdriveActive && this.time.now >= this.shieldInvulnerableUntil) {
               this.isInvulnerable = false;
             }
           }
@@ -3365,7 +4011,7 @@ export default class GameScene extends Phaser.Scene {
     // Check Second Wind perk (ARCH-PERK-01)
     if (this.perkManager?.triggerSecondWind()) {
       this.isInvulnerable = true;
-      this.shieldInvulnerableUntil = this.time.now + 3000;
+      this.shieldInvulnerableUntil = updateInvulnerabilityExpiry(this.shieldInvulnerableUntil, 3000, this.time.now);
       this.hasShield = true;
       this.shieldCharges = 1;
       this.spawnFloatingText(this.player.x, this.player.y - 12, 'SECOND WIND!', '#fbbf24');
@@ -3397,7 +4043,7 @@ export default class GameScene extends Phaser.Scene {
         onComplete: () => {
           if (this.player && this.player.active) {
             this.player.alpha = 1;
-            if (!this.isDashing && !this.isAegisOverdriveActive) {
+            if (!this.isDashing && !this.isAegisOverdriveActive && this.time.now >= this.shieldInvulnerableUntil) {
               this.isInvulnerable = false;
             }
           }
@@ -3833,6 +4479,7 @@ export default class GameScene extends Phaser.Scene {
   private performDash() {
     this.isDashing = true;
     this.isInvulnerable = true;
+    this.dashStartTime = this.time?.now || Date.now();
     this.dashCooldownRemaining = DASH_COOLDOWN_MS;
 
     let dirX = 0;
@@ -3868,7 +4515,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.time.delayedCall(DASH_DURATION_MS, () => {
       this.isDashing = false;
-      if (this.time.now >= this.shieldInvulnerableUntil) {
+      if (this.time.now >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
         this.isInvulnerable = false;
       }
       if (this.player && this.player.active) {

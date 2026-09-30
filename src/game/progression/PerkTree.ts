@@ -428,10 +428,10 @@ export class PerkTreeManager {
    * Trigger Second Wind when fatal damage is sustained (Edge Case 19)
    */
   static triggerSecondWind(
-    bonuses: AppliedPerkBonuses,
+    bonuses: AppliedPerkBonuses | null | undefined,
     alreadyConsumed: boolean
   ): { saved: boolean; remainingHp: number; invulnDurationMs: number; speedBurstBonus: number } {
-    if (bonuses.hasSecondWind && !alreadyConsumed) {
+    if (bonuses && bonuses.hasSecondWind && !alreadyConsumed) {
       return {
         saved: true,
         remainingHp: 1,

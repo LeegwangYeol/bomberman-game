@@ -24,6 +24,24 @@ import {
   WaveMutatorId,
 } from '../src/game/progression/index.ts';
 
+import {
+  DynamicHazard,
+  HazardLifecycleState,
+  PHASE_JITTER_DURATION_MS,
+  PLAYER_HAZARD_DAMAGE,
+  STANDARD_FUSE_MS,
+} from '../src/game/hazards/index.ts';
+
+import {
+  calculateClampedPlayerSpeed,
+  updateInvulnerabilityExpiry,
+  BASE_PLAYER_SPEED,
+  MAX_PLAYER_SPEED,
+  DASH_SPEED,
+  MIN_PLAYER_SPEED,
+  MAX_PLAYER_SPEED_CLAMP,
+} from '../src/game/gameplay_mechanics.ts';
+
 /* ==============================================================================
  * SECTION 1: PERK TREE EXTREME FUZZING & UNCLAMPED BONUS AUDIT
  * ============================================================================== */
@@ -272,17 +290,20 @@ test('Chaos QA 9: Player speed stacking theoretical maximums and clamps', () => 
 
   const walkingWithSurge = maxWalkingSpeed + 75; // 355 px/s
   assert.equal(walkingWithSurge, 355);
+  assert.equal(calculateClampedPlayerSpeed({ itemSpeed: 250, perkSpeedBonus: 30, surgeBonus: 75 }), 350, 'Walking with surge strictly clamped to 350 px/s');
 
   // Second wind burst
   const secondWindRes = PerkTreeManager.triggerSecondWind({ hasSecondWind: true }, false);
   const secondWindSpeed = walkingWithSurge * (1 + secondWindRes.speedBurstBonus); // 355 * 1.5 = 532.5 px/s
   assert.equal(secondWindSpeed, 532.5);
+  assert.equal(calculateClampedPlayerSpeed({ itemSpeed: 250, perkSpeedBonus: 30, surgeBonus: 75, speedMultiplier: 1 + secondWindRes.speedBurstBonus }), 350, 'Second Wind burst strictly clamped to 350 px/s');
 
   // In GameScene.ts:
   // (this.isDashing ? DASH_SPEED : this.playerSpeed + perkSpeedBonus) + surgeBonus
   // If dashing with surge: 350 + 75 = 425 px/s
   const dashWithSurge = 350 + 75;
   assert.equal(dashWithSurge, 425);
+  assert.equal(calculateClampedPlayerSpeed({ isDashing: true, surgeBonus: 75 }), 350, 'Dash with surge strictly clamped to 350 px/s');
 });
 
 test('Chaos QA 9: Cooldown minimums verification', () => {
@@ -341,3 +362,321 @@ test('Chaos QA 9: Endless Gauntlet 100-Chamber Boon Accumulation Audit', () => {
   // Checkpoints: 10, 20, 30, 40, 50, 60, 70, 80, 90, 100
   assert.equal(mgr.unlockedCheckpoints.length, 11); // Initial [1] + 10 checkpoints
 });
+
+/* ==============================================================================
+ * SECTION 6: COMBINATORIAL BUFF & DEBUFF FUZZING
+ * Combinations: Speed Up + Phase Jitter + Tachyon Overcharge + Shield Invuln + Dash I-Frames
+ * ============================================================================== */
+
+test('Chaos QA 9: All 32 combinatorial permutations of Speed Up + Phase Jitter + Tachyon Overcharge + Shield Invuln + Dash I-Frames', () => {
+  const hazard = new DynamicHazard();
+  hazard.init();
+  hazard.start('OUTBREAK');
+  hazard.update(2000 + 2000); // Enter ACTIVE beam (Col 4, Rows 3..9)
+  assert.equal(hazard.getState(), HazardLifecycleState.ACTIVE);
+
+  const activeR = 5;
+  const activeC = 4;
+  assert.ok(hazard.isTileLethal(activeR, activeC));
+
+  // 5 Boolean Flags -> 32 permutations
+  for (let mask = 0; mask < 32; mask++) {
+    const hasSpeedUp = Boolean(mask & 1);
+    const hasPhaseJitter = Boolean(mask & 2);
+    const hasTachyonOvercharge = Boolean(mask & 4);
+    const hasShieldInvuln = Boolean(mask & 8);
+    const hasDash = Boolean(mask & 16);
+
+    // 1. Calculate and verify speed bounds under combination
+    const baseSpeed = hasSpeedUp ? MAX_PLAYER_SPEED : BASE_PLAYER_SPEED;
+    const effectiveSpeed = calculateClampedPlayerSpeed({
+      baseSpeed,
+      isDashing: hasDash,
+      dashSpeed: DASH_SPEED,
+      phaseJitterActive: hasPhaseJitter,
+      surgeBonus: hasSpeedUp ? 75 : 0,
+    });
+
+    assert.ok(Number.isFinite(effectiveSpeed), `Mask ${mask}: Speed must be finite`);
+    assert.ok(
+      effectiveSpeed >= MIN_PLAYER_SPEED && effectiveSpeed <= MAX_PLAYER_SPEED_CLAMP,
+      `Mask ${mask}: Effective speed ${effectiveSpeed} must be within [50, 350]`
+    );
+
+    // 2. Evaluate Dynamic Hazard Player Collision
+    const collision = hazard.checkPlayerCollision(
+      activeR,
+      activeC,
+      hasDash,
+      50, // 50ms <= 150ms tunneling window
+      hasShieldInvuln
+    );
+
+    if (hasShieldInvuln) {
+      assert.equal(collision.damage, 0, `Mask ${mask}: Shield invulnerability must negate all hazard damage`);
+      assert.equal(collision.isLethal, false);
+      assert.equal(collision.phaseJitterInflicted, false, `Mask ${mask}: Invulnerability must prevent Phase Jitter`);
+    } else if (hasDash) {
+      assert.equal(collision.damage, 0, `Mask ${mask}: Dash within tunneling window must take 0 damage`);
+      assert.equal(collision.tunneled, true);
+      assert.equal(collision.phaseShiftGranted, true);
+      assert.equal(collision.phaseJitterInflicted, false);
+    } else {
+      assert.equal(collision.damage, PLAYER_HAZARD_DAMAGE, `Mask ${mask}: Exposed player must take 25 energy damage`);
+      assert.equal(collision.isLethal, true);
+      assert.equal(collision.phaseJitterInflicted, true);
+      assert.equal(collision.jitterDurationMs, PHASE_JITTER_DURATION_MS);
+    }
+
+    // 3. Evaluate Bomb Detonation (Tachyon Overcharge)
+    if (hasTachyonOvercharge) {
+      const bombDet = hazard.onBombDetonated(1000 + mask, activeR, activeC, 3);
+      assert.equal(bombDet.overcharged, true, `Mask ${mask}: Detonation in active beam must be overcharged`);
+      assert.equal(bombDet.modifiedPower, 5, `Mask ${mask}: Overcharge must add +2 blast power (3 + 2 = 5)`);
+      assert.equal(bombDet.piercing, true);
+    }
+  }
+});
+
+/* ==============================================================================
+ * SECTION 7: SPEED CLAMPING EXTREMES & NEGATIVE / NAN REJECTION
+ * ============================================================================== */
+
+test('Chaos QA 9: Extreme buff stacking peak strictly clamped to 350 px/s', () => {
+  // Peak stack:
+  // Base 150 + 4x Speed Up (250) + Bouncy Soles (+30) + Speed Surge (+75)
+  // + Second Wind (+50%) + Quantum Phase Shift (+30%) + Aegis Overdrive (+40) + Dash (350)
+  // Raw un-clamped = (350 + 75 + 40) * 1.5 * 1.3 = 906.75 px/s
+  const clampedPeak = calculateClampedPlayerSpeed({
+    itemSpeed: 250,
+    perkSpeedBonus: 30,
+    surgeBonus: 75,
+    customBonus: 40,
+    isDashing: true,
+    dashSpeed: 350,
+    speedMultiplier: 1.5 * 1.3,
+  });
+
+  assert.equal(clampedPeak, 350, 'Extreme theoretical speed stack MUST clamp strictly to 350 px/s ceiling');
+});
+
+test('Chaos QA 9: Extreme debuff stacking floor strictly clamped to 50 px/s', () => {
+  // Floor stack:
+  // Base 150 slowed by Honey (-80%) + Phase Jitter (-25%) + Additional Slow (-50%)
+  // Raw un-clamped = 150 * (1 - 0.80) * 0.75 * 0.5 = 11.25 px/s
+  const clampedFloor = calculateClampedPlayerSpeed({
+    baseSpeed: 150,
+    slowdownRatio: 0.80,
+    phaseJitterActive: true,
+    speedMultiplier: 0.50,
+  });
+
+  assert.equal(clampedFloor, 50, 'Extreme debuff stack MUST clamp strictly to 50 px/s floor');
+});
+
+test('Chaos QA 9: 10,000 Monte Carlo randomized cycles strictly clamp within [50, 350] and reject NaN', () => {
+  const corruptValues = [NaN, Infinity, -Infinity, -9999, -1, 0, null, undefined, 'speed', {}, []];
+
+  for (let i = 0; i < 10000; i++) {
+    // Generate pseudo-random configuration
+    const useCorruptBase = i % 10 === 0;
+    const baseSpeed = useCorruptBase
+      ? corruptValues[i % corruptValues.length]
+      : Math.floor(Math.random() * 800) - 200;
+
+    const perkSpeedBonus = i % 7 === 0 ? NaN : Math.floor(Math.random() * 100) - 20;
+    const surgeBonus = i % 11 === 0 ? -100 : Math.floor(Math.random() * 150);
+    const isDashing = Math.random() < 0.5;
+    const phaseJitterActive = Math.random() < 0.5;
+    const slowdownRatio = i % 13 === 0 ? NaN : Math.random() * 1.5;
+    const speedMultiplier = i % 17 === 0 ? -2 : Math.random() * 4;
+
+    const speed = calculateClampedPlayerSpeed({
+      baseSpeed,
+      perkSpeedBonus,
+      surgeBonus,
+      isDashing,
+      phaseJitterActive,
+      slowdownRatio,
+      speedMultiplier,
+    });
+
+    assert.ok(Number.isFinite(speed), `Iteration ${i}: Speed must be finite`);
+    assert.ok(!Number.isNaN(speed), `Iteration ${i}: Speed must not be NaN`);
+    assert.ok(
+      speed >= 50 && speed <= 350,
+      `Iteration ${i}: Speed ${speed} out of bounds [50, 350]`
+    );
+  }
+});
+
+/* ==============================================================================
+ * SECTION 8: INVULNERABILITY EXPIRY TIMESTAMP OVERWRITE PROTECTION
+ * ============================================================================== */
+
+test('Chaos QA 9: Invulnerability timestamps cannot be overwritten or downgraded by lesser durations', () => {
+  const now = 50000;
+  // Step 1: Grant 3000ms invulnerability (expires at 53,000)
+  let expiry = updateInvulnerabilityExpiry(0, 3000, now);
+  assert.equal(expiry, 53000);
+
+  // Step 2: Lesser duration 1500ms at t = 50,500 (target 52,000 < 53,000) -> MUST NOT overwrite!
+  const expiry2 = updateInvulnerabilityExpiry(expiry, 1500, now + 500);
+  assert.equal(expiry2, 53000, 'Lesser duration 1500ms must not downgrade 53,000 expiry');
+
+  // Step 3: Rapid succession of smaller durations (500ms, 200ms, 50ms)
+  const expiry3 = updateInvulnerabilityExpiry(expiry2, 500, now + 1000); // target 51,500
+  assert.equal(expiry3, 53000);
+  const expiry4 = updateInvulnerabilityExpiry(expiry3, 200, now + 2000); // target 52,200
+  assert.equal(expiry4, 53000);
+
+  // Step 4: Negative, NaN, or corrupt durations -> strictly rejected, preserving 53,000
+  assert.equal(updateInvulnerabilityExpiry(expiry4, -500, now + 2500), 53000);
+  assert.equal(updateInvulnerabilityExpiry(expiry4, NaN, now + 2500), 53000);
+  assert.equal(updateInvulnerabilityExpiry(expiry4, -Infinity, now + 2500), 53000);
+  assert.equal(updateInvulnerabilityExpiry(expiry4, undefined, now + 2500), 53000);
+
+  // Step 5: Legitimate extension with higher duration (e.g. 5000ms at t = 51,000 -> target 56,000 > 53,000)
+  const upgradedExpiry = updateInvulnerabilityExpiry(expiry4, 5000, now + 1000);
+  assert.equal(upgradedExpiry, 56000, 'Greater duration must properly extend expiry to 56,000');
+});
+
+test('Chaos QA 9: BaseEntity invulnerableTimer resists overwrite degradation', () => {
+  // Simulate entity timer degradation resistance
+  let invulnTimer = 1500;
+  const newDamageIFrame = 500;
+
+  // Ensure Math.max guard prevents reducing active timer
+  invulnTimer = Math.max(invulnTimer, newDamageIFrame);
+  assert.equal(invulnTimer, 1500, 'Existing 1500ms timer must not be degraded by 500ms i-frame');
+
+  // Upgrade timer when new duration is higher
+  const superBuffIFrame = 3000;
+  invulnTimer = Math.max(invulnTimer, superBuffIFrame);
+  assert.equal(invulnTimer, 3000, 'Higher duration must upgrade timer to 3000ms');
+});
+
+/* ==============================================================================
+ * SECTION 9: DYNAMIC HAZARD EXTREME INPUT FUZZING
+ * ============================================================================== */
+
+test('Chaos QA 9: DynamicHazard rejects corrupt, negative, and NaN inputs across all public APIs', () => {
+  const hazard = new DynamicHazard();
+  hazard.init();
+  hazard.start('OUTBREAK');
+
+  // 1. checkPlayerCollision input fuzzing
+  const corruptCoords = [
+    [-999, -999],
+    [NaN, NaN],
+    [Infinity, 5],
+    [5, -Infinity],
+    [100, 100],
+    [-1, 4],
+    [5, -1],
+  ];
+
+  for (const [r, c] of corruptCoords) {
+    const col = hazard.checkPlayerCollision(r, c, false, 0);
+    assert.equal(col.hit, false, `Corrupt coord (${r}, ${c}) must return hit=false`);
+    assert.equal(col.damage, 0);
+  }
+
+  // 2. dashElapsedMs fuzzing
+  hazard.update(2000 + 2000); // ACTIVE beam
+  const colNegDash = hazard.checkPlayerCollision(5, 4, true, -500);
+  assert.ok(colNegDash.hit);
+  assert.equal(colNegDash.damage, 0, 'Negative dash elapsed sanitizes to 0ms (within 150ms window)');
+
+  const colNanDash = hazard.checkPlayerCollision(5, 4, true, NaN);
+  assert.ok(colNanDash.hit);
+  assert.equal(colNanDash.damage, 0, 'NaN dash elapsed sanitizes to 0ms (within 150ms window)');
+
+  // 3. onBombPlaced input fuzzing
+  const bombPlacedNan = hazard.onBombPlaced(999, NaN, NaN, NaN, NaN);
+  assert.equal(bombPlacedNan.isEntangled, false);
+  assert.equal(bombPlacedNan.modifiedFuseMs, STANDARD_FUSE_MS);
+
+  const bombPlacedNeg = hazard.onBombPlaced(999, -5, -5, -10, -500);
+  assert.equal(bombPlacedNeg.isEntangled, false);
+  assert.ok(bombPlacedNeg.modifiedFuseMs >= 100);
+
+  // 4. onBombDetonated input fuzzing
+  const bombDetNan = hazard.onBombDetonated(999, NaN, NaN, NaN);
+  assert.equal(bombDetNan.overcharged, false);
+  assert.equal(bombDetNan.modifiedPower, 1, 'NaN power sanitizes to 1');
+  assert.equal(bombDetNan.piercing, false);
+
+  const bombDetNeg = hazard.onBombDetonated(999, -1, -1, -5);
+  assert.equal(bombDetNeg.overcharged, false);
+  assert.equal(bombDetNeg.modifiedPower, 1, 'Negative power sanitizes to 1');
+
+  // 5. onBombBlastImpact input fuzzing
+  const impactNan = hazard.onBombBlastImpact(NaN, NaN);
+  assert.equal(impactNan.polarized, false);
+  assert.equal(impactNan.cleansedTileCount, 0);
+
+  // 6. resolveSafeEjection input fuzzing
+  const ejectNan = hazard.resolveSafeEjection(NaN, NaN);
+  assert.equal(ejectNan.displaced, false);
+
+  // 7. update timestep fuzzing
+  const timerBefore = hazard.getCycleTimerMs();
+  hazard.update(NaN);
+  hazard.update(-100);
+  hazard.update(-Infinity);
+  hazard.update(0);
+  assert.equal(hazard.getCycleTimerMs(), timerBefore, 'Invalid deltaMs must be strictly rejected without state drift');
+});
+
+/* ==============================================================================
+ * SECTION 10: INTEGRATION MATRIX: SECOND WIND & TACHYON SHEAR INTERACTION
+ * ============================================================================== */
+
+test('Chaos QA 9: Second Wind perk revival grants 3.0s invulnerability protecting against Tachyon Shear', () => {
+  const hazard = new DynamicHazard();
+  hazard.init();
+  hazard.start('OUTBREAK');
+  hazard.update(2000 + 2000); // Enter ACTIVE beam on Col 4
+  assert.equal(hazard.getState(), HazardLifecycleState.ACTIVE);
+
+  // 1. Player sustains fatal blow with Second Wind
+  const perks = PerkTreeManager.calculateAppliedBonuses({ second_wind: 1 });
+  const secondWindRes = PerkTreeManager.triggerSecondWind(perks, false);
+  assert.equal(secondWindRes.saved, true);
+  assert.equal(secondWindRes.remainingHp, 1);
+  assert.equal(secondWindRes.invulnDurationMs, 3000);
+  assert.equal(secondWindRes.speedBurstBonus, 0.50);
+
+  // 2. Set invulnerability timestamp
+  const now = 10000;
+  let invulnExpiry = updateInvulnerabilityExpiry(0, secondWindRes.invulnDurationMs, now);
+  assert.equal(invulnExpiry, 13000);
+
+  // 3. Player walks directly through active Tachyon Discharge beam (5, 4) with invulnerability active
+  const isCurrentlyInvulnerable = now + 1000 < invulnExpiry; // t = 11,000 < 13,000
+  assert.ok(isCurrentlyInvulnerable);
+
+  const beamCollision = hazard.checkPlayerCollision(5, 4, false, 0, isCurrentlyInvulnerable);
+  assert.equal(beamCollision.hit, true);
+  assert.equal(beamCollision.damage, 0, 'Second Wind invulnerability must absorb Tachyon Shear');
+  assert.equal(beamCollision.isLethal, false);
+  assert.equal(beamCollision.phaseJitterInflicted, false, 'No Phase Jitter while invulnerable');
+
+  // 4. Stacking Speed Up + Second Wind speed burst (+50%): strictly clamped
+  const effectiveSpeed = calculateClampedPlayerSpeed({
+    itemSpeed: 250,
+    speedMultiplier: 1 + secondWindRes.speedBurstBonus, // 250 * 1.5 = 375 px/s
+  });
+  assert.equal(effectiveSpeed, 350, 'Second Wind speed burst must clamp strictly to 350 px/s');
+
+  // 5. Secondary shield shatter at t = 11,500 must not overwrite 13,000 expiry
+  invulnExpiry = updateInvulnerabilityExpiry(invulnExpiry, 1500, 11500); // target 13,000
+  assert.equal(invulnExpiry, 13000);
+
+  // 6. Null/undefined safety in PerkTree triggerSecondWind
+  const nullCheck = PerkTreeManager.triggerSecondWind(null, false);
+  assert.equal(nullCheck.saved, false);
+  assert.equal(nullCheck.remainingHp, 0);
+});
+

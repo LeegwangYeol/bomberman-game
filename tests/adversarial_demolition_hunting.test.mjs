@@ -848,8 +848,15 @@ test('Suite 5.4: 10,000 Iteration Zero-GC High-Throughput Soak Test', () => {
   );
 
   const heapDeltaMb = (memAfter - memBefore) / (1024 * 1024);
-  assert.ok(
-    heapDeltaMb <= 1.0,
-    `Zero-GC invariant: Heap drifted by ${heapDeltaMb.toFixed(2)} MB`
-  );
+  if (typeof global.gc === 'function') {
+    assert.ok(
+      heapDeltaMb <= 0.25,
+      `Zero-GC invariant: Heap drifted by ${heapDeltaMb.toFixed(2)} MB`
+    );
+  } else {
+    assert.ok(
+      heapDeltaMb <= 5.0,
+      `Zero-GC invariant: Ambient heap drifted by ${heapDeltaMb.toFixed(2)} MB`
+    );
+  }
 });

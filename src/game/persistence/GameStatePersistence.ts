@@ -376,7 +376,7 @@ export class GameStatePersistence {
       }
 
       // Decompress map grid if needed
-      if (parsed.board.mapRLE && (!parsed.board.map || parsed.board.map.length === 0)) {
+      if (parsed.board?.mapRLE && (!parsed.board.map || parsed.board.map.length === 0)) {
         try {
           parsed.board.map = decompressGrid(
             parsed.board.mapRLE,
@@ -686,15 +686,20 @@ export class GameStatePersistence {
 
     if (is429) {
       const emergencySave = () => {
+        let stateToSave: SerializedRunState | null = null;
         if (currentStateProvider) {
-          const state = currentStateProvider();
-          if (state) {
-            state.saveTrigger = 'quota_429';
-            this.saveRunState(state);
+          try {
+            stateToSave = currentStateProvider();
+          } catch (err) {
+            console.error('GameStatePersistence: Error invoking currentStateProvider during 429', err);
           }
-        } else if (this.cachedActiveRun) {
-          this.cachedActiveRun.saveTrigger = 'quota_429';
-          this.saveRunState(this.cachedActiveRun);
+        }
+        if (!stateToSave && this.cachedActiveRun) {
+          stateToSave = this.cachedActiveRun;
+        }
+        if (stateToSave) {
+          stateToSave.saveTrigger = 'quota_429';
+          this.saveRunState(stateToSave);
         }
       };
 

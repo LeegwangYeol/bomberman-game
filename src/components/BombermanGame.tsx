@@ -106,13 +106,14 @@ export default function BombermanGame() {
     isAnyModalOpenRef.current = isAnyModalOpen;
     if (isAnyModalOpen) {
       if (typeof window !== 'undefined' && window.mobileInput) {
-        window.mobileInput.up = false;
-        window.mobileInput.down = false;
-        window.mobileInput.left = false;
-        window.mobileInput.right = false;
-        window.mobileInput.bomb = false;
-        window.mobileInput.dash = false;
-        window.mobileInput.ultimate = false;
+        resetAllMobileInputs(window.mobileInput);
+      }
+      if (phaserGameRef.current) {
+        try {
+          phaserGameRef.current.scene?.scenes?.forEach((s) => {
+            s.input?.keyboard?.resetKeys();
+          });
+        } catch {}
       }
     }
   }, [isAnyModalOpen]);
@@ -402,7 +403,9 @@ export default function BombermanGame() {
     const handleViewportChange = () => {
       checkMobile();
       if (phaserGameRef.current && phaserGameRef.current.scale) {
-        phaserGameRef.current.scale.refresh();
+        try {
+          phaserGameRef.current.scale.refresh();
+        } catch {}
       }
       setJoystickEpoch((k) => k + 1);
     };
@@ -421,6 +424,13 @@ export default function BombermanGame() {
       if (typeof window !== 'undefined' && window.mobileInput) {
         resetAllMobileInputs(window.mobileInput);
       }
+      if (phaserGameRef.current) {
+        try {
+          phaserGameRef.current.scene?.scenes?.forEach((s) => {
+            s.input?.keyboard?.resetKeys();
+          });
+        } catch {}
+      }
     };
 
     const handleVisibilityOrBlur = () => {
@@ -428,6 +438,7 @@ export default function BombermanGame() {
     };
 
     window.addEventListener('blur', handleVisibilityOrBlur);
+    window.addEventListener('focus', handleVisibilityOrBlur);
     document.addEventListener('visibilitychange', handleVisibilityOrBlur);
 
     // Keyboard controls (Arrow keys + WASD + Spacebar + Shift/E + R/Q)
@@ -583,6 +594,7 @@ export default function BombermanGame() {
         window.screen.orientation.removeEventListener('change', handleViewportChange);
       }
       window.removeEventListener('blur', handleVisibilityOrBlur);
+      window.removeEventListener('focus', handleVisibilityOrBlur);
       document.removeEventListener('visibilitychange', handleVisibilityOrBlur);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
@@ -1953,13 +1965,14 @@ export default function BombermanGame() {
               onClick={() => {
                 setIsPauseModalOpen(false);
                 if (typeof window !== 'undefined' && window.mobileInput) {
-                  window.mobileInput.up = false;
-                  window.mobileInput.down = false;
-                  window.mobileInput.left = false;
-                  window.mobileInput.right = false;
-                  window.mobileInput.bomb = false;
-                  window.mobileInput.dash = false;
-                  window.mobileInput.ultimate = false;
+                  resetAllMobileInputs(window.mobileInput);
+                }
+                if (phaserGameRef.current) {
+                  try {
+                    phaserGameRef.current.scene?.scenes?.forEach((s) => {
+                      s.input?.keyboard?.resetKeys();
+                    });
+                  } catch {}
                 }
               }}
               className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold font-mono text-sm transition-all shadow-lg cursor-pointer"

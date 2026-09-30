@@ -3,11 +3,13 @@ import assert from 'node:assert/strict';
 import {
   createDefaultMobileInputState,
   resolveJoystickDirection,
+  resolveJoystickVector,
   resetJoystickDirection,
   resetAllMobileInputs,
   triggerMobileAction,
   cancelMobileAction,
   releaseMobileAction,
+  MultiTouchPointerTracker,
 } from '../src/game/input_state.ts';
 
 /* ==============================================================================
@@ -212,10 +214,10 @@ test('Tier 3 [Boundary Jitter]: 10,000 rapid quadrant and boundary flips execute
 });
 
 /* ==============================================================================
- * TIER 4: EXTREME HIGH-FREQUENCY MULTI-TOUCH SPAMMING SIMULATION
+ * TIER 4: EXTREME HIGH-FREQUENCY MULTI-TOUCH SPAMMING SIMULATION (10,000 EVENTS)
  * ============================================================================== */
 
-test('Tier 4 [Multi-Touch Chaos]: 5,000 randomized concurrent pointer actions maintain state integrity', () => {
+test('Tier 4 [Multi-Touch Chaos]: 10,000 randomized concurrent pointer actions maintain state integrity', () => {
   const state = createDefaultMobileInputState();
 
   // Custom frame scheduler to simulate RAF ticks in Node test runner
@@ -226,11 +228,11 @@ test('Tier 4 [Multi-Touch Chaos]: 5,000 randomized concurrent pointer actions ma
 
   const startTime = performance.now();
 
-  for (let i = 0; i < 5000; i++) {
-    const actionType = i % 4;
+  for (let i = 0; i < 10000; i++) {
+    const actionType = i % 5;
     const eventType = (i * 7) % 5;
 
-    // Simulate Finger 1: Joystick move or release
+    // Simulate Finger 1: Joystick move, deadzone, or release
     if (actionType === 0) {
       if (eventType === 0) {
         resetJoystickDirection(state);
@@ -278,6 +280,17 @@ test('Tier 4 [Multi-Touch Chaos]: 5,000 randomized concurrent pointer actions ma
       }
     }
 
+    // Simulate Finger 5: Rapid vector resolution from raw touch coordinates
+    if (actionType === 4) {
+      const dx = ((i * 19.1) % 100) - 50;
+      const dy = ((i * 23.3) % 100) - 50;
+      const vecDir = resolveJoystickVector(dx, dy);
+      assert.ok(typeof vecDir.up === 'boolean');
+      assert.ok(typeof vecDir.down === 'boolean');
+      assert.ok(typeof vecDir.left === 'boolean');
+      assert.ok(typeof vecDir.right === 'boolean');
+    }
+
     // Simulate periodic animation frame flushes
     if (i % 10 === 0 && scheduledFrames.length > 0) {
       const callbacks = scheduledFrames.splice(0, scheduledFrames.length);
@@ -297,8 +310,8 @@ test('Tier 4 [Multi-Touch Chaos]: 5,000 randomized concurrent pointer actions ma
 
   const duration = performance.now() - startTime;
   assert.ok(
-    duration < 150,
-    `5,000 multi-touch events must complete within 150ms (took ${duration.toFixed(2)}ms)`
+    duration < 250,
+    `10,000 multi-touch events must complete within 250ms (took ${duration.toFixed(2)}ms)`
   );
 
   // After all actions drain, resetAllMobileInputs must cleanly zero the state
@@ -424,3 +437,360 @@ test('Tier 6 [Opposing Direction Cancellation]: Simultaneous conflicting directi
   else if (down && !up) wantY = 1;
   assert.equal(wantY, 0, 'Opposing vertical inputs cancel each other to 0');
 });
+
+/* ==============================================================================
+ * TIER 7: NAN & MALFORMED COORDINATE INVARIANCE (10,000 FUZZING SAMPLES)
+ * ============================================================================== */
+
+test('Tier 7 [NaN & Non-Finite Coordinates]: resolveJoystickDirection strictly zeroes all directions on invalid inputs', () => {
+  const invalidAngles = [
+    NaN,
+    Infinity,
+    -Infinity,
+    undefined,
+    null,
+    '90',
+    {},
+    [],
+  ];
+
+  for (const angle of invalidAngles) {
+    const res = resolveJoystickDirection(angle, 25);
+    assert.deepEqual(
+      res,
+      { up: false, down: false, left: false, right: false },
+      `Expected all false for invalid angle ${String(angle)}`
+    );
+  }
+
+  const invalidDistances = [
+    NaN,
+    Infinity,
+    -Infinity,
+    -10,
+    -0.001,
+    '50',
+    null,
+  ];
+
+  for (const dist of invalidDistances) {
+    const res = resolveJoystickDirection(90, dist);
+    assert.deepEqual(
+      res,
+      { up: false, down: false, left: false, right: false },
+      `Expected all false for invalid distance ${String(dist)}`
+    );
+  }
+});
+
+test('Tier 7 [Vector Coordinate Fuzzing]: resolveJoystickVector handles 10,000 malformed and extreme coordinate inputs', () => {
+  const startTime = performance.now();
+
+  // Test deterministic edge cases first
+  assert.deepEqual(
+    resolveJoystickVector(NaN, 10),
+    { up: false, down: false, left: false, right: false, angle: 0, distance: 0 }
+  );
+  assert.deepEqual(
+    resolveJoystickVector(10, NaN),
+    { up: false, down: false, left: false, right: false, angle: 0, distance: 0 }
+  );
+  assert.deepEqual(
+    resolveJoystickVector(NaN, NaN),
+    { up: false, down: false, left: false, right: false, angle: 0, distance: 0 }
+  );
+  assert.deepEqual(
+    resolveJoystickVector(Infinity, 10),
+    { up: false, down: false, left: false, right: false, angle: 0, distance: 0 }
+  );
+  assert.deepEqual(
+    resolveJoystickVector(0, 0),
+    { up: false, down: false, left: false, right: false, angle: 0, distance: 0 }
+  );
+
+  // 10,000 random coordinate fuzzing iterations
+  for (let iter = 0; iter < 10000; iter++) {
+    let dx = (iter * 17.3) % 200 - 100;
+    let dy = (iter * 29.7) % 200 - 100;
+
+    if (iter % 7 === 0) dx = NaN;
+    if (iter % 11 === 0) dy = NaN;
+    if (iter % 13 === 0) dx = Infinity;
+    if (iter % 17 === 0) dy = -Infinity;
+
+    const res = resolveJoystickVector(dx, dy);
+
+    assert.ok(typeof res.up === 'boolean');
+    assert.ok(typeof res.down === 'boolean');
+    assert.ok(typeof res.left === 'boolean');
+    assert.ok(typeof res.right === 'boolean');
+    assert.ok(Number.isFinite(res.angle));
+    assert.ok(Number.isFinite(res.distance));
+    assert.ok(!Number.isNaN(res.angle));
+    assert.ok(!Number.isNaN(res.distance));
+
+    // Opposing directions invariant
+    assert.ok(!(res.up && res.down));
+    assert.ok(!(res.left && res.right));
+  }
+
+  const duration = performance.now() - startTime;
+  assert.ok(
+    duration < 150,
+    `10,000 vector fuzzing iterations must complete within 150ms (took ${duration.toFixed(2)}ms)`
+  );
+});
+
+/* ==============================================================================
+ * TIER 8: RAPID SECTOR SWITCHING & BOUNDARY INVARIANTS (135° AND 225° SECTORS)
+ * ============================================================================== */
+
+test('Tier 8 [135° and 225° Sector Precision]: Direct diagonal activation and sector boundary invariants', () => {
+  // 135°: strictly UP + LEFT
+  const res135 = resolveJoystickDirection(135, 30);
+  assert.deepEqual(res135, {
+    up: true,
+    down: false,
+    left: true,
+    right: false,
+  });
+
+  // 225°: strictly DOWN + LEFT
+  const res225 = resolveJoystickDirection(225, 30);
+  assert.deepEqual(res225, {
+    up: false,
+    down: true,
+    left: true,
+    right: false,
+  });
+
+  // Vector coordinate representations
+  // 135° in screen space: dx < 0 (left), dy < 0 (up)
+  const vec135 = resolveJoystickVector(-30, -30);
+  assert.equal(vec135.up, true);
+  assert.equal(vec135.left, true);
+  assert.equal(vec135.down, false);
+  assert.equal(vec135.right, false);
+  assert.ok(Math.abs(vec135.angle - 135) < 0.001);
+
+  // 225° in screen space: dx < 0 (left), dy > 0 (down)
+  const vec225 = resolveJoystickVector(-30, 30);
+  assert.equal(vec225.down, true);
+  assert.equal(vec225.left, true);
+  assert.equal(vec225.up, false);
+  assert.equal(vec225.right, false);
+  assert.ok(Math.abs(vec225.angle - 225) < 0.001);
+});
+
+test('Tier 8 [Rapid Sector Switching]: 10,000 rapid switches between 135° and 225° exhibit 0 contradictory directions and persistent LEFT intent', () => {
+  let errorCount = 0;
+  let firstErrorMessage = '';
+  const startTime = performance.now();
+
+  for (let iter = 0; iter < 10000; iter++) {
+    // Alternate between 135° and 225° with subtle micro-jitter (+/- 5°)
+    const jitter = ((iter * 3.7) % 10) - 5;
+    const is135 = iter % 2 === 0;
+    const baseAngle = is135 ? 135 : 225;
+    const angle = baseAngle + jitter;
+
+    const dir = resolveJoystickDirection(angle, 40);
+
+    // Invariant 1: LEFT must be persistently true across both 135° and 225° sectors
+    // Invariant 2: RIGHT must be strictly false
+    // Invariant 3: UP and DOWN must NEVER both be true
+    // Invariant 4: Vertical intent must match the active sector
+    const validLeft = dir.left === true;
+    const validRight = dir.right === false;
+    const validMutualExclusion = !(dir.up && dir.down);
+    const validVertical = is135 ? (dir.up === true && dir.down === false) : (dir.down === true && dir.up === false);
+
+    if (!validLeft || !validRight || !validMutualExclusion || !validVertical) {
+      errorCount++;
+      if (!firstErrorMessage) {
+        firstErrorMessage = `Mismatch at iter ${iter} (${angle.toFixed(2)}°): left=${dir.left}, right=${dir.right}, up=${dir.up}, down=${dir.down}`;
+      }
+    }
+  }
+
+  const duration = performance.now() - startTime;
+  assert.equal(errorCount, 0, firstErrorMessage || 'Found direction mismatches');
+  assert.ok(
+    duration < 50,
+    `10,000 rapid 135° <-> 225° sector switches must complete within 50ms (took ${duration.toFixed(2)}ms)`
+  );
+});
+
+/* ==============================================================================
+ * TIER 9: MULTI-TOUCH POINTER ID COLLISIONS & ACTIVE FINGER STACKING
+ * ============================================================================== */
+
+test('Tier 9 [Pointer ID Collision]: Pointer ID reassignment cleanly releases previous control without stuck vectors', () => {
+  const state = createDefaultMobileInputState();
+  const tracker = new MultiTouchPointerTracker();
+
+  // Pointer 1 grabs joystick and sets direction (Up + Left at 135°)
+  tracker.onPointerDown(1, 'joystick', state);
+  tracker.onPointerMove(1, { x: 50, y: 50 }, state, { x: 100, y: 100 }); // dx=-50, dy=-50 -> 135°
+  assert.equal(state.up, true);
+  assert.equal(state.left, true);
+  assert.equal(tracker.getActivePointerCount('joystick'), 1);
+
+  // Driver/touch collision: Pointer 1 fires pointerdown on 'bomb' without releasing joystick
+  tracker.onPointerDown(1, 'bomb', state);
+
+  // Invariant 1: Joystick MUST be released immediately upon pointer ID re-use
+  assert.equal(state.up, false, 'Stuck UP vector eliminated on pointer collision');
+  assert.equal(state.left, false, 'Stuck LEFT vector eliminated on pointer collision');
+  assert.equal(tracker.getActivePointerCount('joystick'), 0);
+
+  // Invariant 2: Bomb action is now active
+  assert.equal(state.bomb, true, 'Bomb must be active under reassigned pointer');
+  assert.equal(tracker.getActivePointerCount('bomb'), 1);
+
+  // Clean release
+  tracker.onPointerUp(1, state);
+  assert.equal(tracker.getActivePointerCount(), 0);
+});
+
+test('Tier 9 [Multi-Finger Button Stacking]: Multiple touches on same button maintain press until last release', () => {
+  const state = createDefaultMobileInputState();
+  const tracker = new MultiTouchPointerTracker();
+
+  // Finger 10 presses Dash
+  tracker.onPointerDown(10, 'dash', state);
+  assert.equal(state.dash, true);
+  assert.equal(tracker.getActivePointerCount('dash'), 1);
+
+  // Finger 11 presses Dash simultaneously (fat finger / multi-touch overlap)
+  tracker.onPointerDown(11, 'dash', state);
+  assert.equal(state.dash, true);
+  assert.equal(tracker.getActivePointerCount('dash'), 2);
+
+  // Finger 10 lifts up
+  tracker.onPointerUp(10, state);
+  // Dash MUST still remain active because Finger 11 is still holding it down
+  assert.equal(state.dash, true, 'Dash must remain held while finger 11 is down');
+  assert.equal(tracker.getActivePointerCount('dash'), 1);
+
+  // Finger 11 lifts up
+  tracker.onPointerUp(11, state);
+  // Now Dash should be released
+  assert.equal(tracker.getActivePointerCount('dash'), 0);
+});
+
+test('Tier 9 [Rapid Pointer ID Churn]: 10,000 rapid randomized pointer operations maintain state invariants', () => {
+  const state = createDefaultMobileInputState();
+  const tracker = new MultiTouchPointerTracker();
+  const startTime = performance.now();
+
+  const targets = ['joystick', 'bomb', 'dash', 'ultimate'];
+
+  for (let iter = 0; iter < 10000; iter++) {
+    const pointerId = iter % 6; // Pointers 0 to 5
+    const op = iter % 4; // 0=down, 1=move, 2=up, 3=cancel
+    const target = targets[(iter * 3) % targets.length];
+
+    if (op === 0) {
+      tracker.onPointerDown(pointerId, target, state);
+    } else if (op === 1) {
+      const x = (iter * 13) % 200;
+      const y = (iter * 17) % 200;
+      tracker.onPointerMove(pointerId, { x, y }, state, { x: 100, y: 100 });
+    } else if (op === 2) {
+      tracker.onPointerUp(pointerId, state);
+    } else if (op === 3) {
+      tracker.onPointerCancel(pointerId, state);
+    }
+  }
+
+  // Final reset must leave 0 active pointers and clean default state
+  tracker.reset(state);
+  assert.equal(tracker.getActivePointerCount(), 0);
+  assert.deepEqual(state, createDefaultMobileInputState());
+
+  const duration = performance.now() - startTime;
+  assert.ok(
+    duration < 150,
+    `10,000 pointer churn operations must complete within 150ms (took ${duration.toFixed(2)}ms)`
+  );
+});
+
+/* ==============================================================================
+ * TIER 10: DROPPED POINTER EVENT RECOVERY & STUCK MOVEMENT PREVENTION
+ * ============================================================================== */
+
+test('Tier 10 [Dropped Joystick Event]: Orphaned pointer is recovered cleanly and zeroes movement vectors', () => {
+  const state = createDefaultMobileInputState();
+  const tracker = new MultiTouchPointerTracker();
+
+  // Timestamp T=1000: User places thumb on joystick and pushes to 225° (Down + Left)
+  tracker.onPointerDown(42, 'joystick', state);
+  tracker.onPointerMove(42, { x: 50, y: 150 }, state, { x: 100, y: 100 }); // dx=-50, dy=50 -> 225°
+
+  assert.equal(state.down, true);
+  assert.equal(state.left, true);
+  assert.equal(tracker.getActivePointerCount('joystick'), 1);
+
+  // Dropped event: Browser drops touchend/pointerup due to gesture interception or edge swipe.
+  // Advance simulated clock past default maxAgeMs (e.g. T=4500, elapsed = 3500ms > 3000ms threshold)
+  const now = performance.now();
+  const recovered = tracker.recoverDroppedPointers(state, 3000, now + 3500);
+
+  // Invariant 1: Exactly 1 orphaned pointer recovered
+  assert.equal(recovered, 1);
+  assert.equal(tracker.getActivePointerCount('joystick'), 0);
+
+  // Invariant 2: Movement vector MUST be cleanly zeroed (no stuck running character)
+  assert.equal(state.down, false, 'DOWN movement vector must be recovered and false');
+  assert.equal(state.left, false, 'LEFT movement vector must be recovered and false');
+  assert.equal(state.up, false);
+  assert.equal(state.right, false);
+});
+
+test('Tier 10 [Dropped Action Event]: Dropped bomb button pointer is pruned without stuck active state', () => {
+  const state = createDefaultMobileInputState();
+  const tracker = new MultiTouchPointerTracker();
+
+  tracker.onPointerDown(99, 'bomb', state);
+  assert.equal(state.bomb, true);
+
+  const now = performance.now();
+  const recovered = tracker.recoverDroppedPointers(state, 2000, now + 2500);
+
+  assert.equal(recovered, 1);
+  assert.equal(state.bomb, false, 'Bomb flag must be cleared upon dropped pointer recovery');
+  assert.equal(tracker.getActivePointerCount('bomb'), 0);
+});
+
+test('Tier 10 [System Interruption / Defocus Full Recovery]: tracker.reset flushes all pointers and zero-resets state', () => {
+  const state = createDefaultMobileInputState();
+  const tracker = new MultiTouchPointerTracker();
+
+  // Populate multiple simultaneous active pointers
+  tracker.onPointerDown(1, 'joystick', state);
+  tracker.onPointerMove(1, { x: 50, y: 50 }, state, { x: 100, y: 100 });
+  tracker.onPointerDown(2, 'dash', state);
+  tracker.onPointerDown(3, 'bomb', state);
+
+  assert.equal(tracker.getActivePointerCount(), 3);
+  assert.equal(state.up, true);
+  assert.equal(state.left, true);
+  assert.equal(state.dash, true);
+  assert.equal(state.bomb, true);
+
+  // System blur / tab switch / visibility change triggers reset
+  tracker.reset(state);
+
+  assert.equal(tracker.getActivePointerCount(), 0);
+  assert.deepEqual(state, {
+    up: false,
+    down: false,
+    left: false,
+    right: false,
+    bomb: false,
+    dash: false,
+    ultimate: false,
+  });
+});
+

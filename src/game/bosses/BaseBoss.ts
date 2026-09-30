@@ -225,6 +225,25 @@ export abstract class BaseBoss {
   }
 
   /**
+   * Applies direct hazard / environmental beam damage (percentage based) and stun.
+   * Bosses taking beam hits receive 15% HP damage and 1.5s stun.
+   * Bypasses normal bomb armor/landing phases (environmental overcharge).
+   */
+  public takeHazardDamage(
+    damagePercent: number = 15,
+    stunSec: number = 1.5
+  ): { damage: number; defeated: boolean } {
+    if (this.bossState === BossState.DEFEATED) {
+      return { damage: 0, defeated: true };
+    }
+    const damage = (this.maxHp * damagePercent) / 100;
+    this.currentHp = Math.max(0, this.currentHp - damage);
+    this.applyStun(stunSec);
+    this.checkDefeatCondition();
+    return { damage, defeated: (this.bossState as BossState) === BossState.DEFEATED };
+  }
+
+  /**
    * Resolves buffered hits after 150ms window expires.
    */
   private resolveComboBuffer(): void {

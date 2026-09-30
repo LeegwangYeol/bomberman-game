@@ -162,7 +162,7 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
     }
 
     this.hp = Math.max(0, this.hp - amount);
-    this.invulnerableTimer = this.iFrameDurationMs;
+    this.invulnerableTimer = Math.max(this.invulnerableTimer || 0, this.iFrameDurationMs);
 
     // Sprite flashing tween during i-frames
     if (this.scene && this.scene.tweens && this.active) {

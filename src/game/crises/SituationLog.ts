@@ -61,7 +61,7 @@ export class SituationLog {
       newState.isDefeated !== this.state.isDefeated ||
       (newState.activeAlert !== null && this.state.activeAlert === null);
 
-    this.state = newState;
+    this.state = { ...newState };
 
     if (isMajorChange || currentTimeMs - this.lastEmitTime >= this.emitIntervalMs) {
       this.emitUpdate();

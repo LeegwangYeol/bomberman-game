@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { DynamicHazard, HazardLifecycleState } from '../src/game/hazards/index.ts';
+import { BaseBoss, BossState } from '../src/game/bosses/index.ts';
+import { CameraTraumaSimulator } from '../src/game/ultimate_skills.ts';
 
 const TILE_SIZE = 40;
 const ROWS = 13;
@@ -26,6 +29,87 @@ function createStandardMap() {
 }
 
 /**
+ * Headless Concrete Boss for Chaos Testing
+ */
+class TestFsmBoss extends BaseBoss {
+  constructor(maxHp = 100, x = 300, y = 260) {
+    super(
+      {
+        id: 'test_chaos_boss',
+        name: 'Chaos Test Boss',
+        title: 'Detonation Stress Dummy',
+        avatarEmoji: '👾',
+        maxHp,
+        footprintWidth: 80,
+        footprintHeight: 80,
+        colliderRadius: 35,
+        baseSpeed: 80,
+        phase2HpThreshold: 0.7,
+        phase3HpThreshold: 0.33,
+      },
+      x,
+      y
+    );
+    this.bossState = BossState.PHASE_1;
+    this.isInvulnerable = false;
+  }
+
+  canTakeDamage() {
+    return true;
+  }
+
+  updatePhase1() {}
+  updatePhase2() {}
+  updateEnraged() {}
+  onHitReceived() {}
+  onDamageBlocked() {}
+  onStateChanged() {}
+}
+
+/**
+ * Headless Hit-Stop Test Harness
+ */
+class HitStopTestHarness {
+  constructor() {
+    this.isHitStopActive = false;
+    this.lastHitStopMs = -9999;
+    this.pauseCallCount = 0;
+    this.resumeCallCount = 0;
+    this.isPhysicsPaused = false;
+    this.activeDelayedCalls = [];
+  }
+
+  triggerHitStop(nowMs, durationMs = 40) {
+    if (this.isHitStopActive || nowMs - this.lastHitStopMs < 150) {
+      return false;
+    }
+    this.isHitStopActive = true;
+    this.lastHitStopMs = nowMs;
+    this.isPhysicsPaused = true;
+    this.pauseCallCount++;
+
+    const call = {
+      targetTimeMs: nowMs + durationMs,
+      execute: () => {
+        this.isPhysicsPaused = false;
+        this.resumeCallCount++;
+        this.isHitStopActive = false;
+      },
+    };
+    this.activeDelayedCalls.push(call);
+    return true;
+  }
+
+  advanceTime(currentTimeMs) {
+    const pending = this.activeDelayedCalls.filter((c) => c.targetTimeMs <= currentTimeMs);
+    this.activeDelayedCalls = this.activeDelayedCalls.filter((c) => c.targetTimeMs > currentTimeMs);
+    for (const call of pending) {
+      call.execute();
+    }
+  }
+}
+
+/**
  * High-Fidelity Simulator for Bomb Placement, Multi-Stage Fuse, Blast Propagation & Chain Reactions.
  */
 class BombLifecycleSimulator {
@@ -34,14 +118,26 @@ class BombLifecycleSimulator {
     this.maxBombs = maxBombs;
     this.bombPower = bombPower;
     this.activeBombs = 0;
-    this.bombs = []; // { id, row, col, x, y, timeElapsed, stage, active }
-    this.explosions = []; // { row, col, isCenter }
+    this.bombs = []; // { id, row, col, x, y, timeElapsed, stage, active, power }
+    this.explosions = []; // { row, col, isCenter, bombId }
     this.destroyedBlocks = [];
     this.destroyedBlocksThisTick = new Set();
     this.nextId = 1;
+
+    // Subsystem extensions
+    this.dynamicHazard = null;
+    this.boss = null;
+    this.bossHitBombIds = new Set();
+    this.bossHitsByBombId = [];
+    this.rejectedBossHits = [];
+
+    // Call stack & recursion profiling
+    this.currentCallDepth = 0;
+    this.maxCallDepth = 0;
+    this.totalExplodeCalls = 0;
   }
 
-  placeBomb(playerX, playerY) {
+  placeBomb(playerX, playerY, customPower) {
     if (this.activeBombs >= this.maxBombs) return null;
 
     const col = Math.floor(playerX / TILE_SIZE);
@@ -54,7 +150,7 @@ class BombLifecycleSimulator {
     if (exists) return null;
 
     const bomb = {
-      id: this.nextId++,
+      id: `bomb_${this.nextId++}`,
       row,
       col,
       x: centerX,
@@ -64,6 +160,7 @@ class BombLifecycleSimulator {
       tint: 0xffffff,
       scale: 1.15,
       active: true,
+      power: customPower ?? this.bombPower,
     };
 
     this.bombs.push(bomb);
@@ -114,46 +211,116 @@ class BombLifecycleSimulator {
     bomb.active = false;
     this.activeBombs = Math.max(0, this.activeBombs - 1);
 
-    // Epicenter explosion
-    this.explosions.push({ row: bomb.row, col: bomb.col, isCenter: true });
+    this.currentCallDepth++;
+    if (this.currentCallDepth > this.maxCallDepth) {
+      this.maxCallDepth = this.currentCallDepth;
+    }
+    this.totalExplodeCalls++;
 
-    const directions = [
-      { dr: -1, dc: 0 },
-      { dr: 1, dc: 0 },
-      { dr: 0, dc: -1 },
-      { dr: 0, dc: 1 },
-    ];
+    try {
+      let effectivePower = bomb.power ?? this.bombPower;
 
-    for (const dir of directions) {
-      for (let i = 1; i <= this.bombPower; i++) {
-        const nr = bomb.row + dir.dr * i;
-        const nc = bomb.col + dir.dc * i;
+      // Dynamic Hazard: Tachyon Overcharge (+2 power if detonating within active beam)
+      if (this.dynamicHazard) {
+        const bombNumId = typeof bomb.id === 'string' ? parseInt(bomb.id.replace('bomb_', ''), 10) || 1 : bomb.id;
+        const hazardRes = this.dynamicHazard.onBombDetonated(
+          bombNumId,
+          bomb.row,
+          bomb.col,
+          effectivePower
+        );
+        if (hazardRes.overcharged) {
+          effectivePower = hazardRes.modifiedPower;
+        }
+      }
 
-        if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) break;
-        if (this.map[nr][nc] === TILE_WALL) break; // Halts on indestructible wall
+      // Epicenter explosion
+      this.explosions.push({ row: bomb.row, col: bomb.col, isCenter: true, bombId: bomb.id });
+      this.checkBossHit(bomb.row, bomb.col, bomb.id);
 
-        // PHYS-05: Prevent simultaneous blast ray piercing through destroyed blocks
-        const key = `${nr},${nc}`;
-        const isBlock = this.map[nr][nc] === TILE_BLOCK || this.destroyedBlocksThisTick.has(key);
+      // Spire polarization check on epicenter
+      if (this.dynamicHazard) {
+        this.dynamicHazard.onBombBlastImpact(bomb.row, bomb.col);
+      }
 
-        if (isBlock) {
-          this.destroyedBlocksThisTick.add(key);
-          if (this.map[nr][nc] === TILE_BLOCK) {
-            this.map[nr][nc] = TILE_EMPTY;
-            this.destroyedBlocks.push({ row: nr, col: nc });
+      // Epicenter chain reaction: detonate any other active bombs stacked on the same tile
+      const sameTileBombs = this.bombs.filter(b => b.active && b.row === bomb.row && b.col === bomb.col && b !== bomb);
+      for (const otherBomb of sameTileBombs) {
+        if (otherBomb.active) {
+          this.explodeBomb(otherBomb);
+        }
+      }
+
+      const directions = [
+        { dr: -1, dc: 0 },
+        { dr: 1, dc: 0 },
+        { dr: 0, dc: -1 },
+        { dr: 0, dc: 1 },
+      ];
+
+      for (const dir of directions) {
+        for (let i = 1; i <= effectivePower; i++) {
+          const nr = bomb.row + dir.dr * i;
+          const nc = bomb.col + dir.dc * i;
+
+          if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) break;
+          if (this.map[nr][nc] === TILE_WALL) break; // Halts on indestructible wall
+
+          // PHYS-05: Prevent simultaneous blast ray piercing through destroyed blocks
+          const key = `${nr},${nc}`;
+          const isBlock = this.map[nr][nc] === TILE_BLOCK || this.destroyedBlocksThisTick.has(key);
+
+          if (isBlock) {
+            this.destroyedBlocksThisTick.add(key);
+            if (this.map[nr][nc] === TILE_BLOCK) {
+              this.map[nr][nc] = TILE_EMPTY;
+              this.destroyedBlocks.push({ row: nr, col: nc });
+            }
+            this.explosions.push({ row: nr, col: nc, isCenter: false, bombId: bomb.id });
+            this.checkBossHit(nr, nc, bomb.id);
+            if (this.dynamicHazard) {
+              this.dynamicHazard.onBombBlastImpact(nr, nc);
+            }
+            break;
           }
-          this.explosions.push({ row: nr, col: nc, isCenter: false });
-          break;
-        }
 
-        // Empty tile: explosion continues
-        this.explosions.push({ row: nr, col: nc, isCenter: false });
+          // Empty tile: explosion continues
+          this.explosions.push({ row: nr, col: nc, isCenter: false, bombId: bomb.id });
+          this.checkBossHit(nr, nc, bomb.id);
+          if (this.dynamicHazard) {
+            this.dynamicHazard.onBombBlastImpact(nr, nc);
+          }
 
-        // Check for chain reaction with other bombs
-        const chainTarget = this.bombs.find(b => b.active && b.row === nr && b.col === nc);
-        if (chainTarget) {
-          this.explodeBomb(chainTarget);
+          // Check for chain reaction with other bombs (snapshot targets to prevent iteration mutation skips)
+          const chainTargets = this.bombs.filter(b => b.active && b.row === nr && b.col === nc);
+          for (const target of chainTargets) {
+            if (target.active) {
+              this.explodeBomb(target);
+            }
+          }
         }
+      }
+    } finally {
+      this.currentCallDepth--;
+    }
+  }
+
+  checkBossHit(row, col, bombId) {
+    if (!this.boss || this.boss.bossState === BossState.DEFEATED) return;
+    const x = col * TILE_SIZE + TILE_SIZE / 2;
+    const y = row * TILE_SIZE + TILE_SIZE / 2;
+    const dist = Math.hypot(x - this.boss.x, y - this.boss.y);
+    const reach = (this.boss.config.colliderRadius || 35) + 20;
+
+    if (dist < reach) {
+      if (!bombId || !this.bossHitBombIds.has(bombId)) {
+        if (bombId) {
+          this.bossHitBombIds.add(bombId);
+        }
+        this.boss.takeBombDamage(1, 'bomb');
+        this.bossHitsByBombId.push({ bombId, row, col, dist });
+      } else {
+        this.rejectedBossHits.push({ bombId, row, col, dist });
       }
     }
   }
@@ -709,5 +876,220 @@ test('CHAOS-05-05: Kicked bomb sliding into active chain reaction detonates at c
     !sim.explosions.some(e => e.row === 1 && e.col === 2 && e.isCenter),
     'Old Bomb 2 tile (1, 2) must NOT be an epicenter'
   );
+});
+
+test('CHAOS-05-06: 35-bomb interlocking cross-grid cascade with Dynamic Hazard beams executes with zero recursion overflow and finite call depth', () => {
+  const map = createStandardMap();
+  const hazard = new DynamicHazard();
+  hazard.init(map);
+  hazard.start('CLIMAX');
+  hazard.update(2000); // Transition COOLDOWN -> TELEGRAPH
+  hazard.update(2000); // Transition TELEGRAPH -> ACTIVE
+  assert.equal(hazard.getState(), HazardLifecycleState.ACTIVE);
+
+  const sim = new BombLifecycleSimulator(map, 50, 2);
+  sim.dynamicHazard = hazard;
+
+  // Interlocking cross-grid layout:
+  // Row 5: cols 1 through 13 (13 bombs)
+  for (let c = 1; c <= 13; c++) {
+    sim.placeBomb(c * TILE_SIZE + 20, 5 * TILE_SIZE + 20);
+  }
+  // Col 7: rows 1 through 11 (skip (5, 7) already placed -> 10 bombs)
+  for (let r = 1; r <= 11; r++) {
+    if (r !== 5) {
+      sim.placeBomb(7 * TILE_SIZE + 20, r * TILE_SIZE + 20);
+    }
+  }
+  // Row 6 (Hazard horizontal beam): cols 1, 3, 5, 9, 11, 13 (6 bombs)
+  for (const c of [1, 3, 5, 9, 11, 13]) {
+    sim.placeBomb(c * TILE_SIZE + 20, 6 * TILE_SIZE + 20);
+  }
+  // Row 7: cols 1, 3, 5, 9, 11, 13 (6 bombs)
+  for (const c of [1, 3, 5, 9, 11, 13]) {
+    sim.placeBomb(c * TILE_SIZE + 20, 7 * TILE_SIZE + 20);
+  }
+
+  assert.equal(sim.activeBombs, 35, 'Exactly 35 bombs placed in interlocking cross layout');
+
+  // Trigger cascade
+  sim.update(2000);
+
+  // 1. All 35 bombs must cleanly deactivate
+  assert.equal(sim.activeBombs, 0, 'All 35 bombs must be deactivated');
+
+  // 2. Call stack & recursion invariants:
+  assert.equal(sim.totalExplodeCalls, 35, 'Each bomb exploded exactly once');
+  assert.ok(sim.maxCallDepth > 0 && sim.maxCallDepth <= 35, `Max call depth (${sim.maxCallDepth}) must be <= total bombs`);
+  assert.equal(sim.currentCallDepth, 0, 'Call stack must unwind completely to depth 0');
+
+  // 3. Exactly 35 unique epicenter explosions
+  const centerExps = sim.explosions.filter(e => e.isCenter);
+  assert.equal(centerExps.length, 35, 'Exactly 35 epicenter explosions spawned');
+  const uniqueCenterCoords = new Set(centerExps.map(e => `${e.row},${e.col}`));
+  assert.equal(uniqueCenterCoords.size, 35, 'All 35 epicenters must be distinct coordinates');
+
+  // 4. Polarization of spires occurred from blast wave intersections
+  const anyPolarized = hazard['spires'].some(s => s.isPolarized);
+  assert.equal(anyPolarized, true, 'At least one Spire crystal was polarized by blast wave impact');
+});
+
+test('CHAOS-05-07: PHYS-06 strict invariant under 40-bomb dense cross-blast intersection verifies each bomb ID damages boss exactly once', () => {
+  const map = createStandardMap();
+  const hazard = new DynamicHazard();
+  hazard.init(map);
+  hazard.start('CLIMAX');
+  hazard.update(2000);
+  hazard.update(2000);
+  assert.equal(hazard.getState(), HazardLifecycleState.ACTIVE);
+
+  // Concrete boss placed at Nexus corridor intersection (row 6, col 7) -> (300, 260)
+  const boss = new TestFsmBoss(200, 7 * TILE_SIZE + 20, 6 * TILE_SIZE + 20);
+  assert.equal(boss.bossState, BossState.PHASE_1);
+  assert.equal(boss.isInvulnerable, false);
+  const startHp = boss.currentHp;
+
+  const sim = new BombLifecycleSimulator(map, 60, 2);
+  sim.dynamicHazard = hazard;
+  sim.boss = boss;
+
+  // Place 40 bombs across multiple intersecting corridors:
+  // Row 5: cols 1 through 13 (13)
+  for (let c = 1; c <= 13; c++) sim.placeBomb(c * TILE_SIZE + 20, 5 * TILE_SIZE + 20);
+  // Row 7: cols 1 through 13 (13)
+  for (let c = 1; c <= 13; c++) sim.placeBomb(c * TILE_SIZE + 20, 7 * TILE_SIZE + 20);
+  // Col 7: rows 1 through 11 (skip 5 and 7 which already have bombs, skip 6 which is boss) (8)
+  for (let r = 1; r <= 11; r++) {
+    if (r !== 5 && r !== 6 && r !== 7) sim.placeBomb(7 * TILE_SIZE + 20, r * TILE_SIZE + 20);
+  }
+  // Row 6: cols 1, 3, 5, 9, 11, 13 (6)
+  for (const c of [1, 3, 5, 9, 11, 13]) sim.placeBomb(c * TILE_SIZE + 20, 6 * TILE_SIZE + 20);
+
+  assert.equal(sim.activeBombs, 40, '40 bombs positioned for dense boss intersection barrage');
+
+  // Detonate all bombs via cascade
+  sim.update(2000);
+
+  // 1. All bombs cleared
+  assert.equal(sim.activeBombs, 0);
+  assert.equal(sim.totalExplodeCalls, 40);
+
+  // 2. Boss damage verification
+  const uniqueHits = sim.bossHitsByBombId.length;
+  const rejectedHits = sim.rejectedBossHits.length;
+  const totalBossBlastIntersections = uniqueHits + rejectedHits;
+  assert.ok(totalBossBlastIntersections > 0, 'Must have recorded blast intersections');
+  assert.ok(rejectedHits > 0, `Multiple blast tiles from the same bombs should be rejected (got ${rejectedHits})`);
+
+  // 3. PHYS-06 Invariant: Each bomb ID damages boss EXACTLY ONCE
+  const hitIds = sim.bossHitsByBombId.map(h => h.bombId);
+  const uniqueHitIds = new Set(hitIds);
+  assert.equal(uniqueHitIds.size, uniqueHits, 'All registered boss hits must originate from distinct bomb IDs');
+
+  // Verify every rejected hit came from a bombId already in uniqueHitIds
+  for (const rej of sim.rejectedBossHits) {
+    assert.ok(uniqueHitIds.has(rej.bombId), `Rejected hit from ${rej.bombId} must already have registered an earlier hit`);
+  }
+
+  // 4. Exact HP arithmetic check
+  const actualDamageTaken = startHp - boss.currentHp;
+  assert.equal(actualDamageTaken, uniqueHits, 'Boss HP reduction must equal the exact number of unique bomb IDs, not total tiles');
+});
+
+test('CHAOS-05-08: Dual Tachyon Overcharge (+2 power) and Spire Polarization during 40-bomb chain cascade maintains deterministic blast bounds and zero re-entrancy', () => {
+  const map = createStandardMap();
+  const hazard = new DynamicHazard();
+  hazard.init(map);
+  hazard.start('CLIMAX');
+  hazard.update(2000);
+  hazard.update(2000);
+
+  const sim = new BombLifecycleSimulator(map, 50, 2);
+  sim.dynamicHazard = hazard;
+
+  // Place bombs on active Tachyon beam: Row 6, cols 1, 3, 5, 7, 9, 11, 13
+  for (const c of [1, 3, 5, 7, 9, 11, 13]) {
+    sim.placeBomb(c * TILE_SIZE + 20, 6 * TILE_SIZE + 20);
+  }
+  // Place bombs on Col 7 (vertical beam): rows 1, 3, 5, 7, 9, 11
+  for (const r of [1, 3, 5, 7, 9, 11]) {
+    sim.placeBomb(7 * TILE_SIZE + 20, r * TILE_SIZE + 20);
+  }
+
+  assert.equal(sim.activeBombs, 13);
+  sim.update(2000);
+
+  assert.equal(sim.activeBombs, 0);
+
+  // Invariant: No explosion ever spawned on outer wall or interior pillars, despite +2 Tachyon overcharge
+  for (const exp of sim.explosions) {
+    assert.notEqual(map[exp.row][exp.col], TILE_WALL, `Explosion spawned on wall tile (${exp.row}, ${exp.col})`);
+    assert.ok(exp.row > 0 && exp.row < ROWS - 1, 'Row out of bounds');
+    assert.ok(exp.col > 0 && exp.col < COLS - 1, 'Col out of bounds');
+  }
+});
+
+test('CHAOS-05-09: Closed-loop cyclic bomb graph (mutual triggers) resolves deterministically with zero infinite recursion', () => {
+  const map = createStandardMap();
+  const sim = new BombLifecycleSimulator(map, 10, 3); // power = 3
+
+  // 4 bombs in a mutual trigger loop in open corridor junction:
+  // (1, 1), (1, 3), (3, 3), (3, 1)
+  sim.placeBomb(1 * TILE_SIZE + 20, 1 * TILE_SIZE + 20);
+  sim.placeBomb(3 * TILE_SIZE + 20, 1 * TILE_SIZE + 20);
+  sim.placeBomb(3 * TILE_SIZE + 20, 3 * TILE_SIZE + 20);
+  sim.placeBomb(1 * TILE_SIZE + 20, 3 * TILE_SIZE + 20);
+
+  assert.equal(sim.activeBombs, 4);
+
+  // Detonate Bomb 1 at t=2000ms
+  sim.update(2000);
+
+  // All 4 bombs should detonate in the chain reaction
+  assert.equal(sim.activeBombs, 0, 'All 4 cyclic bombs cleared');
+  assert.equal(sim.totalExplodeCalls, 4, 'Each bomb in cycle detonated exactly once (no cyclic re-entrancy)');
+  assert.ok(sim.maxCallDepth <= 4, `Max call depth (${sim.maxCallDepth}) must be <= 4`);
+  assert.equal(sim.currentCallDepth, 0, 'Call depth cleanly returned to 0');
+});
+
+test('CHAOS-05-10: 50-bomb simultaneous detonation with HitStop debounce and Camera Trauma simulator maintains bounded pause and clamped trauma', () => {
+  const traumaSim = new CameraTraumaSimulator(18, 3.5, 1.4);
+  const hitStopHarness = new HitStopTestHarness();
+  const nowMs = 5000;
+
+  let acceptedHitStops = 0;
+  let rejectedHitStops = 0;
+
+  // 50 bombs explode in the very same frame
+  for (let i = 0; i < 50; i++) {
+    traumaSim.addTrauma(0.35);
+    const accepted = hitStopHarness.triggerHitStop(nowMs, 35);
+    if (accepted) {
+      acceptedHitStops++;
+    } else {
+      rejectedHitStops++;
+    }
+  }
+
+  // Hit-Stop invariants
+  assert.equal(acceptedHitStops, 1, 'Exactly 1 hit-stop trigger permitted among 50 simultaneous detonations');
+  assert.equal(rejectedHitStops, 49, '49 simultaneous triggers debounced');
+  assert.equal(hitStopHarness.isPhysicsPaused, true, 'Physics paused');
+
+  // Advance time to conclude hit-stop
+  hitStopHarness.advanceTime(nowMs + 35);
+  assert.equal(hitStopHarness.isPhysicsPaused, false, 'Physics resumed cleanly');
+
+  // Camera trauma invariants
+  assert.equal(traumaSim.trauma, 1.0, 'Trauma saturated at strictly 1.0');
+  const mag = traumaSim.getShakeMagnitude();
+  assert.equal(mag.offsetPx, 18.0, 'Offset clamped at maxOffset');
+  assert.equal(mag.angleDeg, 3.5, 'Angle clamped at maxAngle');
+
+  // 60 frames (1.0 sec) decay
+  for (let f = 0; f < 60; f++) {
+    traumaSim.update(1 / 60);
+  }
+  assert.equal(traumaSim.trauma, 0.0, 'Trauma decayed to 0.0');
 });
 

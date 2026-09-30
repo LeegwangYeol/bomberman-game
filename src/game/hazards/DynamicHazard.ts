@@ -80,12 +80,55 @@ export const PLAYER_HAZARD_DAMAGE = 25;
 export const ENEMY_HAZARD_DAMAGE = 120;
 export const BOSS_HAZARD_DAMAGE_RATIO = 0.15;
 export const BOSS_STUN_DURATION_MS = 1500;
+export const ENEMY_VAPORIZE_SCORE = 100;
+export const ENEMY_VAPORIZE_ULTIMATE_CHARGE = 5;
+export const FLOATING_TEXT_VAPORIZED = '⚡ VAPORIZED!';
+export const FLOATING_TEXT_BOSS_STUNNED = '⚡ STUNNED (1.5s)!';
 export const PHASE_JITTER_DURATION_MS = 2000;
+export const TUNNELING_INVULNERABILITY_MS = 1000;
+export const FLOATING_TEXT_QUANTUM_PHASED = '✦ QUANTUM PHASED!';
 
 export const MAX_SPIRE_NODES = 5;
 export const MAX_BEAM_TILES = 32;
 export const MAX_GHOST_BOMBS = 16;
 export const MIN_SAFE_AREA_RATIO = 0.4;
+
+export const SAFE_EJECTION_DIRS: readonly { dr: number; dc: number }[] = [
+  { dr: -1, dc: 0 },
+  { dr: 1, dc: 0 },
+  { dr: 0, dc: -1 },
+  { dr: 0, dc: 1 },
+];
+
+/**
+ * Tactical Bomb Interaction Scratch Result Containers
+ */
+export interface BombPlacedResult {
+  isEntangled: boolean;
+  ghostBombId?: number;
+  modifiedFuseMs: number;
+  pairedR?: number;
+  pairedC?: number;
+}
+
+export interface BombDetonatedResult {
+  overcharged: boolean;
+  modifiedPower: number;
+  piercing: boolean;
+  pairedGhostBombIds: (number | string)[];
+}
+
+export interface BombBlastImpactResult {
+  polarized: boolean;
+  spireId?: number;
+  cleansedTileCount: number;
+}
+
+export interface SafeEjectionResult {
+  r: number;
+  c: number;
+  displaced: boolean;
+}
 
 /**
  * Pre-allocated Spire Node Structure
@@ -107,7 +150,7 @@ export interface SpireNode {
 export interface GhostBombSlot {
   active: boolean;
   id: number;
-  parentBombId: number;
+  parentBombId: number | string;
   r: number;
   c: number;
   fuseMs: number;
@@ -124,6 +167,8 @@ export interface PlayerCollisionResult {
   isLethal: boolean;
   tunneled: boolean;
   phaseShiftGranted: boolean;
+  phaseShiftDurationMs: number;
+  floatingText: string;
   phaseJitterInflicted: boolean;
   jitterDurationMs: number;
 }
@@ -138,6 +183,8 @@ export interface EnemyCollisionResult {
   isStunned: boolean;
   stunDurationMs: number;
   scoreBonus: number;
+  ultimateChargeBonus: number;
+  floatingText: string;
 }
 
 /**
@@ -188,6 +235,8 @@ export class DynamicHazard {
     isLethal: false,
     tunneled: false,
     phaseShiftGranted: false,
+    phaseShiftDurationMs: 0,
+    floatingText: '',
     phaseJitterInflicted: false,
     jitterDurationMs: 0,
   };
@@ -199,7 +248,39 @@ export class DynamicHazard {
     isStunned: false,
     stunDurationMs: 0,
     scoreBonus: 0,
+    ultimateChargeBonus: 0,
+    floatingText: '',
   };
+
+  private readonly scratchBombPlacedResult: BombPlacedResult = {
+    isEntangled: false,
+    ghostBombId: undefined,
+    modifiedFuseMs: 0,
+    pairedR: undefined,
+    pairedC: undefined,
+  };
+
+  private readonly scratchBombDetonatedResult: BombDetonatedResult = {
+    overcharged: false,
+    modifiedPower: 0,
+    piercing: false,
+    pairedGhostBombIds: [],
+  };
+
+  private readonly scratchBombBlastImpactResult: BombBlastImpactResult = {
+    polarized: false,
+    spireId: undefined,
+    cleansedTileCount: 0,
+  };
+
+  private readonly scratchSafeEjectionResult: SafeEjectionResult = {
+    r: 0,
+    c: 0,
+    displaced: false,
+  };
+
+  // Pre-allocated scratch buffer for Zero-GC getActiveGhostBombs queries
+  private readonly activeGhostBombsList: GhostBombSlot[] = [];
 
   // Map representation reference for wall/block checks
   private mapRef: number[][] | null = null;
@@ -273,10 +354,19 @@ export class DynamicHazard {
     }
   }
 
+  // Player position reference for spatial queries
+  private playerPosRef: { r: number; c: number; x?: number; y?: number } | null = null;
+
   /**
    * Main per-frame update loop — Strictly adheres to Zero-GC invariants
    */
-  public update(deltaMs: number): void {
+  public update(deltaMs: number, playerPos?: { r: number; c: number; x?: number; y?: number }): void {
+    if (typeof deltaMs !== 'number' || !Number.isFinite(deltaMs) || deltaMs <= 0) {
+      return;
+    }
+    if (playerPos) {
+      this.playerPosRef = playerPos;
+    }
     if (this.lifecycleState === HazardLifecycleState.INACTIVE) {
       return;
     }
@@ -290,6 +380,9 @@ export class DynamicHazard {
         if (this.spires[i].polarizeTimerMs <= 0) {
           this.spires[i].isPolarized = false;
           this.spires[i].polarizeTimerMs = 0;
+          if (this.lifecycleState === HazardLifecycleState.ACTIVE || this.lifecycleState === HazardLifecycleState.TELEGRAPH) {
+            this.recomputeBeams(this.lifecycleState === HazardLifecycleState.TELEGRAPH);
+          }
         }
       }
     }
@@ -406,71 +499,80 @@ export class DynamicHazard {
   }
 
   /**
+   * Internal corridor drawing helper for TypedArray rasterization
+   */
+  private addCorridor(
+    r1: number,
+    c1: number,
+    r2: number,
+    c2: number,
+    isPolarized: boolean,
+    isTelegraph: boolean
+  ): void {
+    const minR = Math.min(r1, r2);
+    const maxR = Math.max(r1, r2);
+    const minC = Math.min(c1, c2);
+    const maxC = Math.max(c1, c2);
+
+    const dangerCode = isTelegraph ? 1 : isPolarized ? 3 : 2;
+
+    if (r1 === r2) {
+      // Horizontal Corridor
+      for (let c = minC; c <= maxC; c++) {
+        if (this.isWalkableOrPiercable(r1, c)) {
+          const idx = r1 * COLS + c;
+          if (this.dangerMask[idx] === 0) {
+            this.dangerMask[idx] = dangerCode;
+            if (this.activeBeamCount < MAX_BEAM_TILES) {
+              this.activeBeamIndices[this.activeBeamCount++] = idx;
+            }
+          } else if (dangerCode === 2 && this.dangerMask[idx] === 3) {
+            // Non-polarized takes precedence if lethal
+            this.dangerMask[idx] = dangerCode;
+          }
+        }
+      }
+    } else if (c1 === c2) {
+      // Vertical Corridor
+      for (let r = minR; r <= maxR; r++) {
+        if (this.isWalkableOrPiercable(r, c1)) {
+          const idx = r * COLS + c1;
+          if (this.dangerMask[idx] === 0) {
+            this.dangerMask[idx] = dangerCode;
+            if (this.activeBeamCount < MAX_BEAM_TILES) {
+              this.activeBeamIndices[this.activeBeamCount++] = idx;
+            }
+          } else if (dangerCode === 2 && this.dangerMask[idx] === 3) {
+            this.dangerMask[idx] = dangerCode;
+          }
+        }
+      }
+    }
+  }
+
+  /**
    * Computes beam path between paired spires and writes to 1D TypedArrays
    */
   private recomputeBeams(isTelegraph: boolean): void {
     this.clearBeams();
 
-    // Helper to add line of tiles between two points
-    const addCorridor = (r1: number, c1: number, r2: number, c2: number, isPolarized: boolean) => {
-      const minR = Math.min(r1, r2);
-      const maxR = Math.max(r1, r2);
-      const minC = Math.min(c1, c2);
-      const maxC = Math.max(c1, c2);
-
-      const dangerCode = isTelegraph ? 1 : isPolarized ? 3 : 2;
-
-      if (r1 === r2) {
-        // Horizontal Corridor
-        for (let c = minC; c <= maxC; c++) {
-          if (this.isWalkableOrPiercable(r1, c)) {
-            const idx = r1 * COLS + c;
-            if (this.dangerMask[idx] === 0) {
-              this.dangerMask[idx] = dangerCode;
-              if (this.activeBeamCount < MAX_BEAM_TILES) {
-                this.activeBeamIndices[this.activeBeamCount++] = idx;
-              }
-            } else if (dangerCode === 2 && this.dangerMask[idx] === 3) {
-              // Non-polarized takes precedence if lethal
-              this.dangerMask[idx] = dangerCode;
-            }
-          }
-        }
-      } else if (c1 === c2) {
-        // Vertical Corridor
-        for (let r = minR; r <= maxR; r++) {
-          if (this.isWalkableOrPiercable(r, c1)) {
-            const idx = r * COLS + c1;
-            if (this.dangerMask[idx] === 0) {
-              this.dangerMask[idx] = dangerCode;
-              if (this.activeBeamCount < MAX_BEAM_TILES) {
-                this.activeBeamIndices[this.activeBeamCount++] = idx;
-              }
-            } else if (dangerCode === 2 && this.dangerMask[idx] === 3) {
-              this.dangerMask[idx] = dangerCode;
-            }
-          }
-        }
-      }
-    };
-
     if (this.activePairMode === 2) {
       // CLIMAX: Full cross-axis beams through Nexus C0(6, 7): Row 6 (1..13) and Col 7 (1..11)
       const isPolarizedRow = this.spires[2].isPolarized || this.spires[3].isPolarized;
       const isPolarizedCol = this.spires[0].isPolarized || this.spires[1].isPolarized || this.spires[4].isPolarized;
-      addCorridor(6, 1, 6, 13, isPolarizedRow); // 13 tiles
-      addCorridor(1, 7, 11, 7, isPolarizedCol); // 11 tiles (intersects at 6,7 -> 23 total)
+      this.addCorridor(6, 1, 6, 13, isPolarizedRow, isTelegraph); // 13 tiles
+      this.addCorridor(1, 7, 11, 7, isPolarizedCol, isTelegraph); // 11 tiles (intersects at 6,7 -> 23 total)
       // Also include anchors S0(3,4) & S1(9,4)
-      addCorridor(3, 4, 3, 4, isPolarizedCol);
-      addCorridor(9, 4, 9, 4, isPolarizedCol);
+      this.addCorridor(3, 4, 3, 4, isPolarizedCol, isTelegraph);
+      this.addCorridor(9, 4, 9, 4, isPolarizedCol, isTelegraph);
     } else if (this.activePairMode === 0) {
       // Pair Alpha (Vertical, Col 4, rows 3..9)
       const isPolarized = this.spires[0].isPolarized || this.spires[1].isPolarized;
-      addCorridor(this.spires[0].r, this.spires[0].c, this.spires[1].r, this.spires[1].c, isPolarized);
+      this.addCorridor(this.spires[0].r, this.spires[0].c, this.spires[1].r, this.spires[1].c, isPolarized, isTelegraph);
     } else {
       // Pair Beta (Horizontal, Row 6, cols 3..11)
       const isPolarized = this.spires[2].isPolarized || this.spires[3].isPolarized;
-      addCorridor(this.spires[2].r, this.spires[2].c, this.spires[3].r, this.spires[3].c, isPolarized);
+      this.addCorridor(this.spires[2].r, this.spires[2].c, this.spires[3].r, this.spires[3].c, isPolarized, isTelegraph);
     }
   }
 
@@ -544,7 +646,8 @@ export class DynamicHazard {
     playerR: number,
     playerC: number,
     isDashing: boolean = false,
-    dashElapsedMs: number = 0
+    dashElapsedMs: number = 0,
+    isInvulnerable: boolean = false
   ): PlayerCollisionResult {
     const res = this.scratchPlayerResult;
     res.hit = false;
@@ -552,10 +655,26 @@ export class DynamicHazard {
     res.isLethal = false;
     res.tunneled = false;
     res.phaseShiftGranted = false;
+    res.phaseShiftDurationMs = 0;
+    res.floatingText = '';
     res.phaseJitterInflicted = false;
     res.jitterDurationMs = 0;
 
     if (this.lifecycleState !== HazardLifecycleState.ACTIVE) {
+      return res;
+    }
+
+    // Input sanitization: reject NaN, Infinity, negative, out-of-bounds coordinates
+    if (
+      typeof playerR !== 'number' ||
+      typeof playerC !== 'number' ||
+      !Number.isFinite(playerR) ||
+      !Number.isFinite(playerC) ||
+      playerR < 0 ||
+      playerR >= ROWS ||
+      playerC < 0 ||
+      playerC >= COLS
+    ) {
       return res;
     }
 
@@ -572,12 +691,27 @@ export class DynamicHazard {
     if (tileCode === 2) {
       res.hit = true;
 
+      // Shield Invulnerability Check: Invulnerable players take 0 damage and no debuffs
+      if (isInvulnerable) {
+        res.damage = 0;
+        res.isLethal = false;
+        res.phaseJitterInflicted = false;
+        return res;
+      }
+
       // Quantum Tunneling Check
       const activeElapsed = DURATION_ACTIVE_BEAM_MS - this.activeRemainingMs;
-      if (isDashing && activeElapsed <= TUNNELING_WINDOW_MS && dashElapsedMs <= TUNNELING_WINDOW_MS) {
+      const safeDashElapsed =
+        typeof dashElapsedMs === 'number' && Number.isFinite(dashElapsedMs)
+          ? Math.max(0, dashElapsedMs)
+          : 0;
+
+      if (isDashing && activeElapsed <= TUNNELING_WINDOW_MS && safeDashElapsed <= TUNNELING_WINDOW_MS) {
         res.damage = 0;
         res.tunneled = true;
         res.phaseShiftGranted = true;
+        res.phaseShiftDurationMs = TUNNELING_INVULNERABILITY_MS;
+        res.floatingText = FLOATING_TEXT_QUANTUM_PHASED;
         return res;
       }
 
@@ -594,8 +728,8 @@ export class DynamicHazard {
 
   /**
    * Evaluates Enemy Collision against active hazard beam
-   * - Minion: 120 Environmental Damage (vaporized)
-   * - Elite/Boss: 15% Max HP damage + 1.5s Stun
+   * - Minion: 120 Environmental Damage (vaporized), +100 score, +5% ult, '⚡ VAPORIZED!'
+   * - Elite/Boss: 15% Max HP damage + 1.5s Stun, '⚡ STUNNED (1.5s)!'
    */
   public checkEnemyCollision(
     enemyR: number,
@@ -609,6 +743,8 @@ export class DynamicHazard {
     res.isStunned = false;
     res.stunDurationMs = 0;
     res.scoreBonus = 0;
+    res.ultimateChargeBonus = 0;
+    res.floatingText = '';
 
     if (this.lifecycleState !== HazardLifecycleState.ACTIVE) {
       return res;
@@ -621,14 +757,49 @@ export class DynamicHazard {
         res.damage = 15; // 15% Max HP
         res.isStunned = true;
         res.stunDurationMs = BOSS_STUN_DURATION_MS;
+        res.ultimateChargeBonus = 0;
+        res.floatingText = FLOATING_TEXT_BOSS_STUNNED;
       } else {
         res.damage = ENEMY_HAZARD_DAMAGE;
         res.isVaporized = true;
-        res.scoreBonus = 100;
+        res.scoreBonus = ENEMY_VAPORIZE_SCORE;
+        res.ultimateChargeBonus = ENEMY_VAPORIZE_ULTIMATE_CHARGE;
+        res.floatingText = FLOATING_TEXT_VAPORIZED;
       }
     }
 
     return res;
+  }
+
+  /**
+   * Evaluates Enemy Collision against active hazard beam (checkEnemyCollisions batch/overload)
+   * Supports:
+   * 1. checkEnemyCollisions(enemyR: number, enemyC: number, isBoss?: boolean): EnemyCollisionResult
+   * 2. checkEnemyCollisions(enemies: Array<{ r: number; c: number; isBoss?: boolean }>): EnemyCollisionResult[]
+   */
+  public checkEnemyCollisions(
+    enemyR: number,
+    enemyC: number,
+    isBoss?: boolean
+  ): EnemyCollisionResult;
+  public checkEnemyCollisions(
+    enemies: Array<{ r: number; c: number; isBoss?: boolean }>
+  ): EnemyCollisionResult[];
+  public checkEnemyCollisions(
+    targetOrR: number | Array<{ r: number; c: number; isBoss?: boolean }>,
+    enemyC?: number,
+    isBoss: boolean = false
+  ): EnemyCollisionResult | EnemyCollisionResult[] {
+    if (typeof targetOrR === 'number') {
+      return this.checkEnemyCollision(targetOrR, enemyC ?? 0, isBoss);
+    }
+    const results: EnemyCollisionResult[] = [];
+    for (let i = 0; i < targetOrR.length; i++) {
+      const e = targetOrR[i];
+      const res = this.checkEnemyCollision(e.r, e.c, Boolean(e.isBoss));
+      results.push({ ...res });
+    }
+    return results;
   }
 
   /* ==============================================================================
@@ -641,13 +812,36 @@ export class DynamicHazard {
    * 2. Quantum Entanglement: Placing bomb adjacent/on Spire creates Ghost Bomb at paired Spire
    */
   public onBombPlaced(
-    bombId: number,
+    bombId: number | string,
     r: number,
     c: number,
     power: number,
     fuseMs: number = STANDARD_FUSE_MS
-  ): { isEntangled: boolean; ghostBombId?: number; modifiedFuseMs: number } {
-    let modifiedFuseMs = fuseMs;
+  ): BombPlacedResult {
+    const res = this.scratchBombPlacedResult;
+    res.isEntangled = false;
+    res.ghostBombId = undefined;
+
+    const safePower = typeof power === 'number' && Number.isFinite(power) ? Math.max(1, Math.floor(power)) : 1;
+    const safeFuse = typeof fuseMs === 'number' && Number.isFinite(fuseMs) ? Math.max(100, Math.floor(fuseMs)) : STANDARD_FUSE_MS;
+    res.modifiedFuseMs = safeFuse;
+    res.pairedR = undefined;
+    res.pairedC = undefined;
+
+    if (
+      typeof r !== 'number' ||
+      typeof c !== 'number' ||
+      !Number.isFinite(r) ||
+      !Number.isFinite(c) ||
+      r < 0 ||
+      r >= ROWS ||
+      c < 0 ||
+      c >= COLS
+    ) {
+      return res;
+    }
+
+    let modifiedFuseMs = safeFuse;
     let targetSpire: SpireNode | null = null;
 
     // Check if on Spire
@@ -671,6 +865,8 @@ export class DynamicHazard {
       }
     }
 
+    res.modifiedFuseMs = modifiedFuseMs;
+
     if (targetSpire && targetSpire.pairId >= 0) {
       const pairedSpire = this.spires[targetSpire.pairId];
       // Acquire slot from pre-allocated ghost bomb pool
@@ -683,22 +879,19 @@ export class DynamicHazard {
           slot.r = pairedSpire.r;
           slot.c = pairedSpire.c;
           slot.fuseMs = modifiedFuseMs;
-          slot.power = power;
+          slot.power = safePower;
           slot.isEntangled = true;
 
-          return {
-            isEntangled: true,
-            ghostBombId: slot.id,
-            modifiedFuseMs,
-          };
+          res.isEntangled = true;
+          res.ghostBombId = slot.id;
+          res.pairedR = pairedSpire.r;
+          res.pairedC = pairedSpire.c;
+          return res;
         }
       }
     }
 
-    return {
-      isEntangled: false,
-      modifiedFuseMs,
-    };
+    return res;
   }
 
   /**
@@ -707,38 +900,56 @@ export class DynamicHazard {
    * 2. Tachyon Overcharge (+2 blast power if detonating within active beam)
    */
   public onBombDetonated(
-    bombId: number,
+    bombId: number | string,
     r: number,
     c: number,
     power: number
-  ): {
-    overcharged: boolean;
-    modifiedPower: number;
-    piercing: boolean;
-    pairedGhostBombIds: number[];
-  } {
+  ): BombDetonatedResult {
+    const res = this.scratchBombDetonatedResult;
+    res.pairedGhostBombIds.length = 0;
+
+    const safePower = typeof power === 'number' && Number.isFinite(power) ? Math.max(1, Math.floor(power)) : 1;
+
+    if (
+      typeof r !== 'number' ||
+      typeof c !== 'number' ||
+      !Number.isFinite(r) ||
+      !Number.isFinite(c) ||
+      r < 0 ||
+      r >= ROWS ||
+      c < 0 ||
+      c >= COLS
+    ) {
+      res.overcharged = false;
+      res.modifiedPower = safePower;
+      res.piercing = false;
+      return res;
+    }
+
     const idx = r * COLS + c;
     const isOvercharged = this.lifecycleState === HazardLifecycleState.ACTIVE && this.dangerMask[idx] > 0;
-    const modifiedPower = isOvercharged ? power + 2 : power;
+    const modifiedPower = isOvercharged ? safePower + 2 : safePower;
     const piercing = isOvercharged;
 
-    const pairedGhostBombIds: number[] = [];
+    res.overcharged = isOvercharged;
+    res.modifiedPower = modifiedPower;
+    res.piercing = piercing;
 
-    // Detonate any active ghost bombs linked to this bomb
+    // Detonate any active ghost bombs linked to this bomb (bidirectional synchronization)
     for (let i = 0; i < this.ghostBombPool.length; i++) {
       const slot = this.ghostBombPool[i];
-      if (slot.active && (slot.parentBombId === bombId || slot.id === bombId)) {
-        pairedGhostBombIds.push(slot.id);
-        slot.active = false;
+      if (slot.active) {
+        if (slot.parentBombId === bombId) {
+          res.pairedGhostBombIds.push(slot.id);
+          slot.active = false;
+        } else if (slot.id === bombId) {
+          res.pairedGhostBombIds.push(slot.parentBombId);
+          slot.active = false;
+        }
       }
     }
 
-    return {
-      overcharged: isOvercharged,
-      modifiedPower,
-      piercing,
-      pairedGhostBombIds,
-    };
+    return res;
   }
 
   /**
@@ -747,11 +958,25 @@ export class DynamicHazard {
    * - Polarizes the spire pair for 8000ms
    * - Cleanses surrounding 3x3 tiles
    */
-  public onBombBlastImpact(r: number, c: number): {
-    polarized: boolean;
-    spireId?: number;
-    cleansedTileCount: number;
-  } {
+  public onBombBlastImpact(r: number, c: number): BombBlastImpactResult {
+    const res = this.scratchBombBlastImpactResult;
+    res.polarized = false;
+    res.spireId = undefined;
+    res.cleansedTileCount = 0;
+
+    if (
+      typeof r !== 'number' ||
+      typeof c !== 'number' ||
+      !Number.isFinite(r) ||
+      !Number.isFinite(c) ||
+      r < 0 ||
+      r >= ROWS ||
+      c < 0 ||
+      c >= COLS
+    ) {
+      return res;
+    }
+
     for (let i = 0; i < this.spires.length; i++) {
       const spire = this.spires[i];
       if (spire.r === r && spire.c === c) {
@@ -763,6 +988,11 @@ export class DynamicHazard {
           const paired = this.spires[spire.pairId];
           paired.isPolarized = true;
           paired.polarizeTimerMs = POLARIZATION_DURATION_MS;
+        }
+
+        // If spire is hit during TELEGRAPH or ACTIVE, update beams immediately into golden safe channels
+        if (this.lifecycleState === HazardLifecycleState.ACTIVE || this.lifecycleState === HazardLifecycleState.TELEGRAPH) {
+          this.recomputeBeams(this.lifecycleState === HazardLifecycleState.TELEGRAPH);
         }
 
         // Count cleansed 3x3 tiles
@@ -777,25 +1007,41 @@ export class DynamicHazard {
           }
         }
 
-        return {
-          polarized: true,
-          spireId: spire.id,
-          cleansedTileCount: cleansed,
-        };
+        res.polarized = true;
+        res.spireId = spire.id;
+        res.cleansedTileCount = cleansed;
+        return res;
       }
     }
 
-    return {
-      polarized: false,
-      cleansedTileCount: 0,
-    };
+    return res;
   }
 
   /**
    * Spatial Ejection Safeguard:
    * Safely displaces an entity standing on an activating Spire anchor to adjacent empty tile
    */
-  public resolveSafeEjection(r: number, c: number): { r: number; c: number; displaced: boolean } {
+  public resolveSafeEjection(r: number, c: number): SafeEjectionResult {
+    const res = this.scratchSafeEjectionResult;
+    res.r = r;
+    res.c = c;
+    res.displaced = false;
+
+    if (
+      typeof r !== 'number' ||
+      typeof c !== 'number' ||
+      !Number.isFinite(r) ||
+      !Number.isFinite(c) ||
+      r < 0 ||
+      r >= ROWS ||
+      c < 0 ||
+      c >= COLS
+    ) {
+      res.r = 1;
+      res.c = 1;
+      return res;
+    }
+
     let isAnchor = false;
     for (let i = 0; i < this.spires.length; i++) {
       if (this.spires[i].r === r && this.spires[i].c === c) {
@@ -805,25 +1051,21 @@ export class DynamicHazard {
     }
 
     if (!isAnchor) {
-      return { r, c, displaced: false };
+      return res;
     }
 
-    const DIRS = [
-      { dr: -1, dc: 0 },
-      { dr: 1, dc: 0 },
-      { dr: 0, dc: -1 },
-      { dr: 0, dc: 1 },
-    ];
-
-    for (let i = 0; i < DIRS.length; i++) {
-      const tr = r + DIRS[i].dr;
-      const tc = c + DIRS[i].dc;
+    for (let i = 0; i < SAFE_EJECTION_DIRS.length; i++) {
+      const tr = r + SAFE_EJECTION_DIRS[i].dr;
+      const tc = c + SAFE_EJECTION_DIRS[i].dc;
       if (this.isWalkableOrPiercable(tr, tc)) {
-        return { r: tr, c: tc, displaced: true };
+        res.r = tr;
+        res.c = tc;
+        res.displaced = true;
+        return res;
       }
     }
 
-    return { r, c, displaced: false };
+    return res;
   }
 
   /**
@@ -856,6 +1098,76 @@ export class DynamicHazard {
   }
 
   public getActiveGhostBombs(): readonly GhostBombSlot[] {
-    return this.ghostBombPool.filter((b) => b.active);
+    this.activeGhostBombsList.length = 0;
+    for (let i = 0; i < this.ghostBombPool.length; i++) {
+      const slot = this.ghostBombPool[i];
+      if (slot.active) {
+        this.activeGhostBombsList.push(slot);
+      }
+    }
+    return this.activeGhostBombsList;
+  }
+
+  /**
+   * Returns count of currently active ghost bombs without any allocations
+   */
+  public getActiveGhostBombCount(): number {
+    let count = 0;
+    for (let i = 0; i < this.ghostBombPool.length; i++) {
+      if (this.ghostBombPool[i].active) count++;
+    }
+    return count;
+  }
+
+  /**
+   * Iterates through active ghost bombs with zero heap allocations
+   */
+  public forEachActiveGhostBomb(callback: (slot: GhostBombSlot, index: number) => void): void {
+    let activeIdx = 0;
+    for (let i = 0; i < this.ghostBombPool.length; i++) {
+      const slot = this.ghostBombPool[i];
+      if (slot.active) {
+        callback(slot, activeIdx++);
+      }
+    }
+  }
+
+  public getGhostBombPool(): readonly GhostBombSlot[] {
+    return this.ghostBombPool;
+  }
+
+  public getDangerMask(): Uint8Array {
+    return this.dangerMask;
+  }
+
+  public getIntensityGrid(): Float32Array {
+    return this.intensityGrid;
+  }
+
+  public getActiveBeamIndices(): Int16Array {
+    return this.activeBeamIndices;
+  }
+
+  public getActivePairMode(): number {
+    return this.activePairMode;
+  }
+
+  public getCycleTimerMs(): number {
+    return this.cycleTimerMs;
+  }
+
+  public getTelegraphRemainingMs(): number {
+    return this.telegraphRemainingMs;
+  }
+
+  public getActiveRemainingMs(): number {
+    return this.activeRemainingMs;
+  }
+
+  public isWhiteFlashActive(): boolean {
+    return (
+      this.lifecycleState === HazardLifecycleState.ACTIVE &&
+      (DURATION_ACTIVE_BEAM_MS - this.activeRemainingMs <= TUNNELING_WINDOW_MS)
+    );
   }
 }

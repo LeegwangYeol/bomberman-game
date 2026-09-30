@@ -22,11 +22,40 @@ import { SolarFlareCrisis } from './SolarFlareCrisis.ts';
 import { LavaCrisis } from './LavaCrisis.ts';
 import { RiftCrisis } from './RiftCrisis.ts';
 
+const STAGE_NAMES: Record<CrisisStage, string> = Object.freeze({
+  [CrisisStage.INACTIVE]: 'Inactive',
+  [CrisisStage.WHISPERS]: 'Stage 1: Whispers (Buildup)',
+  [CrisisStage.OUTBREAK]: 'Stage 2: Outbreak (Escalation)',
+  [CrisisStage.CLIMAX]: 'Stage 3: Climax (Resolution)',
+  [CrisisStage.RESOLVED]: 'Stabilized (Victory)',
+  [CrisisStage.FAILED]: 'Catastrophic Collapse (Failed)',
+});
+
 export class CrisisManager {
   private crisesRegistry: Map<CrisisType, ICrisis> = new Map();
   private activeCrisis: ICrisis | null = null;
   private totalCrisesResolved: number = 0;
   private hasCountedResolution: boolean = false;
+  private readonly cachedSituationLogState: SituationLogState = {
+    isActive: false,
+    crisisId: '',
+    crisisName: '',
+    crisisIcon: '',
+    themeColor: '#6B7280',
+    stage: CrisisStage.INACTIVE,
+    stageName: 'Inactive',
+    threatLevel: 0,
+    threatTrend: 'stable',
+    stageRemainingMs: 0,
+    totalDurationMs: 0,
+    elapsedMs: 0,
+    objectives: [],
+    activeAlert: null,
+    hazardCount: 0,
+    statusDescription: 'No active planetary crisis detected.',
+    isVictorious: false,
+    isDefeated: false,
+  };
 
   constructor() {
     this.registerCrises();
@@ -156,59 +185,49 @@ export class CrisisManager {
   }
 
   public getSituationLogState(): SituationLogState {
+    const s = this.cachedSituationLogState;
     if (!this.activeCrisis || this.activeCrisis.getStage() === CrisisStage.INACTIVE) {
-      return {
-        isActive: false,
-        crisisId: '',
-        crisisName: '',
-        crisisIcon: '',
-        themeColor: '#6B7280',
-        stage: CrisisStage.INACTIVE,
-        stageName: 'Inactive',
-        threatLevel: 0,
-        threatTrend: 'stable',
-        stageRemainingMs: 0,
-        totalDurationMs: 0,
-        elapsedMs: 0,
-        objectives: [],
-        activeAlert: null,
-        hazardCount: 0,
-        statusDescription: 'No active planetary crisis detected.',
-        isVictorious: false,
-        isDefeated: false,
-      };
+      s.isActive = false;
+      s.crisisId = '';
+      s.crisisName = '';
+      s.crisisIcon = '';
+      s.themeColor = '#6B7280';
+      s.stage = CrisisStage.INACTIVE;
+      s.stageName = 'Inactive';
+      s.threatLevel = 0;
+      s.threatTrend = 'stable';
+      s.stageRemainingMs = 0;
+      s.totalDurationMs = 0;
+      s.elapsedMs = 0;
+      s.objectives = [];
+      s.activeAlert = null;
+      s.hazardCount = 0;
+      s.statusDescription = 'No active planetary crisis detected.';
+      s.isVictorious = false;
+      s.isDefeated = false;
+      return s;
     }
 
     const status = this.activeCrisis.getStatus();
-    const stageNames: Record<CrisisStage, string> = {
-      [CrisisStage.INACTIVE]: 'Inactive',
-      [CrisisStage.WHISPERS]: 'Stage 1: Whispers (Buildup)',
-      [CrisisStage.OUTBREAK]: 'Stage 2: Outbreak (Escalation)',
-      [CrisisStage.CLIMAX]: 'Stage 3: Climax (Resolution)',
-      [CrisisStage.RESOLVED]: 'Stabilized (Victory)',
-      [CrisisStage.FAILED]: 'Catastrophic Collapse (Failed)',
-    };
-
-    return {
-      isActive: true,
-      crisisId: status.crisisType || '',
-      crisisName: this.activeCrisis.name,
-      crisisIcon: this.activeCrisis.icon,
-      themeColor: this.activeCrisis.themeColor,
-      stage: status.stage,
-      stageName: stageNames[status.stage] || status.stage,
-      threatLevel: Math.round(status.threatMeter),
-      threatTrend: status.threatTrend,
-      stageRemainingMs: status.stageRemainingMs,
-      totalDurationMs: status.stageDurationMs,
-      elapsedMs: status.stageElapsedMs,
-      objectives: status.objectives,
-      activeAlert: status.activeAlert,
-      hazardCount: status.hazardTileCount,
-      statusDescription: status.summary,
-      isVictorious: status.isVictorious,
-      isDefeated: status.isDefeated,
-    };
+    s.isActive = true;
+    s.crisisId = status.crisisType || '';
+    s.crisisName = this.activeCrisis.name;
+    s.crisisIcon = this.activeCrisis.icon;
+    s.themeColor = this.activeCrisis.themeColor;
+    s.stage = status.stage;
+    s.stageName = STAGE_NAMES[status.stage] || status.stage;
+    s.threatLevel = Math.round(status.threatMeter);
+    s.threatTrend = status.threatTrend;
+    s.stageRemainingMs = status.stageRemainingMs;
+    s.totalDurationMs = status.stageDurationMs;
+    s.elapsedMs = status.stageElapsedMs;
+    s.objectives = status.objectives;
+    s.activeAlert = status.activeAlert;
+    s.hazardCount = status.hazardTileCount;
+    s.statusDescription = status.summary;
+    s.isVictorious = status.isVictorious;
+    s.isDefeated = status.isDefeated;
+    return s;
   }
 
   private getDefaultStatus(): CrisisStatus {

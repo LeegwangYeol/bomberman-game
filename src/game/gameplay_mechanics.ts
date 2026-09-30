@@ -463,6 +463,8 @@ export const ITEMS_BY_TIER: Record<ItemRarity, { item: ItemType; weight: number 
 export const BASE_PLAYER_SPEED = 150;
 export const SPEED_UP_DELTA = 25;
 export const MAX_PLAYER_SPEED = 250; // Cap at 250 px/s (Level 5)
+export const MIN_PLAYER_SPEED = 50; // Strict absolute movement floor
+export const MAX_PLAYER_SPEED_CLAMP = 350; // Strict absolute movement ceiling
 
 export const BASE_MAX_BOMBS = 1;
 export const MAX_BOMBS_CAP = 8;
@@ -510,6 +512,125 @@ export const DEFAULT_PORTALS: PortalPair = {
 
 export function calculateSpeedLevel(speed: number): number {
   return Math.min(5, Math.max(1, Math.floor((speed - BASE_PLAYER_SPEED) / SPEED_UP_DELTA) + 1));
+}
+
+export interface SpeedCalculationOptions {
+  baseSpeed?: number;
+  itemSpeed?: number;
+  perkSpeedBonus?: number;
+  surgeBonus?: number;
+  isDashing?: boolean;
+  dashSpeed?: number;
+  phaseJitterActive?: boolean;
+  slowdownRatio?: number;
+  speedMultiplier?: number;
+  customBonus?: number;
+}
+
+/**
+ * Calculates effective player movement speed with strict bounds enforcement:
+ * - Strictly clamped within [50, 350] px/s
+ * - Handles buff stacking (Speed Up, Speed Surge, Dash, Second Wind, Perks)
+ * - Handles debuff stacking (Phase Jitter, Floor Slowdown)
+ * - Rejects and sanitizes corrupt, negative, NaN, Infinity, and non-numeric inputs
+ */
+export function calculateClampedPlayerSpeed(options?: SpeedCalculationOptions): number {
+  if (!options || typeof options !== 'object') {
+    return BASE_PLAYER_SPEED;
+  }
+
+  // 1. Base speed resolution & sanitization
+  const rawBase = options.itemSpeed !== undefined ? options.itemSpeed : options.baseSpeed;
+  const base =
+    typeof rawBase === 'number' && Number.isFinite(rawBase)
+      ? Math.max(0, rawBase)
+      : BASE_PLAYER_SPEED;
+
+  // 2. Additive bonuses (perks, surge, custom)
+  const perkBonus =
+    typeof options.perkSpeedBonus === 'number' && Number.isFinite(options.perkSpeedBonus)
+      ? Math.max(0, options.perkSpeedBonus)
+      : 0;
+  const surgeBonus =
+    typeof options.surgeBonus === 'number' && Number.isFinite(options.surgeBonus)
+      ? Math.max(0, options.surgeBonus)
+      : 0;
+  const customBonus =
+    typeof options.customBonus === 'number' && Number.isFinite(options.customBonus)
+      ? options.customBonus
+      : 0;
+
+  // 3. Dash base velocity replacement
+  let currentSpeed = base + perkBonus;
+  if (options.isDashing) {
+    const dSpeed =
+      typeof options.dashSpeed === 'number' && Number.isFinite(options.dashSpeed) && options.dashSpeed > 0
+        ? options.dashSpeed
+        : DASH_SPEED;
+    currentSpeed = dSpeed;
+  }
+
+  // Add surge and custom additive bonuses
+  currentSpeed += surgeBonus + customBonus;
+
+  // 4. Multipliers (e.g. Second Wind +50% -> 1.5, Phase Shift +30% -> 1.3)
+  if (
+    typeof options.speedMultiplier === 'number' &&
+    Number.isFinite(options.speedMultiplier) &&
+    options.speedMultiplier > 0
+  ) {
+    currentSpeed *= options.speedMultiplier;
+  }
+
+  // 5. Debuff multipliers:
+  // Phase Jitter debuff reduces speed by -25% (0.75x)
+  if (options.phaseJitterActive) {
+    currentSpeed *= 0.75;
+  }
+
+  // Floor hazard slowdown (e.g. 0.5 for -50%)
+  if (
+    typeof options.slowdownRatio === 'number' &&
+    Number.isFinite(options.slowdownRatio) &&
+    options.slowdownRatio > 0
+  ) {
+    const clampedSlow = Math.min(0.9, Math.max(0, options.slowdownRatio));
+    currentSpeed *= 1 - clampedSlow;
+  }
+
+  // 6. Strict Clamp within [MIN_PLAYER_SPEED, MAX_PLAYER_SPEED_CLAMP] = [50, 350]
+  if (!Number.isFinite(currentSpeed) || Number.isNaN(currentSpeed)) {
+    return BASE_PLAYER_SPEED;
+  }
+
+  return Math.min(MAX_PLAYER_SPEED_CLAMP, Math.max(MIN_PLAYER_SPEED, Math.round(currentSpeed)));
+}
+
+/**
+ * Ensures invulnerability expiry timestamps cannot be overwritten by lesser durations,
+ * and strictly rejects negative/NaN values.
+ */
+export function updateInvulnerabilityExpiry(
+  currentExpiryMs: number,
+  newDurationMs: number,
+  nowMs: number
+): number {
+  const safeCurrent =
+    typeof currentExpiryMs === 'number' && Number.isFinite(currentExpiryMs)
+      ? Math.max(0, currentExpiryMs)
+      : 0;
+
+  if (typeof newDurationMs !== 'number' || !Number.isFinite(newDurationMs) || newDurationMs <= 0) {
+    return safeCurrent;
+  }
+
+  const safeNow =
+    typeof nowMs === 'number' && Number.isFinite(nowMs)
+      ? Math.max(0, nowMs)
+      : 0;
+
+  const targetExpiry = safeNow + newDurationMs;
+  return Math.max(safeCurrent, targetExpiry);
 }
 
 export function createInitialPlayerStats(): PlayerStats {

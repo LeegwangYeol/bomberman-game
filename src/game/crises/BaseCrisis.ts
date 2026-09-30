@@ -46,12 +46,32 @@ export abstract class BaseCrisis implements ICrisis {
   protected isVictorious: boolean = false;
   protected isDefeated: boolean = false;
 
+  // Pre-allocated CrisisStatus to eliminate per-frame heap allocations
+  protected readonly cachedStatus: CrisisStatus;
+
   constructor(id: CrisisType) {
     this.id = id;
     this.definition = CRISIS_DEFINITIONS[id];
     this.name = this.definition.name;
     this.icon = this.definition.icon;
     this.themeColor = this.definition.themeColor;
+
+    this.cachedStatus = {
+      isActive: false,
+      crisisType: this.id,
+      stage: CrisisStage.INACTIVE,
+      threatMeter: 0,
+      threatTrend: 'stable',
+      stageElapsedMs: 0,
+      stageDurationMs: 0,
+      stageRemainingMs: 0,
+      objectives: this.objectives,
+      activeAlert: null,
+      hazardTileCount: 0,
+      isVictorious: false,
+      isDefeated: false,
+      summary: '',
+    };
 
     // Pre-allocate 195 tile descriptors
     this.hazardTileBuffer = new Array<HazardTile>(TOTAL_TILES);
@@ -227,22 +247,22 @@ export abstract class BaseCrisis implements ICrisis {
   }
 
   public getStatus(): CrisisStatus {
-    return {
-      isActive: this.stage !== CrisisStage.INACTIVE,
-      crisisType: this.id,
-      stage: this.stage,
-      threatMeter: this.threatMeter,
-      threatTrend: this.threatTrend,
-      stageElapsedMs: this.stageElapsedMs,
-      stageDurationMs: this.stageDurationMs,
-      stageRemainingMs: Math.max(0, this.stageDurationMs - this.stageElapsedMs),
-      objectives: this.objectives,
-      activeAlert: this.activeAlert,
-      hazardTileCount: this.activeHazardCount,
-      isVictorious: this.isVictorious,
-      isDefeated: this.isDefeated,
-      summary: `${this.name} (${this.stage})`,
-    };
+    const s = this.cachedStatus;
+    s.isActive = this.stage !== CrisisStage.INACTIVE;
+    s.crisisType = this.id;
+    s.stage = this.stage;
+    s.threatMeter = this.threatMeter;
+    s.threatTrend = this.threatTrend;
+    s.stageElapsedMs = this.stageElapsedMs;
+    s.stageDurationMs = this.stageDurationMs;
+    s.stageRemainingMs = Math.max(0, this.stageDurationMs - this.stageElapsedMs);
+    s.objectives = this.objectives;
+    s.activeAlert = this.activeAlert;
+    s.hazardTileCount = this.activeHazardCount;
+    s.isVictorious = this.isVictorious;
+    s.isDefeated = this.isDefeated;
+    s.summary = `${this.name} (${this.stage})`;
+    return s;
   }
 
   // --- Zero-GC Hazard Management ---
