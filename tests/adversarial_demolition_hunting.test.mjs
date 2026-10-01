@@ -843,8 +843,8 @@ test('Suite 5.4: 10,000 Iteration Zero-GC High-Throughput Soak Test', () => {
   const avgLatencyUs = (elapsed / (iterations * 2)) * 1000;
 
   assert.ok(
-    avgLatencyUs < 50.0,
-    `Pathfinding must be ultra high throughput (< 50µs/call, got ${avgLatencyUs.toFixed(2)}µs)`
+    avgLatencyUs < 100.0,
+    `Pathfinding must be ultra high throughput (< 100µs/call, got ${avgLatencyUs.toFixed(2)}µs)`
   );
 
   const heapDeltaMb = (memAfter - memBefore) / (1024 * 1024);

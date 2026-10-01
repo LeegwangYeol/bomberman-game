@@ -438,6 +438,85 @@ test('Chaos QA 9: All 32 combinatorial permutations of Speed Up + Phase Jitter +
   }
 });
 
+test('Chaos QA 9: Fuzz 32 simultaneous combinations of speed buffs, phase jitter, ice stasis, invulnerability i-frames, and shield timers', () => {
+  const hazard = new DynamicHazard();
+  hazard.init();
+  hazard.start('OUTBREAK');
+  hazard.update(2000 + 2000); // Enter ACTIVE beam (Col 4, Rows 3..9)
+  assert.equal(hazard.getState(), HazardLifecycleState.ACTIVE);
+
+  const activeR = 5;
+  const activeC = 4;
+  assert.ok(hazard.isTileLethal(activeR, activeC));
+
+  const nowMs = 10000;
+
+  for (let mask = 0; mask < 32; mask++) {
+    const hasSpeedBuffs = Boolean(mask & 1);
+    const hasPhaseJitter = Boolean(mask & 2);
+    const hasIceStasis = Boolean(mask & 4);
+    const hasInvulnIFrames = Boolean(mask & 8);
+    const hasShieldTimer = Boolean(mask & 16);
+
+    // 1. Calculate and verify speed bounds under combination
+    // Speed Buffs: Speed Up (250 px/s) + Speed Surge (+75 px/s) vs Base (150 px/s)
+    const baseSpeed = hasSpeedBuffs ? MAX_PLAYER_SPEED : BASE_PLAYER_SPEED;
+    const surgeBonus = hasSpeedBuffs ? 75 : 0;
+    // Ice Stasis: 60% movement speed reduction (0.4x remaining velocity)
+    const slowdownRatio = hasIceStasis ? 0.60 : 0;
+    // Invulnerability I-Frames: Dashing state provides dash velocity (350 px/s)
+    const isDashing = hasInvulnIFrames;
+
+    const effectiveSpeed = calculateClampedPlayerSpeed({
+      baseSpeed,
+      surgeBonus,
+      isDashing,
+      dashSpeed: DASH_SPEED,
+      phaseJitterActive: hasPhaseJitter,
+      slowdownRatio,
+    });
+
+    assert.ok(Number.isFinite(effectiveSpeed), `Mask ${mask}: Speed must be finite`);
+    assert.ok(
+      effectiveSpeed >= MIN_PLAYER_SPEED && effectiveSpeed <= MAX_PLAYER_SPEED_CLAMP,
+      `Mask ${mask}: Speed ${effectiveSpeed} out of bounds [${MIN_PLAYER_SPEED}, ${MAX_PLAYER_SPEED_CLAMP}]`
+    );
+
+    // 2. Shield and Invulnerability Timer Verification
+    const currentExpiry = hasShieldTimer ? nowMs + 1500 : 0;
+    const isInvulnerable = hasShieldTimer || hasInvulnIFrames;
+
+    // Hazard collision check
+    const collision = hazard.checkPlayerCollision(
+      activeR,
+      activeC,
+      hasInvulnIFrames,
+      50, // within tunneling window
+      isInvulnerable
+    );
+
+    if (isInvulnerable) {
+      assert.equal(collision.damage, 0, `Mask ${mask}: Must absorb damage when invulnerable/shielded`);
+      assert.equal(collision.isLethal, false);
+      assert.equal(collision.phaseJitterInflicted, false, `Mask ${mask}: Invulnerability blocks Phase Jitter`);
+    } else {
+      assert.equal(collision.damage, PLAYER_HAZARD_DAMAGE, `Mask ${mask}: Exposed player takes damage`);
+      assert.equal(collision.isLethal, true);
+      assert.equal(collision.phaseJitterInflicted, true);
+    }
+
+    // 3. Invulnerability Preservation / Non-degradation
+    // Attempt to downgrade with a shorter pulse (e.g. 500ms when shield had 1500ms)
+    const downgradedTarget = updateInvulnerabilityExpiry(currentExpiry, 500, nowMs + 200);
+    if (hasShieldTimer) {
+      assert.equal(downgradedTarget, currentExpiry, `Mask ${mask}: Shorter pulse must not degrade active shield expiry`);
+    } else {
+      assert.equal(downgradedTarget, nowMs + 200 + 500);
+    }
+  }
+});
+
+
 /* ==============================================================================
  * SECTION 7: SPEED CLAMPING EXTREMES & NEGATIVE / NAN REJECTION
  * ============================================================================== */

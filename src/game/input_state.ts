@@ -83,10 +83,12 @@ export function resolveJoystickVector(
     return { up: false, down: false, left: false, right: false, angle: 0, distance: 0 };
   }
 
-  const distance = Math.hypot(dx, dy);
-  if (distance < deadzone) {
-    return { up: false, down: false, left: false, right: false, angle: 0, distance };
+  const distSq = dx * dx + dy * dy;
+  const deadzoneSq = deadzone * deadzone;
+  if (distSq < deadzoneSq) {
+    return { up: false, down: false, left: false, right: false, angle: 0, distance: Math.sqrt(distSq) };
   }
+  const distance = Math.sqrt(distSq);
 
   // Math.atan2(dy, dx) returns radians. In standard screen coordinates, dy points downwards.
   // Converting screen dy (inverted y) to standard mathematical angle (0=Right, 90=Up, 180=Left, 270=Down):
@@ -195,10 +197,10 @@ export interface ActivePointerRecord {
 export class MultiTouchPointerTracker {
   private activePointers: Map<number, ActivePointerRecord> = new Map();
   private controlActivePointers: Map<TouchControlTarget, Set<number>> = new Map([
-    ['joystick', new Set()],
-    ['bomb', new Set()],
-    ['dash', new Set()],
-    ['ultimate', new Set()],
+    ['joystick', new Set<number>()],
+    ['bomb', new Set<number>()],
+    ['dash', new Set<number>()],
+    ['ultimate', new Set<number>()],
   ]);
 
   /**

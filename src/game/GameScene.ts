@@ -148,6 +148,11 @@ import {
   TUNNELING_INVULNERABILITY_MS,
   FLOATING_TEXT_QUANTUM_PHASED,
   type EnemyCollisionResult,
+  GravityHazard,
+  GravityLifecycleState,
+  ESCAPE_VELOCITY_INVULN_MS,
+  ESCAPE_VELOCITY_SPEED_BURST_RATIO,
+  FLOATING_TEXT_GRAVITATIONAL_ESCAPE,
 } from './hazards/index.ts';
 import { PerkTreeManager, RelicManager, type RelicId } from './progression/index.ts';
 import { decompressGrid } from './persistence/GameStatePersistence.ts';
@@ -235,34 +240,38 @@ export class OverheadUIManager {
     // Dense melee mode (3+ entities within 60px): minimal (hide text tag, HP & intent only)
     for (let i = 0; i < active.length; i++) {
       const eA = active[i];
-      let minDistance = Infinity;
+      let minDistSq = Infinity;
       let countWithin60 = 0;
 
       for (let j = 0; j < active.length; j++) {
         if (i === j) continue;
         const eB = active[j];
-        const dist = Math.hypot(eA.x - eB.x, eA.y - eB.y);
-        if (dist < minDistance) {
-          minDistance = dist;
+        const dx = eA.x - eB.x;
+        const dy = eA.y - eB.y;
+        const distSq = dx * dx + dy * dy;
+        if (distSq < minDistSq) {
+          minDistSq = distSq;
         }
-        if (dist <= 60) {
+        if (distSq <= 3600) {
           countWithin60++;
         }
       }
 
       if (player) {
-        const distP = Math.hypot(eA.x - player.x, eA.y - player.y);
-        if (distP < minDistance) {
-          minDistance = distP;
+        const dxP = eA.x - player.x;
+        const dyP = eA.y - player.y;
+        const distSqP = dxP * dxP + dyP * dyP;
+        if (distSqP < minDistSq) {
+          minDistSq = distSqP;
         }
-        if (distP <= 60) {
+        if (distSqP <= 3600) {
           countWithin60++;
         }
       }
 
       if (countWithin60 >= 2) {
         eA.overheadUI.setLODMode('minimal');
-      } else if (minDistance <= 70) {
+      } else if (minDistSq <= 4900) {
         eA.overheadUI.setLODMode('compact');
       } else {
         eA.overheadUI.setLODMode('full');
@@ -685,6 +694,8 @@ export default class GameScene extends Phaser.Scene {
 
   // Dynamic Hazard System Integration
   public dynamicHazard: DynamicHazard = new DynamicHazard();
+  public gravityHazard: GravityHazard = new GravityHazard();
+  public lastGravitationalEscapeTimestampMs: number = 0;
   public hazardGraphics: Phaser.GameObjects.Graphics | null = null;
 
   // Juice & Polish Engine
@@ -2721,6 +2732,51 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
+  grantGravitationalEscape(): void {
+    if (this.isGameOver || !this.player || !this.player.active) return;
+    const now = this.time?.now ?? Date.now();
+    this.isInvulnerable = true;
+    this.shieldInvulnerableUntil = Math.max(this.shieldInvulnerableUntil, now + ESCAPE_VELOCITY_INVULN_MS);
+    this.player.setAlpha(0.75);
+    this.player.setTint(0xfbbf24);
+
+    const originalSpeed = this.playerSpeed;
+    this.playerSpeed = this.playerSpeed * (1.0 + ESCAPE_VELOCITY_SPEED_BURST_RATIO);
+
+    const existing = this.activeBuffs.find((b) => b.id === 'GRAVITATIONAL_ESCAPE');
+    if (existing) {
+      existing.remainingMs = ESCAPE_VELOCITY_INVULN_MS;
+      existing.totalMs = ESCAPE_VELOCITY_INVULN_MS;
+    } else {
+      this.activeBuffs.push({
+        id: 'GRAVITATIONAL_ESCAPE',
+        name: 'Escape Velocity',
+        icon: '✦',
+        color: '#fbbf24',
+        remainingMs: ESCAPE_VELOCITY_INVULN_MS,
+        totalMs: ESCAPE_VELOCITY_INVULN_MS,
+      });
+    }
+
+    this.spawnFloatingText(this.player.x, this.player.y - 25, FLOATING_TEXT_GRAVITATIONAL_ESCAPE, '#fbbf24');
+    if (this.cameras?.main) {
+      this.cameras.main.flash(100, 251, 191, 36);
+    }
+
+    this.time.delayedCall(ESCAPE_VELOCITY_INVULN_MS, () => {
+      if (this.player && this.player.active) {
+        this.player.setAlpha(1.0);
+        this.player.clearTint();
+        if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
+          this.isInvulnerable = false;
+        }
+      }
+      this.playerSpeed = originalSpeed;
+    });
+
+    this.emitStatsUpdate();
+  }
+
   applyPhaseJitter(durationMs: number = PHASE_JITTER_DURATION_MS): void {
     if (this.isGameOver) return;
     this.phaseJitterRemaining = Math.max(this.phaseJitterRemaining, durationMs);
@@ -2883,21 +2939,6 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
 
-    const surgeBonus = this.activeBuffs?.some((b) => b.id === 'SPEED_SURGE') ? 75 : 0;
-    const perkSpeedBonus = this.baseSpeedBonus || 0;
-    const isPhaseJittered = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'PHASE_JITTER')) || this.phaseJitterRemaining > 0;
-    const speed = calculateClampedPlayerSpeed({
-      baseSpeed: this.playerSpeed,
-      perkSpeedBonus,
-      surgeBonus,
-      isDashing: this.isDashing,
-      dashSpeed: DASH_SPEED,
-      phaseJitterActive: isPhaseJittered,
-    });
-    const slideSpeed = speed;
-    const snapThreshold = Math.max(2, speed * (delta / 1000));
-    const tol = this.cornerSlideTolerance || 8;
-
     const px = this.player.x;
     const py = this.player.y;
 
@@ -2918,6 +2959,33 @@ export default class GameScene extends Phaser.Scene {
 
     if (up && !down) wantY = -1;
     else if (down && !up) wantY = 1;
+
+    const surgeBonus = this.activeBuffs?.some((b) => b.id === 'SPEED_SURGE') ? 75 : 0;
+    const perkSpeedBonus = this.baseSpeedBonus || 0;
+    const isPhaseJittered = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'PHASE_JITTER')) || this.phaseJitterRemaining > 0;
+    const isGravitationalEscapeActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'GRAVITATIONAL_ESCAPE')) || false;
+
+    let gravityMultiplier = 1.0;
+    if (this.gravityHazard && this.gravityHazard.state !== GravityLifecycleState.DORMANT && this.gravityHazard.state !== GravityLifecycleState.COOLDOWN) {
+      const gRes = this.gravityHazard.evaluatePlayer(px, py, this.isDashing, this.time?.now ?? Date.now(), wantX, wantY);
+      gravityMultiplier = gRes.slowFactor;
+    }
+    if (isGravitationalEscapeActive) {
+      gravityMultiplier *= (1.0 + ESCAPE_VELOCITY_SPEED_BURST_RATIO);
+    }
+
+    const speed = calculateClampedPlayerSpeed({
+      baseSpeed: this.playerSpeed,
+      perkSpeedBonus,
+      surgeBonus,
+      isDashing: this.isDashing,
+      dashSpeed: DASH_SPEED,
+      phaseJitterActive: isPhaseJittered,
+      speedMultiplier: gravityMultiplier,
+    });
+    const slideSpeed = speed;
+    const snapThreshold = Math.max(2, speed * (delta / 1000));
+    const tol = this.cornerSlideTolerance || 8;
 
     // Resolve dominant axis when multiple inputs are pressed
     let primaryAxis: 'x' | 'y' = 'x';
@@ -4481,6 +4549,14 @@ export default class GameScene extends Phaser.Scene {
     this.isInvulnerable = true;
     this.dashStartTime = this.time?.now || Date.now();
     this.dashCooldownRemaining = DASH_COOLDOWN_MS;
+
+    // Creative Agent 5: Gravitational Escape when dashing inside pull field
+    if (this.gravityHazard && this.gravityHazard.state !== GravityLifecycleState.DORMANT && this.gravityHazard.state !== GravityLifecycleState.COOLDOWN) {
+      const pull = this.gravityHazard.evaluatePull(this.player.x, this.player.y);
+      if (pull.inAccretionField) {
+        this.grantGravitationalEscape();
+      }
+    }
 
     let dirX = 0;
     let dirY = 0;

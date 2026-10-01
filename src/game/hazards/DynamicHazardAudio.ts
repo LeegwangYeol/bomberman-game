@@ -260,6 +260,161 @@ export const HAZARD_AUDIO_PRESETS = {
     releaseTime: 0.05,
     filter: { type: 'lowpass', frequency: 800, q: 1.5 },
   } as AudioVoiceToneParams,
+
+  // Gravitational Singularity Presets (2026-10-02 Evolution Cycle)
+  // 1. Accretion Swirl: Sub-bass 45Hz drone with rising LFO pitch modulation
+  GRAVITY_ACCRETION_DRONE: {
+    type: 'triangle',
+    frequency: 45.0, // Sub-bass fundamental drone
+    gain: 0.36,
+    duration: 1.60,
+    attackTime: 0.12,
+    decayTime: 0.40,
+    sustainLevel: 0.65,
+    releaseTime: 0.35,
+    filter: { type: 'lowpass', frequency: 120, q: 2.2 },
+  } as AudioVoiceToneParams,
+
+  GRAVITY_ACCRETION_SWIRL_BEAT: {
+    type: 'sine',
+    frequency: 45.0,
+    frequencyRamp: { target: 53.0, duration: 1.40, exponential: true }, // 0Hz -> 8Hz accelerating acoustic beat
+    gain: 0.26,
+    duration: 1.50,
+    attackTime: 0.15,
+    decayTime: 0.35,
+    sustainLevel: 0.60,
+    releaseTime: 0.30,
+    filter: { type: 'lowpass', frequency: 150, q: 2.0 },
+  } as AudioVoiceToneParams,
+
+  // 2. Singularity Burst: Resonant low-pass filter sweep with sub-harmonic thump (35Hz) and suction pop
+  GRAVITY_BURST_SUB_THUMP: {
+    type: 'sine',
+    frequency: 55.0,
+    frequencyRamp: { target: 35.0, duration: 0.28, exponential: true }, // Sub-harmonic 35Hz thump
+    gain: 0.58,
+    duration: 0.35,
+    attackTime: 0.003,
+    decayTime: 0.14,
+    sustainLevel: 0.25,
+    releaseTime: 0.12,
+    filter: { type: 'lowpass', frequency: 160, q: 1.8 },
+  } as AudioVoiceToneParams,
+
+  GRAVITY_BURST_FILTER_SWEEP: {
+    type: 'sawtooth',
+    frequency: 180.0,
+    frequencyRamp: { target: 40.0, duration: 0.25, exponential: true },
+    gain: 0.42,
+    duration: 0.30,
+    attackTime: 0.002,
+    decayTime: 0.10,
+    sustainLevel: 0.20,
+    releaseTime: 0.12,
+    filter: { type: 'lowpass', frequency: 2400, q: 5.5, rampTarget: 55, rampDuration: 0.24 },
+  } as AudioVoiceToneParams,
+
+  GRAVITY_BURST_SUCTION_POP: {
+    type: 'triangle',
+    frequency: 60.0,
+    frequencyRamp: { target: 480.0, duration: 0.04, exponential: false }, // Rapid inward suction chirp
+    gain: 0.32,
+    duration: 0.05,
+    attackTime: 0.002,
+    releaseTime: 0.015,
+    filter: { type: 'bandpass', frequency: 650, q: 3.5 },
+  } as AudioVoiceToneParams,
+
+  // 3. Cosmic Fusion: Resonant celestial chord (C minor 9th / 523Hz, 622Hz, 784Hz, 987Hz) with shimmer
+  // Voice 1: Root (C5 = 523.25 Hz)
+  GRAVITY_FUSION_ROOT_C5: {
+    type: 'triangle',
+    frequency: 523.25, // C5 (523 Hz)
+    gain: 0.26,
+    duration: 0.85,
+    attackTime: 0.004,
+    decayTime: 0.25,
+    sustainLevel: 0.40,
+    releaseTime: 0.50,
+    filter: { type: 'bandpass', frequency: 1400, q: 2.2 },
+  } as AudioVoiceToneParams,
+
+  // Voice 2: Minor Third (Eb5 = 622.25 Hz)
+  GRAVITY_FUSION_THIRD_EB5: {
+    type: 'sine',
+    frequency: 622.25, // Eb5 (622 Hz)
+    gain: 0.22,
+    duration: 0.85,
+    attackTime: 0.004,
+    decayTime: 0.25,
+    sustainLevel: 0.40,
+    releaseTime: 0.50,
+    filter: { type: 'bandpass', frequency: 1600, q: 2.0 },
+  } as AudioVoiceToneParams,
+
+  // Voice 3: Perfect Fifth (G5 = 783.99 Hz)
+  GRAVITY_FUSION_FIFTH_G5: {
+    type: 'sine',
+    frequency: 783.99, // G5 (784 Hz)
+    gain: 0.20,
+    duration: 0.85,
+    attackTime: 0.004,
+    decayTime: 0.25,
+    sustainLevel: 0.40,
+    releaseTime: 0.50,
+    filter: { type: 'bandpass', frequency: 1900, q: 2.0 },
+  } as AudioVoiceToneParams,
+
+  // Voice 4: Celestial Seventh/Ninth Harmonic (B5 = 987.77 Hz)
+  GRAVITY_FUSION_SEVENTH_B5: {
+    type: 'sine',
+    frequency: 987.77, // B5 (987 Hz)
+    gain: 0.18,
+    duration: 0.85,
+    attackTime: 0.004,
+    decayTime: 0.25,
+    sustainLevel: 0.35,
+    releaseTime: 0.50,
+    filter: { type: 'bandpass', frequency: 2400, q: 2.4 },
+  } as AudioVoiceToneParams,
+
+  // Voice 5: Celestial Shimmer Octave (D6 = 1174.66 Hz -> G6 = 1567.98 Hz)
+  GRAVITY_FUSION_SHIMMER: {
+    type: 'sine',
+    frequency: 1174.66,
+    frequencyRamp: { target: 1567.98, duration: 0.45, exponential: true },
+    gain: 0.16,
+    duration: 0.70,
+    attackTime: 0.008,
+    decayTime: 0.20,
+    sustainLevel: 0.30,
+    releaseTime: 0.40,
+    filter: { type: 'highpass', frequency: 1100, q: 2.8 },
+  } as AudioVoiceToneParams,
+
+  // Auxiliary Gravity SFX Presets
+  GRAVITY_ESCAPE_WHOOSH: {
+    type: 'sine',
+    frequency: 180,
+    frequencyRamp: { target: 640, duration: 0.16, exponential: true },
+    gain: 0.30,
+    duration: 0.20,
+    attackTime: 0.005,
+    releaseTime: 0.08,
+    filter: { type: 'bandpass', frequency: 950, q: 2.2 },
+  } as AudioVoiceToneParams,
+
+  GRAVITY_CRUSH_IMPACT: {
+    type: 'triangle',
+    frequency: 90,
+    frequencyRamp: { target: 30, duration: 0.14, exponential: true },
+    gain: 0.38,
+    duration: 0.18,
+    attackTime: 0.003,
+    releaseTime: 0.08,
+    filter: { type: 'lowpass', frequency: 320, q: 2.0 },
+  } as AudioVoiceToneParams,
 } as const;
 
 /**
@@ -283,6 +438,11 @@ export class DynamicHazardAudio {
   private lastDischargeTimeMs: number = -Infinity;
   private lastPolarizeTimeMs: number = -Infinity;
   private lastTunnelingTimeMs: number = -Infinity;
+  private lastAccretionTimeMs: number = -Infinity;
+  private lastBurstTimeMs: number = -Infinity;
+  private lastFusionTimeMs: number = -Infinity;
+  private lastEscapeTimeMs: number = -Infinity;
+  private lastCrushTimeMs: number = -Infinity;
 
   constructor(poolOrCtx?: AudioVoicePool | AudioContext | null) {
     if (poolOrCtx) {
@@ -600,6 +760,170 @@ export class DynamicHazardAudio {
   }
 
   /* ==============================================================================
+   * 6. GRAVITATIONAL SINGULARITY PROCEDURAL SYNTHESIS
+   * Designed for the 2026-10-02 Daily Evolution Cycle
+   * ============================================================================== */
+
+  /**
+   * 1. Accretion Swirl: Sub-bass 45Hz drone with rising LFO pitch modulation.
+   * Plays the deep sub-bass cosmic vortex sucking surrounding spacetime inward.
+   * - Voice 1: 45Hz sub-bass fundamental drone (AudioVoicePool)
+   * - Voice 2: Accelerating acoustic beat layer sweeping 45Hz -> 53Hz (0Hz -> 8Hz beat)
+   * - LFO: Procedural transient LFO sweeping 2.2Hz -> 8.5Hz (auto-disconnect on ended)
+   */
+  public playAccretionSwirl(currentTimeMs: number = 0): void {
+    if (!this.pool) return;
+
+    if (currentTimeMs > 0 && currentTimeMs - this.lastAccretionTimeMs < 150) {
+      return;
+    }
+    this.lastAccretionTimeMs = currentTimeMs;
+
+    // Layer 1: Sub-bass 45Hz fundamental drone (pooled voice)
+    const droneVoice = this.pool.playTone(HAZARD_AUDIO_PRESETS.GRAVITY_ACCRETION_DRONE);
+
+    // Layer 2: Accelerating acoustic beat layer (pooled voice)
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.GRAVITY_ACCRETION_SWIRL_BEAT);
+
+    // Layer 3: Procedural WebAudio LFO Pitch Modulation (Zero-Leak auto-disconnect)
+    const ctx = this.getContext();
+    if (ctx && droneVoice && droneVoice.osc) {
+      try {
+        const now = ctx.currentTime;
+        const duration = 1.40;
+        const lfoOsc = ctx.createOscillator();
+        const lfoGain = ctx.createGain();
+
+        lfoOsc.type = 'sine';
+        lfoOsc.frequency.setValueAtTime(2.2, now);
+        lfoOsc.frequency.exponentialRampToValueAtTime(8.5, now + duration);
+
+        lfoGain.gain.setValueAtTime(3.5, now);
+        lfoGain.gain.linearRampToValueAtTime(8.0, now + duration);
+
+        lfoOsc.connect(lfoGain);
+
+        // Safe connection to voice osc frequency param
+        if (droneVoice.osc.frequency && typeof lfoGain.connect === 'function') {
+          try {
+            lfoGain.connect(droneVoice.osc.frequency);
+          } catch {}
+        }
+
+        this.activeTransientNodes.add(lfoOsc);
+        this.activeTransientNodes.add(lfoGain);
+
+        // Auto-disconnection invariant: Unhook all nodes upon ended event
+        lfoOsc.onended = () => {
+          try {
+            lfoOsc.disconnect();
+            lfoGain.disconnect();
+          } catch {}
+          this.activeTransientNodes.delete(lfoOsc);
+          this.activeTransientNodes.delete(lfoGain);
+        };
+
+        lfoOsc.start(now);
+        lfoOsc.stop(now + duration);
+      } catch {
+        // Safe fallback for restricted or mock contexts
+      }
+    }
+  }
+
+  /**
+   * 2. Singularity Burst: Resonant low-pass filter sweep with sub-harmonic thump (35Hz) and suction pop.
+   * Simulates event horizon collapse and cataclysmic detonation.
+   * - Suction Pop: Reverse sweep chirp in voice pool + implosion noise burst
+   * - Resonant Low-Pass Filter Sweep: Sawtooth sweeping 2400Hz -> 55Hz with Q=5.5
+   * - Sub-Harmonic Thump: 35Hz seismic subterranean impact
+   */
+  public playSingularityBurst(currentTimeMs: number = 0): void {
+    if (!this.pool) return;
+
+    if (currentTimeMs > 0 && currentTimeMs - this.lastBurstTimeMs < 160) {
+      return;
+    }
+    this.lastBurstTimeMs = currentTimeMs;
+
+    // 1. Suction Pop: Inward collapse transient chirp (pooled voice)
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.GRAVITY_BURST_SUCTION_POP);
+
+    // 2. Resonant Low-Pass Filter Sweep: 2400Hz -> 55Hz, Q=5.5 (pooled voice)
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.GRAVITY_BURST_FILTER_SWEEP);
+
+    // 3. Sub-Harmonic Thump: 35Hz fundamental weight (pooled voice)
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.GRAVITY_BURST_SUB_THUMP);
+
+    // 4. Implosion noise burst transient (strict auto-disconnect)
+    this.playWhiteNoiseBurst(0.08, 0.35, 1800, 180);
+  }
+
+  /**
+   * 3. Cosmic Fusion: Resonant celestial chord (C minor 9th / 523Hz, 622Hz, 784Hz, 987Hz) with shimmer.
+   * Plays the transcendent crystalline chord when 2+ bombs fuse in the singularity core.
+   * - C minor 9th voicing: C5 (523Hz), Eb5 (622Hz), G5 (784Hz), B5 (987Hz)
+   * - Celestial Shimmer: Staggered D6 -> G6 overtone sparkle via safeTimeout
+   */
+  public playCosmicFusion(currentTimeMs: number = 0): void {
+    if (!this.pool) return;
+
+    if (currentTimeMs > 0 && currentTimeMs - this.lastFusionTimeMs < 150) {
+      return;
+    }
+    this.lastFusionTimeMs = currentTimeMs;
+
+    // Resonant celestial chord across 4 pooled voices: C minor 9th
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.GRAVITY_FUSION_ROOT_C5);
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.GRAVITY_FUSION_THIRD_EB5);
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.GRAVITY_FUSION_FIFTH_G5);
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.GRAVITY_FUSION_SEVENTH_B5);
+
+    // Delayed Celestial Shimmer Voice (staggered 30ms for crystalline sparkle)
+    this.safeTimeout(() => {
+      if (this.pool) {
+        this.pool.playTone(HAZARD_AUDIO_PRESETS.GRAVITY_FUSION_SHIMMER);
+      }
+    }, 30);
+  }
+
+  /**
+   * Upward Doppler whoosh when a player successfully dashes out of the singularity (Gravitational Escape)
+   */
+  public playGravitationalEscape(currentTimeMs: number = 0): void {
+    if (!this.pool) return;
+    if (currentTimeMs > 0 && currentTimeMs - this.lastEscapeTimeMs < 120) {
+      return;
+    }
+    this.lastEscapeTimeMs = currentTimeMs;
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.GRAVITY_ESCAPE_WHOOSH);
+  }
+
+  /**
+   * Low-end crunch when an entity is crushed within the gravitational field
+   */
+  public playGravityCrush(currentTimeMs: number = 0): void {
+    if (!this.pool) return;
+    if (currentTimeMs > 0 && currentTimeMs - this.lastCrushTimeMs < 100) {
+      return;
+    }
+    this.lastCrushTimeMs = currentTimeMs;
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.GRAVITY_CRUSH_IMPACT);
+  }
+
+  /**
+   * Synchronizes sound playback directly with Gravitational Singularity FSM state transitions
+   */
+  public playGravityHazardState(state: string, currentTimeMs: number = 0): void {
+    const s = String(state).toUpperCase();
+    if (s.includes('ACCRETION') || s.includes('SWIRL')) {
+      this.playAccretionSwirl(currentTimeMs);
+    } else if (s.includes('BURST') || s.includes('SINGULARITY')) {
+      this.playSingularityBurst(currentTimeMs);
+    }
+  }
+
+  /* ==============================================================================
    * LIFECYCLE & ZERO-LEAK NODE MANAGEMENT
    * ============================================================================== */
 
@@ -633,6 +957,11 @@ export class DynamicHazardAudio {
     this.lastDischargeTimeMs = -Infinity;
     this.lastPolarizeTimeMs = -Infinity;
     this.lastTunnelingTimeMs = -Infinity;
+    this.lastAccretionTimeMs = -Infinity;
+    this.lastBurstTimeMs = -Infinity;
+    this.lastFusionTimeMs = -Infinity;
+    this.lastEscapeTimeMs = -Infinity;
+    this.lastCrushTimeMs = -Infinity;
   }
 
   /**

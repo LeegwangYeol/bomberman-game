@@ -156,10 +156,14 @@ export class ObjectPool<T> {
    * Zero heap allocations.
    */
   public forEachActive(callback: (item: T, index: number) => void): void {
-    const count = this._activeCount;
-    for (let i = 0; i < count; i++) {
+    let i = 0;
+    while (i < this._activeCount) {
       const itemIndex = this.activeIndices[i];
-      callback(this.storage[itemIndex], i);
+      const item = this.storage[itemIndex];
+      callback(item, i);
+      if (i < this._activeCount && this.activeIndices[i] === itemIndex) {
+        i++;
+      }
     }
   }
 

@@ -400,3 +400,161 @@ test('DynamicHazardAudio: 1,000 rapid event triggers execute with zero memory le
 
   assert.strictEqual(pool.getActiveCount(), 0);
 });
+
+/* ==============================================================================
+ * GRAVITATIONAL SINGULARITY ACOUSTIC SIGNATURES (2026-10-02 EVOLUTION CYCLE)
+ * ============================================================================== */
+
+test('DynamicHazardAudio: Accretion Swirl plays 45Hz sub-bass drone and accelerating acoustic beat via AudioVoicePool', () => {
+  const ctx = new MockAudioContext();
+  const pool = new AudioVoicePool(16);
+  pool.init(ctx);
+  const synth = new DynamicHazardAudio(pool);
+  synth.init(ctx, pool);
+
+  synth.playAccretionSwirl(100);
+
+  // 1. Two pooled voices acquired: 45Hz fundamental drone + 45Hz->53Hz swirl beat
+  assert.strictEqual(pool.getActiveCount(), 2, 'Accretion swirl must acquire 2 pooled voices');
+
+  // 2. Transient LFO oscillator and gain created and registered
+  const oscillators = ctx.createdNodes.filter((n) => n instanceof MockOscillatorNode);
+  const lfoOsc = oscillators[oscillators.length - 1]; // Latest oscillator is LFO
+  assert.ok(lfoOsc, 'LFO oscillator must be created');
+  assert.strictEqual(lfoOsc.started, true);
+
+  // 3. Zero-Leak Verification: LFO disconnects cleanly onended
+  lfoOsc.stop();
+  assert.strictEqual(lfoOsc.disconnected, true, 'LFO oscillator must disconnect upon completion');
+
+  synth.destroy();
+  pool.destroy();
+});
+
+test('DynamicHazardAudio: Singularity Burst fires resonant filter sweep, 35Hz sub thump, suction pop, and noise burst', () => {
+  const ctx = new MockAudioContext();
+  const pool = new AudioVoicePool(16);
+  pool.init(ctx);
+  const synth = new DynamicHazardAudio(pool);
+  synth.init(ctx, pool);
+
+  synth.playSingularityBurst(100);
+
+  // 1. Three pooled voices acquired: suction pop + filter sweep + 35Hz sub-harmonic thump
+  assert.strictEqual(pool.getActiveCount(), 3, 'Singularity burst must acquire 3 pooled voices');
+
+  // 2. Transient noise burst node created
+  const bufferSources = ctx.createdNodes.filter((n) => n instanceof MockBufferSourceNode);
+  assert.ok(bufferSources.length >= 1, 'Noise burst buffer source must be created');
+  const noiseSource = bufferSources[bufferSources.length - 1];
+  assert.strictEqual(noiseSource.started, true);
+
+  // 3. Zero-Leak Verification: noise source auto-disconnects onended
+  noiseSource.finishPlayback();
+  assert.strictEqual(noiseSource.disconnected, true, 'Noise burst node must disconnect onended');
+
+  synth.destroy();
+  pool.destroy();
+});
+
+test('DynamicHazardAudio: Cosmic Fusion synthesizes 4-voice C minor 9th celestial chord (523Hz, 622Hz, 784Hz, 987Hz) and delayed shimmer', async () => {
+  const ctx = new MockAudioContext();
+  const pool = new AudioVoicePool(16);
+  pool.init(ctx);
+  const synth = new DynamicHazardAudio(pool);
+  synth.init(ctx, pool);
+
+  synth.playCosmicFusion(100);
+
+  // 1. Four pooled voices acquired immediately for C minor 9th chord (523Hz, 622Hz, 784Hz, 987Hz)
+  assert.strictEqual(pool.getActiveCount(), 4, 'Cosmic fusion must acquire 4 pooled voices for Cm9 chord');
+
+  // 2. Wait for 35ms for the celestial shimmer chime (staggered via safeTimeout)
+  await new Promise((resolve) => setTimeout(resolve, 45));
+  assert.strictEqual(pool.getActiveCount(), 5, 'Cosmic fusion must acquire 5th pooled voice for shimmer');
+
+  synth.destroy();
+  pool.destroy();
+});
+
+test('DynamicHazardAudio: Gravitational Singularity rate limiting suppresses rapid audio spam', () => {
+  const ctx = new MockAudioContext();
+  const pool = new AudioVoicePool(16);
+  pool.init(ctx);
+  const synth = new DynamicHazardAudio(pool);
+  synth.init(ctx, pool);
+
+  // Accretion Swirl rate limiting (150ms window)
+  synth.playAccretionSwirl(100);
+  assert.strictEqual(pool.getActiveCount(), 2);
+  synth.playAccretionSwirl(120); // Suppressed
+  synth.playAccretionSwirl(140); // Suppressed
+  assert.strictEqual(pool.getActiveCount(), 2, 'Accretion swirl within 150ms must be suppressed');
+
+  // Burst rate limiting (160ms window)
+  pool.reset();
+  synth.playSingularityBurst(100);
+  assert.strictEqual(pool.getActiveCount(), 3);
+  synth.playSingularityBurst(130); // Suppressed
+  assert.strictEqual(pool.getActiveCount(), 3, 'Singularity burst within 160ms must be suppressed');
+
+  // Cosmic Fusion rate limiting (150ms window)
+  pool.reset();
+  synth.playCosmicFusion(100);
+  assert.strictEqual(pool.getActiveCount(), 4);
+  synth.playCosmicFusion(140); // Suppressed
+  assert.strictEqual(pool.getActiveCount(), 4, 'Cosmic fusion within 150ms must be suppressed');
+
+  synth.destroy();
+  pool.destroy();
+});
+
+test('DynamicHazardAudio: Gravitational Escape and Gravity Crush SFX routines execute cleanly', () => {
+  const ctx = new MockAudioContext();
+  const pool = new AudioVoicePool(16);
+  pool.init(ctx);
+  const synth = new DynamicHazardAudio(pool);
+
+  assert.doesNotThrow(() => synth.playGravitationalEscape(100));
+  assert.strictEqual(pool.getActiveCount(), 1);
+
+  pool.reset();
+  assert.doesNotThrow(() => synth.playGravityCrush(200));
+  assert.strictEqual(pool.getActiveCount(), 1);
+
+  pool.reset();
+  assert.doesNotThrow(() => synth.playGravityHazardState('ACCRETION_SWIRL', 300));
+  assert.strictEqual(pool.getActiveCount(), 2);
+
+  pool.reset();
+  assert.doesNotThrow(() => synth.playGravityHazardState('SINGULARITY_BURST', 500));
+  assert.strictEqual(pool.getActiveCount(), 3);
+
+  synth.destroy();
+  pool.destroy();
+});
+
+test('DynamicHazardAudio: 2,000 rapid Gravitational Singularity triggers execute with Zero-GC and 0 leaked nodes', () => {
+  const ctx = new MockAudioContext();
+  const pool = new AudioVoicePool(16);
+  pool.init(ctx);
+  const synth = new DynamicHazardAudio(pool);
+  synth.init(ctx, pool);
+
+  for (let i = 0; i < 2000; i++) {
+    const time = i * 2;
+    synth.playAccretionSwirl(time);
+    synth.playSingularityBurst(time);
+    synth.playCosmicFusion(time);
+    synth.playGravitationalEscape(time);
+    synth.playGravityCrush(time);
+    synth.playGravityHazardState('ACCRETION_SWIRL', time);
+  }
+
+  // Teardown
+  synth.destroy();
+  pool.destroy();
+
+  assert.strictEqual(pool.getActiveCount(), 0, 'All voices must be silent after destruction');
+});
+

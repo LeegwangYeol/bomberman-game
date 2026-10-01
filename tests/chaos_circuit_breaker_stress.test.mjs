@@ -204,8 +204,8 @@ test('Chaos 1.1: 100 consecutive 429 quota errors inject cleanly without integer
 
 test('Chaos 1.2: 100-burst execute() calls under 429 quota exhaustion strictly enforce maxQueueSize & FIFO', async () => {
   const cb = new APIQuotaCircuitBreaker({
-    initialBackoffMs: 100,
-    maxBackoffMs: 2000,
+    initialBackoffMs: 5000,
+    maxBackoffMs: 10000,
     maxQueueSize: 50, // Capacity limit of 50
   });
 

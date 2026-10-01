@@ -510,3 +510,67 @@ test('DynamicHazardAudio: rapid multi-trigger stress generates 0 orphaned audio 
   assert.strictEqual(pool.getActiveCount(), 0);
 });
 
+/* ==============================================================================
+ * TIER 5: Gravitational Singularity Audio Lifecycle & Zero-Leak Audit
+ * ============================================================================== */
+
+test('DynamicHazardAudio: Gravitational Singularity acoustic signatures reuse voice pool with zero node leaks', () => {
+  const mockCtx = new MockAudioContext();
+  const pool = new AudioVoicePool(16);
+  pool.init(mockCtx);
+  const hazardAudio = new DynamicHazardAudio(pool);
+
+  // 1. Accretion Swirl
+  hazardAudio.playAccretionSwirl(100);
+  assert.strictEqual(pool.getActiveCount(), 2, 'Accretion swirl must use 2 pooled voices');
+
+  // Simulate LFO ended
+  const lfoOscs = mockCtx.nodes.filter((n) => n instanceof MockOscillatorNode && n !== pool);
+  for (const osc of lfoOscs) {
+    osc.stop();
+  }
+
+  // 2. Singularity Burst
+  pool.reset();
+  hazardAudio.playSingularityBurst(300);
+  assert.strictEqual(pool.getActiveCount(), 3, 'Singularity burst must use 3 pooled voices');
+
+  // Simulate noise ended
+  const noiseNodes = mockCtx.nodes.filter((n) => n instanceof MockBufferSourceNode);
+  for (const node of noiseNodes) {
+    node.finishPlayback();
+  }
+
+  // 3. Cosmic Fusion
+  pool.reset();
+  hazardAudio.playCosmicFusion(500);
+  assert.strictEqual(pool.getActiveCount(), 4, 'Cosmic fusion must use 4 pooled voices for Cm9 chord');
+
+  hazardAudio.destroy();
+  pool.destroy();
+  assert.strictEqual(pool.getActiveCount(), 0, 'Pool must be 100% silent after teardown');
+});
+
+test('DynamicHazardAudio: Gravitational Singularity rapid stress generates 0 orphaned nodes', () => {
+  const mockCtx = new MockAudioContext();
+  const pool = new AudioVoicePool(16);
+  pool.init(mockCtx);
+  const hazardAudio = new DynamicHazardAudio(pool);
+
+  for (let i = 0; i < 300; i++) {
+    const time = i * 15;
+    hazardAudio.playAccretionSwirl(time);
+    hazardAudio.playSingularityBurst(time);
+    hazardAudio.playCosmicFusion(time);
+    hazardAudio.playGravitationalEscape(time);
+    hazardAudio.playGravityCrush(time);
+  }
+
+  // Teardown
+  hazardAudio.destroy();
+  pool.destroy();
+
+  assert.strictEqual(pool.getActiveCount(), 0, 'No active voices may remain');
+});
+
+
