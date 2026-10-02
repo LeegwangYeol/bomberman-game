@@ -10,14 +10,12 @@ import {
   TILE_EMPTY,
   type GridCoord,
   findPathBFS,
-  getBlastTiles,
-  findEscapePathBFS,
   findTargetBlockBFS,
   findCorneringBombTile,
   getSafeDemolitionApproaches,
+  getSafeBombEscapePath,
   FlatHazardMask,
   isTileInHazardMask,
-  cloneBombTilesAsSet,
 } from '../pathfinding.ts';
 
 /**
@@ -75,6 +73,8 @@ export class ChaserEnemy extends BaseEntity {
       ENEMY_ARCHETYPES.CHASER.hpBarColor
     );
     this.moveSpeed = this.config.trackSpeed;
+    this.mass = 1.0;
+    this.collisionRadius = 12;
     this.setTint(0xff4444);
     this.changeState(EnemyState.TRACKING);
   }
@@ -255,10 +255,7 @@ export class ChaserEnemy extends BaseEntity {
           ) {
             const trapTile = findCorneringBombTile({ r: er, c: ec }, { r: pr, c: pc }, map, bombTiles, true);
             if (trapTile && trapTile.r === er && trapTile.c === ec) {
-              const dangerTiles = getBlastTiles({ r: er, c: ec }, this.bombPower, map);
-              const simulatedBombTiles = cloneBombTilesAsSet(bombTiles);
-              simulatedBombTiles.add(`${er},${ec}`);
-              const safeEscape = findEscapePathBFS({ r: er, c: ec }, dangerTiles, map, simulatedBombTiles, 8);
+              const safeEscape = getSafeBombEscapePath({ r: er, c: ec }, this.bombPower, map, bombTiles, 8);
               if (safeEscape && safeEscape.length > 0) {
                 const placed = dropBombCallback ? dropBombCallback(er, ec, 2000) : false;
                 if (placed) {
@@ -299,10 +296,7 @@ export class ChaserEnemy extends BaseEntity {
               this.bombCooldownTimer <= 0 &&
               this.activeBombs < this.maxBombs
             ) {
-              const dangerTiles = getBlastTiles({ r: er, c: ec }, this.bombPower, map);
-              const simulatedBombTiles = cloneBombTilesAsSet(bombTiles);
-              simulatedBombTiles.add(`${er},${ec}`);
-              const safeEscape = findEscapePathBFS({ r: er, c: ec }, dangerTiles, map, simulatedBombTiles, 8);
+              const safeEscape = getSafeBombEscapePath({ r: er, c: ec }, this.bombPower, map, bombTiles, 8);
 
               if (safeEscape && safeEscape.length > 0) {
                 const placed = dropBombCallback ? dropBombCallback(er, ec, 2000) : false;
@@ -485,6 +479,8 @@ export class BomberEnemy extends BaseEntity {
       ENEMY_ARCHETYPES.BOMBER.hpBarColor
     );
     this.moveSpeed = this.config.trackSpeed;
+    this.mass = 1.0;
+    this.collisionRadius = 12;
     this.setTint(0xc084fc);
     this.changeState(EnemyState.HUNTING);
   }
@@ -619,11 +615,7 @@ export class BomberEnemy extends BaseEntity {
         this.activeBombs < this.maxBombs &&
         (dist <= this.bombPower || isAtTrapTile)
       ) {
-        const dangerTiles = getBlastTiles({ r: er, c: ec }, this.bombPower, map);
-        const simulatedBombTiles = cloneBombTilesAsSet(bombTiles);
-        simulatedBombTiles.add(`${er},${ec}`);
-
-        const safeEscape = findEscapePathBFS({ r: er, c: ec }, dangerTiles, map, simulatedBombTiles, 8);
+        const safeEscape = getSafeBombEscapePath({ r: er, c: ec }, this.bombPower, map, bombTiles, 8);
 
         if (safeEscape && safeEscape.length > 0) {
           const fuseMs = this.hp === 1 ? this.config.quickFuseMs : 2500;
@@ -667,10 +659,7 @@ export class BomberEnemy extends BaseEntity {
           this.bombCooldownTimer <= 0 &&
           this.activeBombs < this.maxBombs
         ) {
-          const dangerTiles = getBlastTiles({ r: er, c: ec }, this.bombPower, map);
-          const simulatedBombTiles = cloneBombTilesAsSet(bombTiles);
-          simulatedBombTiles.add(`${er},${ec}`);
-          const safeEscape = findEscapePathBFS({ r: er, c: ec }, dangerTiles, map, simulatedBombTiles, 8);
+          const safeEscape = getSafeBombEscapePath({ r: er, c: ec }, this.bombPower, map, bombTiles, 8);
 
           if (safeEscape && safeEscape.length > 0) {
             const fuseMs = this.hp === 1 ? this.config.quickFuseMs : 2500;
@@ -802,6 +791,8 @@ export class TankEnemy extends BaseEntity {
     );
     this.iFrameDurationMs = this.config.iFrameMs;
     this.moveSpeed = this.config.walkSpeed;
+    this.mass = 3.0;
+    this.collisionRadius = 14;
     this.setTint(0x64748b);
     this.setScale(1.2, 1.2);
     applyPhysicsBodyInvariantGuard(this, 28, 28, 6, 6);
@@ -938,6 +929,9 @@ export class GhostEnemy extends BaseEntity {
       ENEMY_ARCHETYPES.GHOST.hpBarColor
     );
     this.moveSpeed = this.config.phaseSpeed;
+    this.mass = 0.2;
+    this.collisionRadius = 10;
+    this.isPhasing = true;
     this.setTint(0x67e8f9);
     this.setAlpha(0.65);
     this.overheadUI.setIntent('👻', true);
@@ -1060,6 +1054,8 @@ export class SplitterEnemy extends BaseEntity {
       ENEMY_ARCHETYPES.SPLITTER.hpBarColor
     );
     this.moveSpeed = this.config.parentSpeed;
+    this.mass = 0.8;
+    this.collisionRadius = 10;
     this.setTint(0x22c55e);
     this.setScale(1.15, 1.15);
     this.overheadUI.setIntent('🟢', true);
@@ -1190,6 +1186,8 @@ export class MiniSplitterEnemy extends BaseEntity {
       ENEMY_ARCHETYPES.SPLITTER.hpBarColor
     );
     this.moveSpeed = 100;
+    this.mass = 0.4;
+    this.collisionRadius = 8;
     this.setTint(0x84cc16);
     this.setScale(0.7, 0.7);
     applyPhysicsBodyInvariantGuard(this, 18, 18, 11, 11);

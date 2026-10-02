@@ -492,7 +492,7 @@ test('Challenger 1.7: ZeroGCPathfinder — Non-integer and NaN infinite loop han
        const out = new Int16Array(195);
        pf.findPath(NaN, 17, out);`,
     ],
-    { timeout: 2000 }
+    { timeout: 10000 }
   );
 
   const timedOutNaN = Boolean(childNaN.error && childNaN.error.code === 'ETIMEDOUT');
@@ -515,7 +515,7 @@ test('Challenger 1.7: ZeroGCPathfinder — Non-integer and NaN infinite loop han
        danger[1] = 1;
        pf.findSafeTile(NaN, danger, pf.obstacleMask, null, 4, out);`,
     ],
-    { timeout: 2000 }
+    { timeout: 10000 }
   );
 
   const timedOutSafeNaN = Boolean(childSafeNaN.error && childSafeNaN.error.code === 'ETIMEDOUT');

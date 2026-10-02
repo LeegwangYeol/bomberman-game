@@ -304,7 +304,7 @@ test('SEC-NET-01: GameStatePersistence.handleApiError harmonizes 429 quota detec
 
 test('SEC-NET-02: CircuitBreaker auto-drains queued tasks after backoff timer fires without manual triggers', async () => {
   const cb = new APIQuotaCircuitBreaker({
-    initialBackoffMs: 50,
+    initialBackoffMs: 200,
     jitterRatio: 0,
     failureThreshold: 1,
   });

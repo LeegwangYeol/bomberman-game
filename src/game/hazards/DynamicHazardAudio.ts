@@ -7,6 +7,12 @@
  * - Polarization Strike: Resonant harmonious golden chime chord across pooled voices.
  * - Quantum Tunneling: Cosmic phase-shift whoosh with resonant bandpass filter ascent.
  *
+ * 2026-10-02 Evolution Cycle:
+ * - Gravitational Singularity: Accretion swirl (45Hz drone + LFO), Singularity burst (35Hz thump + filter sweep), Cosmic fusion chord.
+ *
+ * 2026-10-03 Evolution Cycle:
+ * - Frost Hazard: Crystalline ice shimmer (high-frequency resonant filter sweep), sub-zero low rumble (40Hz fundamental), glass shatter detonation.
+ *
  * Strict Zero-Leak & Zero-GC Guarantees:
  * - Tonal sound events reuse pre-allocated voices via AudioVoicePool (no runtime AudioNode allocation).
  * - Transient noise burst nodes employ wireAutoDisconnect (osc/source.onended) and active tracking.
@@ -16,6 +22,17 @@
 
 import { AudioVoicePool, type AudioVoiceToneParams } from '../pooling/AudioVoicePool.ts';
 import { TelegraphPhase } from './DynamicHazard.ts';
+
+interface ModulatableVoice {
+  attachModulator?: (node: AudioNode) => void;
+  detachModulator?: (node: AudioNode) => void;
+  [key: string]: unknown;
+}
+
+interface StopAndEndedAudioNode extends AudioNode {
+  stop?: () => void;
+  onended?: (() => void) | null;
+}
 
 /**
  * Procedural Tone Parameters for Zero-GC Hazard Audio Synthesis
@@ -415,7 +432,160 @@ export const HAZARD_AUDIO_PRESETS = {
     releaseTime: 0.08,
     filter: { type: 'lowpass', frequency: 320, q: 2.0 },
   } as AudioVoiceToneParams,
+
+  // Frost Hazard Presets (2026-10-03 Evolution Cycle)
+  // 1. Crystalline Ice Shimmer: High-frequency resonant filter sweep & sparkling harmonics
+  FROST_SHIMMER_SWEEP: {
+    type: 'triangle',
+    frequency: 2093.00, // C7
+    frequencyRamp: { target: 4186.01, duration: 0.35, exponential: true }, // C7 -> C8 soar
+    gain: 0.28,
+    duration: 0.45,
+    attackTime: 0.008,
+    decayTime: 0.15,
+    sustainLevel: 0.30,
+    releaseTime: 0.20,
+    filter: { type: 'bandpass', frequency: 1800, q: 5.5, rampTarget: 6200, rampDuration: 0.38 },
+  } as AudioVoiceToneParams,
+
+  FROST_SHIMMER_CHIME_A: {
+    type: 'sine',
+    frequency: 1567.98, // G6
+    gain: 0.22,
+    duration: 0.50,
+    attackTime: 0.003,
+    decayTime: 0.18,
+    sustainLevel: 0.35,
+    releaseTime: 0.25,
+    filter: { type: 'highpass', frequency: 1200, q: 3.0 },
+  } as AudioVoiceToneParams,
+
+  FROST_SHIMMER_CHIME_B: {
+    type: 'sine',
+    frequency: 2637.02, // E7
+    gain: 0.18,
+    duration: 0.40,
+    attackTime: 0.003,
+    decayTime: 0.12,
+    sustainLevel: 0.25,
+    releaseTime: 0.20,
+    filter: { type: 'highpass', frequency: 2000, q: 2.5 },
+  } as AudioVoiceToneParams,
+
+  // 2. Sub-Zero Low Rumble: 40Hz fundamental with glacial acoustic beat
+  FROST_RUMBLE_40HZ_SUB: {
+    type: 'sine',
+    frequency: 40.0, // 40Hz fundamental
+    gain: 0.48,
+    duration: 1.40,
+    attackTime: 0.10,
+    decayTime: 0.35,
+    sustainLevel: 0.65,
+    releaseTime: 0.40,
+    filter: { type: 'lowpass', frequency: 90, q: 2.0 },
+  } as AudioVoiceToneParams,
+
+  FROST_RUMBLE_TEXTURE: {
+    type: 'triangle',
+    frequency: 40.0, // 40Hz fundamental
+    frequencyRamp: { target: 43.2, duration: 1.20, exponential: false }, // 3.2Hz slow cryogenic pulse
+    gain: 0.30,
+    duration: 1.30,
+    attackTime: 0.12,
+    decayTime: 0.30,
+    sustainLevel: 0.55,
+    releaseTime: 0.35,
+    filter: { type: 'lowpass', frequency: 130, q: 2.4 },
+  } as AudioVoiceToneParams,
+
+  FROST_RUMBLE_BLIZZARD_SUB: {
+    type: 'sawtooth',
+    frequency: 80.0,
+    frequencyRamp: { target: 40.0, duration: 1.10, exponential: true },
+    gain: 0.18,
+    duration: 1.20,
+    attackTime: 0.15,
+    decayTime: 0.30,
+    sustainLevel: 0.45,
+    releaseTime: 0.35,
+    filter: { type: 'lowpass', frequency: 160, q: 3.0, rampTarget: 70, rampDuration: 1.0 },
+  } as AudioVoiceToneParams,
+
+  // 3. Glass Shatter Detonation: Explosive sub thump + high-Q brittle glass fracture pings
+  FROST_SHATTER_DETONATION_THUMP: {
+    type: 'sine',
+    frequency: 110.0,
+    frequencyRamp: { target: 35.0, duration: 0.25, exponential: true }, // Sub detonation drop
+    gain: 0.56,
+    duration: 0.32,
+    attackTime: 0.002,
+    decayTime: 0.14,
+    sustainLevel: 0.25,
+    releaseTime: 0.12,
+    filter: { type: 'lowpass', frequency: 220, q: 1.8 },
+  } as AudioVoiceToneParams,
+
+  FROST_SHATTER_GLASS_PING_A: {
+    type: 'triangle',
+    frequency: 3135.96, // G7 piercing glass fracture
+    gain: 0.34,
+    duration: 0.22,
+    attackTime: 0.001,
+    decayTime: 0.06,
+    sustainLevel: 0.20,
+    releaseTime: 0.10,
+    filter: { type: 'bandpass', frequency: 3200, q: 6.5 },
+  } as AudioVoiceToneParams,
+
+  FROST_SHATTER_GLASS_PING_B: {
+    type: 'sine',
+    frequency: 4186.01, // C8 high crystalline shard ring
+    frequencyRamp: { target: 2093.00, duration: 0.15, exponential: true },
+    gain: 0.26,
+    duration: 0.20,
+    attackTime: 0.001,
+    decayTime: 0.05,
+    sustainLevel: 0.15,
+    releaseTime: 0.08,
+    filter: { type: 'highpass', frequency: 2800, q: 4.0 },
+  } as AudioVoiceToneParams,
+
+  FROST_SHATTER_CHORD_D6: {
+    type: 'sine',
+    frequency: 1174.66, // D6 harmonic resonance
+    gain: 0.22,
+    duration: 0.35,
+    attackTime: 0.002,
+    decayTime: 0.10,
+    sustainLevel: 0.30,
+    releaseTime: 0.20,
+    filter: { type: 'bandpass', frequency: 1500, q: 3.0 },
+  } as AudioVoiceToneParams,
+
+  // Auxiliary Frost SFX Presets
+  FROST_MELT_DRIP: {
+    type: 'sine',
+    frequency: 1400.0,
+    frequencyRamp: { target: 900.0, duration: 0.025, exponential: true }, // Water droplet blip
+    gain: 0.24,
+    duration: 0.035,
+    attackTime: 0.002,
+    releaseTime: 0.015,
+    filter: { type: 'bandpass', frequency: 1100, q: 3.2 },
+  } as AudioVoiceToneParams,
+
+  FROST_CRYO_GLIDE: {
+    type: 'sine',
+    frequency: 440.0,
+    frequencyRamp: { target: 880.0, duration: 0.18, exponential: false },
+    gain: 0.20,
+    duration: 0.20,
+    attackTime: 0.01,
+    releaseTime: 0.06,
+    filter: { type: 'bandpass', frequency: 700, q: 2.0 },
+  } as AudioVoiceToneParams,
 } as const;
+
 
 /**
  * DynamicHazardAudio: Main Sound Synthesizer Engine for Dynamic Hazards
@@ -443,6 +613,11 @@ export class DynamicHazardAudio {
   private lastFusionTimeMs: number = -Infinity;
   private lastEscapeTimeMs: number = -Infinity;
   private lastCrushTimeMs: number = -Infinity;
+  private lastIceShimmerTimeMs: number = -Infinity;
+  private lastSubZeroRumbleTimeMs: number = -Infinity;
+  private lastGlassShatterTimeMs: number = -Infinity;
+  private lastFrostMeltTimeMs: number = -Infinity;
+  private lastCryoGlideTimeMs: number = -Infinity;
 
   constructor(poolOrCtx?: AudioVoicePool | AudioContext | null) {
     if (poolOrCtx) {
@@ -620,9 +795,12 @@ export class DynamicHazardAudio {
       this.activeTransientNodes.add(filter);
       this.activeTransientNodes.add(gain);
 
-      // Auto-disconnection invariant: Unhook all nodes upon ended event
-      source.onended = () => {
+      let cleanedUp = false;
+      const cleanup = () => {
+        if (cleanedUp) return;
+        cleanedUp = true;
         try {
+          source.onended = null;
           source.disconnect();
           filter.disconnect();
           gain.disconnect();
@@ -632,8 +810,15 @@ export class DynamicHazardAudio {
         this.activeTransientNodes.delete(gain);
       };
 
-      source.start(now);
-      source.stop(now + duration);
+      source.onended = cleanup;
+      this.safeTimeout(cleanup, Math.ceil((duration + 0.05) * 1000));
+
+      try {
+        source.start(now);
+        source.stop(now + duration);
+      } catch {
+        cleanup();
+      }
     } catch {
       // Safe non-throwing fallback for mock or restricted contexts
     }
@@ -804,27 +989,44 @@ export class DynamicHazardAudio {
         lfoOsc.connect(lfoGain);
 
         // Safe connection to voice osc frequency param
+        const droneModVoice = droneVoice as unknown as ModulatableVoice;
         if (droneVoice.osc.frequency && typeof lfoGain.connect === 'function') {
           try {
             lfoGain.connect(droneVoice.osc.frequency);
+            if (typeof droneModVoice.attachModulator === 'function') {
+              droneModVoice.attachModulator(lfoGain);
+            }
           } catch {}
         }
 
         this.activeTransientNodes.add(lfoOsc);
         this.activeTransientNodes.add(lfoGain);
 
-        // Auto-disconnection invariant: Unhook all nodes upon ended event
-        lfoOsc.onended = () => {
+        let cleanedUp = false;
+        const cleanup = () => {
+          if (cleanedUp) return;
+          cleanedUp = true;
           try {
+            lfoOsc.onended = null;
             lfoOsc.disconnect();
             lfoGain.disconnect();
           } catch {}
           this.activeTransientNodes.delete(lfoOsc);
           this.activeTransientNodes.delete(lfoGain);
+          if (typeof droneModVoice.detachModulator === 'function') {
+            droneModVoice.detachModulator(lfoGain);
+          }
         };
 
-        lfoOsc.start(now);
-        lfoOsc.stop(now + duration);
+        lfoOsc.onended = cleanup;
+        this.safeTimeout(cleanup, Math.ceil((duration + 0.05) * 1000));
+
+        try {
+          lfoOsc.start(now);
+          lfoOsc.stop(now + duration);
+        } catch {
+          cleanup();
+        }
       } catch {
         // Safe fallback for restricted or mock contexts
       }
@@ -924,6 +1126,204 @@ export class DynamicHazardAudio {
   }
 
   /* ==============================================================================
+   * 7. FROST HAZARD PROCEDURAL SYNTHESIS (2026-10-03 EVOLUTION CYCLE)
+   * Crystalline Ice Shimmer, Sub-Zero 40Hz Low Rumble, Glass Shatter Detonation
+   * ============================================================================== */
+
+  /**
+   * 1. Crystalline Ice Shimmer: High-frequency resonant filter sweep & sparkling harmonics.
+   * Synthesizes the delicate sparkling frost rime crystal growth.
+   * - Voice 1: High-frequency sweep (2093Hz -> 4186Hz) with resonant bandpass filter sweep (1800Hz -> 6200Hz, Q=5.5)
+   * - Voice 2: Crystalline Chime G6 (1567.98Hz)
+   * - Voice 3: Sparkling Chime E7 (2637.02Hz) via safeTimeout
+   * - Noise Layer: High-passed white noise transient (5500Hz -> 3200Hz) with strict auto-disconnect
+   */
+  public playIceShimmer(currentTimeMs: number = 0): void {
+    if (!this.pool) return;
+
+    if (currentTimeMs > 0 && currentTimeMs - this.lastIceShimmerTimeMs < 140) {
+      return;
+    }
+    this.lastIceShimmerTimeMs = currentTimeMs;
+
+    // 1. High-frequency resonant filter sweep voice (pooled voice)
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.FROST_SHIMMER_SWEEP);
+
+    // 2. Crystalline Chime G6 (pooled voice)
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.FROST_SHIMMER_CHIME_A);
+
+    // 3. Staggered sparkling chime E7 (staggered 30ms for crystalline sparkle)
+    this.safeTimeout(() => {
+      if (this.pool) {
+        this.pool.playTone(HAZARD_AUDIO_PRESETS.FROST_SHIMMER_CHIME_B);
+      }
+    }, 30);
+
+    // 4. Subtle frost crackle noise burst transient (strict auto-disconnect)
+    this.playWhiteNoiseBurst(0.06, 0.15, 5500, 3200);
+  }
+
+  /**
+   * 2. Sub-Zero Low Rumble: 40Hz fundamental with glacial acoustic beat.
+   * Plays the ominous sub-zero permafrost ground shudder.
+   * - Voice 1: 40Hz sine sub-bass fundamental drone (pooled voice)
+   * - Voice 2: 40Hz triangle texture with 40Hz -> 43.2Hz frequency ramp (3.2Hz cryogenic acoustic beat)
+   * - Voice 3: Sub-zero overtone sweep (80Hz -> 40Hz, pooled voice)
+   * - LFO Modulation: Sub-bass LFO flutter (1.8Hz -> 3.6Hz) with strict onended auto-disconnect
+   */
+  public playSubZeroRumble(currentTimeMs: number = 0): void {
+    if (!this.pool) return;
+
+    if (currentTimeMs > 0 && currentTimeMs - this.lastSubZeroRumbleTimeMs < 160) {
+      return;
+    }
+    this.lastSubZeroRumbleTimeMs = currentTimeMs;
+
+    // Layer 1: 40Hz fundamental sub-bass drone (pooled voice)
+    const rumbleVoice = this.pool.playTone(HAZARD_AUDIO_PRESETS.FROST_RUMBLE_40HZ_SUB);
+
+    // Layer 2: 40Hz acoustic beat texture (pooled voice)
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.FROST_RUMBLE_TEXTURE);
+
+    // Layer 3: Sub-zero overtone sweep (pooled voice)
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.FROST_RUMBLE_BLIZZARD_SUB);
+
+    // Layer 4: Procedural WebAudio LFO cryogenic flutter (Zero-Leak auto-disconnect)
+    const ctx = this.getContext();
+    if (ctx && rumbleVoice && rumbleVoice.osc) {
+      try {
+        const now = ctx.currentTime;
+        const duration = 1.30;
+        const lfoOsc = ctx.createOscillator();
+        const lfoGain = ctx.createGain();
+
+        lfoOsc.type = 'sine';
+        lfoOsc.frequency.setValueAtTime(1.8, now); // 1.8Hz cryogenic shudder
+        lfoOsc.frequency.exponentialRampToValueAtTime(3.6, now + duration);
+
+        lfoGain.gain.setValueAtTime(2.0, now);
+        lfoGain.gain.linearRampToValueAtTime(4.5, now + duration);
+
+        lfoOsc.connect(lfoGain);
+
+        const rumbleModVoice = rumbleVoice as unknown as ModulatableVoice;
+        if (rumbleVoice.osc.frequency && typeof lfoGain.connect === 'function') {
+          try {
+            lfoGain.connect(rumbleVoice.osc.frequency);
+            if (typeof rumbleModVoice.attachModulator === 'function') {
+              rumbleModVoice.attachModulator(lfoGain);
+            }
+          } catch {}
+        }
+
+        this.activeTransientNodes.add(lfoOsc);
+        this.activeTransientNodes.add(lfoGain);
+
+        let cleanedUp = false;
+        const cleanup = () => {
+          if (cleanedUp) return;
+          cleanedUp = true;
+          try {
+            lfoOsc.onended = null;
+            lfoOsc.disconnect();
+            lfoGain.disconnect();
+          } catch {}
+          this.activeTransientNodes.delete(lfoOsc);
+          this.activeTransientNodes.delete(lfoGain);
+          if (typeof rumbleModVoice.detachModulator === 'function') {
+            rumbleModVoice.detachModulator(lfoGain);
+          }
+        };
+
+        lfoOsc.onended = cleanup;
+        this.safeTimeout(cleanup, Math.ceil((duration + 0.05) * 1000));
+
+        try {
+          lfoOsc.start(now);
+          lfoOsc.stop(now + duration);
+        } catch {
+          cleanup();
+        }
+      } catch {
+        // Safe fallback for restricted or mock contexts
+      }
+    }
+  }
+
+  /**
+   * 3. Glass Shatter Detonation: Explosive sub thump + high-Q brittle glass fracture pings.
+   * Plays the absolute zero thermal-shock detonation when ice shatters violently into glass-like fragments.
+   * - Voice 1: 110Hz -> 35Hz explosive sub-harmonic thump (pooled voice)
+   * - Voice 2: 3135.96Hz (G7) sharp brittle glass fracture ping with Q=6.5 bandpass (pooled voice)
+   * - Voice 3: 4186.01Hz (C8) high crystalline fracture cascade (pooled voice)
+   * - Voice 4: 1174.66Hz (D6) resonant harmonic ring (pooled voice)
+   * - Layer 5: High-frequency shattering white noise transient (5200Hz -> 1400Hz) with strict auto-disconnect
+   */
+  public playGlassShatterDetonation(currentTimeMs: number = 0): void {
+    if (!this.pool) return;
+
+    if (currentTimeMs > 0 && currentTimeMs - this.lastGlassShatterTimeMs < 150) {
+      return;
+    }
+    this.lastGlassShatterTimeMs = currentTimeMs;
+
+    // 1. Explosive sub-harmonic thump (pooled voice)
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.FROST_SHATTER_DETONATION_THUMP);
+
+    // 2. High-Q brittle glass fracture ping A (G7 = 3135.96 Hz)
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.FROST_SHATTER_GLASS_PING_A);
+
+    // 3. High crystalline fracture cascade B (C8 = 4186.01 Hz)
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.FROST_SHATTER_GLASS_PING_B);
+
+    // 4. Resonant D6 harmonic ring (pooled voice)
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.FROST_SHATTER_CHORD_D6);
+
+    // 5. Shattering glass/ice noise burst transient (strict auto-disconnect)
+    this.playWhiteNoiseBurst(0.12, 0.38, 5200, 1400);
+  }
+
+  /**
+   * Short sinusoidal droplet blip (1400Hz -> 900Hz) representing melting ice in thaw phase
+   */
+  public playFrostMeltingDrip(currentTimeMs: number = 0): void {
+    if (!this.pool) return;
+    if (currentTimeMs > 0 && currentTimeMs - this.lastFrostMeltTimeMs < 80) {
+      return;
+    }
+    this.lastFrostMeltTimeMs = currentTimeMs;
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.FROST_MELT_DRIP);
+  }
+
+  /**
+   * Cryo Glide / Ice Slide whoosh when entity slides with zero friction across glaciated ice
+   */
+  public playCryoGlide(currentTimeMs: number = 0): void {
+    if (!this.pool) return;
+    if (currentTimeMs > 0 && currentTimeMs - this.lastCryoGlideTimeMs < 100) {
+      return;
+    }
+    this.lastCryoGlideTimeMs = currentTimeMs;
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.FROST_CRYO_GLIDE);
+  }
+
+  /**
+   * Synchronizes sound playback directly with Frost Hazard FSM state transitions
+   */
+  public playFrostHazardState(state: string, currentTimeMs: number = 0): void {
+    const s = String(state).toUpperCase();
+    if (s.includes('SHATTER') || s.includes('ABSOLUTE_ZERO') || s.includes('BURST')) {
+      this.playGlassShatterDetonation(currentTimeMs);
+    } else if (s.includes('PERMAFROST') || s.includes('RUMBLE') || s.includes('SUB_ZERO')) {
+      this.playSubZeroRumble(currentTimeMs);
+    } else if (s.includes('HOARFROST') || s.includes('CRYSTAL') || s.includes('SUBLIMATION') || s.includes('SHIMMER')) {
+      this.playIceShimmer(currentTimeMs);
+    } else if (s.includes('THAW') || s.includes('MELT') || s.includes('COOLDOWN')) {
+      this.playFrostMeltingDrip(currentTimeMs);
+    }
+  }
+
+  /* ==============================================================================
    * LIFECYCLE & ZERO-LEAK NODE MANAGEMENT
    * ============================================================================== */
 
@@ -962,10 +1362,15 @@ export class DynamicHazardAudio {
     this.lastFusionTimeMs = -Infinity;
     this.lastEscapeTimeMs = -Infinity;
     this.lastCrushTimeMs = -Infinity;
+    this.lastIceShimmerTimeMs = -Infinity;
+    this.lastSubZeroRumbleTimeMs = -Infinity;
+    this.lastGlassShatterTimeMs = -Infinity;
+    this.lastFrostMeltTimeMs = -Infinity;
+    this.lastCryoGlideTimeMs = -Infinity;
   }
 
   /**
-   * Forcefully disconnects all transient nodes and clears pending timers
+   * Forcefully stops and disconnects all transient nodes, clears callbacks and timers
    */
   private clearPendingNodes(): void {
     for (const tid of this.activeTimeouts) {
@@ -975,10 +1380,33 @@ export class DynamicHazardAudio {
 
     for (const node of this.activeTransientNodes) {
       try {
+        const sourceNode = node as unknown as StopAndEndedAudioNode;
+        if (typeof sourceNode.stop === 'function') {
+          try {
+            sourceNode.stop();
+          } catch {}
+        }
+        if ('onended' in sourceNode) {
+          sourceNode.onended = null;
+        }
         node.disconnect();
       } catch {}
     }
     this.activeTransientNodes.clear();
+  }
+
+  /**
+   * Stops all active hazard audio, silences voices, and cleans up transient nodes.
+   */
+  public stop(): void {
+    this.reset();
+  }
+
+  /**
+   * Disconnects and destroys audio resources.
+   */
+  public disconnect(): void {
+    this.destroy();
   }
 
   /**
@@ -988,8 +1416,12 @@ export class DynamicHazardAudio {
   public destroy(): void {
     this.clearPendingNodes();
 
-    if (this.pool && this.ownsPool) {
-      this.pool.destroy();
+    if (this.pool) {
+      if (this.ownsPool) {
+        this.pool.destroy();
+      } else {
+        this.pool.reset();
+      }
       this.pool = null;
     }
 

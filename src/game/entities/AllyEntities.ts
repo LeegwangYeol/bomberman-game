@@ -42,6 +42,8 @@ export class MiniBomberAlly extends BaseEntity {
       ALLY_ARCHETYPES.MINI_BOMBER.hpBarColor
     );
     this.moveSpeed = 100;
+    this.mass = 1.0;
+    this.collisionRadius = 12;
     this.setTint(0x06b6d4);
     this.overheadUI.setIntent('🛡️', true);
   }
@@ -195,6 +197,9 @@ export class PetDroneAlly extends BaseEntity {
       ALLY_ARCHETYPES.PET_DRONE.hpBarColor
     );
     this.moveSpeed = this.config.flightSpeed;
+    this.mass = 0.3;
+    this.collisionRadius = 8;
+    this.isPhasing = true;
     this.setTint(0x38bdf8);
     this.setScale(0.75, 0.75);
     this.overheadUI.setIntent('🚁', true);
@@ -346,6 +351,8 @@ export class ShieldGuardAlly extends BaseEntity {
       ALLY_ARCHETYPES.SHIELD_GUARD.hpBarColor
     );
     this.moveSpeed = 90;
+    this.mass = 4.0;
+    this.collisionRadius = 16;
     this.setTint(0x3b82f6);
     this.setScale(1.1, 1.1);
     this.overheadUI.setIntent('🛡️', true);

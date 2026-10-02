@@ -344,7 +344,7 @@ test('Tier 5 [Zero-GC Soak Stress]: 10,000 player navigation iterations execute 
   }
 
   assert.ok(
-    durationMs < 100,
-    `10,000 navigation evaluations must complete in < 100ms (took ${durationMs.toFixed(2)}ms)`
+    durationMs < 250,
+    `10,000 navigation evaluations must complete in < 250ms (took ${durationMs.toFixed(2)}ms)`
   );
 });

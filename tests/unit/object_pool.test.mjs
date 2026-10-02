@@ -244,3 +244,73 @@ test('ObjectPool: IPoolable class instances auto-invoke reset() on pool.reset()'
   assert.strictEqual(e2.resetCalls, 1);
 });
 
+test('ObjectPool: strictly enforces BOTH IPoolable.reset() AND options.reset() when both are provided', () => {
+  class MockDualEntity {
+    constructor(id) {
+      this.id = id;
+      this.entityResetCount = 0;
+    }
+    reset() {
+      this.entityResetCount++;
+    }
+  }
+
+  let optionsResetCount = 0;
+  const pool = new ObjectPool({
+    capacity: 2,
+    factory: (i) => new MockDualEntity(i),
+    reset: () => {
+      optionsResetCount++;
+    },
+  });
+
+  const obj = pool.acquire();
+  assert.ok(obj !== null);
+  assert.strictEqual(obj.entityResetCount, 0);
+  assert.strictEqual(optionsResetCount, 0);
+
+  // Test on release()
+  assert.strictEqual(pool.release(obj), true);
+  assert.strictEqual(obj.entityResetCount, 1, 'IPoolable.reset must be called');
+  assert.strictEqual(optionsResetCount, 1, 'options.reset must be called');
+
+  // Test on pool.reset()
+  pool.acquire();
+  pool.reset();
+  assert.strictEqual(obj.entityResetCount, 2, 'IPoolable.reset must be called on pool.reset()');
+  assert.strictEqual(optionsResetCount, 2, 'options.reset must be called on pool.reset()');
+});
+
+test('ObjectPool: rejects non-finite, negative, zero, and non-integer capacities', () => {
+  const invalidCapacities = [0, -5, NaN, Infinity, -Infinity, 3.5, '64', null, undefined];
+  for (const cap of invalidCapacities) {
+    assert.throws(
+      () => new ObjectPool({ capacity: cap, factory: () => ({}) }),
+      /ObjectPool capacity must be greater than 0/
+    );
+  }
+});
+
+test('ObjectPool: destroy() completely tears down storage, maps, and callbacks to prevent memory leaks', () => {
+  let acquireCalled = false;
+  let resetCalled = false;
+  const pool = new ObjectPool({
+    capacity: 2,
+    factory: (i) => ({ id: i }),
+    onAcquire: () => { acquireCalled = true; },
+    reset: () => { resetCalled = true; },
+  });
+
+  const it = pool.acquire();
+  assert.ok(it !== null);
+  assert.strictEqual(acquireCalled, true);
+
+  pool.destroy();
+  assert.strictEqual(pool.activeCount, 0);
+  assert.strictEqual(pool.freeCount, 0);
+  assert.strictEqual(pool.isExhausted, true);
+  assert.strictEqual(pool.release(it), false, 'Item cannot be released after destroy');
+  assert.strictEqual(pool.isActive(it), false);
+  assert.strictEqual(pool.acquire(), null, 'Acquire on destroyed pool returns null');
+});
+

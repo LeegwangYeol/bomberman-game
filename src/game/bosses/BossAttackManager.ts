@@ -252,4 +252,15 @@ export class BossAttackManager {
     this.minionPool.reset();
     this.telegraphPool.reset();
   }
+
+  public destroy(): void {
+    this.projectilePool.destroy();
+    this.shockwavePool.destroy();
+    this.minionPool.destroy();
+    this.telegraphPool.destroy();
+  }
+
+  public dispose(): void {
+    this.destroy();
+  }
 }

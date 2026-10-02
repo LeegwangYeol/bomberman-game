@@ -573,4 +573,191 @@ test('DynamicHazardAudio: Gravitational Singularity rapid stress generates 0 orp
   assert.strictEqual(pool.getActiveCount(), 0, 'No active voices may remain');
 });
 
+/* ==============================================================================
+ * TIER 6: Frost Hazard Audio Lifecycle & Zero-Leak Audit (2026-10-03)
+ * ============================================================================== */
+
+test('DynamicHazardAudio: Frost Hazard acoustic signatures reuse voice pool with zero node leaks', () => {
+  const mockCtx = new MockAudioContext();
+  const pool = new AudioVoicePool(16);
+  pool.init(mockCtx);
+  const hazardAudio = new DynamicHazardAudio(pool);
+
+  // 1. Crystalline Ice Shimmer
+  hazardAudio.playIceShimmer(100);
+  assert.strictEqual(pool.getActiveCount(), 2, 'Ice shimmer must acquire 2 pooled voices immediately');
+
+  // Simulate noise ended
+  const noiseNodes = mockCtx.nodes.filter((n) => n instanceof MockBufferSourceNode);
+  for (const node of noiseNodes) {
+    node.finishPlayback();
+  }
+
+  // 2. Sub-Zero Low Rumble
+  pool.reset();
+  hazardAudio.playSubZeroRumble(300);
+  assert.strictEqual(pool.getActiveCount(), 3, 'Sub-zero rumble must acquire 3 pooled voices');
+
+  // Simulate LFO ended
+  const lfoOscs = mockCtx.nodes.filter((n) => n instanceof MockOscillatorNode);
+  for (const osc of lfoOscs) {
+    osc.stop();
+  }
+
+  // 3. Glass Shatter Detonation
+  pool.reset();
+  hazardAudio.playGlassShatterDetonation(500);
+  assert.strictEqual(pool.getActiveCount(), 4, 'Glass shatter detonation must acquire 4 pooled voices');
+
+  // Verify all transient buffer sources and oscillators are disconnected
+  const undisconnectedBuffers = mockCtx.nodes
+    .filter((n) => n instanceof MockBufferSourceNode)
+    .filter((n) => !n.disconnected);
+  for (const n of undisconnectedBuffers) {
+    n.finishPlayback();
+  }
+
+  hazardAudio.destroy();
+  pool.destroy();
+  assert.strictEqual(pool.getActiveCount(), 0, 'Pool must be 100% silent after teardown');
+});
+
+test('DynamicHazardAudio: Frost Hazard rapid stress generates 0 orphaned nodes', () => {
+  const mockCtx = new MockAudioContext();
+  const pool = new AudioVoicePool(16);
+  pool.init(mockCtx);
+  const hazardAudio = new DynamicHazardAudio(pool);
+
+  for (let i = 0; i < 300; i++) {
+    const time = i * 15;
+    hazardAudio.playIceShimmer(time);
+    hazardAudio.playSubZeroRumble(time);
+    hazardAudio.playGlassShatterDetonation(time);
+    hazardAudio.playFrostMeltingDrip(time);
+    hazardAudio.playCryoGlide(time);
+  }
+
+  // Teardown
+  hazardAudio.destroy();
+  pool.destroy();
+
+  assert.strictEqual(pool.getActiveCount(), 0, 'No active voices may remain');
+});
+
+/* ==============================================================================
+ * TIER 7: Comprehensive Audio Node Disconnection & Zero-Leak Audit
+ * ============================================================================== */
+
+test('DynamicHazardAudio & AudioVoicePool: stop() and disconnect() methods cleanly disconnect all oscillators, filters, and gain nodes', () => {
+  const mockCtx = new MockAudioContext();
+  const pool = new AudioVoicePool(4);
+  pool.init(mockCtx);
+  const hazardAudio = new DynamicHazardAudio(pool);
+  hazardAudio.init(mockCtx, pool);
+
+  // 1. pool.stop() exists and silences all voices
+  pool.playTone({ frequency: 440, duration: 1.0 });
+  assert.strictEqual(pool.getActiveCount(), 1);
+  pool.stop();
+  assert.strictEqual(pool.getActiveCount(), 0);
+
+  // 2. Play multi-layer sounds with transient oscillators, gain nodes, and biquad filters
+  hazardAudio.playLaserDischarge(100);
+  hazardAudio.playAccretionSwirl(100);
+  hazardAudio.playSubZeroRumble(100);
+
+  // Verify transient nodes exist in context
+  const preStopFilters = mockCtx.nodes.filter((n) => n instanceof MockBiquadFilterNode);
+  const preStopGains = mockCtx.nodes.filter((n) => n instanceof MockGainNode);
+  const preStopOscs = mockCtx.nodes.filter((n) => n instanceof MockOscillatorNode);
+  assert.ok(preStopFilters.length > 0, 'Biquad filters must be present');
+  assert.ok(preStopGains.length > 0, 'Gain nodes must be present');
+  assert.ok(preStopOscs.length > 0, 'Oscillator nodes must be present');
+
+  // 3. hazardAudio.stop() forcefully stops and disconnects all transient nodes
+  hazardAudio.stop();
+
+  // All transient buffer sources and LFO oscillators must be stopped and disconnected
+  const transientBuffers = mockCtx.nodes.filter((n) => n instanceof MockBufferSourceNode);
+  for (const b of transientBuffers) {
+    assert.strictEqual(b.stopped, true, 'Buffer source must be stopped on stop()');
+    assert.strictEqual(b.disconnected, true, 'Buffer source must be disconnected on stop()');
+  }
+
+  // 4. hazardAudio.disconnect() and pool.disconnect() cleanly teardown
+  hazardAudio.disconnect();
+  pool.disconnect();
+
+  const undisconnected = mockCtx.nodes.filter((n) => !n.disconnected);
+  assert.strictEqual(undisconnected.length, 0, 'Zero orphaned audio nodes may remain undisconnected');
+});
+
+test('AudioVoice: attachModulator, forceSilence, and play detach modulators to prevent cross-tone contamination', () => {
+  const mockCtx = new MockAudioContext();
+  const pool = new AudioVoicePool(2);
+  pool.init(mockCtx);
+
+  const voice = pool.acquireVoice();
+  assert.ok(voice !== null);
+
+  // Create mock modulator gain node
+  const modGain = mockCtx.createGain();
+  modGain.connect(voice.osc.frequency);
+  voice.attachModulator(modGain);
+
+  assert.strictEqual(modGain.disconnected, false);
+
+  // Silencing or playing new tone must automatically detach and disconnect modGain
+  voice.forceSilence(mockCtx);
+  assert.strictEqual(modGain.disconnected, true, 'Modulator must be disconnected when voice is silenced');
+
+  // Verify parameter cancellation in forceSilence
+  const freqEvents = voice.osc.frequency.events.filter((e) => e.type === 'cancelScheduledValues');
+  assert.ok(freqEvents.length > 0, 'Oscillator frequency automations must be cancelled');
+
+  const filterFreqEvents = voice.filter.frequency.events.filter((e) => e.type === 'cancelScheduledValues');
+  assert.ok(filterFreqEvents.length > 0, 'Filter frequency automations must be cancelled');
+
+  pool.destroy();
+});
+
+test('DynamicHazardAudio: transient start() exception immediately cleans up nodes without leaking into activeTransientNodes', () => {
+  const mockCtx = new MockAudioContext();
+  const failingCtx = {
+    ...mockCtx,
+    currentTime: 0,
+    sampleRate: 44100,
+    destination: mockCtx.destination,
+    createOscillator: () => mockCtx.createOscillator(),
+    createGain: () => mockCtx.createGain(),
+    createBiquadFilter: () => mockCtx.createBiquadFilter(),
+    createBuffer: (c, l, r) => mockCtx.createBuffer(c, l, r),
+    createBufferSource: () => {
+      const source = mockCtx.createBufferSource();
+      source.start = () => {
+        throw new Error('Simulated start() hardware failure');
+      };
+      return source;
+    },
+  };
+
+  const hazardAudio = new DynamicHazardAudio();
+  hazardAudio.init(failingCtx);
+
+  // Play white noise burst on failing context
+  assert.doesNotThrow(() => {
+    hazardAudio.playWhiteNoiseBurst(0.1, 0.3, 2000, 400);
+  });
+
+  // Verify all created nodes were cleaned up immediately in catch
+  const failingNodes = mockCtx.nodes.filter((n) => n instanceof MockBufferSourceNode);
+  for (const n of failingNodes) {
+    assert.strictEqual(n.disconnected, true, 'Nodes must be disconnected even when start() throws');
+  }
+
+  hazardAudio.destroy();
+});
+
+
+
 

@@ -203,7 +203,7 @@ export class FlatHazardMask implements Iterable<string> {
   }
 
   public setCoord(r: number, c: number, val: number = 1): void {
-    if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+    if (Number.isInteger(r) && Number.isInteger(c) && r >= 0 && r < ROWS && c >= 0 && c < COLS) {
       const idx = r * COLS + c;
       if (val !== 0) {
         if (this.mask[idx] === 0) {
@@ -227,7 +227,7 @@ export class FlatHazardMask implements Iterable<string> {
   }
 
   public setIdx(idx: number, val: number = 1): void {
-    if (idx >= 0 && idx < this.length) {
+    if (Number.isInteger(idx) && idx >= 0 && idx < this.length) {
       if (val !== 0) {
         if (this.mask[idx] === 0) {
           this.mask[idx] = val;
@@ -250,7 +250,7 @@ export class FlatHazardMask implements Iterable<string> {
   }
 
   public isHazardIdx(idx: number): boolean {
-    return idx >= 0 && idx < this.length && this.mask[idx] !== 0;
+    return Number.isInteger(idx) && idx >= 0 && idx < this.length && this.mask[idx] !== 0;
   }
 
   public *[Symbol.iterator](): Generator<string, void, unknown> {
@@ -275,6 +275,7 @@ export class FlatHazardMask implements Iterable<string> {
   }
 
   public isNearHazard(r: number, c: number, maxDist: number = 3): boolean {
+    if (!Number.isInteger(r) || !Number.isInteger(c) || r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
     const minR = Math.max(0, r - maxDist);
     const maxR = Math.min(ROWS - 1, r + maxDist);
     const minC = Math.max(0, c - maxDist);
@@ -880,6 +881,10 @@ const outPathBuffer = new Int16Array(TOTAL_TILES);
 const sharedBombMask = new Uint8Array(TOTAL_TILES);
 const sharedDangerMask = new Uint8Array(TOTAL_TILES);
 const sharedObstacleMask = new Uint8Array(TOTAL_TILES);
+const sharedEscapeDangerMask = new FlatHazardMask(TOTAL_TILES);
+const sharedSimulatedBombsMask = new FlatHazardMask(TOTAL_TILES);
+const sharedPosScratch: GridCoord = { r: 0, c: 0 };
+const sharedHazardScratch: GridCoord = { r: 0, c: 0 };
 
 function populateObstacleMask(map: number[][] | Uint8Array, outMask: Uint8Array): void {
   outMask.fill(0);
@@ -935,6 +940,16 @@ export function findPathBFS(
   bombTiles: Set<string> | Uint8Array | FlatHazardMask,
   ignoreBlocks: boolean = false
 ): GridCoord[] {
+  if (
+    !start || !target ||
+    !Number.isInteger(start.r) || !Number.isInteger(start.c) ||
+    !Number.isInteger(target.r) || !Number.isInteger(target.c) ||
+    start.r < 0 || start.r >= ROWS || start.c < 0 || start.c >= COLS ||
+    target.r < 0 || target.r >= ROWS || target.c < 0 || target.c >= COLS
+  ) {
+    return [];
+  }
+
   if (start.r === target.r && start.c === target.c) return [];
 
   populateObstacleMask(map, sharedObstacleMask);
@@ -1053,6 +1068,14 @@ export function findEscapePathBFS(
   existingBombs: Set<string> | Uint8Array | FlatHazardMask,
   maxSteps: number = 8
 ): GridCoord[] | null {
+  if (
+    !start ||
+    !Number.isInteger(start.r) || !Number.isInteger(start.c) ||
+    start.r < 0 || start.r >= ROWS || start.c < 0 || start.c >= COLS
+  ) {
+    return null;
+  }
+
   populateObstacleMask(map, sharedObstacleMask);
   populateMaskFromSetOrArray(dangerTiles, sharedDangerMask);
   populateMaskFromSetOrArray(existingBombs, sharedBombMask);
@@ -1147,6 +1170,16 @@ export function findTargetBlockBFS(
   map: number[][],
   bombTiles?: Set<string> | Uint8Array | FlatHazardMask
 ): BlockTargetResult | null {
+  if (
+    !start || !target ||
+    !Number.isInteger(start.r) || !Number.isInteger(start.c) ||
+    !Number.isInteger(target.r) || !Number.isInteger(target.c) ||
+    start.r < 0 || start.r >= ROWS || start.c < 0 || start.c >= COLS ||
+    target.r < 0 || target.r >= ROWS || target.c < 0 || target.c >= COLS
+  ) {
+    return null;
+  }
+
   if (start.r === target.r && start.c === target.c) return null;
 
   populateObstacleMask(map, sharedObstacleMask);
@@ -1338,6 +1371,16 @@ export function findDemolitionPath(
   bombTiles?: Set<string> | Uint8Array | FlatHazardMask,
   blockPenalty: number = 8
 ): DemolitionPath | null {
+  if (
+    !start || !target ||
+    !Number.isInteger(start.r) || !Number.isInteger(start.c) ||
+    !Number.isInteger(target.r) || !Number.isInteger(target.c) ||
+    start.r < 0 || start.r >= ROWS || start.c < 0 || start.c >= COLS ||
+    target.r < 0 || target.r >= ROWS || target.c < 0 || target.c >= COLS
+  ) {
+    return null;
+  }
+
   if (start.r === target.r && start.c === target.c) return null;
 
   populateObstacleMask(map, sharedObstacleMask);
@@ -1436,13 +1479,17 @@ export function getSafeBombEscapePath(
   const startTileVal = map[r]?.[c];
   if (startTileVal === TILE_WALL || startTileVal === TILE_BLOCK) return null;
 
-  const dangerMask = new FlatHazardMask(TOTAL_TILES);
-  getBlastTiles({ r, c }, power, map, dangerMask);
+  sharedEscapeDangerMask.clear();
+  sharedPosScratch.r = r;
+  sharedPosScratch.c = c;
+  getBlastTiles(sharedPosScratch, power, map, sharedEscapeDangerMask);
   if (existingBombs) {
     if (existingBombs instanceof FlatHazardMask) {
       existingBombs.forEachHazard((br, bc) => {
         if (br !== r || bc !== c) {
-          getBlastTiles({ r: br, c: bc }, power, map, dangerMask);
+          sharedHazardScratch.r = br;
+          sharedHazardScratch.c = bc;
+          getBlastTiles(sharedHazardScratch, power, map, sharedEscapeDangerMask);
         }
       });
     } else if (existingBombs instanceof Uint8Array) {
@@ -1451,7 +1498,9 @@ export function getSafeBombEscapePath(
           const br = (i / COLS) | 0;
           const bc = i % COLS;
           if (br !== r || bc !== c) {
-            getBlastTiles({ r: br, c: bc }, power, map, dangerMask);
+            sharedHazardScratch.r = br;
+            sharedHazardScratch.c = bc;
+            getBlastTiles(sharedHazardScratch, power, map, sharedEscapeDangerMask);
           }
         }
       }
@@ -1463,7 +1512,9 @@ export function getSafeBombEscapePath(
           const bc = parseInt(bStr.slice(comma + 1), 10);
           if (br >= 0 && br < ROWS && bc >= 0 && bc < COLS) {
             if (br !== r || bc !== c) {
-              getBlastTiles({ r: br, c: bc }, power, map, dangerMask);
+              sharedHazardScratch.r = br;
+              sharedHazardScratch.c = bc;
+              getBlastTiles(sharedHazardScratch, power, map, sharedEscapeDangerMask);
             }
           }
         }
@@ -1471,14 +1522,13 @@ export function getSafeBombEscapePath(
     }
   }
 
-  const simulatedBombs = cloneBombTilesAsSet(existingBombs);
-  simulatedBombs.add(`${r},${c}`);
+  cloneBombTilesAsSet(existingBombs, sharedSimulatedBombsMask);
+  sharedSimulatedBombsMask.setCoord(r, c, 1);
 
-  return findEscapePathBFS({ r, c }, dangerMask, map, simulatedBombs, maxEscapeSteps);
+  sharedPosScratch.r = r;
+  sharedPosScratch.c = c;
+  return findEscapePathBFS(sharedPosScratch, sharedEscapeDangerMask, map, sharedSimulatedBombsMask, maxEscapeSteps);
 }
-
-const sharedPosScratch: GridCoord = { r: 0, c: 0 };
-const sharedHazardScratch: GridCoord = { r: 0, c: 0 };
 
 /**
  * Suicide prevention validator: returns true if bomb can be safely dropped without trapping the planter.

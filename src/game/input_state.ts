@@ -29,6 +29,16 @@ export function createDefaultMobileInputState(): MobileInputState {
   };
 }
 
+const DIR_NONE = Object.freeze({ up: false, down: false, left: false, right: false });
+const DIR_RIGHT = Object.freeze({ up: false, down: false, left: false, right: true });
+const DIR_UP_RIGHT = Object.freeze({ up: true, down: false, left: false, right: true });
+const DIR_UP = Object.freeze({ up: true, down: false, left: false, right: false });
+const DIR_UP_LEFT = Object.freeze({ up: true, down: false, left: true, right: false });
+const DIR_LEFT = Object.freeze({ up: false, down: false, left: true, right: false });
+const DIR_DOWN_LEFT = Object.freeze({ up: false, down: true, left: true, right: false });
+const DIR_DOWN = Object.freeze({ up: false, down: true, left: false, right: false });
+const DIR_DOWN_RIGHT = Object.freeze({ up: false, down: true, left: false, right: true });
+
 /**
  * Multi-directional angle partitioning with 8-way sector coverage.
  * Resolves 360-degree joystick inputs without dead zones at 135° / 225° / 45° / 315°.
@@ -43,7 +53,7 @@ export function resolveJoystickDirection(
 ): { up: boolean; down: boolean; left: boolean; right: boolean } {
   // Guard against non-numeric, NaN, or non-finite angle values
   if (typeof angle !== 'number' || !Number.isFinite(angle) || Number.isNaN(angle)) {
-    return { up: false, down: false, left: false, right: false };
+    return DIR_NONE;
   }
 
   // Guard against invalid, NaN, non-finite, or sub-deadzone distance (< 5px)
@@ -51,16 +61,19 @@ export function resolveJoystickDirection(
     distance !== undefined &&
     (typeof distance !== 'number' || !Number.isFinite(distance) || Number.isNaN(distance) || distance < 5)
   ) {
-    return { up: false, down: false, left: false, right: false };
+    return DIR_NONE;
   }
 
   const norm = ((angle % 360) + 360) % 360;
-  return {
-    up: norm >= 22.5 && norm <= 157.5,
-    down: norm >= 202.5 && norm <= 337.5,
-    left: norm >= 112.5 && norm <= 247.5,
-    right: norm <= 67.5 || norm >= 292.5,
-  };
+  if (norm < 22.5) return DIR_RIGHT;
+  if (norm <= 67.5) return DIR_UP_RIGHT;
+  if (norm < 112.5) return DIR_UP;
+  if (norm <= 157.5) return DIR_UP_LEFT;
+  if (norm < 202.5) return DIR_LEFT;
+  if (norm <= 247.5) return DIR_DOWN_LEFT;
+  if (norm < 292.5) return DIR_DOWN;
+  if (norm <= 337.5) return DIR_DOWN_RIGHT;
+  return DIR_RIGHT;
 }
 
 /**
@@ -83,8 +96,10 @@ export function resolveJoystickVector(
     return { up: false, down: false, left: false, right: false, angle: 0, distance: 0 };
   }
 
+  const effectiveDeadzone =
+    typeof deadzone === 'number' && Number.isFinite(deadzone) && deadzone >= 0 ? deadzone : 5;
   const distSq = dx * dx + dy * dy;
-  const deadzoneSq = deadzone * deadzone;
+  const deadzoneSq = effectiveDeadzone * effectiveDeadzone;
   if (distSq < deadzoneSq) {
     return { up: false, down: false, left: false, right: false, angle: 0, distance: Math.sqrt(distSq) };
   }
@@ -95,14 +110,22 @@ export function resolveJoystickVector(
   let deg = (Math.atan2(-dy, dx) * 180) / Math.PI;
   if (deg < 0) deg += 360;
 
-  const dir = resolveJoystickDirection(deg, distance);
-  return { ...dir, angle: deg, distance };
+  const norm = ((deg % 360) + 360) % 360;
+  return {
+    up: norm >= 22.5 && norm <= 157.5,
+    down: norm >= 202.5 && norm <= 337.5,
+    left: norm >= 112.5 && norm <= 247.5,
+    right: norm <= 67.5 || norm >= 292.5,
+    angle: deg,
+    distance,
+  };
 }
 
 /**
  * Resets directional movement flags on the given state in-place.
  */
 export function resetJoystickDirection(state: MobileInputState): void {
+  if (!state) return;
   state.up = false;
   state.down = false;
   state.left = false;
@@ -113,6 +136,7 @@ export function resetJoystickDirection(state: MobileInputState): void {
  * Resets all mobile input states immediately.
  */
 export function resetAllMobileInputs(state: MobileInputState): void {
+  if (!state) return;
   state.up = false;
   state.down = false;
   state.left = false;
@@ -131,6 +155,7 @@ export function triggerMobileAction(
   action: 'bomb' | 'dash' | 'ultimate',
   scheduler?: (cb: () => void) => void
 ): void {
+  if (!state) return;
   state[action] = true;
   const schedule =
     scheduler ??
@@ -164,6 +189,7 @@ export function releaseMobileAction(
   action: 'bomb' | 'dash' | 'ultimate',
   scheduler?: (cb: () => void) => void
 ): void {
+  if (!state) return;
   const schedule =
     scheduler ??
     (typeof requestAnimationFrame === 'function'
@@ -175,6 +201,111 @@ export function releaseMobileAction(
       state[action] = false;
     }
   });
+}
+
+/**
+ * Button Action Debouncer
+ * Protects against capacitive touch jitter, bounce oscillations, and rapid tap flooding.
+ * Enforces per-action minimum inter-trigger intervals (debounce window).
+ */
+export class ButtonDebouncer {
+  private lastTriggerTimes: Map<string, number> = new Map();
+  private defaultWindowMs: number;
+  private actionWindows: Map<string, number> = new Map();
+
+  constructor(defaultWindowMs: number = 50) {
+    this.defaultWindowMs = Math.max(0, defaultWindowMs);
+  }
+
+  public setDebounceWindow(action: TouchControlTarget | string, windowMs: number): void {
+    if (typeof windowMs === 'number' && Number.isFinite(windowMs) && windowMs >= 0) {
+      this.actionWindows.set(action, windowMs);
+    }
+  }
+
+  public getDebounceWindow(action: TouchControlTarget | string): number {
+    return this.actionWindows.get(action) ?? this.defaultWindowMs;
+  }
+
+  public canTrigger(action: TouchControlTarget | string, now?: number, customWindowMs?: number): boolean {
+    const currentTime =
+      typeof now === 'number' && Number.isFinite(now)
+        ? now
+        : typeof performance !== 'undefined'
+          ? performance.now()
+          : Date.now();
+
+    const lastTime = this.lastTriggerTimes.get(action);
+    if (lastTime === undefined) {
+      return true;
+    }
+
+    const window =
+      typeof customWindowMs === 'number' && Number.isFinite(customWindowMs)
+        ? customWindowMs
+        : this.getDebounceWindow(action);
+
+    return currentTime - lastTime >= window;
+  }
+
+  public recordTrigger(action: TouchControlTarget | string, now?: number): void {
+    const currentTime =
+      typeof now === 'number' && Number.isFinite(now)
+        ? now
+        : typeof performance !== 'undefined'
+          ? performance.now()
+          : Date.now();
+    this.lastTriggerTimes.set(action, currentTime);
+  }
+
+  public tryTrigger(action: TouchControlTarget | string, now?: number, customWindowMs?: number): boolean {
+    if (this.canTrigger(action, now, customWindowMs)) {
+      this.recordTrigger(action, now);
+      return true;
+    }
+    return false;
+  }
+
+  public isDebounced(action: TouchControlTarget | string, now?: number, customWindowMs?: number): boolean {
+    return !this.canTrigger(action, now, customWindowMs);
+  }
+
+  public getLastTriggerTime(action: TouchControlTarget | string): number {
+    return this.lastTriggerTimes.get(action) ?? -1;
+  }
+
+  public reset(action?: TouchControlTarget | string): void {
+    if (action) {
+      this.lastTriggerTimes.delete(action);
+    } else {
+      this.lastTriggerTimes.clear();
+    }
+  }
+}
+
+/**
+ * Debounced action button activation with frame-synchronized double-RAF fallback.
+ * Enforces minimum debounce window before activating the action.
+ * Returns true if the action was accepted and triggered, false if debounced/suppressed.
+ */
+export function triggerMobileActionDebounced(
+  state: MobileInputState,
+  action: 'bomb' | 'dash' | 'ultimate',
+  debounceWindowMs: number = 50,
+  debouncer?: ButtonDebouncer,
+  now?: number,
+  scheduler?: (cb: () => void) => void
+): boolean {
+  if (!state) return false;
+
+  if (debouncer) {
+    if (!debouncer.tryTrigger(action, now, debounceWindowMs)) {
+      return false;
+    }
+  }
+
+  triggerMobileAction(state, action, scheduler);
+  return true;
 }
 
 export type TouchControlTarget = 'joystick' | 'bomb' | 'dash' | 'ultimate';
@@ -189,10 +320,16 @@ export interface ActivePointerRecord {
   currentY?: number;
 }
 
+export interface MultiTouchPointerTrackerOptions {
+  debounceMs?: number;
+  actionDebounceMs?: Partial<Record<TouchControlTarget, number>>;
+}
+
 /**
  * Enterprise Multi-Touch Pointer Tracker & Collision Arbitrator.
  * Tracks concurrent touch pointer IDs, arbitrates pointer ID collisions / re-use,
- * isolates multi-finger control bindings, and recovers orphaned / dropped touch events cleanly.
+ * isolates multi-finger control bindings, enforces button debounce invariants,
+ * and recovers orphaned / dropped touch events cleanly.
  */
 export class MultiTouchPointerTracker {
   private activePointers: Map<number, ActivePointerRecord> = new Map();
@@ -202,20 +339,54 @@ export class MultiTouchPointerTracker {
     ['dash', new Set<number>()],
     ['ultimate', new Set<number>()],
   ]);
+  private debouncer: ButtonDebouncer;
+
+  constructor(options?: MultiTouchPointerTrackerOptions) {
+    this.debouncer = new ButtonDebouncer(options?.debounceMs ?? 0);
+    if (options?.actionDebounceMs) {
+      for (const [target, ms] of Object.entries(options.actionDebounceMs)) {
+        if (typeof ms === 'number') {
+          this.debouncer.setDebounceWindow(target, ms);
+        }
+      }
+    }
+  }
+
+  public setButtonDebounce(target: TouchControlTarget, debounceMs: number): void {
+    this.debouncer.setDebounceWindow(target, debounceMs);
+  }
+
+  public getButtonDebounce(target: TouchControlTarget): number {
+    return this.debouncer.getDebounceWindow(target);
+  }
+
+  public isButtonDebounced(target: TouchControlTarget, now?: number): boolean {
+    if (target === 'joystick') return false; // Joystick is continuous, never debounced
+    return this.debouncer.isDebounced(target, now);
+  }
+
+  public getDebouncer(): ButtonDebouncer {
+    return this.debouncer;
+  }
 
   /**
    * Tracks a pointerdown / touchstart event.
    * If the pointerId is already registered to another control (ID collision or re-use without touchend),
    * the previous association is gracefully released first.
+   * Returns true if the action was accepted, false if debounced/suppressed or rejected.
    */
   public onPointerDown(
     pointerId: number,
     target: TouchControlTarget,
     state: MobileInputState,
     coords?: { x: number; y: number },
-    scheduler?: (cb: () => void) => void
-  ): void {
-    if (typeof pointerId !== 'number' || !Number.isFinite(pointerId)) return;
+    scheduler?: (cb: () => void) => void,
+    timestamp?: number
+  ): boolean {
+    if (!state) return false;
+    if (typeof pointerId !== 'number' || !Number.isFinite(pointerId)) return false;
+    const targetSet = this.controlActivePointers.get(target);
+    if (!targetSet) return false;
 
     // Handle collision: if pointerId was already active on another target, clean it up
     const existing = this.activePointers.get(pointerId);
@@ -223,24 +394,52 @@ export class MultiTouchPointerTracker {
       this.releasePointerFromTarget(pointerId, existing.target, state);
     }
 
-    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    const record: ActivePointerRecord = {
-      pointerId,
-      target,
-      timestamp: now,
-      startX: coords?.x,
-      startY: coords?.y,
-      currentX: coords?.x,
-      currentY: coords?.y,
-    };
+    const now =
+      typeof timestamp === 'number' && Number.isFinite(timestamp)
+        ? timestamp
+        : typeof performance !== 'undefined'
+          ? performance.now()
+          : Date.now();
 
-    this.activePointers.set(pointerId, record);
-    this.controlActivePointers.get(target)!.add(pointerId);
+    if (existing) {
+      if (existing.target !== target) {
+        this.releasePointerFromTarget(pointerId, existing.target, state);
+        existing.target = target;
+      }
+      targetSet.add(pointerId);
+      existing.timestamp = now;
+      existing.startX = coords?.x;
+      existing.startY = coords?.y;
+      existing.currentX = coords?.x;
+      existing.currentY = coords?.y;
+    } else {
+      const record: ActivePointerRecord = {
+        pointerId,
+        target,
+        timestamp: now,
+        startX: coords?.x,
+        startY: coords?.y,
+        currentX: coords?.x,
+        currentY: coords?.y,
+      };
+      this.activePointers.set(pointerId, record);
+      targetSet.add(pointerId);
+    }
 
-    // Apply state change
+    // Apply state change with debounce verification
     if (target !== 'joystick') {
+      const windowMs = this.debouncer.getDebounceWindow(target);
+      if (windowMs > 0) {
+        if (!this.debouncer.tryTrigger(target, now)) {
+          // Debounced: pointer is tracked for multi-finger release integrity, but impulse is suppressed
+          return false;
+        }
+      } else {
+        this.debouncer.recordTrigger(target, now);
+      }
       triggerMobileAction(state, target, scheduler);
     }
+    return true;
   }
 
   /**
@@ -253,13 +452,15 @@ export class MultiTouchPointerTracker {
     state: MobileInputState,
     origin?: { x: number; y: number }
   ): void {
+    if (!state) return;
     if (typeof pointerId !== 'number' || !Number.isFinite(pointerId)) return;
     const record = this.activePointers.get(pointerId);
     if (!record) return;
 
     if (
-      typeof coords?.x !== 'number' ||
-      typeof coords?.y !== 'number' ||
+      !coords ||
+      typeof coords.x !== 'number' ||
+      typeof coords.y !== 'number' ||
       !Number.isFinite(coords.x) ||
       !Number.isFinite(coords.y)
     ) {
@@ -273,14 +474,29 @@ export class MultiTouchPointerTracker {
     record.currentX = coords.x;
     record.currentY = coords.y;
 
-    if (record.target === 'joystick' && origin) {
-      const dx = coords.x - origin.x;
-      const dy = coords.y - origin.y;
-      const dir = resolveJoystickVector(dx, dy);
-      state.up = dir.up;
-      state.down = dir.down;
-      state.left = dir.left;
-      state.right = dir.right;
+    if (record.target === 'joystick') {
+      const ox = origin ? origin.x : record.startX;
+      const oy = origin ? origin.y : record.startY;
+
+      if (ox !== undefined && oy !== undefined && Number.isFinite(ox) && Number.isFinite(oy)) {
+        const dx = coords.x - ox;
+        const dy = coords.y - oy;
+        const distSq = dx * dx + dy * dy;
+        if (distSq < 25) {
+          state.up = false;
+          state.down = false;
+          state.left = false;
+          state.right = false;
+        } else {
+          let deg = (Math.atan2(-dy, dx) * 180) / Math.PI;
+          if (deg < 0) deg += 360;
+          const norm = ((deg % 360) + 360) % 360;
+          state.up = norm >= 22.5 && norm <= 157.5;
+          state.down = norm >= 202.5 && norm <= 337.5;
+          state.left = norm >= 112.5 && norm <= 247.5;
+          state.right = norm <= 67.5 || norm >= 292.5;
+        }
+      }
     }
   }
 
@@ -293,6 +509,7 @@ export class MultiTouchPointerTracker {
     state: MobileInputState,
     scheduler?: (cb: () => void) => void
   ): void {
+    if (!state) return;
     if (typeof pointerId !== 'number' || !Number.isFinite(pointerId)) return;
     const record = this.activePointers.get(pointerId);
     if (!record) return;
@@ -317,6 +534,7 @@ export class MultiTouchPointerTracker {
    * Immediately clears action or joystick without waiting.
    */
   public onPointerCancel(pointerId: number, state: MobileInputState): void {
+    if (!state) return;
     if (typeof pointerId !== 'number' || !Number.isFinite(pointerId)) return;
     const record = this.activePointers.get(pointerId);
     if (!record) return;
@@ -345,7 +563,13 @@ export class MultiTouchPointerTracker {
     maxAgeMs: number = 3000,
     currentTime?: number
   ): number {
-    const now = currentTime ?? (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    if (!state) return 0;
+    const now =
+      typeof currentTime === 'number' && Number.isFinite(currentTime)
+        ? currentTime
+        : typeof performance !== 'undefined'
+          ? performance.now()
+          : Date.now();
     let recoveredCount = 0;
 
     for (const [pointerId, record] of this.activePointers.entries()) {
@@ -372,12 +596,15 @@ export class MultiTouchPointerTracker {
   /**
    * Resets all pointer tracking and zeroes the input state.
    */
-  public reset(state: MobileInputState): void {
+  public reset(state?: MobileInputState): void {
     this.activePointers.clear();
     for (const set of this.controlActivePointers.values()) {
       set.clear();
     }
-    resetAllMobileInputs(state);
+    this.debouncer.reset();
+    if (state) {
+      resetAllMobileInputs(state);
+    }
   }
 
   public getActivePointerCount(target?: TouchControlTarget): number {
@@ -396,6 +623,7 @@ export class MultiTouchPointerTracker {
     target: TouchControlTarget,
     state: MobileInputState
   ): void {
+    if (!state) return;
     const targetSet = this.controlActivePointers.get(target);
     if (targetSet) {
       targetSet.delete(pointerId);

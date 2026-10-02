@@ -100,6 +100,7 @@ import {
   OverheadUI,
   RENDER_DEPTH,
   applyPhysicsBodyInvariantGuard,
+  resolveEntitySeparation,
 } from './entities';
 
 export * from './entities';
@@ -153,6 +154,17 @@ import {
   ESCAPE_VELOCITY_INVULN_MS,
   ESCAPE_VELOCITY_SPEED_BURST_RATIO,
   FLOATING_TEXT_GRAVITATIONAL_ESCAPE,
+  FrostHazard,
+  FrostLifecycleState,
+  HoarfrostPhase,
+  THERMAL_BREAK_INVULN_MS,
+  THERMAL_BREAK_SPEED_BURST_RATIO,
+  FLOATING_TEXT_THERMAL_BREAK,
+  FROST_CHILL_DURATION_MS,
+  FROST_CHILL_SLOW_RATIO,
+  FLOATING_TEXT_FROST_CHILL,
+  BOSS_FROST_DAMAGE_RATIO,
+  FrostHazardAudio,
 } from './hazards/index.ts';
 import { PerkTreeManager, RelicManager, type RelicId } from './progression/index.ts';
 import { decompressGrid } from './persistence/GameStatePersistence.ts';
@@ -240,26 +252,31 @@ export class OverheadUIManager {
     // Dense melee mode (3+ entities within 60px): minimal (hide text tag, HP & intent only)
     for (let i = 0; i < active.length; i++) {
       const eA = active[i];
+      const ax = eA.x;
+      const ay = eA.y;
       let minDistSq = Infinity;
       let countWithin60 = 0;
 
       for (let j = 0; j < active.length; j++) {
         if (i === j) continue;
         const eB = active[j];
-        const dx = eA.x - eB.x;
-        const dy = eA.y - eB.y;
+        const dx = ax - eB.x;
+        const dy = ay - eB.y;
         const distSq = dx * dx + dy * dy;
         if (distSq < minDistSq) {
           minDistSq = distSq;
         }
         if (distSq <= 3600) {
           countWithin60++;
+          if (countWithin60 >= 2) {
+            break;
+          }
         }
       }
 
       if (player) {
-        const dxP = eA.x - player.x;
-        const dyP = eA.y - player.y;
+        const dxP = ax - player.x;
+        const dyP = ay - player.y;
         const distSqP = dxP * dxP + dyP * dyP;
         if (distSqP < minDistSq) {
           minDistSq = distSqP;
@@ -291,19 +308,24 @@ export class OverheadUIManager {
 
     for (let i = 0; i < active.length; i++) {
       const eA = active[i];
+      const ax = eA.x;
+      const ay = eA.y;
+      const lodA = eA.overheadUI.lodMode;
+      const widthA = lodA === 'minimal' ? 24 : lodA === 'compact' ? 44 : 88;
+
       for (let j = i + 1; j < active.length; j++) {
         const eB = active[j];
-        const dx = Math.abs(eA.x - eB.x);
-        const dy = Math.abs(eA.y - eB.y);
+        const dy = Math.abs(ay - eB.y);
+        if (dy >= 16) continue;
 
-        const widthA =
-          eA.overheadUI.lodMode === 'minimal' ? 24 : eA.overheadUI.lodMode === 'compact' ? 44 : 88;
-        const widthB =
-          eB.overheadUI.lodMode === 'minimal' ? 24 : eB.overheadUI.lodMode === 'compact' ? 44 : 88;
+        const dx = Math.abs(ax - eB.x);
+        if (dx >= 92) continue;
+
+        const lodB = eB.overheadUI.lodMode;
+        const widthB = lodB === 'minimal' ? 24 : lodB === 'compact' ? 44 : 88;
         const requiredW = (widthA + widthB) / 2 + 4;
-        const requiredH = 16;
 
-        if (dx < requiredW && dy < requiredH) {
+        if (dx < requiredW) {
           // Label overlap detected!
           if (dx >= 24) {
             // Horizontal spring repulsion
@@ -385,7 +407,15 @@ export class OverheadUIManager {
         const ly = entity.y - 22 + oy;
         const distLabel = Math.hypot(lx - player.x, ly - player.y);
         const distBody = Math.hypot(entity.x - player.x, entity.y - player.y);
-        const effectiveDist = Math.min(distLabel, distBody);
+        let effectiveDist = Math.min(distLabel, distBody);
+
+        // Status badge protection: if intent indicator is actively displayed, also check status badge position (y - 34)
+        if (entity.overheadUI && entity.overheadUI.isIntentVisible) {
+          const distIntent = Math.hypot(lx - player.x, entity.y - 34 + oy - player.y);
+          if (distIntent < effectiveDist) {
+            effectiveDist = distIntent;
+          }
+        }
 
         if (effectiveDist <= 20) {
           targetAlpha = 0.0;
@@ -695,7 +725,10 @@ export default class GameScene extends Phaser.Scene {
   // Dynamic Hazard System Integration
   public dynamicHazard: DynamicHazard = new DynamicHazard();
   public gravityHazard: GravityHazard = new GravityHazard();
+  public frostHazard: FrostHazard = new FrostHazard();
   public lastGravitationalEscapeTimestampMs: number = 0;
+  public lastFrostChillFloatingTextMs: number = -9999;
+  public frostHazardAudio: FrostHazardAudio = FrostHazardAudio.getInstance();
   public hazardGraphics: Phaser.GameObjects.Graphics | null = null;
 
   // Juice & Polish Engine
@@ -843,6 +876,9 @@ export default class GameScene extends Phaser.Scene {
     }
     if (this.dynamicHazard) {
       this.dynamicHazard.stop();
+    }
+    if (this.frostHazard) {
+      this.frostHazard.stop();
     }
     if (this.hazardGraphics) {
       this.hazardGraphics.clear();
@@ -1775,8 +1811,10 @@ export default class GameScene extends Phaser.Scene {
     this.crisisGraphics = this.add.graphics();
     this.crisisGraphics.setDepth(RENDER_DEPTH.CRISIS_HAZARDS);
 
-    // Initialize Dynamic Hazard System (Quantum Spire Hazard)
+    // Initialize Dynamic Hazard System (Quantum Spire Hazard & Frost Hazard)
     this.dynamicHazard.init(this.map);
+    this.gravityHazard.init(6, 7);
+    this.frostHazard.init(6, 7);
     this.hazardGraphics = this.add.graphics();
     this.hazardGraphics.setDepth(RENDER_DEPTH.CRISIS_HAZARDS);
 
@@ -1826,11 +1864,6 @@ export default class GameScene extends Phaser.Scene {
 
   update(_time: number, delta: number) {
     this.destroyedBlocksThisTick.clear();
-
-    // 0c. Dynamic Hazard FSM update
-    if (this.dynamicHazard && this.dynamicHazard.getState() !== HazardLifecycleState.INACTIVE) {
-      this.dynamicHazard.update(delta);
-    }
 
     // Fail-safe reset for extra-life/shield invulnerability
     if (
@@ -2000,7 +2033,7 @@ export default class GameScene extends Phaser.Scene {
     const pCol = Math.floor(this.player.x / TILE_SIZE);
     const pRow = Math.floor(this.player.y / TILE_SIZE);
     const belt = this.getConveyorAt(pRow, pCol);
-    if (belt && !this.isDashing) {
+    if (belt && !this.isDashing && this.player && this.player.active) {
       const drift = CONVEYOR_DRIFT_SPEED * (delta / 1000);
       const nextX = this.player.x + belt.dirX * drift;
       const nextY = this.player.y + belt.dirY * drift;
@@ -2025,7 +2058,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // 6. Teleport Portal warp
-    if (this.portalCooldown <= 0) {
+    if (this.portalCooldown <= 0 && this.player && this.player.active) {
       if (pRow === DEFAULT_PORTALS.portalA.row && pCol === DEFAULT_PORTALS.portalA.col) {
         this.warpPlayer(DEFAULT_PORTALS.portalB.row, DEFAULT_PORTALS.portalB.col);
       } else if (pRow === DEFAULT_PORTALS.portalB.row && pCol === DEFAULT_PORTALS.portalB.col) {
@@ -2302,6 +2335,16 @@ export default class GameScene extends Phaser.Scene {
     this.collectActiveEntitiesFromGroup(this.allies);
     this.collectActiveEntitiesFromGroup(this.neutrals);
 
+    // Physical spatial separation pass across active dynamic entities
+    if (this.scratchActiveEntities.length > 1) {
+      resolveEntitySeparation(this.scratchActiveEntities, {
+        iterations: 1,
+        separationFactor: 0.4,
+        bounds: { minX: 20, maxX: 600 - 20, minY: 20, maxY: 500 },
+        map: this.map,
+      });
+    }
+
     if (this.overheadUIManager) {
       this.overheadUIManager.update(this.scratchActiveEntities, this.player, delta);
     }
@@ -2563,6 +2606,48 @@ export default class GameScene extends Phaser.Scene {
       // Render Dynamic Hazard Visuals (Spires & Beams)
       this.renderDynamicHazardGraphics(_time);
     }
+
+    // 13b. Update Frost Hazard System
+    if (this.frostHazard && this.frostHazard.state !== FrostLifecycleState.DORMANT) {
+      this.frostHazard.update(delta);
+
+      if (this.frostHazard.state === FrostLifecycleState.ABSOLUTE_ZERO_BURST && !this.isGameOver) {
+        // Enemy Collision Check against absolute zero burst
+        const enemiesList = this.enemies.getChildren();
+        for (let i = 0; i < enemiesList.length; i++) {
+          const enemy = enemiesList[i] as BaseEntity;
+          if (enemy && enemy.active && !enemy.isDead) {
+            const er = Math.floor(enemy.y / TILE_SIZE);
+            const ec = Math.floor(enemy.x / TILE_SIZE);
+            const isBoss = enemy === (this.activeBoss as unknown as BaseEntity);
+            const enemyHit = this.frostHazard.checkEnemyCollision(er, ec, isBoss);
+            if (enemyHit.hit) {
+              if (enemyHit.isShattered) {
+                if (typeof enemy.takeDamage === 'function') {
+                  enemy.takeDamage(enemyHit.damage, 'hazard', this.time.now);
+                }
+                this.score += enemyHit.scoreBonus;
+                this.addUltimateCharge(enemyHit.ultimateChargeBonus);
+                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#38bdf8');
+              } else if (enemyHit.isFrozenStunned && isBoss && this.activeBoss) {
+                this.activeBoss.takeBombDamage(Math.floor(this.activeBoss.maxHp * BOSS_FROST_DAMAGE_RATIO));
+                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#38bdf8');
+                if (this.bossHUD) {
+                  this.bossHUD.triggerStun(enemyHit.stunDurationMs / 1000, 'Deep Freeze Stasis!');
+                }
+              }
+            }
+          }
+        }
+      }
+
+      this.renderDynamicHazardGraphics(_time);
+    }
+
+    // 13c. Update Gravity Hazard System (Gravitational Singularity)
+    if (this.gravityHazard && this.gravityHazard.state !== GravityLifecycleState.DORMANT) {
+      this.gravityHazard.update(delta);
+    }
   }
 
   private renderCrisisHazards(time: number): void {
@@ -2777,6 +2862,94 @@ export default class GameScene extends Phaser.Scene {
     this.emitStatsUpdate();
   }
 
+  grantThermalBreak(): void {
+    if (this.isGameOver || !this.player || !this.player.active) return;
+    const now = this.time?.now ?? Date.now();
+    this.isInvulnerable = true;
+    this.shieldInvulnerableUntil = Math.max(this.shieldInvulnerableUntil, now + THERMAL_BREAK_INVULN_MS);
+    this.player.setAlpha(0.75);
+    this.player.setTint(0x38bdf8);
+
+    const originalSpeed = this.playerSpeed;
+    this.playerSpeed = this.playerSpeed * (1.0 + THERMAL_BREAK_SPEED_BURST_RATIO);
+
+    const existing = this.activeBuffs.find((b) => b.id === 'THERMAL_BREAK');
+    if (existing) {
+      existing.remainingMs = THERMAL_BREAK_INVULN_MS;
+      existing.totalMs = THERMAL_BREAK_INVULN_MS;
+    } else {
+      this.activeBuffs.push({
+        id: 'THERMAL_BREAK',
+        name: 'Thermal Break',
+        icon: '✦',
+        color: '#38bdf8',
+        remainingMs: THERMAL_BREAK_INVULN_MS,
+        totalMs: THERMAL_BREAK_INVULN_MS,
+      });
+    }
+
+    this.spawnFloatingText(this.player.x, this.player.y - 25, FLOATING_TEXT_THERMAL_BREAK, '#38bdf8');
+    if (this.cameras?.main) {
+      this.cameras.main.flash(100, 56, 189, 248);
+    }
+    if (this.frostHazardAudio) {
+      this.frostHazardAudio.playThermalBreak(now);
+    }
+
+    this.time.delayedCall(THERMAL_BREAK_INVULN_MS, () => {
+      if (this.player && this.player.active) {
+        this.player.setAlpha(1.0);
+        this.player.clearTint();
+        if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
+          this.isInvulnerable = false;
+        }
+      }
+      this.playerSpeed = originalSpeed;
+    });
+
+    this.emitStatsUpdate();
+  }
+
+  applyFrostChill(): void {
+    if (this.isGameOver || !this.player || !this.player.active) return;
+    const now = this.time?.now ?? Date.now();
+    if (this.isInvulnerable || this.isDashing) return;
+
+    const existing = this.activeBuffs.find((b) => b.id === 'FROST_CHILL');
+    if (existing) {
+      existing.remainingMs = FROST_CHILL_DURATION_MS;
+      existing.totalMs = FROST_CHILL_DURATION_MS;
+    } else {
+      this.activeBuffs.push({
+        id: 'FROST_CHILL',
+        name: 'Frost Chill',
+        icon: '❄️',
+        color: '#93c5fd',
+        remainingMs: FROST_CHILL_DURATION_MS,
+        totalMs: FROST_CHILL_DURATION_MS,
+      });
+    }
+
+    if (now - this.lastFrostChillFloatingTextMs >= 2000) {
+      this.lastFrostChillFloatingTextMs = now;
+      this.spawnFloatingText(this.player.x, this.player.y - 25, FLOATING_TEXT_FROST_CHILL, '#93c5fd');
+      if (this.frostHazardAudio) {
+        this.frostHazardAudio.playFrostChill(now);
+      }
+    }
+
+    if (this.player && this.player.active && !this.isInvulnerable) {
+      this.player.setTint(0x93c5fd);
+      this.time.delayedCall(FROST_CHILL_DURATION_MS, () => {
+        if (this.player && this.player.active && !this.activeBuffs.some((b) => b.id === 'FROST_CHILL')) {
+          this.player.clearTint();
+        }
+      });
+    }
+
+    this.emitStatsUpdate();
+  }
+
   applyPhaseJitter(durationMs: number = PHASE_JITTER_DURATION_MS): void {
     if (this.isGameOver) return;
     this.phaseJitterRemaining = Math.max(this.phaseJitterRemaining, durationMs);
@@ -2810,18 +2983,23 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private renderDynamicHazardGraphics(time: number): void {
-    if (!this.hazardGraphics || !this.dynamicHazard) return;
+    if (!this.hazardGraphics) return;
     this.hazardGraphics.clear();
 
-    const state = this.dynamicHazard.getState();
-    if (state === HazardLifecycleState.INACTIVE) return;
+    const dState = this.dynamicHazard?.getState();
+    const fState = this.frostHazard?.getState();
+    const hasDynamic = this.dynamicHazard && dState !== HazardLifecycleState.INACTIVE;
+    const hasFrost = this.frostHazard && fState !== FrostLifecycleState.DORMANT && fState !== FrostLifecycleState.THAW_COOLDOWN;
 
-    // 1. Render Active & Telegraph Beams
-    const beamIndices = this.dynamicHazard.getActiveBeamIndices();
-    const beamCount = this.dynamicHazard.getActiveBeamCount();
-    const dangerMask = this.dynamicHazard.getDangerMask();
+    if (!hasDynamic && !hasFrost) return;
 
-    for (let i = 0; i < beamCount; i++) {
+    if (hasDynamic) {
+      // 1. Render Active & Telegraph Beams
+      const beamIndices = this.dynamicHazard.getActiveBeamIndices();
+      const beamCount = this.dynamicHazard.getActiveBeamCount();
+      const dangerMask = this.dynamicHazard.getDangerMask();
+
+      for (let i = 0; i < beamCount; i++) {
       const idx = beamIndices[i];
       const r = Math.floor(idx / COLS);
       const c = idx % COLS;
@@ -2904,6 +3082,44 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  // 3. Render Frost Hazard Glaciated Tiles & Crystals
+  if (hasFrost && this.frostHazard) {
+    const frostIndices = this.frostHazard.getActiveFrostIndices();
+    const frostCount = this.frostHazard.getActiveFrostCount();
+    const isBurst = fState === FrostLifecycleState.ABSOLUTE_ZERO_BURST;
+    const phase = this.frostHazard.getHoarfrostPhase();
+
+    for (let i = 0; i < frostCount; i++) {
+      const idx = frostIndices[i];
+      const r = Math.floor(idx / COLS);
+      const c = idx % COLS;
+      const left = c * TILE_SIZE;
+      const top = r * TILE_SIZE;
+      const cx = left + TILE_SIZE / 2;
+      const cy = top + TILE_SIZE / 2;
+
+      if (isBurst) {
+        const pulse = 0.8 + 0.2 * Math.sin(time / 30);
+        this.hazardGraphics.fillStyle(0x00ffff, 0.45 * pulse);
+        this.hazardGraphics.fillRect(left + 1, top + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+        this.hazardGraphics.lineStyle(2, 0xffffff, 0.9);
+        this.hazardGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+      } else {
+        const alpha =
+          phase === HoarfrostPhase.CRYSTALLIZATION
+            ? 0.15
+            : phase === HoarfrostPhase.PERMAFROST_CREEP
+            ? 0.30
+            : 0.45;
+        this.hazardGraphics.fillStyle(0x38bdf8, alpha);
+        this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        this.hazardGraphics.lineStyle(1.5, 0x93c5fd, 0.5);
+        this.hazardGraphics.strokeCircle(cx, cy, 6);
+      }
+    }
+  }
+}
+
 
   /**
    * Smooth Corridor Centering and Corner-Sliding Movement Controller
@@ -2964,6 +3180,8 @@ export default class GameScene extends Phaser.Scene {
     const perkSpeedBonus = this.baseSpeedBonus || 0;
     const isPhaseJittered = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'PHASE_JITTER')) || this.phaseJitterRemaining > 0;
     const isGravitationalEscapeActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'GRAVITATIONAL_ESCAPE')) || false;
+    const isThermalBreakActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'THERMAL_BREAK')) || false;
+    const isFrostChillActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'FROST_CHILL')) || false;
 
     let gravityMultiplier = 1.0;
     if (this.gravityHazard && this.gravityHazard.state !== GravityLifecycleState.DORMANT && this.gravityHazard.state !== GravityLifecycleState.COOLDOWN) {
@@ -2974,6 +3192,23 @@ export default class GameScene extends Phaser.Scene {
       gravityMultiplier *= (1.0 + ESCAPE_VELOCITY_SPEED_BURST_RATIO);
     }
 
+    let frostMultiplier = 1.0;
+    if (this.frostHazard && this.frostHazard.state !== FrostLifecycleState.DORMANT && this.frostHazard.state !== FrostLifecycleState.THAW_COOLDOWN) {
+      const fRes = this.frostHazard.evaluatePlayer(px, py, this.isDashing, this.time?.now ?? Date.now(), wantX, wantY);
+      if (fRes.thermalBreakGranted) {
+        this.grantThermalBreak();
+      } else if (fRes.frostChillInflicted && !this.isDashing && !this.isInvulnerable) {
+        this.applyFrostChill();
+      }
+      frostMultiplier = fRes.slowFactor;
+    }
+    if (isThermalBreakActive) {
+      frostMultiplier *= (1.0 + THERMAL_BREAK_SPEED_BURST_RATIO);
+    }
+    if (isFrostChillActive) {
+      frostMultiplier *= (1.0 - FROST_CHILL_SLOW_RATIO);
+    }
+
     const speed = calculateClampedPlayerSpeed({
       baseSpeed: this.playerSpeed,
       perkSpeedBonus,
@@ -2981,7 +3216,7 @@ export default class GameScene extends Phaser.Scene {
       isDashing: this.isDashing,
       dashSpeed: DASH_SPEED,
       phaseJitterActive: isPhaseJittered,
-      speedMultiplier: gravityMultiplier,
+      speedMultiplier: gravityMultiplier * frostMultiplier,
     });
     const slideSpeed = speed;
     const snapThreshold = Math.max(2, speed * (delta / 1000));
@@ -3026,6 +3261,9 @@ export default class GameScene extends Phaser.Scene {
           vy = -Math.sign(diffY) * slideSpeed;
         } else {
           this.player.y = rowCenterY;
+          if (this.player.body && typeof (this.player.body as unknown as { updateFromGameObject?: () => void }).updateFromGameObject === 'function') {
+            (this.player.body as unknown as { updateFromGameObject: () => void }).updateFromGameObject();
+          }
           vy = 0;
         }
       } else {
@@ -3057,6 +3295,9 @@ export default class GameScene extends Phaser.Scene {
           vx = -Math.sign(diffX) * slideSpeed;
         } else {
           this.player.x = colCenterX;
+          if (this.player.body && typeof (this.player.body as unknown as { updateFromGameObject?: () => void }).updateFromGameObject === 'function') {
+            (this.player.body as unknown as { updateFromGameObject: () => void }).updateFromGameObject();
+          }
           vx = 0;
         }
       } else {
@@ -3219,6 +3460,15 @@ export default class GameScene extends Phaser.Scene {
           this.bombPower,
           fuseDuration
         );
+      }
+    }
+
+    if (this.frostHazard && this.frostHazard.state !== FrostLifecycleState.DORMANT && this.frostHazard.state !== FrostLifecycleState.THAW_COOLDOWN) {
+      const frostInteraction = this.frostHazard.onBombPlaced(bombId, row, col, this.bombPower, fuseDuration);
+      if (frostInteraction.isFrozen) {
+        fuseDuration = frostInteraction.modifiedFuseMs;
+        bomb.setTint(0x93c5fd);
+        this.spawnFloatingText(centerX, centerY - 25, '❄️ GLACIAL FUSE (+1.5s)', '#93c5fd');
       }
     }
 
@@ -3683,8 +3933,24 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    if (this.frostHazard && this.frostHazard.state !== FrostLifecycleState.DORMANT && this.frostHazard.state !== FrostLifecycleState.THAW_COOLDOWN) {
+      const fDet = this.frostHazard.onBombDetonated(bombId, actualRow, actualCol, effectivePower);
+      if (fDet.isThermalShock) {
+        effectivePower = fDet.modifiedPower;
+        isPiercing = isPiercing || fDet.piercing;
+        const cX = actualCol * TILE_SIZE + TILE_SIZE / 2;
+        const cY = actualRow * TILE_SIZE + TILE_SIZE / 2;
+        this.spawnFloatingText(cX, cY - 25, fDet.floatingText, '#38bdf8');
+        this.score += fDet.bonusScore;
+        this.emitStatsUpdate();
+      }
+    }
+
     // 3. Polarization Strike helper (blast cleanses spire into golden channel for 8.0s)
     const checkPolarizationStrike = (r: number, c: number) => {
+      if (this.frostHazard) {
+        this.frostHazard.onBombBlastImpact(r, c);
+      }
       if (this.dynamicHazard) {
         const impact = this.dynamicHazard.onBombBlastImpact(r, c);
         if (impact.polarized) {
@@ -4558,6 +4824,13 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    // Player Mastery: Thermal Break when dashing inside glaciated frost
+    if (this.frostHazard && this.frostHazard.state !== FrostLifecycleState.DORMANT && this.frostHazard.state !== FrostLifecycleState.THAW_COOLDOWN) {
+      if (this.frostHazard.isPointGlaciated(this.player.x, this.player.y)) {
+        this.grantThermalBreak();
+      }
+    }
+
     let dirX = 0;
     let dirY = 0;
     switch (this.playerFacing) {
@@ -4603,50 +4876,58 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private warpPlayer(toRow: number, toCol: number) {
+    if (!this.player || !this.player.active) return;
     this.portalCooldown = PORTAL_COOLDOWN_MS;
     const targetX = toCol * TILE_SIZE + TILE_SIZE / 2;
     const targetY = toRow * TILE_SIZE + TILE_SIZE / 2;
 
-    this.cameras.main.flash(100, 56, 189, 248, false);
+    if (this.cameras?.main) {
+      this.cameras.main.flash(100, 56, 189, 248, false);
+    }
 
-    this.tweens.add({
-      targets: this.player,
-      scaleX: 0.1,
-      scaleY: 0.1,
-      duration: 100,
-      yoyo: true,
-      ease: 'Back.easeIn',
-      onYoyo: () => {
-        if (this.player && this.player.active) {
-          this.player.setPosition(targetX, targetY);
-          this.player.body?.reset(targetX, targetY);
+    if (this.tweens) {
+      this.tweens.add({
+        targets: this.player,
+        scaleX: 0.1,
+        scaleY: 0.1,
+        duration: 100,
+        yoyo: true,
+        ease: 'Back.easeIn',
+        onYoyo: () => {
+          if (this.player && this.player.active) {
+            this.player.setPosition(targetX, targetY);
+            this.player.body?.reset(targetX, targetY);
 
-          // Add destination portal bomb to ignoringColliders to prevent collision ejection (PHYS-REV-06)
-          this.bombs.getChildren().forEach((child) => {
-            const b = child as Phaser.Physics.Arcade.Sprite;
-            if (b.active) {
-              const bCol = Math.floor(b.x / TILE_SIZE);
-              const bRow = Math.floor(b.y / TILE_SIZE);
-              if (bRow === toRow && bCol === toCol) {
-                let ignoring = b.getData('ignoringColliders') as Set<Phaser.GameObjects.GameObject> | undefined;
-                if (!ignoring) {
-                  ignoring = new Set();
-                  b.setData('ignoringColliders', ignoring);
+            // Add destination portal bomb to ignoringColliders to prevent collision ejection (PHYS-REV-06)
+            this.bombs?.getChildren().forEach((child) => {
+              const b = child as Phaser.Physics.Arcade.Sprite;
+              if (b.active) {
+                const bCol = Math.floor(b.x / TILE_SIZE);
+                const bRow = Math.floor(b.y / TILE_SIZE);
+                if (bRow === toRow && bCol === toCol) {
+                  let ignoring = b.getData('ignoringColliders') as Set<Phaser.GameObjects.GameObject> | undefined;
+                  if (!ignoring) {
+                    ignoring = new Set();
+                    b.setData('ignoringColliders', ignoring);
+                  }
+                  ignoring.add(this.player);
+
+                  let playerIgnoring = this.player.getData('ignoringColliders') as Set<Phaser.GameObjects.GameObject> | undefined;
+                  if (!playerIgnoring) {
+                    playerIgnoring = new Set();
+                    this.player.setData('ignoringColliders', playerIgnoring);
+                  }
+                  playerIgnoring.add(b);
                 }
-                ignoring.add(this.player);
-
-                let playerIgnoring = this.player.getData('ignoringColliders') as Set<Phaser.GameObjects.GameObject> | undefined;
-                if (!playerIgnoring) {
-                  playerIgnoring = new Set();
-                  this.player.setData('ignoringColliders', playerIgnoring);
-                }
-                playerIgnoring.add(b);
               }
-            }
-          });
-        }
-      },
-    });
+            });
+          }
+        },
+      });
+    } else {
+      this.player.setPosition(targetX, targetY);
+      this.player.body?.reset(targetX, targetY);
+    }
   }
 
   spawnItem(row: number, col: number, type: ItemType) {

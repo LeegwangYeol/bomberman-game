@@ -28,6 +28,7 @@ export * from './BaseEntity.ts';
 export * from './EnemyEntities.ts';
 export * from './NeutralEntities.ts';
 export * from './AllyEntities.ts';
+export * from './SpatialSeparation.ts';
 
 /**
  * Factory helper for spawning enemies by archetype.

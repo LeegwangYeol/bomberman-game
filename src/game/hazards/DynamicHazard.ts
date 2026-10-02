@@ -282,6 +282,19 @@ export class DynamicHazard {
   // Pre-allocated scratch buffer for Zero-GC getActiveGhostBombs queries
   private readonly activeGhostBombsList: GhostBombSlot[] = [];
 
+  // Pre-allocated batch scratch results for Zero-GC checkEnemyCollisions
+  private readonly batchEnemyResultsPool: EnemyCollisionResult[] = Array.from({ length: 32 }, () => ({
+    hit: false,
+    damage: 0,
+    isVaporized: false,
+    isStunned: false,
+    stunDurationMs: 0,
+    scoreBonus: 0,
+    ultimateChargeBonus: 0,
+    floatingText: '',
+  }));
+  private readonly batchEnemyResultsList: EnemyCollisionResult[] = [];
+
   // Map representation reference for wall/block checks
   private mapRef: number[][] | null = null;
 
@@ -352,6 +365,20 @@ export class DynamicHazard {
     for (let i = 0; i < this.ghostBombPool.length; i++) {
       this.ghostBombPool[i].active = false;
     }
+  }
+
+  /**
+   * Releases all external references and resets pool buffers for full teardown
+   */
+  public destroy(): void {
+    this.reset();
+    this.mapRef = null;
+    this.playerPosRef = null;
+    this.activeGhostBombsList.length = 0;
+  }
+
+  public dispose(): void {
+    this.destroy();
   }
 
   // Player position reference for spatial queries
@@ -614,20 +641,53 @@ export class DynamicHazard {
   }
 
   public isTileLethal(r: number, c: number): boolean {
-    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
-    const idx = r * COLS + c;
+    if (
+      typeof r !== 'number' ||
+      typeof c !== 'number' ||
+      !Number.isFinite(r) ||
+      !Number.isFinite(c) ||
+      r < 0 ||
+      r >= ROWS ||
+      c < 0 ||
+      c >= COLS
+    ) {
+      return false;
+    }
+    const idx = (r | 0) * COLS + (c | 0);
     return this.dangerMask[idx] === 2; // 2 = Lethal Active Beam
   }
 
   public isTileTelegraphed(r: number, c: number): boolean {
-    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
-    const idx = r * COLS + c;
+    if (
+      typeof r !== 'number' ||
+      typeof c !== 'number' ||
+      !Number.isFinite(r) ||
+      !Number.isFinite(c) ||
+      r < 0 ||
+      r >= ROWS ||
+      c < 0 ||
+      c >= COLS
+    ) {
+      return false;
+    }
+    const idx = (r | 0) * COLS + (c | 0);
     return this.dangerMask[idx] === 1;
   }
 
   public isTilePolarized(r: number, c: number): boolean {
-    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
-    const idx = r * COLS + c;
+    if (
+      typeof r !== 'number' ||
+      typeof c !== 'number' ||
+      !Number.isFinite(r) ||
+      !Number.isFinite(c) ||
+      r < 0 ||
+      r >= ROWS ||
+      c < 0 ||
+      c >= COLS
+    ) {
+      return false;
+    }
+    const idx = (r | 0) * COLS + (c | 0);
     return this.dangerMask[idx] === 3;
   }
 
@@ -750,7 +810,20 @@ export class DynamicHazard {
       return res;
     }
 
-    const idx = enemyR * COLS + enemyC;
+    if (
+      typeof enemyR !== 'number' ||
+      typeof enemyC !== 'number' ||
+      !Number.isFinite(enemyR) ||
+      !Number.isFinite(enemyC) ||
+      enemyR < 0 ||
+      enemyR >= ROWS ||
+      enemyC < 0 ||
+      enemyC >= COLS
+    ) {
+      return res;
+    }
+
+    const idx = (enemyR | 0) * COLS + (enemyC | 0);
     if (this.dangerMask[idx] === 2) {
       res.hit = true;
       if (isBoss) {
@@ -793,13 +866,27 @@ export class DynamicHazard {
     if (typeof targetOrR === 'number') {
       return this.checkEnemyCollision(targetOrR, enemyC ?? 0, isBoss);
     }
-    const results: EnemyCollisionResult[] = [];
+    this.batchEnemyResultsList.length = 0;
     for (let i = 0; i < targetOrR.length; i++) {
       const e = targetOrR[i];
       const res = this.checkEnemyCollision(e.r, e.c, Boolean(e.isBoss));
-      results.push({ ...res });
+      let slot: EnemyCollisionResult;
+      if (i < this.batchEnemyResultsPool.length) {
+        slot = this.batchEnemyResultsPool[i];
+        slot.hit = res.hit;
+        slot.damage = res.damage;
+        slot.isVaporized = res.isVaporized;
+        slot.isStunned = res.isStunned;
+        slot.stunDurationMs = res.stunDurationMs;
+        slot.scoreBonus = res.scoreBonus;
+        slot.ultimateChargeBonus = res.ultimateChargeBonus;
+        slot.floatingText = res.floatingText;
+      } else {
+        slot = { ...res };
+      }
+      this.batchEnemyResultsList.push(slot);
     }
-    return results;
+    return this.batchEnemyResultsList;
   }
 
   /* ==============================================================================

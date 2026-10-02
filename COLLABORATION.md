@@ -786,3 +786,58 @@ main 브랜치에 최종 릴리스 커밋을 반영합니다!"
      - `corner_sliding.ts` 250 px/s 및 350 px/s 대각선 고속 이동 시 서브픽셀 벽면 관통 0px 검증.
 - **배포 결론**: Claude 협업 가이드 및 일일 점검 보고서(`DAILY_REPORT.md`) 갱신 완료. Git Commit & Push 승인.
 
+---
+
+# [2026-10-03] UI 텍스트 오클루전, 2.5D 레이어 스태킹 & 거리 계산 최적화 감사 완료 — AUDIT PASS
+
+## 1. 개요 및 목적
+- **감사 대상**: `src/game/entities/OverheadUI.ts`, `src/game/GameScene.ts`, `src/game/entities/types.ts`, `tests/overhead_ui_distance_optimization.test.mjs`
+- **핵심 목표**:
+  1. **거리 계산 최적화 (Distance Optimization)**: 유클리드 거리 제곱($dx^2 + dy^2$) 기반 임계값 판정($20\text{px} \to 400$, $38\text{px} \to 1444$, $50\text{px} \to 2500$, $60\text{px} \to 3600$, $70\text{px} \to 4900$)의 수학적 불변성 및 마이크로벤치마크 검증.
+  2. **플레이어 보호 버블 ($R = 38\text{px}$)**: 네임태그, 의도 뱃지, 체력바가 플레이어 캐릭터 시야를 가리는 오클루전 현상 원천 차단. 거리 $\le 20\text{px}$ 시 $\alpha = 0.0$ 완전 투명화, $20 < d \le 38\text{px}$ 구간 선형 감쇠($\alpha \le 0.15$), 프레임 보간(lerp)을 통한 팝핑 없는 부드러운 페이딩 검증.
+  3. **상태 뱃지 (Status / Intent Badges)**: $y - 34$ 오프셋에 렌더링되는 의도 뱃지(`!`, `💣`, `⚡` 등)가 남쪽에서 접근 시 플레이어를 가리지 않도록 거리 계산에 의도 뱃지 좌표를 실시간 반영하여 오클루전 완전 차단.
+  4. **네임태그 및 3단계 적응형 LOD**: Solo($>70\text{px}$) 풀네임, Clustered($\le 70\text{px}$) 단축 닉네임, Dense Melee($\ge 3$ within $60\text{px}$) 미니멀 모드(네임태그 숨김), AABB 스프링 반발($\ge 48\text{px}$ 분리), 상하 스태거링($-14\text{px} / +46\text{px}$), 아레나 경계 클램핑($[20, 580]$ X, $[20, 500]$ Y).
+  5. **2.5D 레이어 스태킹**: Global `RENDER_DEPTH` 체계(Ground < Dynamic Entity Band < VFX < Boss < UI) 및 개별 엔티티 내 하위 레이어($\text{Shadow} < \text{Sprite} < \text{Shield} < \text{HP} < \text{Name} < \text{Intent}$) 불변성, 남쪽 엔티티의 자연스러운 2.5D 오클루전 및 플레이어 뎁스 동기화 검증.
+
+## 2. 검증 지표
+- `tests/overhead_ui_distance_optimization.test.mjs`: **22 / 22 통과 (100%)**
+- `tests/challenger_m2_bubble_cascade_depth.test.mjs`: **13 / 13 통과 (100%)**
+- `tests/ui_depth_declutter.test.mjs`: **22 / 22 통과 (100%)**
+- `tests/challenger_m2_overhead_stress.test.mjs`: **16 / 16 통과 (100%)**
+- **오버헤드 UI 테스트 배터리 총계**: **73 / 73 전원 통과 (100% Pass, 0 Fail, 0 Skip)**
+- **정적 코드 분석**: `npm run lint` **0 Errors**
+- **프로덕션 빌드**: `npm run build` Next.js Turbopack 최적화 클린 통과 (Exit Code 0)
+
+---
+
+# [2026-10-03] Cryo Glaciation FrostHazard & Player Mastery System — VICTORY CONFIRMED
+
+## 1. 개요 및 구현 내역 (Overview & Implementation)
+- **대상 파일**:
+  - `src/game/hazards/FrostHazard.ts`: 4단계 결정론적 FSM (`DORMANT` -> `HOARFROST_SURGE` -> `ABSOLUTE_ZERO_BURST` -> `THAW_COOLDOWN`), 3단계 전조 서브페이즈 (`CRYSTALLIZATION`, `PERMAFROST_CREEP`, `SUBLIMATION_FLASH`), 1D TypedArray 구조 (`Uint8Array dangerMask`, `Float32Array frictionGrid`, `Int16Array activeFrostIndices`), $\ge 85.13\%$ 수학적 안전 구역 보장.
+  - **플레이어 마스터리 메카닉스 (Player Mastery Mechanics)**:
+    1. **Thermal Break (열 파쇄 대시)**: 빙결 서지 또는 절대영도 버스트 타일 통과 중 대시 발동 시 얼음 결정을 파쇄하며 1,200ms 무적 I-frame 부여, +35% 이동 속도 버스트 (`THERMAL_BREAK_SPEED_BURST_RATIO = 0.35`, `slowFactor = 1.35`), `✦ THERMAL BREAK!` 플로팅 컴뱃 텍스트 출력, 1,500ms 쿨다운 스로틀.
+    2. **Frost Chill Debuff (혹한 동상 디버프)**: 대시 없이 서지/버스트 구역을 보행하는 플레이어에게 -25% 이동 속도 감속 (`FROST_CHILL_SLOW_RATIO = 0.25`, `slowFactor = 0.75`), 2,000ms 지속시간 (`FROST_CHILL_DURATION_MS = 2000`), `❄️ FROST CHILL (-25%)` 플로팅 텍스트 출력.
+    3. **GameScene 통합**: `grantThermalBreak()`, `applyFrostChill()`, `calculateClampedPlayerSpeed()`와 연동된 다이내믹 버프/디버프 스택, 빙결 타일 대시 판정, 빙결 폭탄 신관 정지/연장, 킥 충격파 연동.
+  - `src/game/hazards/FrostHazardAudio.ts`: 절차적 WebAudio 합성 (`THERMAL_BREAK_CHIME` 1318Hz -> 1760Hz 사인파 스윕, `FROST_CHILL_PUFF` 240Hz -> 140Hz 트라이앵글 팝).
+  - `src/game/hazards/index.ts`: 이름 충돌 방지 및 re-export 조화.
+
+## 2. 테스트 및 빌드 검증 (Verification & Build Results)
+- `tests/frost_hazard.test.mjs`: **23 / 23 통과 (100%)**
+- `tests/frost_hazard_tactical_bomb.test.mjs`: **10 / 10 통과 (100%)**
+- `tests/frost_hazard_player_mastery.test.mjs`: **11 / 11 통과 (100%)**
+- `tests/frost_hazard_audio.test.mjs`: **11 / 11 통과 (100%)**
+- `tests/unit/frost_hazard_mathematics.test.mjs`: **6 / 6 통과 (100%)**
+- **FrostHazard 전용 테스트 배터리 총계**: **73 / 73 전원 통과 (100% Pass, 0 Fail)** (GameScene 통합 12/12 포함)
+- **전체 리포지토리 테스트 배터리 총계**: **1,216 / 1,216 전원 통과 (100% Pass Rate across 77 suites, 0 Fail, 0 Skip)**
+- **정적 코드 분석**: `npm run lint` **0 Errors, 0 Warnings**
+- **10,000 / 20,000 프레임 Zero-GC 소크 테스트**: 힙 드리프트 $\le 0.051\text{ MB}$ (한도 $0.25\text{ MB}$ 대비 완벽 통과)
+- **프로덕션 빌드**: `npm run build` Next.js 16.3.5 Turbopack 클린 통과 (Exit Code 0).
+
+## 3. Claude를 위한 안내 (Notes for Claude)
+- 오늘(2026-10-03)의 일일 진화 및 유지보수 사이클이 완벽하게 완료되었습니다.
+- 신규 빙결 재해 하위시스템(`FrostHazard.ts`, `FrostHazardAudio.ts`), 플레이어 열 파쇄(Thermal Break) 대시 무적/가속, 혹한 동상(Frost Chill) 감속, 빙결 폭탄 신관 연장(+1.5s), 킥 가속(450px/s), 열 충격 폭발(+2 관통, +200점) 등 물리 메카닉스가 모두 구현되고 1,216개 전체 테스트 스위트로 검증되었습니다.
+- 사용자가 **"내용확인"**을 입력할 경우 본 가이드와 `DAILY_REPORT.md`의 내용을 바탕으로 다음 진화 단계나 창의적 게임플레이 확장에 대해 논의해 주세요!
+
+
+

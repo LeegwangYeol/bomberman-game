@@ -17,7 +17,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AudioVoicePool } from '../../src/game/pooling/AudioVoicePool.ts';
-import { DynamicHazardAudio } from '../../src/game/hazards/DynamicHazardAudio.ts';
+import { DynamicHazardAudio, HAZARD_AUDIO_PRESETS } from '../../src/game/hazards/DynamicHazardAudio.ts';
 import { TelegraphPhase } from '../../src/game/hazards/DynamicHazard.ts';
 
 /* ==============================================================================
@@ -193,6 +193,20 @@ test('DynamicHazardAudio: headless fallback without AudioContext is completely c
   assert.doesNotThrow(() => synth.playTachyonOvercharge());
   assert.doesNotThrow(() => synth.playMinionVaporization());
   assert.doesNotThrow(() => synth.playSafeEjection());
+  assert.doesNotThrow(() => synth.playAccretionSwirl());
+  assert.doesNotThrow(() => synth.playSingularityBurst());
+  assert.doesNotThrow(() => synth.playCosmicFusion());
+  assert.doesNotThrow(() => synth.playGravitationalEscape());
+  assert.doesNotThrow(() => synth.playGravityCrush());
+  assert.doesNotThrow(() => synth.playGravityHazardState('ACCRETION_SWIRL'));
+  assert.doesNotThrow(() => synth.playIceShimmer());
+  assert.doesNotThrow(() => synth.playSubZeroRumble());
+  assert.doesNotThrow(() => synth.playGlassShatterDetonation());
+  assert.doesNotThrow(() => synth.playFrostMeltingDrip());
+  assert.doesNotThrow(() => synth.playCryoGlide());
+  assert.doesNotThrow(() => synth.playFrostHazardState('HOARFROST_SURGE'));
+  assert.doesNotThrow(() => synth.playFrostHazardState('ABSOLUTE_ZERO_BURST'));
+  assert.doesNotThrow(() => synth.playFrostHazardState('THAW_COOLDOWN'));
   assert.doesNotThrow(() => synth.reset());
   assert.doesNotThrow(() => synth.destroy());
 });
@@ -557,4 +571,205 @@ test('DynamicHazardAudio: 2,000 rapid Gravitational Singularity triggers execute
 
   assert.strictEqual(pool.getActiveCount(), 0, 'All voices must be silent after destruction');
 });
+
+/* ==============================================================================
+ * FROST HAZARD ACOUSTIC SIGNATURES (2026-10-03 EVOLUTION CYCLE)
+ * ============================================================================== */
+
+test('DynamicHazardAudio: Frost Hazard presets define 40Hz fundamental, resonant sweep, and glass pings', () => {
+  // 1. Sub-Zero Low Rumble: strict 40Hz fundamental
+  assert.strictEqual(HAZARD_AUDIO_PRESETS.FROST_RUMBLE_40HZ_SUB.frequency, 40.0, 'Sub-zero rumble fundamental must be 40Hz');
+  assert.strictEqual(HAZARD_AUDIO_PRESETS.FROST_RUMBLE_TEXTURE.frequency, 40.0, 'Glacial texture base frequency must be 40Hz');
+
+  // 2. Crystalline Ice Shimmer: high-frequency resonant filter sweep
+  assert.strictEqual(HAZARD_AUDIO_PRESETS.FROST_SHIMMER_SWEEP.filter.type, 'bandpass');
+  assert.strictEqual(HAZARD_AUDIO_PRESETS.FROST_SHIMMER_SWEEP.filter.frequency, 1800);
+  assert.strictEqual(HAZARD_AUDIO_PRESETS.FROST_SHIMMER_SWEEP.filter.rampTarget, 6200);
+  assert.strictEqual(HAZARD_AUDIO_PRESETS.FROST_SHIMMER_SWEEP.filter.q, 5.5);
+
+  // 3. Glass Shatter Detonation: brittle glass fracture pings & explosive sub thump
+  assert.strictEqual(HAZARD_AUDIO_PRESETS.FROST_SHATTER_DETONATION_THUMP.frequency, 110.0);
+  assert.strictEqual(HAZARD_AUDIO_PRESETS.FROST_SHATTER_DETONATION_THUMP.frequencyRamp.target, 35.0);
+  assert.strictEqual(HAZARD_AUDIO_PRESETS.FROST_SHATTER_GLASS_PING_A.frequency, 3135.96);
+  assert.strictEqual(HAZARD_AUDIO_PRESETS.FROST_SHATTER_GLASS_PING_B.frequency, 4186.01);
+});
+
+test('DynamicHazardAudio: Crystalline Ice Shimmer fires high-frequency resonant sweep, chimes, and noise crackle', async () => {
+  const ctx = new MockAudioContext();
+  const pool = new AudioVoicePool(16);
+  pool.init(ctx);
+  const synth = new DynamicHazardAudio(pool);
+  synth.init(ctx, pool);
+
+  synth.playIceShimmer(100);
+
+  // 1. Two pooled voices acquired immediately (FROST_SHIMMER_SWEEP + FROST_SHIMMER_CHIME_A)
+  assert.strictEqual(pool.getActiveCount(), 2, 'Ice shimmer must acquire 2 pooled voices immediately');
+
+  // 2. Transient noise crackle created
+  const bufferSources = ctx.createdNodes.filter((n) => n instanceof MockBufferSourceNode);
+  assert.ok(bufferSources.length >= 1, 'Noise crackle buffer source must be created');
+  const crackleSource = bufferSources[bufferSources.length - 1];
+  assert.strictEqual(crackleSource.started, true);
+
+  // 3. Clean auto-disconnect onended
+  crackleSource.finishPlayback();
+  assert.strictEqual(crackleSource.disconnected, true, 'Noise crackle must disconnect onended');
+
+  // 4. Staggered 30ms delayed chime B acquired
+  await new Promise((resolve) => setTimeout(resolve, 45));
+  assert.strictEqual(pool.getActiveCount(), 3, 'Delayed chime B must acquire 3rd pooled voice');
+
+  synth.destroy();
+  pool.destroy();
+});
+
+test('DynamicHazardAudio: Sub-Zero Low Rumble fires 40Hz fundamental, acoustic beat, and transient LFO', () => {
+  const ctx = new MockAudioContext();
+  const pool = new AudioVoicePool(16);
+  pool.init(ctx);
+  const synth = new DynamicHazardAudio(pool);
+  synth.init(ctx, pool);
+
+  synth.playSubZeroRumble(100);
+
+  // 1. Three pooled voices acquired: 40Hz sub-bass + texture + blizzard overtone
+  assert.strictEqual(pool.getActiveCount(), 3, 'Sub-zero rumble must acquire 3 pooled voices');
+
+  // 2. Transient LFO oscillator created and modulating frequency
+  const oscillators = ctx.createdNodes.filter((n) => n instanceof MockOscillatorNode);
+  const lfoOsc = oscillators[oscillators.length - 1];
+  assert.ok(lfoOsc, 'LFO oscillator must be created');
+  assert.strictEqual(lfoOsc.started, true);
+
+  // 3. Zero-Leak Verification: LFO disconnects cleanly onended
+  lfoOsc.stop();
+  assert.strictEqual(lfoOsc.disconnected, true, 'LFO oscillator must disconnect upon completion');
+
+  synth.destroy();
+  pool.destroy();
+});
+
+test('DynamicHazardAudio: Glass Shatter Detonation fires 4 pooled voices and shattering noise burst', () => {
+  const ctx = new MockAudioContext();
+  const pool = new AudioVoicePool(16);
+  pool.init(ctx);
+  const synth = new DynamicHazardAudio(pool);
+  synth.init(ctx, pool);
+
+  synth.playGlassShatterDetonation(100);
+
+  // 1. Four pooled voices acquired (detonation thump + ping A + ping B + chord D6)
+  assert.strictEqual(pool.getActiveCount(), 4, 'Glass shatter detonation must acquire 4 pooled voices');
+
+  // 2. Transient noise burst node created
+  const bufferSources = ctx.createdNodes.filter((n) => n instanceof MockBufferSourceNode);
+  assert.ok(bufferSources.length >= 1, 'Noise burst buffer source must be created');
+  const noiseSource = bufferSources[bufferSources.length - 1];
+  assert.strictEqual(noiseSource.started, true);
+
+  // 3. Zero-Leak Verification: noise source auto-disconnects onended
+  noiseSource.finishPlayback();
+  assert.strictEqual(noiseSource.disconnected, true, 'Noise burst node must disconnect onended');
+
+  synth.destroy();
+  pool.destroy();
+});
+
+test('DynamicHazardAudio: Frost Hazard auxiliary routines and state machine dispatcher fire correctly', () => {
+  const ctx = new MockAudioContext();
+  const pool = new AudioVoicePool(16);
+  pool.init(ctx);
+  const synth = new DynamicHazardAudio(pool);
+
+  // Melting drip
+  assert.doesNotThrow(() => synth.playFrostMeltingDrip(100));
+  assert.strictEqual(pool.getActiveCount(), 1);
+
+  // Cryo glide
+  pool.reset();
+  assert.doesNotThrow(() => synth.playCryoGlide(200));
+  assert.strictEqual(pool.getActiveCount(), 1);
+
+  // State dispatcher: HOARFROST_SURGE -> playIceShimmer (2 voices immediately)
+  pool.reset();
+  assert.doesNotThrow(() => synth.playFrostHazardState('HOARFROST_SURGE', 300));
+  assert.strictEqual(pool.getActiveCount(), 2);
+
+  // State dispatcher: PERMAFROST_CREEP -> playSubZeroRumble (3 voices)
+  pool.reset();
+  assert.doesNotThrow(() => synth.playFrostHazardState('PERMAFROST_CREEP', 500));
+  assert.strictEqual(pool.getActiveCount(), 3);
+
+  // State dispatcher: ABSOLUTE_ZERO_BURST -> playGlassShatterDetonation (4 voices)
+  pool.reset();
+  assert.doesNotThrow(() => synth.playFrostHazardState('ABSOLUTE_ZERO_BURST', 700));
+  assert.strictEqual(pool.getActiveCount(), 4);
+
+  // State dispatcher: THAW_COOLDOWN -> playFrostMeltingDrip (1 voice)
+  pool.reset();
+  assert.doesNotThrow(() => synth.playFrostHazardState('THAW_COOLDOWN', 900));
+  assert.strictEqual(pool.getActiveCount(), 1);
+
+  synth.destroy();
+  pool.destroy();
+});
+
+test('DynamicHazardAudio: Frost Hazard rate limiting suppresses rapid audio spam', () => {
+  const ctx = new MockAudioContext();
+  const pool = new AudioVoicePool(16);
+  pool.init(ctx);
+  const synth = new DynamicHazardAudio(pool);
+  synth.init(ctx, pool);
+
+  // Ice Shimmer rate limiting (140ms window)
+  synth.playIceShimmer(100);
+  assert.strictEqual(pool.getActiveCount(), 2);
+  synth.playIceShimmer(120); // Suppressed
+  synth.playIceShimmer(135); // Suppressed
+  assert.strictEqual(pool.getActiveCount(), 2, 'Ice shimmer within 140ms must be suppressed');
+
+  // Sub-Zero Rumble rate limiting (160ms window)
+  pool.reset();
+  synth.playSubZeroRumble(100);
+  assert.strictEqual(pool.getActiveCount(), 3);
+  synth.playSubZeroRumble(130); // Suppressed
+  assert.strictEqual(pool.getActiveCount(), 3, 'Sub-zero rumble within 160ms must be suppressed');
+
+  // Glass Shatter Detonation rate limiting (150ms window)
+  pool.reset();
+  synth.playGlassShatterDetonation(100);
+  assert.strictEqual(pool.getActiveCount(), 4);
+  synth.playGlassShatterDetonation(140); // Suppressed
+  assert.strictEqual(pool.getActiveCount(), 4, 'Glass shatter detonation within 150ms must be suppressed');
+
+  synth.destroy();
+  pool.destroy();
+});
+
+test('DynamicHazardAudio: 2,000 rapid Frost Hazard triggers execute with Zero-GC and 0 leaked nodes', () => {
+  const ctx = new MockAudioContext();
+  const pool = new AudioVoicePool(16);
+  pool.init(ctx);
+  const synth = new DynamicHazardAudio(pool);
+  synth.init(ctx, pool);
+
+  for (let i = 0; i < 2000; i++) {
+    const time = i * 2;
+    synth.playIceShimmer(time);
+    synth.playSubZeroRumble(time);
+    synth.playGlassShatterDetonation(time);
+    synth.playFrostMeltingDrip(time);
+    synth.playCryoGlide(time);
+    synth.playFrostHazardState('HOARFROST_SURGE', time);
+    synth.playFrostHazardState('ABSOLUTE_ZERO_BURST', time);
+  }
+
+  // Teardown
+  synth.destroy();
+  pool.destroy();
+
+  assert.strictEqual(pool.getActiveCount(), 0, 'All voices must be silent after destruction');
+});
+
 

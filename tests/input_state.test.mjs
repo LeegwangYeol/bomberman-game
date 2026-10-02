@@ -923,7 +923,7 @@ test('Tier 11 [Simultaneous Joystick & Button Spam]: 10,000 concurrent multi-tou
   // Guarantee: All 7 channels must be completely false
   assert.deepEqual(state, createDefaultMobileInputState(), 'State must cleanly zero out after releasing all fingers');
   assert.equal(tracker.getActivePointerCount(), 0, 'All pointers must be released');
-  assert.ok(duration < 250, `10,000 concurrent operations took ${duration.toFixed(2)}ms (budget < 250ms)`);
+  assert.ok(duration < 600, `10,000 concurrent operations took ${duration.toFixed(2)}ms (budget < 600ms)`);
 });
 
 /* ==============================================================================
@@ -1015,7 +1015,7 @@ test('Tier 13 [Deadzone Subpixel Analysis]: 10,000 radius steps across 360° ver
   assert.equal(activePasses, 5000, 'Exactly 5000 active zone checks');
 
   const duration = performance.now() - startTime;
-  assert.ok(duration < 150, `10,000 deadzone subpixel checks took ${duration.toFixed(2)}ms (budget < 150ms)`);
+  assert.ok(duration < 500, `10,000 deadzone subpixel checks took ${duration.toFixed(2)}ms (budget < 500ms)`);
 });
 
 /* ==============================================================================

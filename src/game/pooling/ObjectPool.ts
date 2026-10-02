@@ -27,7 +27,7 @@ export class ObjectPool<T> {
   private readonly itemToIndexMap: Map<T, number>;
   private _activeCount: number = 0;
   private resetCallback?: (item: T) => void;
-  private readonly acquireCallback?: (item: T) => void;
+  private acquireCallback?: (item: T) => void;
 
   constructor(
     optionsOrFactory: ObjectPoolOptions<T> | ((index: number) => T),
@@ -43,7 +43,7 @@ export class ObjectPool<T> {
           }
         : optionsOrFactory;
 
-    if (!options || typeof options.capacity !== 'number' || options.capacity <= 0) {
+    if (!options || typeof options.capacity !== 'number' || !Number.isFinite(options.capacity) || options.capacity <= 0 || !Number.isInteger(options.capacity)) {
       throw new Error(`ObjectPool capacity must be greater than 0, got ${options?.capacity}`);
     }
 
@@ -88,7 +88,7 @@ export class ObjectPool<T> {
    * Returns null if capacity is exhausted. Zero heap allocations.
    */
   public acquire(): T | null {
-    if (this.freeHead <= 0) {
+    if (this.freeHead <= 0 || this.storage.length === 0) {
       return null;
     }
 
@@ -120,7 +120,15 @@ export class ObjectPool<T> {
       return false; // Already released (double-release guard)
     }
 
+    if (this._activeCount <= 0) {
+      return false; // Invariant guard against underflow
+    }
+
     const slot = this.itemToActiveSlot[itemIndex];
+    if (slot < 0 || slot >= this._activeCount) {
+      return false; // Invariant guard against slot corruption
+    }
+
     const lastSlot = --this._activeCount;
 
     if (slot !== lastSlot) {
@@ -131,20 +139,26 @@ export class ObjectPool<T> {
 
     this.activeIndices[lastSlot] = -1;
     this.itemToActiveSlot[itemIndex] = -1;
-    this.freeIndices[this.freeHead++] = itemIndex;
+    if (this.freeHead < this.capacity) {
+      this.freeIndices[this.freeHead++] = itemIndex;
+    }
     this.activeFlags[itemIndex] = 0;
 
+    // Strictly enforce IPoolable.reset() if present
+    if (item && typeof (item as unknown as IPoolable).reset === 'function') {
+      try {
+        (item as unknown as IPoolable).reset();
+      } catch {
+        // Guard against custom reset method errors corrupting pool invariants
+      }
+    }
+
+    // Strictly enforce options.reset callback if present
     if (this.resetCallback) {
       try {
         this.resetCallback(item);
       } catch {
         // Guard against custom reset callback errors corrupting pool invariants
-      }
-    } else if (item && typeof (item as unknown as IPoolable).reset === 'function') {
-      try {
-        (item as unknown as IPoolable).reset();
-      } catch {
-        // Guard against custom reset method errors corrupting pool invariants
       }
     }
 
@@ -183,16 +197,18 @@ export class ObjectPool<T> {
     const count = this._activeCount;
     for (let i = 0; i < count; i++) {
       const itemIndex = this.activeIndices[i];
+      const item = this.storage[itemIndex];
       this.activeFlags[itemIndex] = 0;
       this.itemToActiveSlot[itemIndex] = -1;
       this.activeIndices[i] = -1;
+      if (item && typeof (item as unknown as IPoolable).reset === 'function') {
+        try {
+          (item as unknown as IPoolable).reset();
+        } catch {}
+      }
       if (this.resetCallback) {
         try {
-          this.resetCallback(this.storage[itemIndex]);
-        } catch {}
-      } else if (this.storage[itemIndex] && typeof (this.storage[itemIndex] as unknown as IPoolable).reset === 'function') {
-        try {
-          (this.storage[itemIndex] as unknown as IPoolable).reset();
+          this.resetCallback(item);
         } catch {}
       }
     }
@@ -210,8 +226,11 @@ export class ObjectPool<T> {
   public destroy(): void {
     this.reset();
     this.storage.length = 0;
+    this.freeHead = 0;
+    this._activeCount = 0;
     this.itemToIndexMap.clear();
     this.resetCallback = undefined;
+    this.acquireCallback = undefined;
   }
 
   public dispose(): void {

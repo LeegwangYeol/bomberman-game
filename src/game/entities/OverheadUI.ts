@@ -205,6 +205,7 @@ export class OverheadUI {
 
   public setLODMode(mode: NameTagLODMode): void {
     if (this.isDestroyed) return;
+    if (this.lodMode === mode) return;
     this.lodMode = mode;
     if (!this.nameTag || !this.nameTag.active) return;
 
@@ -221,6 +222,7 @@ export class OverheadUI {
 
   public setCustomOffsets(offsetX: number, offsetY: number): void {
     if (this.isDestroyed) return;
+    if (this.customOffsetX === offsetX && this.customOffsetY === offsetY) return;
     this.customOffsetX = offsetX;
     this.customOffsetY = offsetY;
     const effectiveX = this.x + this.customOffsetX;
@@ -239,28 +241,30 @@ export class OverheadUI {
 
   public setAlpha(alpha: number): void {
     if (this.isDestroyed) return;
-    this.currentAlpha = alpha;
+    const clampedAlpha = Number.isNaN(alpha) ? 1.0 : Math.max(0.0, Math.min(1.0, alpha));
+    this.currentAlpha = clampedAlpha;
     if (this.hpGraphics && this.hpGraphics.active && typeof this.hpGraphics.setAlpha === 'function') {
-      this.hpGraphics.setAlpha(alpha);
+      this.hpGraphics.setAlpha(clampedAlpha);
     }
     if (this.nameTag && this.nameTag.active && typeof this.nameTag.setAlpha === 'function') {
-      this.nameTag.setAlpha(alpha);
+      this.nameTag.setAlpha(clampedAlpha);
     }
     if (this.indicator && this.indicator.active && typeof this.indicator.setAlpha === 'function') {
-      this.indicator.setAlpha(alpha);
+      this.indicator.setAlpha(clampedAlpha);
     }
   }
 
   public setDepth(baseDepth: number): void {
     if (this.isDestroyed) return;
+    const safeDepth = Number.isFinite(baseDepth) ? baseDepth : RENDER_DEPTH.ENTITY_Y_BASE;
     if (this.hpGraphics && this.hpGraphics.active && typeof this.hpGraphics.setDepth === 'function') {
-      this.hpGraphics.setDepth(baseDepth + RENDER_DEPTH.OFFSET_HP_BAR);
+      this.hpGraphics.setDepth(safeDepth + RENDER_DEPTH.OFFSET_HP_BAR);
     }
     if (this.nameTag && this.nameTag.active && typeof this.nameTag.setDepth === 'function') {
-      this.nameTag.setDepth(baseDepth + RENDER_DEPTH.OFFSET_NAME_TAG);
+      this.nameTag.setDepth(safeDepth + RENDER_DEPTH.OFFSET_NAME_TAG);
     }
     if (this.indicator && this.indicator.active && typeof this.indicator.setDepth === 'function') {
-      this.indicator.setDepth(baseDepth + RENDER_DEPTH.OFFSET_INTENT_BADGE);
+      this.indicator.setDepth(safeDepth + RENDER_DEPTH.OFFSET_INTENT_BADGE);
     }
   }
 

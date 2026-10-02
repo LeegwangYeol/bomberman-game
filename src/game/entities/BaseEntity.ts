@@ -77,6 +77,9 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
   public stunUntil: number = 0;
   public isDead: boolean = false;
   public moveSpeed: number = 70;
+  public collisionRadius: number = 12;
+  public mass: number = 1.0;
+  public isPhasing: boolean = false;
 
   // Juice & Animation parameters
   public stepCycle: number = 0;

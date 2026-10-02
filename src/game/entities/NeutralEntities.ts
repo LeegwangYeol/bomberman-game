@@ -42,6 +42,8 @@ export class MerchantNPC extends BaseEntity {
       NEUTRAL_ARCHETYPES.MERCHANT.hpBarColor
     );
     this.moveSpeed = this.config.walkSpeed;
+    this.mass = 2.0;
+    this.collisionRadius = 14;
     this.setTint(0xf59e0b);
     this.overheadUI.setIntent('🛒', true);
   }
@@ -243,6 +245,8 @@ export class CritterNPC extends BaseEntity {
       NEUTRAL_ARCHETYPES.CRITTER.hpBarColor
     );
     this.moveSpeed = this.config.hopSpeed;
+    this.mass = 0.5;
+    this.collisionRadius = 8;
     this.setTint(0xec4899);
     this.setScale(0.8, 0.8);
     applyPhysicsBodyInvariantGuard(this, 20, 20, 10, 10);

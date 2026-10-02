@@ -266,6 +266,16 @@ export class GravityHazard {
   public readonly eventHorizonIndices: Int16Array = new Int16Array(MAX_EVENT_HORIZON_TILES);
   private eventHorizonCount: number = 0;
 
+  // Pre-allocated scratch buffer & pool for Zero-GC computeCosmicRadialBlast
+  private readonly radialVisitedMask: Uint8Array = new Uint8Array(TOTAL_TILES);
+  private readonly radialBlastPool: RadialBlastTile[] = Array.from({ length: 128 }, () => ({
+    r: 0,
+    c: 0,
+    isDiagonal: false,
+    isEpicenter: false,
+  }));
+  private readonly scratchRadialBlastTiles: RadialBlastTile[] = [];
+
   // Pre-allocated Scratch Return Containers (Zero runtime heap allocations)
   private readonly scratchPullResult: GravityPullResult = {
     inAccretionField: false,
@@ -662,6 +672,33 @@ export class GravityHazard {
     return this.evaluatePull(worldX, worldY);
   }
 
+  public getDirectionalSpeedFactor(
+    worldX: number,
+    worldY: number,
+    moveDirX: number,
+    moveDirY: number,
+    distToCorePx: number
+  ): number {
+    if (moveDirX === 0 && moveDirY === 0) {
+      return 1.0 - PLAYER_GRAVITY_DRAG_RATIO;
+    }
+    if (distToCorePx < 0.001) return 1.0;
+
+    const moveLen = Math.hypot(moveDirX, moveDirY);
+    if (moveLen < 0.001) return 1.0 - PLAYER_GRAVITY_DRAG_RATIO;
+
+    const dx = this.centerWorldX - worldX;
+    const dy = this.centerWorldY - worldY;
+    const dot = (moveDirX / moveLen) * (dx / distToCorePx) + (moveDirY / moveLen) * (dy / distToCorePx);
+    if (dot > 0.05) {
+      return 1.0 + PLAYER_GRAVITY_PULL_RATIO; // +20% pull acceleration
+    } else if (dot < -0.05) {
+      return 1.0 - PLAYER_GRAVITY_DRAG_RATIO; // -25% gravitational drag
+    } else {
+      return 1.0; // Perpendicular / tangential
+    }
+  }
+
   /**
    * Evaluates Player mechanics: Drag slowdown, Gravitational Escape (Dash), and Crushing Burst Damage.
    * Reuses pre-allocated scratchPlayerResult for strict Zero-GC guarantees.
@@ -699,29 +736,6 @@ export class GravityHazard {
     res.pullVx = pull.pullVx;
     res.pullVy = pull.pullVy;
 
-    // Helper: calculate directional speed factor based on movement alignment with core
-    const computeDirectionalFactor = (): number => {
-      if (moveDirX === 0 && moveDirY === 0) {
-        return 1.0 - PLAYER_GRAVITY_DRAG_RATIO; // 0.75 default stationary drag
-      }
-      const dx = this.centerWorldX - worldX;
-      const dy = this.centerWorldY - worldY;
-      const dist = Math.hypot(dx, dy);
-      if (dist < 0.001) return 1.0;
-
-      const moveLen = Math.hypot(moveDirX, moveDirY);
-      if (moveLen < 0.001) return 1.0 - PLAYER_GRAVITY_DRAG_RATIO;
-
-      const dot = (moveDirX / moveLen) * (dx / dist) + (moveDirY / moveLen) * (dy / dist);
-      if (dot > 0.05) {
-        return 1.0 + PLAYER_GRAVITY_PULL_RATIO; // +20% pull acceleration
-      } else if (dot < -0.05) {
-        return 1.0 - PLAYER_GRAVITY_DRAG_RATIO; // -25% gravitational drag
-      } else {
-        return 1.0; // Perpendicular / tangential
-      }
-    };
-
     if (this.state === GravityLifecycleState.ACCRETION_SWIRL) {
       if (pull.inAccretionField) {
         if (isDashing) {
@@ -735,7 +749,7 @@ export class GravityHazard {
           }
           res.slowFactor = 1.0 + ESCAPE_VELOCITY_SPEED_BURST_RATIO;
         } else {
-          res.slowFactor = computeDirectionalFactor();
+          res.slowFactor = this.getDirectionalSpeedFactor(worldX, worldY, moveDirX, moveDirY, pull.distToCorePx);
         }
       }
       return res;
@@ -760,7 +774,7 @@ export class GravityHazard {
           res.isCrushed = true;
           res.hit = true;
           res.floatingText = FLOATING_TEXT_CRUSHED;
-          res.slowFactor = computeDirectionalFactor();
+          res.slowFactor = this.getDirectionalSpeedFactor(worldX, worldY, moveDirX, moveDirY, pull.distToCorePx);
         }
       } else if (pull.inAccretionField) {
         if (isDashing) {
@@ -774,7 +788,7 @@ export class GravityHazard {
           }
           res.slowFactor = 1.0 + ESCAPE_VELOCITY_SPEED_BURST_RATIO;
         } else {
-          res.slowFactor = computeDirectionalFactor();
+          res.slowFactor = this.getDirectionalSpeedFactor(worldX, worldY, moveDirX, moveDirY, pull.distToCorePx);
         }
       }
       return res;
@@ -792,8 +806,12 @@ export class GravityHazard {
     playerWorldY?: number
   ): GravityPlayerResult {
     void dashElapsedMs;
-    const px = typeof playerWorldX === 'number' ? playerWorldX : c * TILE_SIZE + TILE_SIZE / 2;
-    const py = typeof playerWorldY === 'number' ? playerWorldY : r * TILE_SIZE + TILE_SIZE / 2;
+    const px = typeof playerWorldX === 'number' && Number.isFinite(playerWorldX)
+      ? playerWorldX
+      : (typeof c === 'number' && Number.isFinite(c) ? c * TILE_SIZE + TILE_SIZE / 2 : NaN);
+    const py = typeof playerWorldY === 'number' && Number.isFinite(playerWorldY)
+      ? playerWorldY
+      : (typeof r === 'number' && Number.isFinite(r) ? r * TILE_SIZE + TILE_SIZE / 2 : NaN);
     return this.evaluatePlayer(px, py, isDashing, this.stateTimerMs);
   }
 
@@ -860,6 +878,31 @@ export class GravityHazard {
   }
 
   public checkEnemyCollision(r: number, c: number, isBoss: boolean = false): GravityEnemyResult {
+    if (
+      typeof r !== 'number' ||
+      typeof c !== 'number' ||
+      !Number.isFinite(r) ||
+      !Number.isFinite(c) ||
+      r < 0 ||
+      r >= ROWS ||
+      c < 0 ||
+      c >= COLS
+    ) {
+      const res = this.scratchEnemyResult;
+      res.damage = 0;
+      res.isCrushed = false;
+      res.isStunned = false;
+      res.stunDurationMs = 0;
+      res.hit = false;
+      res.isSpaghettified = false;
+      res.isGrounded = false;
+      res.groundDurationMs = 0;
+      res.scoreBonus = 0;
+      res.ultimateChargeBonus = 0;
+      res.floatingText = '';
+      return res;
+    }
+
     const worldX = c * TILE_SIZE + TILE_SIZE / 2;
     const worldY = r * TILE_SIZE + TILE_SIZE / 2;
     const res = this.evaluateEnemy(worldX, worldY, isBoss, 1000);
@@ -1039,17 +1082,41 @@ export class GravityHazard {
     centerR: number,
     centerC: number,
     power: number = 5,
-    isWalkableOrPiercable?: (r: number, c: number) => boolean
+    isWalkableOrPiercable?: (r: number, c: number) => boolean,
+    outTiles?: RadialBlastTile[]
   ): RadialBlastTile[] {
-    const tiles: RadialBlastTile[] = [];
-    const visited = new Set<number>();
+    const tiles = outTiles || this.scratchRadialBlastTiles;
+    tiles.length = 0;
+    this.radialVisitedMask.fill(0);
+    let poolIdx = 0;
 
     const addTile = (r: number, c: number, isDiagonal: boolean, isEpicenter: boolean) => {
-      if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return;
-      const idx = r * COLS + c;
-      if (!visited.has(idx)) {
-        visited.add(idx);
-        tiles.push({ r, c, isDiagonal, isEpicenter });
+      if (
+        typeof r !== 'number' ||
+        typeof c !== 'number' ||
+        !Number.isFinite(r) ||
+        !Number.isFinite(c) ||
+        r < 0 ||
+        r >= ROWS ||
+        c < 0 ||
+        c >= COLS
+      ) {
+        return;
+      }
+      const idx = (r | 0) * COLS + (c | 0);
+      if (this.radialVisitedMask[idx] === 0) {
+        this.radialVisitedMask[idx] = 1;
+        let slot: RadialBlastTile;
+        if (poolIdx < this.radialBlastPool.length) {
+          slot = this.radialBlastPool[poolIdx++];
+          slot.r = r | 0;
+          slot.c = c | 0;
+          slot.isDiagonal = isDiagonal;
+          slot.isEpicenter = isEpicenter;
+        } else {
+          slot = { r: r | 0, c: c | 0, isDiagonal, isEpicenter };
+        }
+        tiles.push(slot);
       }
     };
 
@@ -1127,6 +1194,19 @@ export class GravityHazard {
     res.cleansedTileCount = 0;
     res.shockwaveRadiusTiles = 0;
     res.floatingText = '';
+
+    if (
+      typeof r !== 'number' ||
+      typeof c !== 'number' ||
+      !Number.isFinite(r) ||
+      !Number.isFinite(c) ||
+      r < 0 ||
+      r >= ROWS ||
+      c < 0 ||
+      c >= COLS
+    ) {
+      return res;
+    }
 
     const worldX = c * TILE_SIZE + TILE_SIZE / 2;
     const worldY = r * TILE_SIZE + TILE_SIZE / 2;

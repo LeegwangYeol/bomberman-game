@@ -36,6 +36,7 @@ export class AudioVoice {
   public isBusy: boolean = false;
   public startTime: number = 0;
   public endTime: number = 0;
+  private readonly modulators: Set<AudioNode> = new Set();
 
   constructor(id: number, ctx: AudioContext | null, masterBus?: AudioNode | null) {
     this.id = id;
@@ -59,9 +60,27 @@ export class AudioVoice {
         this.filter.type = 'allpass';
         this.osc.start();
       } catch {
-        // Safe fallback for restricted or mock contexts
+        // Safe fallback for restricted or mock contexts - teardown partially created nodes
+        this.disconnect();
       }
     }
+  }
+
+  public attachModulator(node: AudioNode): void {
+    this.modulators.add(node);
+  }
+
+  public detachModulator(node: AudioNode): void {
+    this.modulators.delete(node);
+  }
+
+  public detachAllModulators(): void {
+    for (const mod of this.modulators) {
+      try {
+        mod.disconnect();
+      } catch {}
+    }
+    this.modulators.clear();
   }
 
   public play(params: AudioVoiceToneParams, ctx: AudioContext): void {
@@ -69,10 +88,12 @@ export class AudioVoice {
     const now = ctx.currentTime;
     const duration = Math.max(0.01, params.duration);
 
-    // Cancel all scheduled parameter automations from previous sounds
+    // Cancel all scheduled parameter automations from previous sounds & unhook modulators
+    this.detachAllModulators();
     this.gain.gain.cancelScheduledValues(now);
     this.osc.frequency.cancelScheduledValues(now);
     this.filter.frequency.cancelScheduledValues(now);
+    this.filter.Q.cancelScheduledValues(now);
 
     // 1. Oscillator type & frequency
     if (params.type) {
@@ -97,6 +118,8 @@ export class AudioVoice {
       this.filter.frequency.setValueAtTime(params.filter.frequency, now);
       if (params.filter.q !== undefined) {
         this.filter.Q.setValueAtTime(params.filter.q, now);
+      } else {
+        this.filter.Q.setValueAtTime(1.0, now);
       }
       if (params.filter.rampTarget !== undefined && params.filter.rampDuration !== undefined) {
         this.filter.frequency.exponentialRampToValueAtTime(
@@ -106,6 +129,8 @@ export class AudioVoice {
       }
     } else {
       this.filter.type = 'allpass';
+      this.filter.frequency.setValueAtTime(350, now);
+      this.filter.Q.setValueAtTime(1.0, now);
     }
 
     // 3. Gain Envelope
@@ -133,16 +158,35 @@ export class AudioVoice {
   }
 
   public forceSilence(ctx: AudioContext): void {
+    this.detachAllModulators();
     if (!this.gain) return;
     const now = ctx.currentTime;
     this.gain.gain.cancelScheduledValues(now);
+    if (this.osc) {
+      this.osc.frequency.cancelScheduledValues(now);
+    }
+    if (this.filter) {
+      this.filter.frequency.cancelScheduledValues(now);
+      this.filter.Q.cancelScheduledValues(now);
+    }
     // 3ms quick fade to avoid speaker clicks
     this.gain.gain.linearRampToValueAtTime(0.0001, now + 0.003);
     this.isBusy = false;
     this.endTime = now + 0.003;
   }
 
+  public stop(ctx?: AudioContext): void {
+    if (ctx) {
+      this.forceSilence(ctx);
+    } else {
+      this.detachAllModulators();
+      this.isBusy = false;
+      this.endTime = 0;
+    }
+  }
+
   public disconnect(): void {
+    this.detachAllModulators();
     try {
       if (this.osc) {
         try {
@@ -167,6 +211,15 @@ export class AudioVoice {
 }
 
 export class AudioVoicePool {
+  private static instance: AudioVoicePool | null = null;
+
+  public static getInstance(capacity: number = 16): AudioVoicePool {
+    if (!AudioVoicePool.instance) {
+      AudioVoicePool.instance = new AudioVoicePool(capacity);
+    }
+    return AudioVoicePool.instance;
+  }
+
   public readonly capacity: number;
   private readonly voices: AudioVoice[] = [];
   private ctx: AudioContext | null = null;
@@ -270,6 +323,10 @@ export class AudioVoicePool {
     for (let i = 0; i < this.voices.length; i++) {
       this.voices[i].forceSilence(this.ctx);
     }
+  }
+
+  public stop(): void {
+    this.reset();
   }
 
   public destroy(): void {
