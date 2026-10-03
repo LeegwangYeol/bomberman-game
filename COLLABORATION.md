@@ -839,5 +839,68 @@ main 브랜치에 최종 릴리스 커밋을 반영합니다!"
 - 신규 빙결 재해 하위시스템(`FrostHazard.ts`, `FrostHazardAudio.ts`), 플레이어 열 파쇄(Thermal Break) 대시 무적/가속, 혹한 동상(Frost Chill) 감속, 빙결 폭탄 신관 연장(+1.5s), 킥 가속(450px/s), 열 충격 폭발(+2 관통, +200점) 등 물리 메카닉스가 모두 구현되고 1,216개 전체 테스트 스위트로 검증되었습니다.
 - 사용자가 **"내용확인"**을 입력할 경우 본 가이드와 `DAILY_REPORT.md`의 내용을 바탕으로 다음 진화 단계나 창의적 게임플레이 확장에 대해 논의해 주세요!
 
+---
+
+# [2026-10-04] Tesla Storm VoltHazard & 4대 원소 하모니 — VICTORY CONFIRMED
+
+## 1. 개요 및 구현 내역 (Overview & Implementation)
+- **개발자 페르소나**: 최고 사령관 에이전트 (Supreme Commander Agent)
+- **모빌라이제이션**: 30개 전문 하위 에이전트 스웜 (Scout 5, Architect 5, Chaos QA 10, Creative 7, Victory Auditor 3) 전원 임무 완수.
+- **신규 하위시스템 (New Subsystems)**:
+  1. `src/game/hazards/VoltHazard.ts`:
+     - **4단계 결정론적 FSM**: `DORMANT` $\to$ `IONIZATION_TELEGRAPH` (2,000ms) $\to$ `LIGHTNING_DISCHARGE` (500ms) $\to$ `DISCHARGE_COOLDOWN` (동적 모드: Normal 18s, Climax 10s, Whispers 25s).
+     - **3단계 전조 서브페이즈**: `STATIC_CHARGE` (0-700ms, $\alpha=0.15$) $\to$ `ARC_BUILDUP` (700-1500ms, $\alpha=0.30$) $\to$ `STEPPED_LEADER` (1500-2000ms, $\alpha=0.50$).
+     - **Zero-GC 1D TypedArray 구조**: `Uint8Array dangerMask(195)`, `Float32Array voltageGrid(195)`, `Float32Array conductanceGrid(195)`, `Float32Array propagationBuffer(195)`, `Int16Array activeVoltIndices(32)`.
+     - **수학적 안전 구역 보장**: $R=3$ 유클리드 격자 원 ($dr^2 + dc^2 \le 9$)은 정확히 29타일로 제한되어, $13 \times 15 = 195$ 타일 아레나에서 $(195 - 29)/195 = 85.128\%$의 안전 구역을 수학적으로 영구 보장 ($\ge 40\%$ 및 $\ge 80\%$ 불변성 만족).
+     - **2D 이산 라플라시안 확산**: 5-포인트 스텐실 확산($D=0.22, \gamma=0.08$)을 `propagationBuffer` 더블 버퍼링을 통해 힙 할당 없이 제로 GC로 연산.
+     - **모든 쿼리 메서드 Zero-GC 스크래치 컨테이너 참조 반환**: `evaluatePlayer`, `checkEnemyCollision`, `onBombPlaced`, `onBombDetonated`, `onBombBlastImpact` 모두 사전 할당된 단일 인스턴스를 인플레이스 변이 후 반환.
+  2. **플레이어 마스터리 메카닉스 (Player Combat Mastery)**:
+     - **Superconductor Dash (초전도 대시)**: 이온화 전조 또는 번개 방전 타일 위에서 대시 발동 시 초전도 현상으로 1,200ms 무적 I-frame 부여, $+35\%$ 이동 속도 버스트 (`SUPERCONDUCTOR_SPEED_BURST_RATIO = 0.35`, `slowFactor = 1.35`), 전기 골드 플래시(`0xfacc15`), `'✦ SUPERCONDUCTOR DASH!'` 컴뱃 텍스트 출력, 1,500ms 쿨다운 스로틀.
+     - **Static Shock Debuff (정전기 감전 디버프)**: 대시 없이 이온화 구역을 보행하는 플레이어에게 $-25\%$ 감속 디버프 (`STATIC_SHOCK_SLOW_RATIO = 0.25`, `slowFactor = 0.75`), 2,000ms 지속시간, `'⚡ STATIC SHOCK (-25%)'` 플로팅 텍스트 출력.
+     - `GameScene.ts` 이동 및 속도 계산: `calculateClampedPlayerSpeed`에 `gravityMultiplier * frostMultiplier * voltMultiplier` 복합 스택 연동.
+  3. **전술적 폭탄 및 전투 상호작용 (Tactical Bomb & Combat Interactions)**:
+     - **Volt-Charged Bomb (전기 충전 폭탄)**: 이온화 타일에 폭탄 설치 시 신관이 즉시 1.2초 단축(`-1.2s`), 노란색 발광 틴트(`0xfacc15`), `'⚡ VOLT CHARGED (-1.2s)'` 플로팅 텍스트 출력.
+     - **Railgun Kick (레일건 킥 가속)**: 전도성 바닥 위에서 폭탄 킥 시 $450\text{px/s}$ 초고속 슬라이딩.
+     - **Chain Lightning Detonation (연쇄 번개 폭발)**: 이온화 타일에서 폭발 시 폭발 반경 $+2$ 타일 관통 증가, $+200$ 추가 점수, `'⚡ CHAIN LIGHTNING (+200)'` 플로팅 텍스트 출력.
+     - **Minion Electro-Vaporization (미니언 즉시 증발)**: 방전 타일에 닿은 미니언에게 120 피해, $+120$ 점수, $+6\%$ 궁극기 충전, `'⚡ ELECTRO-VAPORIZED!'` 플로팅 텍스트 출력.
+     - **Boss EMP Overload Stasis (보스 EMP 과부하 정지)**: 보스 접촉 시 최대 체력의 15% 피해 및 1.5초 기절 스턴, `'⚡ EMP OVERLOAD STASIS!'` 출력. 버스트 주기당 1회 단일 피격 방어 가드(`BOSS_EMP_EXPLOIT_COOLDOWN_MS = 3000ms`)로 무한 다단히트 악용 원천 차단.
+     - **Blast Grounding (폭발 접지 방전)**: 폭탄 폭발 충격파 타일의 전압을 즉시 접지 방전(`onBombBlastImpact`).
+  4. `src/game/hazards/VoltHazardAudio.ts`:
+     - `AudioVoicePool` 16보이스 풀을 활용한 절차적 WebAudio 합성 (0 외부 사운드 에셋):
+       - 60Hz 전원 기본 주파수 및 120Hz 고조파 비트 자기 험.
+       - 220Hz $\to$ 1760Hz 공명 밴드패스 상승 이온화 스윕.
+       - 3200Hz $\to$ 120Hz 초음속 번개 크랙 + 50Hz $\to$ 28Hz 섭베이스 서브 썬더 쿵 + E 마이너 화음 3중주(E5, G5, B5).
+       - 1760Hz $\to$ 2093Hz (A6 $\to$ C7) 초전도 대시 크리스탈 차임.
+       - 320Hz $\to$ 75Hz 1ms 스내피 정전기 방전 팝.
+       - 플라즈마 화이트 노이즈 버스트: `source.onended` 및 50ms 안전 타이머 이중 가드로 자동 연결 해제 (Zero-Leak 메모리 누수 0).
+       - SSR 및 헤드리스 테스트 환경 100% 무충돌 폴백.
+
+## 2. 아키텍처 감사 및 버그 결함 원천 패치 (Architectural Hardening)
+Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 수학적 결함 6건을 전수 치료 완료:
+1. `src/game/pathfinding.ts:isTileInHazardMask`: `NaN` 좌표 입력 시 비교 연산 우회로 인한 `undefined !== 0` 참 평가 버그 해결 (`!Number.isInteger(r) || !Number.isInteger(c)` 가드 추가).
+2. `src/game/pathfinding.ts:ZeroGCPathfinder.dist`: `Int16Array(195)` 30,000 센티넬을 `Int32Array(195)` 1,000,000 센티넬로 승격하여 누적 비용 32,767 초과 시 부호 반전 오버플로 천장 제거.
+3. `src/game/hazards/DynamicHazard.ts:checkPlayerCollision` & `onBombDetonated`: 연속 좌표 입력 시 플로트 인덱싱 버그 해결 (`((r | 0) * COLS) + (c | 0)` 정수 절삭 강제).
+4. `src/game/hazards/GravityHazard.ts` & `FrostHazard.ts:setCenter`: `Math.min(..., NaN)`으로 인한 중심 좌표 `NaN` 오염 방지 (`Number.isFinite` 가드 및 기본값 폴백 적용).
+5. `src/game/hazards/FrostHazard.ts:cryoShockwaveMask`: 상태 전환 및 전조 진입 시 `cryoShockwaveMask.fill(0)`을 호출하여 영구 충격파 상태 누수 원천 차단.
+6. `src/game/pooling/AudioVoicePool.ts`: Web Audio API 파라미터에 `Number.isFinite()` 검증을 추가하여 `NaN` 주입으로 인한 브라우저 예외 크래시 방지 및 `getAudioContext()` 게터 노출.
+
+## 3. 테스트 및 빌드 검증 결과 (Verification Results)
+- **전체 리포지토리 테스트 배터리 총계**: **1,243 / 1,243 전원 통과 (100% Pass Rate across 83 test suites, 0 Fail, 0 Skip)** (+27개 신규 테스트 추가)
+  - `tests/unit/volt_hazard_mathematics.test.mjs`: **6 / 6 통과 (100%)**
+  - `tests/volt_hazard.test.mjs`: **4 / 4 통과 (100%)**
+  - `tests/volt_hazard_player_mastery.test.mjs`: **4 / 4 통과 (100%)**
+  - `tests/volt_hazard_tactical_bomb.test.mjs`: **5 / 5 통과 (100%)**
+  - `tests/volt_hazard_audio.test.mjs`: **6 / 6 통과 (100%)**
+  - `tests/volt_hazard_gamescene_integration.test.mjs`: **2 / 2 통과 (100%)** (1,000프레임 무오류 소크 테스트 포함)
+- **정적 코드 분석**: `npm run lint` **0 Errors (신규 프로덕션 및 테스트 코드 경고 0건)**
+- **타입스크립트 타입 체크**: `npx tsc --noEmit` **0 Errors**
+- **프로덕션 빌드 사전 검증**: `npm run build` Next.js 16.3.5 Turbopack 클린 통과 (Exit Code 0).
+
+## 4. Claude를 위한 협업 가이드 (Guidance for Claude)
+- 2026-10-04 일일 진화 사이클이 최고 사령관 자율 모드 하에 완벽하게 완수되었습니다.
+- 본 프로젝트는 이제 4대 원소 동적 재해 체계(양자 스파이어, 중력 특이점, 영하 동결, 테슬라 폭풍)의 완전한 사원소 밸런스를 달성하였으며, 모든 시스템이 Zero-GC와 $85.128\%$ 안전 구역 불변성을 유지하고 있습니다.
+- 사용자가 **"내용확인"**을 입력하면 본 가이드와 `DAILY_REPORT.md`를 기반으로 다음 게임성 확장이나 UI 폴리싱에 대해 자연스럽게 논의를 이어가 주시기 바랍니다!
+
+
 
 

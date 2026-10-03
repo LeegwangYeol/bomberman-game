@@ -165,8 +165,20 @@ import {
   FLOATING_TEXT_FROST_CHILL,
   BOSS_FROST_DAMAGE_RATIO,
   FrostHazardAudio,
+  VoltHazard,
+  VoltLifecycleState,
+  VoltTelegraphPhase,
+  SUPERCONDUCTOR_DASH_INVULN_MS,
+  SUPERCONDUCTOR_SPEED_BURST_RATIO,
+  FLOATING_TEXT_SUPERCONDUCTOR_DASH,
+  STATIC_SHOCK_DURATION_MS,
+  STATIC_SHOCK_SLOW_RATIO,
+  FLOATING_TEXT_STATIC_SHOCK,
+  BOSS_VOLT_DAMAGE_RATIO,
+  VoltHazardAudio,
 } from './hazards/index.ts';
 import { PerkTreeManager, RelicManager, type RelicId } from './progression/index.ts';
+
 import { decompressGrid } from './persistence/GameStatePersistence.ts';
 import type { SerializedRunState } from './persistence/PersistenceTypes.ts';
 
@@ -726,10 +738,14 @@ export default class GameScene extends Phaser.Scene {
   public dynamicHazard: DynamicHazard = new DynamicHazard();
   public gravityHazard: GravityHazard = new GravityHazard();
   public frostHazard: FrostHazard = new FrostHazard();
+  public voltHazard: VoltHazard = new VoltHazard();
   public lastGravitationalEscapeTimestampMs: number = 0;
   public lastFrostChillFloatingTextMs: number = -9999;
+  public lastStaticShockFloatingTextMs: number = -9999;
   public frostHazardAudio: FrostHazardAudio = FrostHazardAudio.getInstance();
+  public voltHazardAudio: VoltHazardAudio = VoltHazardAudio.getInstance();
   public hazardGraphics: Phaser.GameObjects.Graphics | null = null;
+
 
   // Juice & Polish Engine
   public dustEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
@@ -879,6 +895,9 @@ export default class GameScene extends Phaser.Scene {
     }
     if (this.frostHazard) {
       this.frostHazard.stop();
+    }
+    if (this.voltHazard) {
+      this.voltHazard.stop();
     }
     if (this.hazardGraphics) {
       this.hazardGraphics.clear();
@@ -1050,6 +1069,12 @@ export default class GameScene extends Phaser.Scene {
     if (this.blockDebrisEmitter) {
       this.blockDebrisEmitter.destroy();
       this.blockDebrisEmitter = undefined;
+    }
+    if (this.frostHazardAudio) {
+      this.frostHazardAudio.destroy();
+    }
+    if (this.voltHazardAudio) {
+      this.voltHazardAudio.destroy();
     }
     webAudioSynth.destroy();
   }
@@ -1815,6 +1840,7 @@ export default class GameScene extends Phaser.Scene {
     this.dynamicHazard.init(this.map);
     this.gravityHazard.init(6, 7);
     this.frostHazard.init(6, 7);
+    this.voltHazard.init(6, 7);
     this.hazardGraphics = this.add.graphics();
     this.hazardGraphics.setDepth(RENDER_DEPTH.CRISIS_HAZARDS);
 
@@ -2648,6 +2674,46 @@ export default class GameScene extends Phaser.Scene {
     if (this.gravityHazard && this.gravityHazard.state !== GravityLifecycleState.DORMANT) {
       this.gravityHazard.update(delta);
     }
+
+    // 13d. Update Volt Hazard System (Tesla Storm / Electro Surge)
+    if (this.voltHazard && this.voltHazard.state !== VoltLifecycleState.DORMANT) {
+      this.voltHazard.update(delta);
+      if (this.voltHazardAudio) {
+        this.voltHazardAudio.playVoltHazardState(this.voltHazard.state, this.time?.now ?? Date.now());
+      }
+
+      if (this.voltHazard.state === VoltLifecycleState.LIGHTNING_DISCHARGE && !this.isGameOver) {
+        // Enemy Collision Check against lightning discharge
+        const enemiesList = this.enemies.getChildren();
+        for (let i = 0; i < enemiesList.length; i++) {
+          const enemy = enemiesList[i] as BaseEntity;
+          if (enemy && enemy.active && !enemy.isDead) {
+            const er = Math.floor(enemy.y / TILE_SIZE);
+            const ec = Math.floor(enemy.x / TILE_SIZE);
+            const isBoss = enemy === (this.activeBoss as unknown as BaseEntity);
+            const enemyHit = this.voltHazard.checkEnemyCollision(er, ec, isBoss, this.time.now);
+            if (enemyHit.hit) {
+              if (enemyHit.isVaporized) {
+                if (typeof enemy.takeDamage === 'function') {
+                  enemy.takeDamage(enemyHit.damage, 'hazard', this.time.now);
+                }
+                this.score += enemyHit.scoreBonus;
+                this.addUltimateCharge(enemyHit.ultimateChargeBonus);
+                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#facc15');
+              } else if (enemyHit.isEmpStunned && isBoss && this.activeBoss) {
+                this.activeBoss.takeBombDamage(Math.floor(this.activeBoss.maxHp * BOSS_VOLT_DAMAGE_RATIO));
+                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#facc15');
+                if (this.bossHUD) {
+                  this.bossHUD.triggerStun(enemyHit.stunDurationMs / 1000, 'EMP Overload Stasis!');
+                }
+              }
+            }
+          }
+        }
+      }
+
+      this.renderDynamicHazardGraphics(_time);
+    }
   }
 
   private renderCrisisHazards(time: number): void {
@@ -2950,7 +3016,99 @@ export default class GameScene extends Phaser.Scene {
     this.emitStatsUpdate();
   }
 
+  grantSuperconductorDash(): void {
+    if (this.isGameOver || !this.player || !this.player.active) return;
+    const now = this.time?.now ?? Date.now();
+    this.isInvulnerable = true;
+    this.shieldInvulnerableUntil = Math.max(
+      this.shieldInvulnerableUntil,
+      now + SUPERCONDUCTOR_DASH_INVULN_MS
+    );
+    this.player.setAlpha(0.80);
+    this.player.setTint(0xfacc15);
+
+    const originalSpeed = this.playerSpeed;
+    this.playerSpeed = originalSpeed * (1.0 + SUPERCONDUCTOR_SPEED_BURST_RATIO);
+
+    const existing = this.activeBuffs.find((b) => b.id === 'SUPERCONDUCTOR_DASH');
+    if (existing) {
+      existing.remainingMs = SUPERCONDUCTOR_DASH_INVULN_MS;
+      existing.totalMs = SUPERCONDUCTOR_DASH_INVULN_MS;
+    } else {
+      this.activeBuffs.push({
+        id: 'SUPERCONDUCTOR_DASH',
+        name: 'Superconductor Dash',
+        icon: '✦',
+        color: '#facc15',
+        remainingMs: SUPERCONDUCTOR_DASH_INVULN_MS,
+        totalMs: SUPERCONDUCTOR_DASH_INVULN_MS,
+      });
+    }
+
+    this.spawnFloatingText(this.player.x, this.player.y - 25, FLOATING_TEXT_SUPERCONDUCTOR_DASH, '#facc15');
+    if (this.cameras?.main) {
+      this.cameras.main.flash(100, 250, 204, 21);
+    }
+    if (this.voltHazardAudio) {
+      this.voltHazardAudio.playSuperconductorDash(now);
+    }
+
+    this.time.delayedCall(SUPERCONDUCTOR_DASH_INVULN_MS, () => {
+      if (this.player && this.player.active) {
+        this.player.setAlpha(1.0);
+        this.player.clearTint();
+        if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
+          this.isInvulnerable = false;
+        }
+      }
+      this.playerSpeed = originalSpeed;
+    });
+
+    this.emitStatsUpdate();
+  }
+
+  applyStaticShock(): void {
+    if (this.isGameOver || !this.player || !this.player.active) return;
+    const now = this.time?.now ?? Date.now();
+    if (this.isInvulnerable || this.isDashing) return;
+
+    const existing = this.activeBuffs.find((b) => b.id === 'STATIC_SHOCK');
+    if (existing) {
+      existing.remainingMs = STATIC_SHOCK_DURATION_MS;
+      existing.totalMs = STATIC_SHOCK_DURATION_MS;
+    } else {
+      this.activeBuffs.push({
+        id: 'STATIC_SHOCK',
+        name: 'Static Shock',
+        icon: '⚡',
+        color: '#eab308',
+        remainingMs: STATIC_SHOCK_DURATION_MS,
+        totalMs: STATIC_SHOCK_DURATION_MS,
+      });
+    }
+
+    if (now - this.lastStaticShockFloatingTextMs >= 2000) {
+      this.lastStaticShockFloatingTextMs = now;
+      this.spawnFloatingText(this.player.x, this.player.y - 25, FLOATING_TEXT_STATIC_SHOCK, '#eab308');
+      if (this.voltHazardAudio) {
+        this.voltHazardAudio.playStaticShock(now);
+      }
+    }
+
+    if (this.player && this.player.active && !this.isInvulnerable) {
+      this.player.setTint(0xfef08a);
+      this.time.delayedCall(STATIC_SHOCK_DURATION_MS, () => {
+        if (this.player && this.player.active && !this.activeBuffs.some((b) => b.id === 'STATIC_SHOCK')) {
+          this.player.clearTint();
+        }
+      });
+    }
+
+    this.emitStatsUpdate();
+  }
+
   applyPhaseJitter(durationMs: number = PHASE_JITTER_DURATION_MS): void {
+
     if (this.isGameOver) return;
     this.phaseJitterRemaining = Math.max(this.phaseJitterRemaining, durationMs);
 
@@ -2988,10 +3146,12 @@ export default class GameScene extends Phaser.Scene {
 
     const dState = this.dynamicHazard?.getState();
     const fState = this.frostHazard?.getState();
+    const vState = this.voltHazard?.getState();
     const hasDynamic = this.dynamicHazard && dState !== HazardLifecycleState.INACTIVE;
     const hasFrost = this.frostHazard && fState !== FrostLifecycleState.DORMANT && fState !== FrostLifecycleState.THAW_COOLDOWN;
+    const hasVolt = this.voltHazard && vState !== VoltLifecycleState.DORMANT && vState !== VoltLifecycleState.DISCHARGE_COOLDOWN;
 
-    if (!hasDynamic && !hasFrost) return;
+    if (!hasDynamic && !hasFrost && !hasVolt) return;
 
     if (hasDynamic) {
       // 1. Render Active & Telegraph Beams
@@ -3118,6 +3278,45 @@ export default class GameScene extends Phaser.Scene {
       }
     }
   }
+
+  // 4. Render Volt Hazard Electrified Tiles & Arcs
+  if (hasVolt && this.voltHazard) {
+    const voltIndices = this.voltHazard.getActiveVoltIndices();
+    const voltCount = this.voltHazard.getActiveVoltCount();
+    const isBurst = vState === VoltLifecycleState.LIGHTNING_DISCHARGE;
+    const phase = this.voltHazard.getTelegraphPhase();
+
+    for (let i = 0; i < voltCount; i++) {
+      const idx = voltIndices[i];
+      const r = Math.floor(idx / COLS);
+      const c = idx % COLS;
+      const left = c * TILE_SIZE;
+      const top = r * TILE_SIZE;
+      const cx = left + TILE_SIZE / 2;
+      const cy = top + TILE_SIZE / 2;
+
+      if (isBurst) {
+        // Lethal lightning discharge burst: intense white core + electric yellow strobe
+        const pulse = 0.8 + 0.2 * Math.sin(time / 25);
+        this.hazardGraphics.fillStyle(0xffffff, 0.95);
+        this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        this.hazardGraphics.lineStyle(2.5, 0xfacc15, 0.95 * pulse);
+        this.hazardGraphics.strokeRect(left + 1, top + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+      } else {
+        // Telegraph ionization: yellow tinted grid with cyan spark circle
+        const alpha =
+          phase === VoltTelegraphPhase.STATIC_CHARGE
+            ? 0.15
+            : phase === VoltTelegraphPhase.ARC_BUILDUP
+            ? 0.30
+            : 0.50; // STEPPED_LEADER
+        this.hazardGraphics.fillStyle(0xfacc15, alpha);
+        this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        this.hazardGraphics.lineStyle(1.5, 0x38bdf8, 0.6);
+        this.hazardGraphics.strokeCircle(cx, cy, 6);
+      }
+    }
+  }
 }
 
 
@@ -3182,6 +3381,8 @@ export default class GameScene extends Phaser.Scene {
     const isGravitationalEscapeActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'GRAVITATIONAL_ESCAPE')) || false;
     const isThermalBreakActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'THERMAL_BREAK')) || false;
     const isFrostChillActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'FROST_CHILL')) || false;
+    const isSuperconductorDashActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'SUPERCONDUCTOR_DASH')) || false;
+    const isStaticShockActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'STATIC_SHOCK')) || false;
 
     let gravityMultiplier = 1.0;
     if (this.gravityHazard && this.gravityHazard.state !== GravityLifecycleState.DORMANT && this.gravityHazard.state !== GravityLifecycleState.COOLDOWN) {
@@ -3209,6 +3410,29 @@ export default class GameScene extends Phaser.Scene {
       frostMultiplier *= (1.0 - FROST_CHILL_SLOW_RATIO);
     }
 
+    let voltMultiplier = 1.0;
+    if (this.voltHazard && this.voltHazard.state !== VoltLifecycleState.DORMANT && this.voltHazard.state !== VoltLifecycleState.DISCHARGE_COOLDOWN) {
+      const vRes = this.voltHazard.evaluatePlayer(px, py, this.isDashing, this.time?.now ?? Date.now(), wantX, wantY);
+      if (vRes.superconductorDashGranted) {
+        this.grantSuperconductorDash();
+      } else if (vRes.hit && vRes.damage > 0 && !this.isInvulnerable && !this.isDashing) {
+        this.spawnFloatingText(this.player.x, this.player.y - 14, `-${vRes.damage} LIGHTNING BURST`, '#ef4444');
+        if (this.cameraTrauma) {
+          this.cameraTrauma.addTrauma(0.35);
+        }
+        this.playerDie();
+      } else if (vRes.staticShockInflicted && !this.isDashing && !this.isInvulnerable) {
+        this.applyStaticShock();
+      }
+      voltMultiplier = vRes.slowFactor;
+    }
+    if (isSuperconductorDashActive) {
+      voltMultiplier *= (1.0 + SUPERCONDUCTOR_SPEED_BURST_RATIO);
+    }
+    if (isStaticShockActive) {
+      voltMultiplier *= (1.0 - STATIC_SHOCK_SLOW_RATIO);
+    }
+
     const speed = calculateClampedPlayerSpeed({
       baseSpeed: this.playerSpeed,
       perkSpeedBonus,
@@ -3216,7 +3440,7 @@ export default class GameScene extends Phaser.Scene {
       isDashing: this.isDashing,
       dashSpeed: DASH_SPEED,
       phaseJitterActive: isPhaseJittered,
-      speedMultiplier: gravityMultiplier * frostMultiplier,
+      speedMultiplier: gravityMultiplier * frostMultiplier * voltMultiplier,
     });
     const slideSpeed = speed;
     const snapThreshold = Math.max(2, speed * (delta / 1000));
@@ -3469,6 +3693,15 @@ export default class GameScene extends Phaser.Scene {
         fuseDuration = frostInteraction.modifiedFuseMs;
         bomb.setTint(0x93c5fd);
         this.spawnFloatingText(centerX, centerY - 25, '❄️ GLACIAL FUSE (+1.5s)', '#93c5fd');
+      }
+    }
+
+    if (this.voltHazard && this.voltHazard.state !== VoltLifecycleState.DORMANT && this.voltHazard.state !== VoltLifecycleState.DISCHARGE_COOLDOWN) {
+      const voltInteraction = this.voltHazard.onBombPlaced(bombId, row, col, this.bombPower, fuseDuration);
+      if (voltInteraction.isVoltCharged) {
+        fuseDuration = voltInteraction.modifiedFuseMs;
+        bomb.setTint(voltInteraction.tint ?? 0xfacc15);
+        this.spawnFloatingText(centerX, centerY - 25, voltInteraction.floatingText ?? '⚡ VOLT CHARGED (-1.2s)', '#facc15');
       }
     }
 
@@ -3946,10 +4179,26 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    if (this.voltHazard && this.voltHazard.state !== VoltLifecycleState.DORMANT && this.voltHazard.state !== VoltLifecycleState.DISCHARGE_COOLDOWN) {
+      const vDet = this.voltHazard.onBombDetonated(bombId, actualRow, actualCol, effectivePower);
+      if (vDet.isChainLightning) {
+        effectivePower = vDet.modifiedPower;
+        isPiercing = isPiercing || vDet.piercing;
+        const cX = actualCol * TILE_SIZE + TILE_SIZE / 2;
+        const cY = actualRow * TILE_SIZE + TILE_SIZE / 2;
+        this.spawnFloatingText(cX, cY - 25, vDet.floatingText || '⚡ CHAIN LIGHTNING (+200)', '#facc15');
+        this.score += vDet.bonusScore;
+        this.emitStatsUpdate();
+      }
+    }
+
     // 3. Polarization Strike helper (blast cleanses spire into golden channel for 8.0s)
     const checkPolarizationStrike = (r: number, c: number) => {
       if (this.frostHazard) {
         this.frostHazard.onBombBlastImpact(r, c);
+      }
+      if (this.voltHazard) {
+        this.voltHazard.onBombBlastImpact(r, c);
       }
       if (this.dynamicHazard) {
         const impact = this.dynamicHazard.onBombBlastImpact(r, c);
@@ -4828,6 +5077,13 @@ export default class GameScene extends Phaser.Scene {
     if (this.frostHazard && this.frostHazard.state !== FrostLifecycleState.DORMANT && this.frostHazard.state !== FrostLifecycleState.THAW_COOLDOWN) {
       if (this.frostHazard.isPointGlaciated(this.player.x, this.player.y)) {
         this.grantThermalBreak();
+      }
+    }
+
+    // Player Mastery: Superconductor Dash when dashing inside electrified volt zone
+    if (this.voltHazard && this.voltHazard.state !== VoltLifecycleState.DORMANT && this.voltHazard.state !== VoltLifecycleState.DISCHARGE_COOLDOWN) {
+      if (this.voltHazard.isPointElectrified(this.player.x, this.player.y)) {
+        this.grantSuperconductorDash();
       }
     }
 

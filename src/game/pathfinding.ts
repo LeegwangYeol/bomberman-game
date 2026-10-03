@@ -304,7 +304,7 @@ export class ZeroGCPathfinder {
   private generation: number = 1;
   private queue: Int16Array;
   private parent: Int16Array;
-  private dist: Int16Array;
+  private dist: Int32Array;
   private tempPath: Int16Array;
   private heap: Int16Array;
   private heapSize: number = 0;
@@ -329,7 +329,7 @@ export class ZeroGCPathfinder {
     this.visited = new Uint16Array(this.totalTiles);
     this.queue = new Int16Array(this.totalTiles);
     this.parent = new Int16Array(this.totalTiles);
-    this.dist = new Int16Array(this.totalTiles);
+    this.dist = new Int32Array(this.totalTiles);
     this.tempPath = new Int16Array(this.totalTiles);
     this.heap = new Int16Array(1024);
     this.obstacleMask = new Uint8Array(this.totalTiles);
@@ -344,7 +344,7 @@ export class ZeroGCPathfinder {
       this.visited = new Uint16Array(this.totalTiles);
       this.queue = new Int16Array(this.totalTiles);
       this.parent = new Int16Array(this.totalTiles);
-      this.dist = new Int16Array(this.totalTiles);
+      this.dist = new Int32Array(this.totalTiles);
       this.tempPath = new Int16Array(this.totalTiles);
       this.obstacleMask = new Uint8Array(this.totalTiles);
       this.hazardMask = new Uint8Array(this.totalTiles);
@@ -705,7 +705,7 @@ export class ZeroGCPathfinder {
     const dist = this.dist;
     const heap = this.heap;
 
-    dist.fill(30000);
+    dist.fill(1000000);
     dist[startIdx] = 0;
     parent[startIdx] = -1;
     visited[startIdx] = gen;
@@ -1227,7 +1227,7 @@ export function isTileInHazardMask(
   c?: number
 ): boolean {
   if (!mask || r === undefined || c === undefined) return false;
-  if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
+  if (!Number.isInteger(r) || !Number.isInteger(c) || r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
   if (mask instanceof FlatHazardMask) {
     return mask.isHazard(r, c);
   }
@@ -1628,6 +1628,8 @@ export function findCorneringBombTile(
   allowOpenPursuit: boolean = false
 ): GridCoord | null {
   if (
+    !Number.isInteger(enemyPos.r) || !Number.isInteger(enemyPos.c) ||
+    !Number.isInteger(playerPos.r) || !Number.isInteger(playerPos.c) ||
     enemyPos.r < 0 || enemyPos.r >= ROWS || enemyPos.c < 0 || enemyPos.c >= COLS ||
     playerPos.r < 0 || playerPos.r >= ROWS || playerPos.c < 0 || playerPos.c >= COLS
   ) {

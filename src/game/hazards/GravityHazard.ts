@@ -382,8 +382,10 @@ export class GravityHazard {
    * Precomputes normalized unit vector pull field.
    */
   public setCenter(r: number, c: number): void {
-    this.centerRow = Math.max(1, Math.min(ROWS - 2, r));
-    this.centerCol = Math.max(1, Math.min(COLS - 2, c));
+    const safeR = Number.isFinite(r) ? Math.floor(r) : 6;
+    const safeC = Number.isFinite(c) ? Math.floor(c) : 7;
+    this.centerRow = Math.max(1, Math.min(ROWS - 2, safeR));
+    this.centerCol = Math.max(1, Math.min(COLS - 2, safeC));
     this.centerWorldX = this.centerCol * TILE_SIZE + TILE_SIZE / 2;
     this.centerWorldY = this.centerRow * TILE_SIZE + TILE_SIZE / 2;
 

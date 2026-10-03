@@ -99,10 +99,10 @@ export class AudioVoice {
     if (params.type) {
       this.osc.type = params.type;
     }
-    const baseFreq = Math.max(10, params.frequency);
+    const baseFreq = Number.isFinite(params.frequency) ? Math.max(10, params.frequency) : 440;
     this.osc.frequency.setValueAtTime(baseFreq, now);
 
-    if (params.frequencyRamp) {
+    if (params.frequencyRamp && Number.isFinite(params.frequencyRamp.target) && Number.isFinite(params.frequencyRamp.duration) && params.frequencyRamp.duration > 0) {
       const rampEnd = now + params.frequencyRamp.duration;
       const targetFreq = Math.max(10, params.frequencyRamp.target);
       if (params.frequencyRamp.exponential) {
@@ -113,15 +113,16 @@ export class AudioVoice {
     }
 
     // 2. Filter configuration
-    if (params.filter) {
+    if (params.filter && Number.isFinite(params.filter.frequency)) {
       this.filter.type = params.filter.type;
-      this.filter.frequency.setValueAtTime(params.filter.frequency, now);
-      if (params.filter.q !== undefined) {
+      this.filter.frequency.setValueAtTime(Math.max(10, params.filter.frequency), now);
+      if (params.filter.q !== undefined && Number.isFinite(params.filter.q)) {
         this.filter.Q.setValueAtTime(params.filter.q, now);
       } else {
         this.filter.Q.setValueAtTime(1.0, now);
       }
-      if (params.filter.rampTarget !== undefined && params.filter.rampDuration !== undefined) {
+      if (params.filter.rampTarget !== undefined && params.filter.rampDuration !== undefined &&
+          Number.isFinite(params.filter.rampTarget) && Number.isFinite(params.filter.rampDuration) && params.filter.rampDuration > 0) {
         this.filter.frequency.exponentialRampToValueAtTime(
           Math.max(10, params.filter.rampTarget),
           now + params.filter.rampDuration
@@ -134,8 +135,8 @@ export class AudioVoice {
     }
 
     // 3. Gain Envelope
-    const peakGain = Math.max(0.0001, Math.min(1.0, params.gain ?? 0.3));
-    const attack = params.attackTime ?? 0.005;
+    const peakGain = Number.isFinite(params.gain) ? Math.max(0.0001, Math.min(1.0, params.gain!)) : 0.3;
+    const attack = (params.attackTime && Number.isFinite(params.attackTime)) ? params.attackTime : 0.005;
     const attackEnd = now + attack;
     const totalEnd = now + duration;
 
@@ -316,6 +317,10 @@ export class AudioVoicePool {
       }
     }
     return count;
+  }
+
+  public getAudioContext(): AudioContext | null {
+    return this.ctx;
   }
 
   public reset(): void {

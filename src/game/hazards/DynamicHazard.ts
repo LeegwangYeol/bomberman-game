@@ -738,7 +738,7 @@ export class DynamicHazard {
       return res;
     }
 
-    const idx = playerR * COLS + playerC;
+    const idx = ((playerR | 0) * COLS) + (playerC | 0);
     const tileCode = this.dangerMask[idx];
 
     // Polarized beam is completely harmless
@@ -1013,7 +1013,7 @@ export class DynamicHazard {
       return res;
     }
 
-    const idx = r * COLS + c;
+    const idx = ((r | 0) * COLS) + (c | 0);
     const isOvercharged = this.lifecycleState === HazardLifecycleState.ACTIVE && this.dangerMask[idx] > 0;
     const modifiedPower = isOvercharged ? safePower + 2 : safePower;
     const piercing = isOvercharged;

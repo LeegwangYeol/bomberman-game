@@ -507,8 +507,10 @@ export class FrostHazard {
    * Clamps epicenter within playable arena interior (rows 1..ROWS-2, cols 1..COLS-2).
    */
   public setCenter(centerRow: number, centerCol: number): void {
-    this.centerRow = Math.max(1, Math.min(ROWS - 2, Math.floor(centerRow)));
-    this.centerCol = Math.max(1, Math.min(COLS - 2, Math.floor(centerCol)));
+    const safeR = Number.isFinite(centerRow) ? Math.floor(centerRow) : 6;
+    const safeC = Number.isFinite(centerCol) ? Math.floor(centerCol) : 7;
+    this.centerRow = Math.max(1, Math.min(ROWS - 2, safeR));
+    this.centerCol = Math.max(1, Math.min(COLS - 2, safeC));
     this.centerWorldX = this.centerCol * TILE_SIZE + TILE_SIZE / 2;
     this.centerWorldY = this.centerRow * TILE_SIZE + TILE_SIZE / 2;
     this.recomputeFrostGeometry();
@@ -652,7 +654,7 @@ export class FrostHazard {
   }
 
   public isTileLethal(row: number, col: number): boolean {
-    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return false;
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= ROWS || col < 0 || col >= COLS) return false;
     const idx = row * COLS + col;
     return this.state === FrostLifecycleState.ABSOLUTE_ZERO_BURST && this.dangerMask[idx] >= FrostDangerValue.ABSOLUTE_ZERO;
   }
@@ -795,6 +797,7 @@ export class FrostHazard {
     this.frictionGrid.fill(1.0);
     this.temperatureGrid.fill(293.15);
     this.intensityGrid.fill(0);
+    this.cryoShockwaveMask.fill(0);
 
     if (
       this.state === FrostLifecycleState.DORMANT ||

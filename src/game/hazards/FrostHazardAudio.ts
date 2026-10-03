@@ -222,4 +222,8 @@ export class FrostHazardAudio {
     this.lastThermalBreakMs = -Infinity;
     this.lastChillMs = -Infinity;
   }
+
+  public destroy(): void {
+    this.reset();
+  }
 }
