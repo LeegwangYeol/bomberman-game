@@ -459,6 +459,8 @@ export class FrostHazard {
     floatingText: '',
   };
 
+  private readonly scratchShockwaveTiles: CryoShockwaveTile[] = [];
+
   private readonly scratchShockwaveResult: CryoShockwaveResult = {
     shockwaveReleased: false,
     bombId: '',
@@ -644,8 +646,12 @@ export class FrostHazard {
    * Discrete Euclidean ball check: is tile within radius 3 (dr^2 + dc^2 <= 9)?
    */
   public isTileGlaciated(row: number, col: number): boolean {
-    const dr = row - this.centerRow;
-    const dc = col - this.centerCol;
+    if (typeof row !== 'number' || typeof col !== 'number' || !Number.isFinite(row) || !Number.isFinite(col)) return false;
+    const ir = row | 0;
+    const ic = col | 0;
+    if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return false;
+    const dr = ir - this.centerRow;
+    const dc = ic - this.centerCol;
     return (dr * dr + dc * dc) <= (FROST_RADIUS_TILES * FROST_RADIUS_TILES);
   }
 
@@ -713,9 +719,14 @@ export class FrostHazard {
     // Toggle scratch friction index on update for state comparisons
     this.scratchFrictionIndex = (this.scratchFrictionIndex + 1) % 2;
 
-    let remainingDelta = Math.max(0, deltaMs);
+    if (typeof deltaMs !== 'number' || !Number.isFinite(deltaMs) || deltaMs <= 0) {
+      return;
+    }
 
-    while (remainingDelta > 0) {
+    let remainingDelta = Math.max(0, deltaMs);
+    let loopGuard = 0;
+
+    while (remainingDelta > 0 && loopGuard++ < 8) {
       switch (this.state) {
         case FrostLifecycleState.HOARFROST_SURGE: {
           const needed = DURATION_HOARFROST_SURGE_MS - this.stateTimerMs;
@@ -979,15 +990,16 @@ export class FrostHazard {
         }
       } else {
         // Telegraph Surge: Chill slow unless dashing
+        const safeNowMs = typeof nowMs === 'number' && Number.isFinite(nowMs) ? nowMs : Date.now();
         if (isDashing) {
-          if (nowMs - this.lastThermalBreakMs >= THERMAL_BREAK_COOLDOWN_MS) {
+          if (safeNowMs - this.lastThermalBreakMs >= THERMAL_BREAK_COOLDOWN_MS) {
             res.thermalBreakGranted = true;
             res.cryoPhased = true;
             res.invulnerabilityGrantedMs = THERMAL_BREAK_INVULN_MS;
             res.speedBoostGranted = true;
             res.speedBoostRatio = THERMAL_BREAK_SPEED_BURST_RATIO;
             res.floatingText = FLOATING_TEXT_THERMAL_BREAK;
-            this.lastThermalBreakMs = nowMs;
+            this.lastThermalBreakMs = safeNowMs;
           }
           res.hit = false;
           res.damage = 0;
@@ -1081,7 +1093,7 @@ export class FrostHazard {
         this.lastBossHitTimestampMs = this.stateTimerMs;
 
         // Boss Glacial Stasis: Exactly 15% Max HP damage + 1.5s (1500ms) stun
-        const safeHp = Math.max(100, bossMaxHp);
+        const safeHp = typeof bossMaxHp === 'number' && Number.isFinite(bossMaxHp) && bossMaxHp > 0 ? Math.max(100, bossMaxHp) : 1000;
         res.damage = Math.floor(safeHp * BOSS_FROST_DAMAGE_RATIO);
         res.isFrozenStunned = true;
         res.isStunned = true;
@@ -1308,7 +1320,11 @@ export class FrostHazard {
   }
 
   public getActiveDiamondShockwaveTiles(): readonly CryoShockwaveTile[] {
-    return this.shockwaveTileBuffer.slice(0, this.activeShockwaveTileCount);
+    this.scratchShockwaveTiles.length = this.activeShockwaveTileCount;
+    for (let i = 0; i < this.activeShockwaveTileCount; i++) {
+      this.scratchShockwaveTiles[i] = this.shockwaveTileBuffer[i];
+    }
+    return this.scratchShockwaveTiles;
   }
 
   /**

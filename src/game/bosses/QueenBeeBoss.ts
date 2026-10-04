@@ -205,9 +205,13 @@ export class QueenBeeBoss extends BaseBoss {
     }
   }
 
-  public groundBoss(stunDurationSec: number): void {
+  public override applyStun(durationSec: number): void {
     this.isGrounded = true;
     this.altitude = 0;
+    super.applyStun(durationSec);
+  }
+
+  public groundBoss(stunDurationSec: number): void {
     this.applyStun(stunDurationSec);
   }
 

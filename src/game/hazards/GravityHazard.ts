@@ -681,7 +681,11 @@ export class GravityHazard {
     moveDirY: number,
     distToCorePx: number
   ): number {
-    if (moveDirX === 0 && moveDirY === 0) {
+    if (
+      !Number.isFinite(moveDirX) ||
+      !Number.isFinite(moveDirY) ||
+      (moveDirX === 0 && moveDirY === 0)
+    ) {
       return 1.0 - PLAYER_GRAVITY_DRAG_RATIO;
     }
     if (distToCorePx < 0.001) return 1.0;
@@ -722,6 +726,7 @@ export class GravityHazard {
     moveDirY: number = 0
   ): GravityPlayerResult {
     const res = this.scratchPlayerResult;
+    const safeNowMs = typeof nowMs === 'number' && Number.isFinite(nowMs) && nowMs > 0 ? nowMs : Date.now();
     res.damage = 0;
     res.slowFactor = 1.0;
     res.isEscaping = false;
@@ -741,13 +746,13 @@ export class GravityHazard {
     if (this.state === GravityLifecycleState.ACCRETION_SWIRL) {
       if (pull.inAccretionField) {
         if (isDashing) {
-          if (nowMs - this.lastPlayerEscapeMs >= ESCAPE_VELOCITY_COOLDOWN_MS) {
+          if (safeNowMs - this.lastPlayerEscapeMs >= ESCAPE_VELOCITY_COOLDOWN_MS) {
             res.isEscaping = true;
             res.slingshotGranted = true;
             res.slingshotDurationMs = ESCAPE_VELOCITY_INVULN_MS;
             res.speedBoostRatio = ESCAPE_VELOCITY_SPEED_BURST_RATIO;
             res.floatingText = FLOATING_TEXT_GRAVITATIONAL_ESCAPE;
-            this.lastPlayerEscapeMs = nowMs;
+            this.lastPlayerEscapeMs = safeNowMs;
           }
           res.slowFactor = 1.0 + ESCAPE_VELOCITY_SPEED_BURST_RATIO;
         } else {
@@ -760,13 +765,13 @@ export class GravityHazard {
     if (this.state === GravityLifecycleState.SINGULARITY_BURST) {
       if (pull.inSingularityCore) {
         if (isDashing) {
-          if (nowMs - this.lastPlayerEscapeMs >= ESCAPE_VELOCITY_COOLDOWN_MS) {
+          if (safeNowMs - this.lastPlayerEscapeMs >= ESCAPE_VELOCITY_COOLDOWN_MS) {
             res.isEscaping = true;
             res.slingshotGranted = true;
             res.slingshotDurationMs = ESCAPE_VELOCITY_INVULN_MS;
             res.speedBoostRatio = ESCAPE_VELOCITY_SPEED_BURST_RATIO;
             res.floatingText = FLOATING_TEXT_GRAVITATIONAL_ESCAPE;
-            this.lastPlayerEscapeMs = nowMs;
+            this.lastPlayerEscapeMs = safeNowMs;
           }
           res.damage = 0;
           res.isCrushed = false;
@@ -780,13 +785,13 @@ export class GravityHazard {
         }
       } else if (pull.inAccretionField) {
         if (isDashing) {
-          if (nowMs - this.lastPlayerEscapeMs >= ESCAPE_VELOCITY_COOLDOWN_MS) {
+          if (safeNowMs - this.lastPlayerEscapeMs >= ESCAPE_VELOCITY_COOLDOWN_MS) {
             res.isEscaping = true;
             res.slingshotGranted = true;
             res.slingshotDurationMs = ESCAPE_VELOCITY_INVULN_MS;
             res.speedBoostRatio = ESCAPE_VELOCITY_SPEED_BURST_RATIO;
             res.floatingText = FLOATING_TEXT_GRAVITATIONAL_ESCAPE;
-            this.lastPlayerEscapeMs = nowMs;
+            this.lastPlayerEscapeMs = safeNowMs;
           }
           res.slowFactor = 1.0 + ESCAPE_VELOCITY_SPEED_BURST_RATIO;
         } else {
@@ -1162,7 +1167,7 @@ export class GravityHazard {
     res.isInsideEventHorizon = false;
     res.superCompressed = false;
 
-    if (!Number.isFinite(bombX) || !Number.isFinite(bombY) || deltaMs <= 0) {
+    if (!Number.isFinite(bombX) || !Number.isFinite(bombY) || !Number.isFinite(deltaMs) || deltaMs <= 0) {
       return res;
     }
 

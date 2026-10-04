@@ -176,6 +176,17 @@ import {
   FLOATING_TEXT_STATIC_SHOCK,
   BOSS_VOLT_DAMAGE_RATIO,
   VoltHazardAudio,
+  MagmaHazard,
+  MagmaLifecycleState,
+  MagmaTelegraphPhase,
+  MAGMA_SURF_INVULN_MS,
+  MAGMA_SURF_SPEED_BURST_RATIO,
+  FLOATING_TEXT_MAGMA_SURF,
+  THERMAL_SINGE_DURATION_MS,
+  THERMAL_SINGE_SLOW_RATIO,
+  FLOATING_TEXT_THERMAL_SINGE,
+  BOSS_MAGMA_DAMAGE_RATIO,
+  MagmaHazardAudio,
 } from './hazards/index.ts';
 import { PerkTreeManager, RelicManager, type RelicId } from './progression/index.ts';
 
@@ -739,11 +750,14 @@ export default class GameScene extends Phaser.Scene {
   public gravityHazard: GravityHazard = new GravityHazard();
   public frostHazard: FrostHazard = new FrostHazard();
   public voltHazard: VoltHazard = new VoltHazard();
+  public magmaHazard: MagmaHazard = new MagmaHazard();
   public lastGravitationalEscapeTimestampMs: number = 0;
   public lastFrostChillFloatingTextMs: number = -9999;
   public lastStaticShockFloatingTextMs: number = -9999;
+  public lastThermalSingeFloatingTextMs: number = -9999;
   public frostHazardAudio: FrostHazardAudio = FrostHazardAudio.getInstance();
   public voltHazardAudio: VoltHazardAudio = VoltHazardAudio.getInstance();
+  public magmaHazardAudio: MagmaHazardAudio = MagmaHazardAudio.getInstance();
   public hazardGraphics: Phaser.GameObjects.Graphics | null = null;
 
 
@@ -898,6 +912,9 @@ export default class GameScene extends Phaser.Scene {
     }
     if (this.voltHazard) {
       this.voltHazard.stop();
+    }
+    if (this.magmaHazard) {
+      this.magmaHazard.stop();
     }
     if (this.hazardGraphics) {
       this.hazardGraphics.clear();
@@ -1075,6 +1092,9 @@ export default class GameScene extends Phaser.Scene {
     }
     if (this.voltHazardAudio) {
       this.voltHazardAudio.destroy();
+    }
+    if (this.magmaHazardAudio) {
+      this.magmaHazardAudio.destroy();
     }
     webAudioSynth.destroy();
   }
@@ -1841,6 +1861,7 @@ export default class GameScene extends Phaser.Scene {
     this.gravityHazard.init(6, 7);
     this.frostHazard.init(6, 7);
     this.voltHazard.init(6, 7);
+    this.magmaHazard.init(6, 7);
     this.hazardGraphics = this.add.graphics();
     this.hazardGraphics.setDepth(RENDER_DEPTH.CRISIS_HAZARDS);
 
@@ -2714,6 +2735,46 @@ export default class GameScene extends Phaser.Scene {
 
       this.renderDynamicHazardGraphics(_time);
     }
+
+    // 13e. Update Magma Hazard System (Magma Caldera & Pyroclastic Surge)
+    if (this.magmaHazard && this.magmaHazard.state !== MagmaLifecycleState.DORMANT) {
+      this.magmaHazard.update(delta);
+      if (this.magmaHazardAudio) {
+        this.magmaHazardAudio.playMagmaHazardState(this.magmaHazard.state, this.magmaHazard.getTelegraphPhase(), this.time?.now ?? Date.now());
+      }
+
+      if (this.magmaHazard.state === MagmaLifecycleState.PYROCLASTIC_BURST && !this.isGameOver) {
+        // Enemy Collision Check against pyroclastic burst
+        const enemiesList = this.enemies.getChildren();
+        for (let i = 0; i < enemiesList.length; i++) {
+          const enemy = enemiesList[i] as BaseEntity;
+          if (enemy && enemy.active && !enemy.isDead) {
+            const er = Math.floor(enemy.y / TILE_SIZE);
+            const ec = Math.floor(enemy.x / TILE_SIZE);
+            const isBoss = enemy === (this.activeBoss as unknown as BaseEntity);
+            const enemyHit = this.magmaHazard.checkEnemyCollision(er, ec, isBoss, this.time.now);
+            if (enemyHit.hit) {
+              if (enemyHit.isIncinerated) {
+                if (typeof enemy.takeDamage === 'function') {
+                  enemy.takeDamage(enemyHit.damage, 'hazard', this.time.now);
+                }
+                this.score += enemyHit.scoreBonus;
+                this.addUltimateCharge(enemyHit.ultimateChargeBonus);
+                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#f97316');
+              } else if (enemyHit.isMeltdownStunned && isBoss && this.activeBoss) {
+                this.activeBoss.takeBombDamage(Math.floor(this.activeBoss.maxHp * BOSS_MAGMA_DAMAGE_RATIO));
+                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#f97316');
+                if (this.bossHUD) {
+                  this.bossHUD.triggerStun(enemyHit.stunDurationMs / 1000, 'Magma Meltdown Stasis!');
+                }
+              }
+            }
+          }
+        }
+      }
+
+      this.renderDynamicHazardGraphics(_time);
+    }
   }
 
   private renderCrisisHazards(time: number): void {
@@ -3107,6 +3168,97 @@ export default class GameScene extends Phaser.Scene {
     this.emitStatsUpdate();
   }
 
+  grantMagmaSurf(): void {
+    if (this.isGameOver || !this.player || !this.player.active) return;
+    const now = this.time?.now ?? Date.now();
+    this.isInvulnerable = true;
+    this.shieldInvulnerableUntil = Math.max(
+      this.shieldInvulnerableUntil,
+      now + MAGMA_SURF_INVULN_MS
+    );
+    this.player.setAlpha(0.85);
+    this.player.setTint(0xf97316);
+
+    const originalSpeed = this.playerSpeed;
+    this.playerSpeed = originalSpeed * (1.0 + MAGMA_SURF_SPEED_BURST_RATIO);
+
+    const existing = this.activeBuffs.find((b) => b.id === 'MAGMA_SURF');
+    if (existing) {
+      existing.remainingMs = MAGMA_SURF_INVULN_MS;
+      existing.totalMs = MAGMA_SURF_INVULN_MS;
+    } else {
+      this.activeBuffs.push({
+        id: 'MAGMA_SURF',
+        name: 'Magma Surf',
+        icon: '✦',
+        color: '#f97316',
+        remainingMs: MAGMA_SURF_INVULN_MS,
+        totalMs: MAGMA_SURF_INVULN_MS,
+      });
+    }
+
+    this.spawnFloatingText(this.player.x, this.player.y - 25, FLOATING_TEXT_MAGMA_SURF, '#f97316');
+    if (this.cameras?.main) {
+      this.cameras.main.flash(100, 249, 115, 22);
+    }
+    if (this.magmaHazardAudio) {
+      this.magmaHazardAudio.playMagmaSurf();
+    }
+
+    this.time.delayedCall(MAGMA_SURF_INVULN_MS, () => {
+      if (this.player && this.player.active) {
+        this.player.setAlpha(1.0);
+        this.player.clearTint();
+        if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
+          this.isInvulnerable = false;
+        }
+      }
+      this.playerSpeed = originalSpeed;
+    });
+
+    this.emitStatsUpdate();
+  }
+
+  applyThermalSinge(): void {
+    if (this.isGameOver || !this.player || !this.player.active) return;
+    const now = this.time?.now ?? Date.now();
+    if (this.isInvulnerable || this.isDashing) return;
+
+    const existing = this.activeBuffs.find((b) => b.id === 'THERMAL_SINGE');
+    if (existing) {
+      existing.remainingMs = THERMAL_SINGE_DURATION_MS;
+      existing.totalMs = THERMAL_SINGE_DURATION_MS;
+    } else {
+      this.activeBuffs.push({
+        id: 'THERMAL_SINGE',
+        name: 'Thermal Singe',
+        icon: '🔥',
+        color: '#ea580c',
+        remainingMs: THERMAL_SINGE_DURATION_MS,
+        totalMs: THERMAL_SINGE_DURATION_MS,
+      });
+    }
+
+    if (now - this.lastThermalSingeFloatingTextMs >= 2000) {
+      this.lastThermalSingeFloatingTextMs = now;
+      this.spawnFloatingText(this.player.x, this.player.y - 25, FLOATING_TEXT_THERMAL_SINGE, '#ea580c');
+      if (this.magmaHazardAudio) {
+        this.magmaHazardAudio.playThermalSinge(now);
+      }
+    }
+
+    if (this.player && this.player.active && !this.isInvulnerable) {
+      this.player.setTint(0xfdba74);
+      this.time.delayedCall(THERMAL_SINGE_DURATION_MS, () => {
+        if (this.player && this.player.active && !this.activeBuffs.some((b) => b.id === 'THERMAL_SINGE')) {
+          this.player.clearTint();
+        }
+      });
+    }
+
+    this.emitStatsUpdate();
+  }
+
   applyPhaseJitter(durationMs: number = PHASE_JITTER_DURATION_MS): void {
 
     if (this.isGameOver) return;
@@ -3147,11 +3299,13 @@ export default class GameScene extends Phaser.Scene {
     const dState = this.dynamicHazard?.getState();
     const fState = this.frostHazard?.getState();
     const vState = this.voltHazard?.getState();
+    const mState = this.magmaHazard?.getState();
     const hasDynamic = this.dynamicHazard && dState !== HazardLifecycleState.INACTIVE;
     const hasFrost = this.frostHazard && fState !== FrostLifecycleState.DORMANT && fState !== FrostLifecycleState.THAW_COOLDOWN;
     const hasVolt = this.voltHazard && vState !== VoltLifecycleState.DORMANT && vState !== VoltLifecycleState.DISCHARGE_COOLDOWN;
+    const hasMagma = this.magmaHazard && mState !== MagmaLifecycleState.DORMANT && mState !== MagmaLifecycleState.OBSIDIAN_COOLDOWN;
 
-    if (!hasDynamic && !hasFrost && !hasVolt) return;
+    if (!hasDynamic && !hasFrost && !hasVolt && !hasMagma) return;
 
     if (hasDynamic) {
       // 1. Render Active & Telegraph Beams
@@ -3317,6 +3471,53 @@ export default class GameScene extends Phaser.Scene {
       }
     }
   }
+
+  // 5. Render Magma Hazard Molten Caldera & Pyroclastic Surge
+  if (hasMagma && this.magmaHazard) {
+    const magmaIndices = this.magmaHazard.getActiveMagmaIndices();
+    const magmaCount = this.magmaHazard.getActiveMagmaCount();
+    const isBurst = mState === MagmaLifecycleState.PYROCLASTIC_BURST;
+    const phase = this.magmaHazard.getTelegraphPhase();
+    const dangerMask = this.magmaHazard.dangerMask;
+
+    for (let i = 0; i < magmaCount; i++) {
+      const idx = magmaIndices[i];
+      const r = Math.floor(idx / COLS);
+      const c = idx % COLS;
+      const left = c * TILE_SIZE;
+      const top = r * TILE_SIZE;
+      const cx = left + TILE_SIZE / 2;
+      const cy = top + TILE_SIZE / 2;
+      const code = dangerMask[idx];
+
+      if (code === 3) {
+        // Solidified Obsidian Crust (Temporary safe footing: dark indigo/purple crust)
+        this.hazardGraphics.fillStyle(0x312e81, 0.65);
+        this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        this.hazardGraphics.lineStyle(2, 0x6366f1, 0.85);
+        this.hazardGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+      } else if (isBurst || code === 2) {
+        // Lethal Pyroclastic Burst: blazing white-hot center + fiery volcanic orange shell
+        const pulse = 0.8 + 0.2 * Math.sin(time / 20);
+        this.hazardGraphics.fillStyle(0xffedd5, 0.95);
+        this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        this.hazardGraphics.lineStyle(2.5, 0xf97316, 0.95 * pulse);
+        this.hazardGraphics.strokeRect(left + 1, top + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+      } else {
+        // Telegraph Heating / Upwelling Fissures: warm amber/crimson glow
+        const alpha =
+          phase === MagmaTelegraphPhase.CRUST_HEATING
+            ? 0.20
+            : phase === MagmaTelegraphPhase.MAGMA_UPWELLING
+            ? 0.40
+            : 0.65; // ERUPTION_IMMINENT
+        this.hazardGraphics.fillStyle(0xea580c, alpha);
+        this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        this.hazardGraphics.lineStyle(1.5, 0xf97316, 0.7);
+        this.hazardGraphics.strokeCircle(cx, cy, 7);
+      }
+    }
+  }
 }
 
 
@@ -3383,6 +3584,8 @@ export default class GameScene extends Phaser.Scene {
     const isFrostChillActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'FROST_CHILL')) || false;
     const isSuperconductorDashActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'SUPERCONDUCTOR_DASH')) || false;
     const isStaticShockActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'STATIC_SHOCK')) || false;
+    const isMagmaSurfActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'MAGMA_SURF')) || false;
+    const isThermalSingeActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'THERMAL_SINGE')) || false;
 
     let gravityMultiplier = 1.0;
     if (this.gravityHazard && this.gravityHazard.state !== GravityLifecycleState.DORMANT && this.gravityHazard.state !== GravityLifecycleState.COOLDOWN) {
@@ -3433,6 +3636,29 @@ export default class GameScene extends Phaser.Scene {
       voltMultiplier *= (1.0 - STATIC_SHOCK_SLOW_RATIO);
     }
 
+    let magmaMultiplier = 1.0;
+    if (this.magmaHazard && this.magmaHazard.state !== MagmaLifecycleState.DORMANT && this.magmaHazard.state !== MagmaLifecycleState.OBSIDIAN_COOLDOWN) {
+      const mRes = this.magmaHazard.evaluatePlayer(px, py, this.isDashing, this.time?.now ?? Date.now(), wantX, wantY);
+      if (mRes.magmaSurfGranted) {
+        this.grantMagmaSurf();
+      } else if (mRes.hit && mRes.damage > 0 && !this.isInvulnerable && !this.isDashing) {
+        this.spawnFloatingText(this.player.x, this.player.y - 14, `-${mRes.damage} PYROCLASTIC BURST`, '#ef4444');
+        if (this.cameraTrauma) {
+          this.cameraTrauma.addTrauma(0.40);
+        }
+        this.playerDie();
+      } else if (mRes.thermalSingeInflicted && !this.isDashing && !this.isInvulnerable) {
+        this.applyThermalSinge();
+      }
+      magmaMultiplier = mRes.slowFactor;
+    }
+    if (isMagmaSurfActive) {
+      magmaMultiplier *= (1.0 + MAGMA_SURF_SPEED_BURST_RATIO);
+    }
+    if (isThermalSingeActive) {
+      magmaMultiplier *= (1.0 - THERMAL_SINGE_SLOW_RATIO);
+    }
+
     const speed = calculateClampedPlayerSpeed({
       baseSpeed: this.playerSpeed,
       perkSpeedBonus,
@@ -3440,7 +3666,7 @@ export default class GameScene extends Phaser.Scene {
       isDashing: this.isDashing,
       dashSpeed: DASH_SPEED,
       phaseJitterActive: isPhaseJittered,
-      speedMultiplier: gravityMultiplier * frostMultiplier * voltMultiplier,
+      speedMultiplier: gravityMultiplier * frostMultiplier * voltMultiplier * magmaMultiplier,
     });
     const slideSpeed = speed;
     const snapThreshold = Math.max(2, speed * (delta / 1000));
@@ -3702,6 +3928,15 @@ export default class GameScene extends Phaser.Scene {
         fuseDuration = voltInteraction.modifiedFuseMs;
         bomb.setTint(voltInteraction.tint ?? 0xfacc15);
         this.spawnFloatingText(centerX, centerY - 25, voltInteraction.floatingText ?? '⚡ VOLT CHARGED (-1.2s)', '#facc15');
+      }
+    }
+
+    if (this.magmaHazard && this.magmaHazard.state !== MagmaLifecycleState.DORMANT && this.magmaHazard.state !== MagmaLifecycleState.OBSIDIAN_COOLDOWN) {
+      const magmaInteraction = this.magmaHazard.onBombPlaced(bombId, row, col, this.bombPower, fuseDuration);
+      if (magmaInteraction.isPyroFused) {
+        fuseDuration = magmaInteraction.modifiedFuseMs;
+        bomb.setTint(magmaInteraction.tint ?? 0xf97316);
+        this.spawnFloatingText(centerX, centerY - 25, magmaInteraction.floatingText ?? '🔥 PYRO-FUSED (-1.2s)', '#f97316');
       }
     }
 
@@ -4192,6 +4427,19 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    if (this.magmaHazard && this.magmaHazard.state !== MagmaLifecycleState.DORMANT && this.magmaHazard.state !== MagmaLifecycleState.OBSIDIAN_COOLDOWN) {
+      const mDet = this.magmaHazard.onBombDetonated(bombId, actualRow, actualCol, effectivePower);
+      if (mDet.isPyroclastic) {
+        effectivePower = mDet.modifiedPower;
+        isPiercing = isPiercing || mDet.piercing;
+        const cX = actualCol * TILE_SIZE + TILE_SIZE / 2;
+        const cY = actualRow * TILE_SIZE + TILE_SIZE / 2;
+        this.spawnFloatingText(cX, cY - 25, mDet.floatingText || '🔥 PYROCLASTIC DETONATION (+200)', '#f97316');
+        this.score += mDet.bonusScore;
+        this.emitStatsUpdate();
+      }
+    }
+
     // 3. Polarization Strike helper (blast cleanses spire into golden channel for 8.0s)
     const checkPolarizationStrike = (r: number, c: number) => {
       if (this.frostHazard) {
@@ -4199,6 +4447,17 @@ export default class GameScene extends Phaser.Scene {
       }
       if (this.voltHazard) {
         this.voltHazard.onBombBlastImpact(r, c);
+      }
+      if (this.magmaHazard) {
+        const quenchRes = this.magmaHazard.onBombBlastImpact(r, c);
+        if (quenchRes.quenched) {
+          const px = c * TILE_SIZE + TILE_SIZE / 2;
+          const py = r * TILE_SIZE + TILE_SIZE / 2;
+          this.spawnFloatingText(px, py - 20, quenchRes.floatingText, '#6366f1');
+          if (this.magmaHazardAudio) {
+            this.magmaHazardAudio.playObsidianQuenchSnap();
+          }
+        }
       }
       if (this.dynamicHazard) {
         const impact = this.dynamicHazard.onBombBlastImpact(r, c);
@@ -5084,6 +5343,13 @@ export default class GameScene extends Phaser.Scene {
     if (this.voltHazard && this.voltHazard.state !== VoltLifecycleState.DORMANT && this.voltHazard.state !== VoltLifecycleState.DISCHARGE_COOLDOWN) {
       if (this.voltHazard.isPointElectrified(this.player.x, this.player.y)) {
         this.grantSuperconductorDash();
+      }
+    }
+
+    // Player Mastery: Magma Surf when dashing inside molten magma zone
+    if (this.magmaHazard && this.magmaHazard.state !== MagmaLifecycleState.DORMANT && this.magmaHazard.state !== MagmaLifecycleState.OBSIDIAN_COOLDOWN) {
+      if (this.magmaHazard.isPointMolten(this.player.x, this.player.y)) {
+        this.grantMagmaSurf();
       }
     }
 

@@ -683,33 +683,49 @@ export class TelegraphEngine {
     if (c === undefined) {
       return this.isIdxDangerous(r);
     }
-    if (r < 0 || r >= this.rows || c < 0 || c >= this.cols || isNaN(r) || isNaN(c)) return false;
-    return this.activeTileMask[r * this.cols + c] !== 0;
+    if (typeof r !== 'number' || typeof c !== 'number' || !Number.isFinite(r) || !Number.isFinite(c)) return false;
+    const ir = r | 0;
+    const ic = c | 0;
+    if (ir < 0 || ir >= this.rows || ic < 0 || ic >= this.cols) return false;
+    return this.activeTileMask[ir * this.cols + ic] !== 0;
   }
 
   public isIdxDangerous(idx: number): boolean {
-    if (idx < 0 || idx >= this.totalTiles || isNaN(idx)) return false;
-    return this.activeTileMask[idx] !== 0;
+    if (typeof idx !== 'number' || !Number.isFinite(idx)) return false;
+    const i = idx | 0;
+    if (i < 0 || i >= this.totalTiles) return false;
+    return this.activeTileMask[i] !== 0;
   }
 
   public getTileTier(r: number, c?: number): TelegraphTier {
     if (c === undefined) {
-      if (r < 0 || r >= this.totalTiles || isNaN(r)) return TelegraphTier.NONE;
-      return this.tileDominantStage[r] as TelegraphTier;
+      if (typeof r !== 'number' || !Number.isFinite(r)) return TelegraphTier.NONE;
+      const i = r | 0;
+      if (i < 0 || i >= this.totalTiles) return TelegraphTier.NONE;
+      return this.tileDominantStage[i] as TelegraphTier;
     }
-    if (r < 0 || r >= this.rows || c < 0 || c >= this.cols || isNaN(r) || isNaN(c))
+    if (typeof r !== 'number' || typeof c !== 'number' || !Number.isFinite(r) || !Number.isFinite(c))
       return TelegraphTier.NONE;
-    return this.tileDominantStage[r * this.cols + c] as TelegraphTier;
+    const ir = r | 0;
+    const ic = c | 0;
+    if (ir < 0 || ir >= this.rows || ic < 0 || ic >= this.cols)
+      return TelegraphTier.NONE;
+    return this.tileDominantStage[ir * this.cols + ic] as TelegraphTier;
   }
 
   public getTileRemainingTime(r: number, c?: number): number {
     if (c === undefined) {
-      if (r < 0 || r >= this.totalTiles || isNaN(r)) return 0;
-      const time = this.tileRemainingTime[r];
+      if (typeof r !== 'number' || !Number.isFinite(r)) return 0;
+      const i = r | 0;
+      if (i < 0 || i >= this.totalTiles) return 0;
+      const time = this.tileRemainingTime[i];
       return time < 999000 ? time : 0;
     }
-    if (r < 0 || r >= this.rows || c < 0 || c >= this.cols || isNaN(r) || isNaN(c)) return 0;
-    const time = this.tileRemainingTime[r * this.cols + c];
+    if (typeof r !== 'number' || typeof c !== 'number' || !Number.isFinite(r) || !Number.isFinite(c)) return 0;
+    const ir = r | 0;
+    const ic = c | 0;
+    if (ir < 0 || ir >= this.rows || ic < 0 || ic >= this.cols) return 0;
+    const time = this.tileRemainingTime[ir * this.cols + ic];
     return time < 999000 ? time : 0;
   }
 }

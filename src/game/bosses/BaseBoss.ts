@@ -71,7 +71,12 @@ export abstract class BaseBoss {
   // Stun & Recovery
   public stunDurationMs: number = 0;
   public stunTimerMs: number = 0;
+  public stunRecoveryImmunityTimerMs: number = 0;
   public previousStateBeforeStun: BossState = BossState.PHASE_1;
+
+  // Environmental Hazard Interaction Guards
+  public lastHazardHitTimestampMs: number = -Infinity;
+  public readonly minHazardHitCooldownMs: number = 2500;
 
   // State Machine Timers
   public stateTimerMs: number = 0;
@@ -133,6 +138,11 @@ export abstract class BaseBoss {
           this.isInvulnerable = false;
         }
       }
+    }
+
+    // Process stun recovery immunity timer
+    if (this.stunRecoveryImmunityTimerMs > 0) {
+      this.stunRecoveryImmunityTimerMs = Math.max(0, this.stunRecoveryImmunityTimerMs - dt);
     }
 
     // 3. Process passive enrage gain during active combat
@@ -227,15 +237,28 @@ export abstract class BaseBoss {
   /**
    * Applies direct hazard / environmental beam damage (percentage based) and stun.
    * Bosses taking beam hits receive 15% HP damage and 1.5s stun.
-   * Bypasses normal bomb armor/landing phases (environmental overcharge).
+   * Protected by minHazardHitCooldownMs, i-frame checks, and cutscene state checks.
    */
   public takeHazardDamage(
     damagePercent: number = 15,
-    stunSec: number = 1.5
+    stunSec: number = 1.5,
+    currentTimeMs: number = Date.now()
   ): { damage: number; defeated: boolean } {
-    if (this.bossState === BossState.DEFEATED) {
-      return { damage: 0, defeated: true };
+    if (
+      this.bossState === BossState.DEFEATED ||
+      this.bossState === BossState.INTRO ||
+      this.bossState === BossState.INTERMISSION
+    ) {
+      return { damage: 0, defeated: this.bossState === BossState.DEFEATED };
     }
+    if (this.isInvulnerable && this.iFrameTimerMs > 0) {
+      return { damage: 0, defeated: false };
+    }
+    if (currentTimeMs - this.lastHazardHitTimestampMs < this.minHazardHitCooldownMs) {
+      return { damage: 0, defeated: false };
+    }
+
+    this.lastHazardHitTimestampMs = currentTimeMs;
     const damage = (this.maxHp * damagePercent) / 100;
     this.currentHp = Math.max(0, this.currentHp - damage);
     this.applyStun(stunSec);
@@ -388,6 +411,7 @@ export abstract class BaseBoss {
               : BossState.PHASE_1;
 
       this.transitionTo(resumeState);
+      this.stunRecoveryImmunityTimerMs = 2000;
       this.iFrameTimerMs = this.defaultIFrameMs;
       this.isInvulnerable = true;
     }

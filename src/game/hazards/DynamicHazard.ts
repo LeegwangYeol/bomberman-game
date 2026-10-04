@@ -521,8 +521,13 @@ export class DynamicHazard {
       this.stage === 'CLIMAX' ? CLIMAX_COOLDOWN_MS : DEFAULT_COOLDOWN_MS;
   }
 
+  public bossHitInCurrentBurst: boolean = false;
+
   private transitionTo(newState: HazardLifecycleState): void {
     this.lifecycleState = newState;
+    if (newState === HazardLifecycleState.ACTIVE) {
+      this.bossHitInCurrentBurst = false;
+    }
   }
 
   /**
@@ -825,14 +830,20 @@ export class DynamicHazard {
 
     const idx = (enemyR | 0) * COLS + (enemyC | 0);
     if (this.dangerMask[idx] === 2) {
-      res.hit = true;
       if (isBoss) {
-        res.damage = 15; // 15% Max HP
-        res.isStunned = true;
-        res.stunDurationMs = BOSS_STUN_DURATION_MS;
-        res.ultimateChargeBonus = 0;
-        res.floatingText = FLOATING_TEXT_BOSS_STUNNED;
+        if (!this.bossHitInCurrentBurst) {
+          this.bossHitInCurrentBurst = true;
+          res.hit = true;
+          res.damage = 15; // 15% Max HP
+          res.isStunned = true;
+          res.stunDurationMs = BOSS_STUN_DURATION_MS;
+          res.ultimateChargeBonus = 0;
+          res.floatingText = FLOATING_TEXT_BOSS_STUNNED;
+        } else {
+          res.hit = false;
+        }
       } else {
+        res.hit = true;
         res.damage = ENEMY_HAZARD_DAMAGE;
         res.isVaporized = true;
         res.scoreBonus = ENEMY_VAPORIZE_SCORE;
@@ -867,8 +878,12 @@ export class DynamicHazard {
       return this.checkEnemyCollision(targetOrR, enemyC ?? 0, isBoss);
     }
     this.batchEnemyResultsList.length = 0;
+    if (!Array.isArray(targetOrR)) {
+      return this.batchEnemyResultsList;
+    }
     for (let i = 0; i < targetOrR.length; i++) {
       const e = targetOrR[i];
+      if (!e) continue;
       const res = this.checkEnemyCollision(e.r, e.c, Boolean(e.isBoss));
       let slot: EnemyCollisionResult;
       if (i < this.batchEnemyResultsPool.length) {

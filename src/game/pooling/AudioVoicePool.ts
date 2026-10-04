@@ -36,6 +36,7 @@ export class AudioVoice {
   public isBusy: boolean = false;
   public startTime: number = 0;
   public endTime: number = 0;
+  public allocSeq: number = 0;
   private readonly modulators: Set<AudioNode> = new Set();
 
   constructor(id: number, ctx: AudioContext | null, masterBus?: AudioNode | null) {
@@ -86,7 +87,8 @@ export class AudioVoice {
   public play(params: AudioVoiceToneParams, ctx: AudioContext): void {
     if (!this.osc || !this.gain || !this.filter) return;
     const now = ctx.currentTime;
-    const duration = Math.max(0.01, params.duration);
+    const duration = Math.max(0.01, Number.isFinite(params.duration) ? params.duration : 0.1);
+    const wasActive = this.isBusy && Number.isFinite(this.endTime) && now < this.endTime;
 
     // Cancel all scheduled parameter automations from previous sounds & unhook modulators
     this.detachAllModulators();
@@ -134,24 +136,33 @@ export class AudioVoice {
       this.filter.Q.setValueAtTime(1.0, now);
     }
 
-    // 3. Gain Envelope
+    // 3. Gain Envelope with click-free preemption de-zippering
     const peakGain = Number.isFinite(params.gain) ? Math.max(0.0001, Math.min(1.0, params.gain!)) : 0.3;
-    const attack = (params.attackTime && Number.isFinite(params.attackTime)) ? params.attackTime : 0.005;
-    const attackEnd = now + attack;
+    const attack = (params.attackTime && Number.isFinite(params.attackTime)) ? Math.max(0.001, params.attackTime) : 0.005;
+
+    if (wasActive) {
+      // 2ms micro-fade down to eliminate DC jump pop/click, then ramp attack
+      this.gain.gain.linearRampToValueAtTime(0.0001, now + 0.002);
+      this.gain.gain.linearRampToValueAtTime(peakGain, now + 0.002 + attack);
+    } else {
+      this.gain.gain.setValueAtTime(0.0001, now);
+      this.gain.gain.linearRampToValueAtTime(peakGain, now + attack);
+    }
+
+    const attackEnd = now + (wasActive ? 0.002 + attack : attack);
     const totalEnd = now + duration;
 
-    this.gain.gain.setValueAtTime(0.0001, now);
-    this.gain.gain.linearRampToValueAtTime(peakGain, attackEnd);
-
-    if (params.decayTime && params.sustainLevel !== undefined) {
+    if (params.decayTime && Number.isFinite(params.decayTime) && params.decayTime > 0 &&
+        params.sustainLevel !== undefined && Number.isFinite(params.sustainLevel)) {
       const decayEnd = attackEnd + params.decayTime;
       const sustainGain = Math.max(0.0001, peakGain * params.sustainLevel);
       this.gain.gain.linearRampToValueAtTime(sustainGain, decayEnd);
-      const releaseStart = Math.max(decayEnd, totalEnd - (params.releaseTime ?? 0.05));
+      const release = (params.releaseTime && Number.isFinite(params.releaseTime) && params.releaseTime > 0) ? params.releaseTime : 0.05;
+      const releaseStart = Math.max(decayEnd, totalEnd - release);
       this.gain.gain.setValueAtTime(sustainGain, releaseStart);
     }
 
-    this.gain.gain.exponentialRampToValueAtTime(0.0001, totalEnd);
+    this.gain.gain.exponentialRampToValueAtTime(0.0001, Math.max(attackEnd + 0.001, totalEnd));
 
     this.isBusy = true;
     this.startTime = now;
@@ -221,10 +232,18 @@ export class AudioVoicePool {
     return AudioVoicePool.instance;
   }
 
+  public static resetInstance(): void {
+    if (AudioVoicePool.instance) {
+      AudioVoicePool.instance.destroy();
+      AudioVoicePool.instance = null;
+    }
+  }
+
   public readonly capacity: number;
   private readonly voices: AudioVoice[] = [];
   private ctx: AudioContext | null = null;
   private masterBus: GainNode | null = null;
+  private sequence: number = 0;
 
   constructor(capacity: number = 16) {
     this.capacity = capacity;
@@ -247,6 +266,7 @@ export class AudioVoicePool {
     }
 
     this.ctx = ctx;
+    this.sequence = 0;
 
     // Handle suspended context
     if (ctx && ctx.state === 'suspended' && typeof ctx.resume === 'function') {
@@ -276,25 +296,52 @@ export class AudioVoicePool {
     // 1. Find an idle or expired voice
     for (let i = 0; i < this.voices.length; i++) {
       const voice = this.voices[i];
-      if (!voice.isBusy || now >= voice.endTime) {
+      if (!voice.isBusy || !Number.isFinite(voice.endTime) || now >= voice.endTime) {
         voice.isBusy = true;
+        voice.allocSeq = ++this.sequence;
         return voice;
       }
     }
 
-    // 2. All voices active -> Voice Stealing: find voice nearest to finish
-    let oldestIdx = 0;
+    // 2. All voices active -> Hybrid Voice Stealing:
+    // If durations differ by > 0.05s, prioritize smallest remaining duration.
+    // If durations are similar or tied (burst/stress), prioritize oldest voice (FIFO lowest allocSeq) to avoid voice-0 starvation.
     let minRemaining = Infinity;
+    let maxRemaining = -Infinity;
     for (let i = 0; i < this.voices.length; i++) {
-      const remaining = this.voices[i].endTime - now;
-      if (remaining < minRemaining) {
-        minRemaining = remaining;
-        oldestIdx = i;
+      const r = Math.max(0, this.voices[i].endTime - now);
+      if (r < minRemaining) minRemaining = r;
+      if (r > maxRemaining) maxRemaining = r;
+    }
+
+    let bestIdx = 0;
+    if (maxRemaining - minRemaining > 0.05) {
+      let minR = Infinity;
+      let minSeq = Infinity;
+      for (let i = 0; i < this.voices.length; i++) {
+        const r = Math.max(0, this.voices[i].endTime - now);
+        if (r < minR - 0.01) {
+          minR = r;
+          minSeq = this.voices[i].allocSeq;
+          bestIdx = i;
+        } else if (Math.abs(r - minR) <= 0.01 && this.voices[i].allocSeq < minSeq) {
+          minSeq = this.voices[i].allocSeq;
+          bestIdx = i;
+        }
+      }
+    } else {
+      let minSeq = Infinity;
+      for (let i = 0; i < this.voices.length; i++) {
+        if (this.voices[i].allocSeq < minSeq) {
+          minSeq = this.voices[i].allocSeq;
+          bestIdx = i;
+        }
       }
     }
 
-    const stolenVoice = this.voices[oldestIdx];
+    const stolenVoice = this.voices[bestIdx];
     stolenVoice.forceSilence(this.ctx);
+    stolenVoice.allocSeq = ++this.sequence;
     stolenVoice.isBusy = true;
     return stolenVoice;
   }
@@ -346,6 +393,9 @@ export class AudioVoicePool {
       this.masterBus = null;
     }
     this.ctx = null;
+    if (AudioVoicePool.instance === this) {
+      AudioVoicePool.instance = null;
+    }
   }
 
   public disconnect(): void {

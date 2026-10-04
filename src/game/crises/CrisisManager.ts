@@ -116,8 +116,10 @@ export class CrisisManager {
     }
   }
 
+  private readonly emptyHazardTiles: HazardTile[] = [];
+
   public getActiveHazardTiles(): HazardTile[] {
-    return this.activeCrisis ? this.activeCrisis.getActiveHazardTiles() : [];
+    return this.activeCrisis ? this.activeCrisis.getActiveHazardTiles() : this.emptyHazardTiles;
   }
 
   public isTileHazardous(r: number, c: number): boolean {

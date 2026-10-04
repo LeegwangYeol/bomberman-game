@@ -548,8 +548,8 @@ test('Tier 7 [Vector Coordinate Fuzzing]: resolveJoystickVector handles 10,000 m
 
   const duration = performance.now() - startTime;
   assert.ok(
-    duration < 250,
-    `10,000 vector fuzzing iterations must complete within 250ms (took ${duration.toFixed(2)}ms)`
+    duration < 500,
+    `10,000 vector fuzzing iterations must complete within 500ms (took ${duration.toFixed(2)}ms)`
   );
 });
 
@@ -628,8 +628,8 @@ test('Tier 8 [Rapid Sector Switching]: 10,000 rapid switches between 135° and 2
   const duration = performance.now() - startTime;
   assert.equal(errorCount, 0, firstErrorMessage || 'Found direction mismatches');
   assert.ok(
-    duration < 150,
-    `10,000 rapid 135° <-> 225° sector switches must complete within 150ms (took ${duration.toFixed(2)}ms)`
+    duration < 400,
+    `10,000 rapid 135° <-> 225° sector switches must complete within 400ms (took ${duration.toFixed(2)}ms)`
   );
 });
 

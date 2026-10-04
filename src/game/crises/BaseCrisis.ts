@@ -265,6 +265,9 @@ export abstract class BaseCrisis implements ICrisis {
     return s;
   }
 
+  // Scratch active slice to eliminate per-frame GC churn in 60 FPS update loops
+  private readonly scratchActiveSlice: HazardTile[] = [];
+
   // --- Zero-GC Hazard Management ---
 
   public setHazardTile(
@@ -275,8 +278,11 @@ export abstract class BaseCrisis implements ICrisis {
     durationMs: number = 0,
     data: number = 0
   ): HazardTile | null {
-    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return null;
-    const idx = coordToIdx(r, c);
+    if (typeof r !== 'number' || typeof c !== 'number' || !Number.isFinite(r) || !Number.isFinite(c)) return null;
+    const ir = r | 0;
+    const ic = c | 0;
+    if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return null;
+    const idx = ir * COLS + ic;
     const tile = this.hazardTileBuffer[idx];
 
     const wasActive = tile.type !== HazardType.NONE;
@@ -294,8 +300,11 @@ export abstract class BaseCrisis implements ICrisis {
   }
 
   public clearHazardTile(r: number, c: number): void {
-    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return;
-    const idx = coordToIdx(r, c);
+    if (typeof r !== 'number' || typeof c !== 'number' || !Number.isFinite(r) || !Number.isFinite(c)) return;
+    const ir = r | 0;
+    const ic = c | 0;
+    if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return;
+    const idx = ir * COLS + ic;
     const tile = this.hazardTileBuffer[idx];
     if (tile.type === HazardType.NONE) return;
 
@@ -328,21 +337,31 @@ export abstract class BaseCrisis implements ICrisis {
   }
 
   public isTileHazardous(r: number, c: number): boolean {
-    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
-    const idx = coordToIdx(r, c);
+    if (typeof r !== 'number' || typeof c !== 'number' || !Number.isFinite(r) || !Number.isFinite(c)) return false;
+    const ir = r | 0;
+    const ic = c | 0;
+    if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return false;
+    const idx = ir * COLS + ic;
     return this.hazardTileBuffer[idx].type !== HazardType.NONE;
   }
 
   public getHazardAt(r: number, c: number): HazardTile | null {
-    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return null;
-    const idx = coordToIdx(r, c);
+    if (typeof r !== 'number' || typeof c !== 'number' || !Number.isFinite(r) || !Number.isFinite(c)) return null;
+    const ir = r | 0;
+    const ic = c | 0;
+    if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return null;
+    const idx = ir * COLS + ic;
     const tile = this.hazardTileBuffer[idx];
     return tile.type !== HazardType.NONE ? tile : null;
   }
 
   public getActiveHazardTiles(): HazardTile[] {
-    // Return active slice without allocating new arrays on each frame
-    return this.activeHazardList.slice(0, this.activeHazardCount);
+    // Return recycled scratch slice without allocating new arrays on each frame
+    this.scratchActiveSlice.length = this.activeHazardCount;
+    for (let i = 0; i < this.activeHazardCount; i++) {
+      this.scratchActiveSlice[i] = this.activeHazardList[i];
+    }
+    return this.scratchActiveSlice;
   }
 
   public getActiveHazardCount(): number {

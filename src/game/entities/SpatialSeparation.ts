@@ -78,6 +78,16 @@ export class SpatialSeparationGrid {
   // Scratch arrays for zero-GC active entity caching
   private scratchActive: SeparableEntity[] = [];
 
+  // Scratch stats to eliminate per-call heap allocation in 60 FPS loop
+  private readonly scratchStats: SpatialSeparationStats = {
+    entitiesProcessed: 0,
+    pairsChecked: 0,
+    overlapsResolved: 0,
+    zeroDistancesHandled: 0,
+    nanGuardsTriggered: 0,
+    durationMs: 0,
+  };
+
   constructor(cellSize: number = 40, width: number = 800, height: number = 800) {
     this.reconfigure(cellSize, width, height);
   }
@@ -104,8 +114,11 @@ export class SpatialSeparationGrid {
   }
 
   public insert(entityIndex: number, x: number, y: number): void {
-    const col = Math.max(0, Math.min(this.cols - 1, Math.floor(x / this.cellSize)));
-    const row = Math.max(0, Math.min(this.rows - 1, Math.floor(y / this.cellSize)));
+    if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) {
+      return;
+    }
+    const col = Math.max(0, Math.min(this.cols - 1, (x / this.cellSize) | 0));
+    const row = Math.max(0, Math.min(this.rows - 1, (y / this.cellSize) | 0));
     const cellIdx = row * this.cols + col;
 
     this.entityNext[entityIndex] = this.cellHead[cellIdx];
@@ -130,14 +143,13 @@ export class SpatialSeparationGrid {
     const map = options.map;
     const tileSize = options.tileSize ?? 40;
 
-    const stats: SpatialSeparationStats = {
-      entitiesProcessed: 0,
-      pairsChecked: 0,
-      overlapsResolved: 0,
-      zeroDistancesHandled: 0,
-      nanGuardsTriggered: 0,
-      durationMs: 0,
-    };
+    const stats = this.scratchStats;
+    stats.entitiesProcessed = 0;
+    stats.pairsChecked = 0;
+    stats.overlapsResolved = 0;
+    stats.zeroDistancesHandled = 0;
+    stats.nanGuardsTriggered = 0;
+    stats.durationMs = 0;
 
     // Filter active, non-dead entities into scratch list
     this.scratchActive.length = 0;
@@ -310,8 +322,8 @@ export class SpatialSeparationGrid {
     goldenAngle: number,
     stats: SpatialSeparationStats
   ): void {
-    const rA = eA.collisionRadius ?? defaultRadius;
-    const rB = eB.collisionRadius ?? defaultRadius;
+    const rA = (typeof eA.collisionRadius === 'number' && Number.isFinite(eA.collisionRadius)) ? eA.collisionRadius : defaultRadius;
+    const rB = (typeof eB.collisionRadius === 'number' && Number.isFinite(eB.collisionRadius)) ? eB.collisionRadius : defaultRadius;
     const minDistance = rA + rB;
     const minDistanceSq = minDistance * minDistance;
 
@@ -354,8 +366,8 @@ export class SpatialSeparationGrid {
     }
 
     // Mass-weighted displacement: heavier entities move less
-    const massA = Math.max(0.01, eA.mass ?? defaultMass);
-    const massB = Math.max(0.01, eB.mass ?? defaultMass);
+    const massA = Math.max(0.01, (typeof eA.mass === 'number' && Number.isFinite(eA.mass)) ? eA.mass : defaultMass);
+    const massB = Math.max(0.01, (typeof eB.mass === 'number' && Number.isFinite(eB.mass)) ? eB.mass : defaultMass);
     let ratioA = 0.5;
     let ratioB = 0.5;
     if (massA !== massB) {

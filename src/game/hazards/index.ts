@@ -141,4 +141,6 @@ export type {
   VoltConductanceResult,
 } from './VoltHazard.ts';
 export * from './VoltHazardAudio.ts';
+export * from './MagmaHazard.ts';
+export * from './MagmaHazardAudio.ts';
 
