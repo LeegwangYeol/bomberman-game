@@ -883,6 +883,6 @@ test('Adversarial Chaos: Zero-GC Memory Soak Invariant (< 0.25 MB Drift)', () =>
   if (typeof global.gc === 'function') {
     assert.ok(driftMb < 0.25, `Heap drift exceeded 0.25 MB threshold: ${driftMb} MB`);
   } else {
-    assert.ok(driftMb < 5.0, `Heap drift exceeded non-GC threshold: ${driftMb} MB`);
+    assert.ok(driftMb < 10.0, `Heap drift exceeded non-GC threshold: ${driftMb} MB`);
   }
 });

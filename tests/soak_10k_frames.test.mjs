@@ -22,6 +22,13 @@ const TOTAL_FRAMES = WARMUP_FRAMES + SOAK_RUN_FRAMES; // 10,000 frames
 const FRAME_DELTA_MS = 16.6667; // 60 FPS standard delta
 const HEAP_DRIFT_THRESHOLD_MB = 0.25; // Strict Zero-GC maximum allowable heap drift
 
+const SOAK_CARDINAL_DIRS = Object.freeze([
+  Object.freeze({ dr: -1, dc: 0 }),
+  Object.freeze({ dr: 1, dc: 0 }),
+  Object.freeze({ dr: 0, dc: -1 }),
+  Object.freeze({ dr: 0, dc: 1 }),
+]);
+
 /* ==============================================================================
  * SUBSYSTEM 1: CONTIGUOUS OBJECT POOL ENGINE (M1 SPECIFICATION)
  * ============================================================================== */
@@ -413,15 +420,8 @@ export class HeadlessSoakSimulator {
       this.hazardBitmask.setCoord(bomb.r, bomb.c, 1);
     }
 
-    // 4 cardinal rays
-    const dirs = [
-      { dr: -1, dc: 0 },
-      { dr: 1, dc: 0 },
-      { dr: 0, dc: -1 },
-      { dr: 0, dc: 1 },
-    ];
-
-    for (const dir of dirs) {
+    // 4 cardinal rays (Zero-GC static vectors)
+    for (const dir of SOAK_CARDINAL_DIRS) {
       for (let dist = 1; dist <= bomb.power; dist++) {
         const nr = bomb.r + dir.dr * dist;
         const nc = bomb.c + dir.dc * dist;

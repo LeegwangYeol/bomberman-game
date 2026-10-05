@@ -88,11 +88,21 @@ export class ObjectPool<T> {
    * Returns null if capacity is exhausted. Zero heap allocations.
    */
   public acquire(): T | null {
-    if (this.freeHead <= 0 || this.storage.length === 0) {
+    if (this.freeHead <= 0 || this.freeHead > this.capacity || this.storage.length === 0) {
       return null;
     }
 
     const itemIndex = this.freeIndices[--this.freeHead];
+    if (itemIndex < 0 || itemIndex >= this.capacity) {
+      this.freeHead++;
+      return null;
+    }
+
+    if (this._activeCount < 0 || this._activeCount >= this.capacity) {
+      this.freeHead++;
+      return null;
+    }
+
     const slot = this._activeCount++;
 
     this.activeIndices[slot] = itemIndex;
@@ -101,7 +111,11 @@ export class ObjectPool<T> {
 
     const item = this.storage[itemIndex];
     if (this.acquireCallback) {
-      this.acquireCallback(item);
+      try {
+        this.acquireCallback(item);
+      } catch {
+        // Safe callback execution
+      }
     }
     return item;
   }
@@ -112,7 +126,7 @@ export class ObjectPool<T> {
    */
   public release(item: T): boolean {
     const itemIndex = this.itemToIndexMap.get(item);
-    if (itemIndex === undefined) {
+    if (itemIndex === undefined || itemIndex < 0 || itemIndex >= this.capacity) {
       return false; // Not managed by this pool
     }
 
@@ -120,26 +134,32 @@ export class ObjectPool<T> {
       return false; // Already released (double-release guard)
     }
 
-    if (this._activeCount <= 0) {
+    if (this._activeCount <= 0 || this._activeCount > this.capacity) {
       return false; // Invariant guard against underflow
     }
 
     const slot = this.itemToActiveSlot[itemIndex];
-    if (slot < 0 || slot >= this._activeCount) {
+    if (slot < 0 || slot >= this._activeCount || slot >= this.capacity) {
       return false; // Invariant guard against slot corruption
     }
 
     const lastSlot = --this._activeCount;
 
     if (slot !== lastSlot) {
-      const swappedItemIndex = this.activeIndices[lastSlot];
-      this.activeIndices[slot] = swappedItemIndex;
-      this.itemToActiveSlot[swappedItemIndex] = slot;
+      if (lastSlot >= 0 && lastSlot < this.capacity) {
+        const swappedItemIndex = this.activeIndices[lastSlot];
+        if (swappedItemIndex >= 0 && swappedItemIndex < this.capacity) {
+          this.activeIndices[slot] = swappedItemIndex;
+          this.itemToActiveSlot[swappedItemIndex] = slot;
+        }
+      }
     }
 
-    this.activeIndices[lastSlot] = -1;
+    if (lastSlot >= 0 && lastSlot < this.capacity) {
+      this.activeIndices[lastSlot] = -1;
+    }
     this.itemToActiveSlot[itemIndex] = -1;
-    if (this.freeHead < this.capacity) {
+    if (this.freeHead >= 0 && this.freeHead < this.capacity) {
       this.freeIndices[this.freeHead++] = itemIndex;
     }
     this.activeFlags[itemIndex] = 0;
@@ -171,12 +191,18 @@ export class ObjectPool<T> {
    */
   public forEachActive(callback: (item: T, index: number) => void): void {
     let i = 0;
-    while (i < this._activeCount) {
+    while (i < this._activeCount && i < this.capacity) {
       const itemIndex = this.activeIndices[i];
-      const item = this.storage[itemIndex];
-      callback(item, i);
-      if (i < this._activeCount && this.activeIndices[i] === itemIndex) {
+      if (itemIndex >= 0 && itemIndex < this.capacity) {
+        const item = this.storage[itemIndex];
+        callback(item, i);
+      }
+      if (i < this._activeCount && i < this.capacity && this.activeIndices[i] === itemIndex) {
         i++;
+      } else if (i < this._activeCount && i < this.capacity && this.activeIndices[i] !== itemIndex) {
+        // Swap-and-pop occurred at current slot i during callback
+      } else {
+        break;
       }
     }
   }
@@ -186,30 +212,60 @@ export class ObjectPool<T> {
    */
   public isActive(item: T): boolean {
     const itemIndex = this.itemToIndexMap.get(item);
-    if (itemIndex === undefined) return false;
+    if (itemIndex === undefined || itemIndex < 0 || itemIndex >= this.capacity) return false;
     return this.activeFlags[itemIndex] === 1;
+  }
+
+  /**
+   * Verifies structural invariants without allocating heap memory:
+   * 1. activeCount + freeCount === capacity
+   * 2. 0 <= activeCount <= capacity and 0 <= freeCount <= capacity
+   * 3. storage and typed buffer sizes invariant
+   * 4. Bijective mapping between active slots and item indices
+   */
+  public verifyInvariants(): boolean {
+    if (this._activeCount + this.freeHead !== this.capacity) return false;
+    if (this._activeCount < 0 || this._activeCount > this.capacity) return false;
+    if (this.freeHead < 0 || this.freeHead > this.capacity) return false;
+    if (this.storage.length !== this.capacity) return false;
+    if (this.freeIndices.length !== this.capacity) return false;
+    if (this.activeIndices.length !== this.capacity) return false;
+    if (this.itemToActiveSlot.length !== this.capacity) return false;
+    if (this.activeFlags.length !== this.capacity) return false;
+    if (this.itemToIndexMap.size !== this.capacity) return false;
+
+    for (let slot = 0; slot < this._activeCount; slot++) {
+      const itemIdx = this.activeIndices[slot];
+      if (itemIdx < 0 || itemIdx >= this.capacity) return false;
+      if (this.activeFlags[itemIdx] !== 1) return false;
+      if (this.itemToActiveSlot[itemIdx] !== slot) return false;
+    }
+
+    return true;
   }
 
   /**
    * Resets all active items back to the pool, invoking reset callbacks.
    */
   public reset(): void {
-    const count = this._activeCount;
+    const count = Math.min(this._activeCount, this.capacity);
     for (let i = 0; i < count; i++) {
       const itemIndex = this.activeIndices[i];
-      const item = this.storage[itemIndex];
-      this.activeFlags[itemIndex] = 0;
-      this.itemToActiveSlot[itemIndex] = -1;
-      this.activeIndices[i] = -1;
-      if (item && typeof (item as unknown as IPoolable).reset === 'function') {
-        try {
-          (item as unknown as IPoolable).reset();
-        } catch {}
-      }
-      if (this.resetCallback) {
-        try {
-          this.resetCallback(item);
-        } catch {}
+      if (itemIndex >= 0 && itemIndex < this.capacity) {
+        const item = this.storage[itemIndex];
+        this.activeFlags[itemIndex] = 0;
+        this.itemToActiveSlot[itemIndex] = -1;
+        this.activeIndices[i] = -1;
+        if (item && typeof (item as unknown as IPoolable).reset === 'function') {
+          try {
+            (item as unknown as IPoolable).reset();
+          } catch {}
+        }
+        if (this.resetCallback) {
+          try {
+            this.resetCallback(item);
+          } catch {}
+        }
       }
     }
 

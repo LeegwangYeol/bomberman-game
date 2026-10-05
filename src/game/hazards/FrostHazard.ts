@@ -637,7 +637,7 @@ export class FrostHazard {
           4 * currentVal;
 
         const updated = currentVal + (D * laplacian - gamma * currentVal) * dtSeconds;
-        this.intensityGrid[idx] = Math.max(0, Math.min(1.0, updated));
+        this.intensityGrid[idx] = Number.isFinite(updated) ? Math.max(0, Math.min(1.0, updated)) : 0;
       }
     }
   }
@@ -821,9 +821,11 @@ export class FrostHazard {
     const dangerCode = isBurst ? FrostDangerValue.ABSOLUTE_ZERO : FrostDangerValue.HOARFROST;
     const baseFriction = isBurst ? 0.20 : 0.25;
 
-    for (let i = 0; i < this.activeFrostCount; i++) {
+    const count = Math.min(this.activeFrostCount, MAX_FROST_TILES);
+    for (let i = 0; i < count; i++) {
       const idx = this.activeFrostIndices[i];
-      const r = Math.floor(idx / COLS);
+      if (idx < 0 || idx >= TOTAL_TILES) continue;
+      const r = (idx / COLS) | 0;
       const c = idx % COLS;
       const dr = r - this.centerRow;
       const dc = c - this.centerCol;
@@ -832,7 +834,7 @@ export class FrostHazard {
       this.dangerMask[idx] = dangerCode;
       this.frictionGrid[idx] = baseFriction;
       this.temperatureGrid[idx] = isBurst ? 0.0 : 150.0;
-      this.intensityGrid[idx] = Math.max(0, (FROST_RADIUS_TILES - dist) / FROST_RADIUS_TILES);
+      this.intensityGrid[idx] = Number.isFinite(dist) ? Math.max(0, (FROST_RADIUS_TILES - dist) / FROST_RADIUS_TILES) : 0;
     }
   }
 

@@ -1381,13 +1381,13 @@ export class DynamicHazardAudio {
     for (const node of this.activeTransientNodes) {
       try {
         const sourceNode = node as unknown as StopAndEndedAudioNode;
+        if ('onended' in sourceNode) {
+          sourceNode.onended = null;
+        }
         if (typeof sourceNode.stop === 'function') {
           try {
             sourceNode.stop();
           } catch {}
-        }
-        if ('onended' in sourceNode) {
-          sourceNode.onended = null;
         }
         node.disconnect();
       } catch {}

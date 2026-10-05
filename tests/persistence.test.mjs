@@ -836,8 +836,8 @@ test('SEC-07: CircuitBreaker isQuotaError detects raw string errors and gRPC RES
 
 test('SEC-08: CircuitBreaker handles burst 429s under 100 queued requests without data loss', async () => {
   const cb = new APIQuotaCircuitBreaker({
-    initialBackoffMs: 50,
-    maxBackoffMs: 500,
+    initialBackoffMs: 10000,
+    maxBackoffMs: 30000,
     jitterRatio: 0,
     maxQueueSize: 150,
   });

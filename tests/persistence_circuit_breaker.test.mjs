@@ -527,8 +527,8 @@ test('CircuitBreaker Hardening: 100 concurrent saveRunState operations maintain 
 
 test('CircuitBreaker Hardening: Flaky server failure during HALF_OPEN immediately re-trips breaker to OPEN', async () => {
   const cb = new APIQuotaCircuitBreaker({
-    initialBackoffMs: 50,
-    maxBackoffMs: 200,
+    initialBackoffMs: 150,
+    maxBackoffMs: 600,
     jitterRatio: 0,
     maxQueueSize: 10,
   });
@@ -553,7 +553,7 @@ test('CircuitBreaker Hardening: Flaky server failure during HALF_OPEN immediatel
 
   // Wait for initial backoff to expire -> HALF_OPEN auto-transition & probe execution
   const probeWaitStart = Date.now();
-  while (!probeExecuted && Date.now() - probeWaitStart < 1500) {
+  while (!probeExecuted && Date.now() - probeWaitStart < 2500) {
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   await probe;

@@ -161,22 +161,41 @@ export class MagmaHazardAudio {
   private static instance: MagmaHazardAudio | null = null;
   private ctx: AudioContext | null = null;
   private pool: AudioVoicePool | null = null;
+  private ownsPool: boolean = false;
   private readonly activeTimeouts: Set<ReturnType<typeof setTimeout>> = new Set();
   private readonly activeTransientNodes: Set<AudioNode> = new Set();
+
+  // Static pre-allocated 500ms white noise buffer (shared across all instances)
+  private static cachedNoiseBuffer: AudioBuffer | null = null;
+  private static cachedNoiseSampleRate: number = 0;
+
   private lastTelegraphSoundTimestampMs: number = -Infinity;
   private lastSingeSoundTimestampMs: number = -Infinity;
 
-  constructor(ctx?: AudioContext | null) {
-    if (ctx) {
-      this.init(ctx);
+  constructor(poolOrCtx?: AudioVoicePool | AudioContext | null) {
+    if (poolOrCtx) {
+      if (poolOrCtx instanceof AudioVoicePool) {
+        this.bindPool(poolOrCtx);
+      } else if (typeof AudioContext !== 'undefined' && poolOrCtx instanceof AudioContext) {
+        this.init(poolOrCtx);
+      }
+    } else if (poolOrCtx === null) {
+      this.ctx = null;
+      this.pool = null;
+    } else {
+      this.pool = AudioVoicePool.getInstance();
     }
   }
 
-  public static getInstance(ctx?: AudioContext | null): MagmaHazardAudio {
+  public static getInstance(poolOrCtx?: AudioVoicePool | AudioContext | null): MagmaHazardAudio {
     if (!MagmaHazardAudio.instance) {
-      MagmaHazardAudio.instance = new MagmaHazardAudio(ctx);
-    } else if (ctx && !MagmaHazardAudio.instance.ctx) {
-      MagmaHazardAudio.instance.init(ctx);
+      MagmaHazardAudio.instance = new MagmaHazardAudio(poolOrCtx);
+    } else if (poolOrCtx) {
+      if (poolOrCtx instanceof AudioVoicePool) {
+        MagmaHazardAudio.instance.bindPool(poolOrCtx);
+      } else if (typeof AudioContext !== 'undefined' && poolOrCtx instanceof AudioContext && !MagmaHazardAudio.instance.ctx) {
+        MagmaHazardAudio.instance.init(poolOrCtx);
+      }
     }
     return MagmaHazardAudio.instance;
   }
@@ -184,14 +203,45 @@ export class MagmaHazardAudio {
   public static resetInstance(): void {
     if (MagmaHazardAudio.instance) {
       MagmaHazardAudio.instance.destroy();
+      MagmaHazardAudio.instance = null;
     }
-    MagmaHazardAudio.instance = null;
   }
 
-  public init(ctx: AudioContext): void {
+  public init(ctx: AudioContext, pool?: AudioVoicePool): void {
     this.ctx = ctx;
-    this.pool = AudioVoicePool.getInstance();
-    this.pool.init(ctx);
+    if (pool) {
+      this.bindPool(pool);
+      this.ownsPool = false;
+    } else if (!this.pool) {
+      this.pool = new AudioVoicePool(16);
+      this.pool.init(ctx);
+      this.ownsPool = true;
+    } else {
+      this.pool.init(ctx);
+    }
+    if (ctx && ctx.state === 'suspended' && typeof ctx.resume === 'function') {
+      ctx.resume().catch(() => {});
+    }
+  }
+
+  public bindPool(pool: AudioVoicePool): void {
+    this.pool = pool;
+  }
+
+  public setVoicePool(pool: AudioVoicePool): void {
+    this.bindPool(pool);
+  }
+
+  public getAudioContext(): AudioContext | null {
+    return this.ctx || (this.pool ? this.pool.getAudioContext() : null);
+  }
+
+  private safeTimeout(fn: () => void, delayMs: number): void {
+    const tid = setTimeout(() => {
+      this.activeTimeouts.delete(tid);
+      fn();
+    }, delayMs);
+    this.activeTimeouts.add(tid);
   }
 
   public getContext(): AudioContext | null {
@@ -203,7 +253,9 @@ export class MagmaHazardAudio {
       if (AudioCtxClass) {
         try {
           this.ctx = new AudioCtxClass();
-          this.pool = AudioVoicePool.getInstance();
+          if (!this.pool) {
+            this.pool = AudioVoicePool.getInstance();
+          }
           this.pool.init(this.ctx);
         } catch {
           this.ctx = null;
@@ -230,6 +282,10 @@ export class MagmaHazardAudio {
     if (!ctx || !this.pool) return;
     this.pool.playTone(MAGMA_AUDIO_PRESETS.MAGMA_BUBBLING_SIZZLE);
     this.playFilteredNoiseBurst(0.18, 500, 250, 0.08);
+  }
+
+  public playMagmaSizzle(): void {
+    this.playMagmaUpwellingSizzle();
   }
 
   /**
@@ -341,6 +397,32 @@ export class MagmaHazardAudio {
     }
   }
 
+  private getOrCreateNoiseBuffer(ctx: AudioContext): AudioBuffer | null {
+    try {
+      const sampleRate = ctx.sampleRate || 44100;
+      if (
+        MagmaHazardAudio.cachedNoiseBuffer &&
+        MagmaHazardAudio.cachedNoiseSampleRate === sampleRate
+      ) {
+        return MagmaHazardAudio.cachedNoiseBuffer;
+      }
+
+      const bufferSize = Math.max(256, Math.floor(sampleRate * 0.5));
+      const buffer = ctx.createBuffer(1, bufferSize, sampleRate);
+      const data = buffer.getChannelData(0);
+
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1;
+      }
+
+      MagmaHazardAudio.cachedNoiseBuffer = buffer;
+      MagmaHazardAudio.cachedNoiseSampleRate = sampleRate;
+      return buffer;
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Procedural filtered white noise burst with zero-leak tracking
    */
@@ -349,23 +431,19 @@ export class MagmaHazardAudio {
     startFreq: number = 1000,
     endFreq: number = 200,
     gainLevel: number = 0.20
-  ): void {
+  ): boolean {
     const ctx = this.getContext();
-    if (!ctx) return;
+    if (!ctx || ctx.state === 'suspended' || typeof ctx.createBuffer !== 'function') {
+      return false;
+    }
 
     try {
       const now = ctx.currentTime;
-      const bufferSize = Math.max(256, Math.floor(ctx.sampleRate * duration));
-      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-
-      // Generate randomized white noise
-      for (let i = 0; i < bufferSize; i++) {
-        data[i] = Math.random() * 2 - 1;
-      }
+      const noiseBuffer = this.getOrCreateNoiseBuffer(ctx);
+      if (!noiseBuffer) return false;
 
       const source = ctx.createBufferSource();
-      source.buffer = buffer;
+      source.buffer = noiseBuffer;
 
       const filter = ctx.createBiquadFilter();
       filter.type = 'bandpass';
@@ -374,7 +452,7 @@ export class MagmaHazardAudio {
       filter.Q.setValueAtTime(2.0, now);
 
       const gain = ctx.createGain();
-      gain.gain.setValueAtTime(Math.max(0.0001, gainLevel), now);
+      gain.gain.setValueAtTime(Math.max(0.0001, Math.min(1.0, gainLevel)), now);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
 
       source.connect(filter);
@@ -385,8 +463,12 @@ export class MagmaHazardAudio {
       this.activeTransientNodes.add(filter);
       this.activeTransientNodes.add(gain);
 
+      let cleanedUp = false;
       const cleanup = () => {
+        if (cleanedUp) return;
+        cleanedUp = true;
         try {
+          source.onended = null;
           source.disconnect();
           filter.disconnect();
           gain.disconnect();
@@ -397,12 +479,19 @@ export class MagmaHazardAudio {
       };
 
       source.onended = cleanup;
-      source.start(now);
+      this.safeTimeout(cleanup, Math.ceil((duration + 0.05) * 1000));
 
-      const tid = setTimeout(cleanup, Math.ceil((duration + 0.1) * 1000));
-      this.activeTimeouts.add(tid);
+      try {
+        source.start(now);
+        source.stop(now + duration);
+      } catch {
+        cleanup();
+        return false;
+      }
+
+      return true;
     } catch {
-      // Safe fallback for restricted audio contexts
+      return false;
     }
   }
 
@@ -415,23 +504,47 @@ export class MagmaHazardAudio {
     for (const node of this.activeTransientNodes) {
       try {
         const stopNode = node as StopAndEndedAudioNode;
-        if (typeof stopNode.stop === 'function') {
-          stopNode.stop();
+        if ('onended' in stopNode) {
+          stopNode.onended = null;
         }
-        stopNode.onended = null;
+        if (typeof stopNode.stop === 'function') {
+          try {
+            stopNode.stop();
+          } catch {}
+        }
         node.disconnect();
       } catch {}
     }
     this.activeTransientNodes.clear();
   }
 
-  public stop(): void {
+  public reset(): void {
+    if (this.pool) {
+      this.pool.reset();
+    }
     this.clearPendingNodes();
+    this.lastTelegraphSoundTimestampMs = -Infinity;
+    this.lastSingeSoundTimestampMs = -Infinity;
+  }
+
+  public stop(): void {
+    this.reset();
+  }
+
+  public disconnect(): void {
+    this.destroy();
   }
 
   public destroy(): void {
-    this.stop();
-    this.pool = null;
+    this.clearPendingNodes();
+    if (this.pool) {
+      if (this.ownsPool) {
+        this.pool.destroy();
+      } else {
+        this.pool.reset();
+      }
+      this.pool = null;
+    }
     this.ctx = null;
     if (MagmaHazardAudio.instance === this) {
       MagmaHazardAudio.instance = null;

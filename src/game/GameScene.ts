@@ -11,7 +11,7 @@ import {
   getBlastTiles,
   findEscapePathBFS,
   FlatHazardMask,
-} from './pathfinding';
+} from './pathfinding.ts';
 import {
   type PlayerStats,
   type ItemType,
@@ -97,7 +97,6 @@ import {
   MiniBomberAlly,
   PetDroneAlly,
   ShieldGuardAlly,
-  OverheadUI,
   RENDER_DEPTH,
   applyPhysicsBodyInvariantGuard,
   resolveEntitySeparation,
@@ -187,11 +186,31 @@ import {
   FLOATING_TEXT_THERMAL_SINGE,
   BOSS_MAGMA_DAMAGE_RATIO,
   MagmaHazardAudio,
+  MiasmaHazard,
+  MiasmaLifecycleState,
+  MiasmaTelegraphPhase,
+  SPORE_SURGE_INVULN_MS,
+  SPORE_SURGE_SPEED_BURST_RATIO,
+  FLOATING_TEXT_SPORE_SURGE,
+  NEUROTOXIN_DURATION_MS,
+  NEUROTOXIN_SLOW_RATIO,
+  FLOATING_TEXT_NEUROTOXIN,
+  BOSS_MIASMA_DAMAGE_RATIO,
+  MiasmaHazardAudio,
+  MIASMA_SUPER_BOMB_TINT,
+  FLOATING_TEXT_BIO_FUSED,
+  FLOATING_TEXT_CATALYTIC_DETONATION,
+  BOMB_KICK_MIASMA_SPEED,
+  FLOATING_TEXT_BIO_SLICK_GLIDE,
 } from './hazards/index.ts';
 import { PerkTreeManager, RelicManager, type RelicId } from './progression/index.ts';
 
 import { decompressGrid } from './persistence/GameStatePersistence.ts';
 import type { SerializedRunState } from './persistence/PersistenceTypes.ts';
+import {
+  generateItemTextures as generateProceduralItemTextures,
+  ensureJuiceTextures as ensureProceduralJuiceTextures,
+} from './graphics/index.ts';
 
 export { RENDER_DEPTH };
 
@@ -212,380 +231,11 @@ export const CARDINAL_DIRECTIONS = Object.freeze([
   { dr: 0, dc: 1 },  // right
 ]);
 
-export interface DeclutterEntity {
-  x: number;
-  y: number;
-  active: boolean;
-  isDead?: boolean;
-  setDepth?(depth: number): unknown;
-  overheadUI: OverheadUI;
-}
+import { OverheadUIManager, FloatingTextManager } from './ui/index.ts';
+export { OverheadUIManager, FloatingTextManager };
+export type { DeclutterEntity, ActiveFloatingText } from './ui/index.ts';
 
-export class OverheadUIManager {
-  public smoothOuterBubble: boolean = false;
-  private readonly _scratchActive: DeclutterEntity[] = [];
-  private _offsetsX: Float32Array = new Float32Array(64);
-  private _offsetsY: Float32Array = new Float32Array(64);
 
-  constructor(smoothOuterBubble: boolean = false) {
-    this.smoothOuterBubble = smoothOuterBubble;
-  }
-
-  /**
-   * Centralized decluttering and dynamic depth coordinator:
-   * 1. Dynamic continuous 2.5D Y-sorting depth pass.
-   * 2. Adaptive Name Tag LOD (Solo: full, Clustered: compact, Dense melee: minimal/hidden).
-   * 3. AABB overlap detection with horizontal spring repulsion (+/- dx/2) and vertical staggering.
-   * 4. Player protection bubble (R = 38px, alpha = 0.15 or 0 if <= 20px) with smooth exponential lerp.
-   */
-  public update(
-    entities: DeclutterEntity[],
-    player: { x: number; y: number } | null,
-    delta: number = 16,
-    immediate: boolean = false,
-    smoothOuterBubble?: boolean
-  ): void {
-    this._scratchActive.length = 0;
-    for (let k = 0; k < entities.length; k++) {
-      const e = entities[k];
-      if (e && e.active && !e.isDead && e.overheadUI && !e.overheadUI.isDestroyed) {
-        this._scratchActive.push(e);
-      }
-    }
-    const active = this._scratchActive;
-
-    // 1. Unified 2.5D dynamic Y-sorting depth pass
-    for (const entity of active) {
-      const baseDepth = RENDER_DEPTH.ENTITY_Y_BASE + entity.y * RENDER_DEPTH.ENTITY_Y_SCALE;
-      if (typeof entity.setDepth === 'function') {
-        entity.setDepth(baseDepth + RENDER_DEPTH.OFFSET_SPRITE);
-      }
-      entity.overheadUI.setDepth(baseDepth);
-    }
-
-    const playerObj = player as unknown as { setDepth?: (d: number) => unknown } | null | undefined;
-    if (player && playerObj && typeof playerObj.setDepth === 'function') {
-      const playerBaseDepth = RENDER_DEPTH.ENTITY_Y_BASE + player.y * RENDER_DEPTH.ENTITY_Y_SCALE;
-      playerObj.setDepth(playerBaseDepth + RENDER_DEPTH.OFFSET_SPRITE);
-    }
-
-    // 2. Adaptive Name Tag LOD calculation
-    // Solo mode (d > 70px): full name
-    // Clustered mode (d <= 70px): compact nickname
-    // Dense melee mode (3+ entities within 60px): minimal (hide text tag, HP & intent only)
-    for (let i = 0; i < active.length; i++) {
-      const eA = active[i];
-      const ax = eA.x;
-      const ay = eA.y;
-      let minDistSq = Infinity;
-      let countWithin60 = 0;
-
-      for (let j = 0; j < active.length; j++) {
-        if (i === j) continue;
-        const eB = active[j];
-        const dx = ax - eB.x;
-        const dy = ay - eB.y;
-        const distSq = dx * dx + dy * dy;
-        if (distSq < minDistSq) {
-          minDistSq = distSq;
-        }
-        if (distSq <= 3600) {
-          countWithin60++;
-          if (countWithin60 >= 2) {
-            break;
-          }
-        }
-      }
-
-      if (player) {
-        const dxP = ax - player.x;
-        const dyP = ay - player.y;
-        const distSqP = dxP * dxP + dyP * dyP;
-        if (distSqP < minDistSq) {
-          minDistSq = distSqP;
-        }
-        if (distSqP <= 3600) {
-          countWithin60++;
-        }
-      }
-
-      if (countWithin60 >= 2) {
-        eA.overheadUI.setLODMode('minimal');
-      } else if (minDistSq <= 4900) {
-        eA.overheadUI.setLODMode('compact');
-      } else {
-        eA.overheadUI.setLODMode('full');
-      }
-    }
-
-    // 3. AABB Collision Detection, Horizontal Spring Repulsion & Vertical Staggering
-    if (this._offsetsX.length < active.length) {
-      const newCap = Math.max(active.length, this._offsetsX.length * 2);
-      this._offsetsX = new Float32Array(newCap);
-      this._offsetsY = new Float32Array(newCap);
-    }
-    this._offsetsX.fill(0, 0, active.length);
-    this._offsetsY.fill(0, 0, active.length);
-    const offsetsX = this._offsetsX;
-    const offsetsY = this._offsetsY;
-
-    for (let i = 0; i < active.length; i++) {
-      const eA = active[i];
-      const ax = eA.x;
-      const ay = eA.y;
-      const lodA = eA.overheadUI.lodMode;
-      const widthA = lodA === 'minimal' ? 24 : lodA === 'compact' ? 44 : 88;
-
-      for (let j = i + 1; j < active.length; j++) {
-        const eB = active[j];
-        const dy = Math.abs(ay - eB.y);
-        if (dy >= 16) continue;
-
-        const dx = Math.abs(ax - eB.x);
-        if (dx >= 92) continue;
-
-        const lodB = eB.overheadUI.lodMode;
-        const widthB = lodB === 'minimal' ? 24 : lodB === 'compact' ? 44 : 88;
-        const requiredW = (widthA + widthB) / 2 + 4;
-
-        if (dx < requiredW) {
-          // Label overlap detected!
-          if (dx >= 24) {
-            // Horizontal spring repulsion
-            const overlapX = requiredW - dx;
-            const shift = overlapX / 2;
-            if (eA.x < eB.x) {
-              offsetsX[i] -= shift;
-              offsetsX[j] += shift;
-            } else if (eA.x > eB.x) {
-              offsetsX[i] += shift;
-              offsetsX[j] += shift;
-            } else {
-              offsetsX[i] -= shift;
-              offsetsX[j] += shift;
-            }
-          } else {
-            // Tightly stacked horizontally (dx < 24px) -> vertical staggering!
-            // Directional accumulation / 3-way staggering prevents overwrite in vertical clusters
-            if (eA.y <= eB.y) {
-              if (offsetsY[i] === 0) {
-                offsetsY[i] = -14;
-              } else if (offsetsY[i] < 0) {
-                offsetsY[i] -= 14;
-              }
-              if (offsetsY[j] === 0) {
-                offsetsY[j] = 46;
-              } else if (offsetsY[j] < offsetsY[i] + 30) {
-                offsetsY[j] = Math.max(offsetsY[j] + 30, offsetsY[i] + 46);
-              }
-            } else {
-              if (offsetsY[j] === 0) {
-                offsetsY[j] = -14;
-              } else if (offsetsY[j] < 0) {
-                offsetsY[j] -= 14;
-              }
-              if (offsetsY[i] === 0) {
-                offsetsY[i] = 46;
-              } else if (offsetsY[i] < offsetsY[j] + 30) {
-                offsetsY[i] = Math.max(offsetsY[i] + 30, offsetsY[j] + 46);
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // Clamp horizontal offsets to arena boundaries
-    for (let i = 0; i < active.length; i++) {
-      const entity = active[i];
-      const intendedX = entity.x + offsetsX[i];
-      if (intendedX < 20) {
-        offsetsX[i] = 20 - entity.x;
-      } else if (intendedX > 600 - 20) {
-        offsetsX[i] = (600 - 20) - entity.x;
-      }
-    }
-
-    // Clamp vertical offsets to stay on-screen ([20, 500])
-    for (let i = 0; i < active.length; i++) {
-      const entity = active[i];
-      const intendedY = entity.y + offsetsY[i];
-      if (intendedY < 20) {
-        offsetsY[i] = 20 - entity.y;
-      } else if (intendedY > 500) {
-        offsetsY[i] = 500 - entity.y;
-      }
-    }
-
-    // 4. Player Protection Bubble (R = 38px)
-    const useSmooth = smoothOuterBubble !== undefined ? smoothOuterBubble : this.smoothOuterBubble;
-    for (let i = 0; i < active.length; i++) {
-      const entity = active[i];
-      const ox = offsetsX[i];
-      const oy = offsetsY[i];
-
-      let targetAlpha = 1.0;
-      if (player) {
-        const lx = entity.x + ox;
-        const ly = entity.y - 22 + oy;
-        const distLabel = Math.hypot(lx - player.x, ly - player.y);
-        const distBody = Math.hypot(entity.x - player.x, entity.y - player.y);
-        let effectiveDist = Math.min(distLabel, distBody);
-
-        // Status badge protection: if intent indicator is actively displayed, also check status badge position (y - 34)
-        if (entity.overheadUI && entity.overheadUI.isIntentVisible) {
-          const distIntent = Math.hypot(lx - player.x, entity.y - 34 + oy - player.y);
-          if (distIntent < effectiveDist) {
-            effectiveDist = distIntent;
-          }
-        }
-
-        if (effectiveDist <= 20) {
-          targetAlpha = 0.0;
-        } else if (effectiveDist <= 38) {
-          targetAlpha = Math.min(0.15, 0.15 * ((effectiveDist - 20) / (38 - 20)));
-        } else if (useSmooth && effectiveDist <= 50) {
-          targetAlpha = 0.15 + (1.0 - 0.15) * ((effectiveDist - 38) / (50 - 38));
-        }
-      }
-
-      let alpha: number;
-      if (!immediate && delta > 0) {
-        const lerpFactor = Math.min(1.0, delta * 0.015);
-        alpha = entity.overheadUI.currentAlpha + (targetAlpha - entity.overheadUI.currentAlpha) * lerpFactor;
-      } else {
-        alpha = targetAlpha;
-      }
-
-      entity.overheadUI.setAlpha(alpha);
-      entity.overheadUI.setCustomOffsets(ox, oy);
-    }
-  }
-}
-
-export interface ActiveFloatingText {
-  x: number;
-  y: number;
-  spawnTime: number;
-}
-
-export class FloatingTextManager {
-  public static readonly MAX_POOL = 1024;
-  private static readonly MASK = 1023;
-  private readonly poolX: Float32Array = new Float32Array(FloatingTextManager.MAX_POOL);
-  private readonly poolY: Float32Array = new Float32Array(FloatingTextManager.MAX_POOL);
-  private readonly poolTime: Float64Array = new Float64Array(FloatingTextManager.MAX_POOL);
-  private head: number = 0;
-  private tail: number = 0;
-  private size: number = 0;
-
-  constructor() {
-    this.poolTime.fill(-1);
-  }
-
-  public getCascadeOffset(x: number, y: number, currentTime: number): number {
-    const cutoff = currentTime - 450;
-    const poolX = this.poolX;
-    const poolY = this.poolY;
-    const poolTime = this.poolTime;
-    const mask = FloatingTextManager.MASK;
-
-    while (this.size > 0 && poolTime[this.head] < cutoff) {
-      this.head = (this.head + 1) & mask;
-      this.size--;
-    }
-
-    if (this.size === 0) {
-      this.head = 0;
-      this.tail = 0;
-    }
-
-    const head = this.head;
-    const size = this.size;
-    let nearbyCount = 0;
-    const end = head + size;
-    if (end <= FloatingTextManager.MAX_POOL) {
-      for (let idx = head; idx < end; idx++) {
-        const dy = poolY[idx] - y;
-        if (dy > 30 || dy < -30) continue;
-        const dx = poolX[idx] - x;
-        if (dx > 30 || dx < -30) continue;
-        if (dx * dx + dy * dy <= 900) {
-          nearbyCount++;
-        }
-      }
-    } else {
-      for (let idx = head; idx < FloatingTextManager.MAX_POOL; idx++) {
-        const dy = poolY[idx] - y;
-        if (dy > 30 || dy < -30) continue;
-        const dx = poolX[idx] - x;
-        if (dx > 30 || dx < -30) continue;
-        if (dx * dx + dy * dy <= 900) {
-          nearbyCount++;
-        }
-      }
-      const wrapEnd = end & mask;
-      for (let idx = 0; idx < wrapEnd; idx++) {
-        const dy = poolY[idx] - y;
-        if (dy > 30 || dy < -30) continue;
-        const dx = poolX[idx] - x;
-        if (dx > 30 || dx < -30) continue;
-        if (dx * dx + dy * dy <= 900) {
-          nearbyCount++;
-        }
-      }
-    }
-
-    const offset = nearbyCount * 16;
-
-    if (this.size < FloatingTextManager.MAX_POOL) {
-      const tail = this.tail;
-      poolX[tail] = x;
-      poolY[tail] = y;
-      poolTime[tail] = currentTime;
-      this.tail = (tail + 1) & mask;
-      this.size++;
-    } else {
-      // Pool saturated: overwrite oldest active entry at head and advance both pointers
-      const h = this.head;
-      poolX[h] = x;
-      poolY[h] = y;
-      poolTime[h] = currentTime;
-      this.head = (h + 1) & mask;
-      this.tail = (this.tail + 1) & mask;
-    }
-
-    return offset;
-  }
-
-  public registerSpawn(x: number, y: number, currentTime: number): number {
-    return this.getCascadeOffset(x, y, currentTime);
-  }
-
-  public getActiveCount(currentTime?: number): number {
-    if (currentTime !== undefined) {
-      const cutoff = currentTime - 450;
-      const poolTime = this.poolTime;
-      const mask = FloatingTextManager.MASK;
-      while (this.size > 0 && poolTime[this.head] < cutoff) {
-        this.head = (this.head + 1) & mask;
-        this.size--;
-      }
-      if (this.size === 0) {
-        this.head = 0;
-        this.tail = 0;
-      }
-    }
-    return this.size;
-  }
-
-  public reset(): void {
-    this.head = 0;
-    this.tail = 0;
-    this.size = 0;
-    this.poolTime.fill(-1);
-  }
-}
 
 /**
  * Main Phaser GameScene for Bomberman.
@@ -751,13 +401,16 @@ export default class GameScene extends Phaser.Scene {
   public frostHazard: FrostHazard = new FrostHazard();
   public voltHazard: VoltHazard = new VoltHazard();
   public magmaHazard: MagmaHazard = new MagmaHazard();
+  public miasmaHazard: MiasmaHazard = new MiasmaHazard();
   public lastGravitationalEscapeTimestampMs: number = 0;
   public lastFrostChillFloatingTextMs: number = -9999;
   public lastStaticShockFloatingTextMs: number = -9999;
   public lastThermalSingeFloatingTextMs: number = -9999;
+  public lastNeurotoxinFloatingTextMs: number = -9999;
   public frostHazardAudio: FrostHazardAudio = FrostHazardAudio.getInstance();
   public voltHazardAudio: VoltHazardAudio = VoltHazardAudio.getInstance();
   public magmaHazardAudio: MagmaHazardAudio = MagmaHazardAudio.getInstance();
+  public miasmaHazardAudio: MiasmaHazardAudio = MiasmaHazardAudio.getInstance();
   public hazardGraphics: Phaser.GameObjects.Graphics | null = null;
 
 
@@ -770,6 +423,7 @@ export default class GameScene extends Phaser.Scene {
   public playerBobOffset: number = 0;
   private lastHitStopMs: number = 0;
   public isHitStopActive: boolean = false;
+  private hitStopTimeout: ReturnType<typeof setTimeout> | null = null;
   public relicManager!: RelicManager;
   public perkManager?: {
     triggerSecondWind(): boolean;
@@ -794,7 +448,11 @@ export default class GameScene extends Phaser.Scene {
           this.isHitStopActive = false;
         });
       } else {
-        setTimeout(() => {
+        if (this.hitStopTimeout) {
+          clearTimeout(this.hitStopTimeout);
+        }
+        this.hitStopTimeout = setTimeout(() => {
+          this.hitStopTimeout = null;
           if (this.physics && this.physics.world && this.physics.world.isPaused) {
             this.physics.world.resume();
           }
@@ -916,9 +574,16 @@ export default class GameScene extends Phaser.Scene {
     if (this.magmaHazard) {
       this.magmaHazard.stop();
     }
+    if (this.miasmaHazard) {
+      this.miasmaHazard.stop();
+    }
     if (this.hazardGraphics) {
       this.hazardGraphics.clear();
     }
+    this.frostHazardAudio?.reset();
+    this.voltHazardAudio?.stop();
+    this.magmaHazardAudio?.stop();
+    this.miasmaHazardAudio?.stop();
   }
 
 
@@ -1058,19 +723,47 @@ export default class GameScene extends Phaser.Scene {
   };
 
   public shutdown(): void {
+    if (this.events) {
+      this.events.off(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
+      this.events.off(Phaser.Scenes.Events.DESTROY, this.shutdown, this);
+    }
     if (this.game && this.game.events) {
       this.game.events.off('mode-changed', this.onModeChanged);
       this.game.events.off('perks-updated', this.onPerksUpdated);
       this.game.events.off('relics-updated', this.onRelicsUpdated);
       this.game.events.off('resume-run-state', this.onResumeRunState);
     }
+    if (this.time && typeof this.time.removeAllEvents === 'function') {
+      this.time.removeAllEvents();
+    }
+    if (this.tweens && typeof this.tweens.killAll === 'function') {
+      this.tweens.killAll();
+    }
     this.isHitStopActive = false;
+    if (this.hitStopTimeout) {
+      clearTimeout(this.hitStopTimeout);
+      this.hitStopTimeout = null;
+    }
     if (this.physics && this.physics.world && this.physics.world.isPaused) {
       this.physics.world.resume();
     }
     this.dismissBoss();
     this.stopCrisisMode();
+    this.bossHitBombIds.clear();
+    this.destroyedBlocksThisTick.clear();
+    this.scratchActiveEntities.length = 0;
+    this.scratchActiveEnemies.length = 0;
+    this.scratchActiveItems.length = 0;
+    this.activeBuffs = [];
     this.floatingTextManager?.reset();
+    if (this.aegisDomeVisual) {
+      this.aegisDomeVisual.destroy();
+      this.aegisDomeVisual = null;
+    }
+    if (this.shieldVisual) {
+      this.shieldVisual.destroy();
+      this.shieldVisual = null;
+    }
     if (this.playerDropShadow) {
       this.playerDropShadow.destroy();
       this.playerDropShadow = undefined;
@@ -1095,6 +788,9 @@ export default class GameScene extends Phaser.Scene {
     }
     if (this.magmaHazardAudio) {
       this.magmaHazardAudio.destroy();
+    }
+    if (this.miasmaHazardAudio) {
+      this.miasmaHazardAudio.destroy();
     }
     webAudioSynth.destroy();
   }
@@ -1253,47 +949,51 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // Register Player Animations
-    if (!this.anims.exists('player_down')) {
-      this.anims.create({
-        key: 'player_down',
-        frames: this.anims.generateFrameNumbers('player', { frames: [0, 1, 0, 2] }),
-        frameRate: 8,
-        repeat: -1,
-      });
-    }
+    if (this.anims) {
+      if (!this.anims.exists('player_down')) {
+        this.anims.create({
+          key: 'player_down',
+          frames: this.anims.generateFrameNumbers('player', { frames: [0, 1, 0, 2] }),
+          frameRate: 8,
+          repeat: -1,
+        });
+      }
 
-    if (!this.anims.exists('player_up')) {
-      this.anims.create({
-        key: 'player_up',
-        frames: this.anims.generateFrameNumbers('player', { frames: [3, 4, 3, 5] }),
-        frameRate: 8,
-        repeat: -1,
-      });
-    }
+      if (!this.anims.exists('player_up')) {
+        this.anims.create({
+          key: 'player_up',
+          frames: this.anims.generateFrameNumbers('player', { frames: [3, 4, 3, 5] }),
+          frameRate: 8,
+          repeat: -1,
+        });
+      }
 
-    if (!this.anims.exists('player_side')) {
-      this.anims.create({
-        key: 'player_side',
-        frames: this.anims.generateFrameNumbers('player', { frames: [6, 7, 6, 8] }),
-        frameRate: 8,
-        repeat: -1,
-      });
-    }
+      if (!this.anims.exists('player_side')) {
+        this.anims.create({
+          key: 'player_side',
+          frames: this.anims.generateFrameNumbers('player', { frames: [6, 7, 6, 8] }),
+          frameRate: 8,
+          repeat: -1,
+        });
+      }
 
-    if (!this.anims.exists('player_defeat')) {
-      this.anims.create({
-        key: 'player_defeat',
-        frames: this.anims.generateFrameNumbers('player', { frames: [9, 10, 11] }),
-        frameRate: 6,
-        repeat: 0,
-      });
+      if (!this.anims.exists('player_defeat')) {
+        this.anims.create({
+          key: 'player_defeat',
+          frames: this.anims.generateFrameNumbers('player', { frames: [9, 10, 11] }),
+          frameRate: 6,
+          repeat: 0,
+        });
+      }
     }
 
 
     // Background image at (400, 300) with setScrollFactor(0) and setDepth(RENDER_DEPTH.BACKGROUND)
-    const bg = this.add.image(400, 300, 'background');
-    bg.setScrollFactor(0);
-    bg.setDepth(RENDER_DEPTH.BACKGROUND);
+    if (typeof this.add?.image === 'function') {
+      const bg = this.add.image(400, 300, 'background');
+      bg?.setScrollFactor?.(0);
+      bg?.setDepth?.(RENDER_DEPTH.BACKGROUND);
+    }
 
     // Physics Groups
     this.walls = this.physics.add.staticGroup();
@@ -1857,21 +1557,38 @@ export default class GameScene extends Phaser.Scene {
     this.crisisGraphics.setDepth(RENDER_DEPTH.CRISIS_HAZARDS);
 
     // Initialize Dynamic Hazard System (Quantum Spire Hazard & Frost Hazard)
+    this.frostHazardAudio = FrostHazardAudio.getInstance();
+    this.voltHazardAudio = VoltHazardAudio.getInstance();
+    this.magmaHazardAudio = MagmaHazardAudio.getInstance();
+    this.miasmaHazardAudio = MiasmaHazardAudio.getInstance();
+
     this.dynamicHazard.init(this.map);
     this.gravityHazard.init(6, 7);
     this.frostHazard.init(6, 7);
     this.voltHazard.init(6, 7);
     this.magmaHazard.init(6, 7);
+    this.miasmaHazard.init(6, 7);
     this.hazardGraphics = this.add.graphics();
     this.hazardGraphics.setDepth(RENDER_DEPTH.CRISIS_HAZARDS);
 
-
     // Wire Game Mode Changes & Meta-Progression Events (UI-06, MEM-01)
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
-    this.game.events.on('mode-changed', this.onModeChanged);
-    this.game.events.on('perks-updated', this.onPerksUpdated);
-    this.game.events.on('relics-updated', this.onRelicsUpdated);
-    this.game.events.on('resume-run-state', this.onResumeRunState);
+    if (this.events) {
+      this.events.off(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
+      this.events.off(Phaser.Scenes.Events.DESTROY, this.shutdown, this);
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
+      this.events.once(Phaser.Scenes.Events.DESTROY, this.shutdown, this);
+    }
+    if (this.game && this.game.events) {
+      this.game.events.off('mode-changed', this.onModeChanged);
+      this.game.events.off('perks-updated', this.onPerksUpdated);
+      this.game.events.off('relics-updated', this.onRelicsUpdated);
+      this.game.events.off('resume-run-state', this.onResumeRunState);
+
+      this.game.events.on('mode-changed', this.onModeChanged);
+      this.game.events.on('perks-updated', this.onPerksUpdated);
+      this.game.events.on('relics-updated', this.onRelicsUpdated);
+      this.game.events.on('resume-run-state', this.onResumeRunState);
+    }
   }
 
   public startBossEncounter(bossId: string): void {
@@ -1906,6 +1623,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.bossHUD) {
       this.bossHUD.dismissBoss();
     }
+    this.bossHitBombIds.clear();
     this.activeBoss = null;
   }
 
@@ -1980,7 +1698,16 @@ export default class GameScene extends Phaser.Scene {
     if (this.isGameOver || !this.player || !this.cursors) return;
 
     // 1. Dash cooldown & portal cooldown decrements (SPEED_SURGE halves dash cooldown)
-    const cdMult = this.activeBuffs?.some((b) => b.id === 'SPEED_SURGE') ? 2 : 1;
+    let hasSpeedSurge = false;
+    if (this.activeBuffs) {
+      for (let bi = 0; bi < this.activeBuffs.length; bi++) {
+        if (this.activeBuffs[bi].id === 'SPEED_SURGE') {
+          hasSpeedSurge = true;
+          break;
+        }
+      }
+    }
+    const cdMult = hasSpeedSurge ? 2 : 1;
     if (this.dashCooldownRemaining > 0) {
       const prevCd = this.dashCooldownRemaining;
       this.dashCooldownRemaining = Math.max(0, this.dashCooldownRemaining - delta * cdMult);
@@ -2000,14 +1727,26 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.activeBuffs && this.activeBuffs.length > 0) {
       let buffChanged = false;
-      this.activeBuffs.forEach((b) => {
+      for (let bi = 0; bi < this.activeBuffs.length; bi++) {
+        const b = this.activeBuffs[bi];
         b.remainingMs = Math.max(0, b.remainingMs - delta);
         if (b.remainingMs <= 0) buffChanged = true;
-      });
+      }
       if (buffChanged) {
-        this.activeBuffs = this.activeBuffs.filter((b) => b.remainingMs > 0);
-        this.isTimeFrozen = this.activeBuffs.some((b) => b.id === 'TIME_FREEZE');
-        this.isCloaked = this.activeBuffs.some((b) => b.id === 'CLOAK');
+        let writeIdx = 0;
+        let hasTimeFreeze = false;
+        let hasCloak = false;
+        for (let bi = 0; bi < this.activeBuffs.length; bi++) {
+          const b = this.activeBuffs[bi];
+          if (b.remainingMs > 0) {
+            this.activeBuffs[writeIdx++] = b;
+            if (b.id === 'TIME_FREEZE') hasTimeFreeze = true;
+            if (b.id === 'CLOAK') hasCloak = true;
+          }
+        }
+        this.activeBuffs.length = writeIdx;
+        this.isTimeFrozen = hasTimeFreeze;
+        this.isCloaked = hasCloak;
         if (this.player && this.player.active) {
           this.player.setAlpha(this.isCloaked ? 0.35 : 1.0);
         }
@@ -2019,9 +1758,10 @@ export default class GameScene extends Phaser.Scene {
     if (this.hasMagnet && this.player && this.player.active) {
       const pullDist = 120;
       const pullSpeed = 160 * (delta / 1000);
-      this.items.getChildren().forEach((child) => {
-        const it = child as Phaser.Physics.Arcade.Sprite;
-        if (it.active) {
+      const itemsList = this.items.getChildren();
+      for (let i = 0; i < itemsList.length; i++) {
+        const it = itemsList[i] as Phaser.Physics.Arcade.Sprite;
+        if (it && it.active) {
           const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, it.x, it.y);
           if (d <= pullDist && d > 6) {
             const angle = Phaser.Math.Angle.Between(it.x, it.y, this.player.x, this.player.y);
@@ -2029,7 +1769,7 @@ export default class GameScene extends Phaser.Scene {
             it.y += Math.sin(angle) * pullSpeed;
           }
         }
-      });
+      }
     }
 
     // 2. Dash skill trigger check (disabled during Phase Jitter)
@@ -2114,16 +1854,29 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // 7. Conveyor push drift for bombs & sliding bomb physics
-    this.bombs.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
-      const bomb = child as Phaser.Physics.Arcade.Sprite;
-      if (!bomb.active) return;
+    const bombsList = this.bombs.getChildren();
+    for (let bi = 0; bi < bombsList.length; bi++) {
+      const bomb = bombsList[bi] as Phaser.Physics.Arcade.Sprite;
+      if (!bomb || !bomb.active) continue;
 
       const bCol = Math.floor(bomb.x / TILE_SIZE);
       const bRow = Math.floor(bomb.y / TILE_SIZE);
 
       if (bomb.getData('isSliding')) {
         const dir = bomb.getData('slideDir') as { x: number; y: number };
-        const lookahead = Math.max(16, BOMB_KICK_SPEED * (delta / 1000) + 4);
+        let currentSpeed = (bomb.getData('slideSpeed') as number) || BOMB_KICK_SPEED;
+
+        // Dynamic hazard tile interaction while sliding:
+        if (this.miasmaHazard && this.miasmaHazard.state !== MiasmaLifecycleState.DORMANT) {
+          const slideRes = this.miasmaHazard.evaluateBombSlide(bRow, bCol, currentSpeed);
+          if (slideRes.speed !== currentSpeed) {
+            currentSpeed = slideRes.speed;
+            bomb.setData('slideSpeed', currentSpeed);
+            bomb.setVelocity(dir.x * currentSpeed, dir.y * currentSpeed);
+          }
+        }
+
+        const lookahead = Math.max(16, currentSpeed * (delta / 1000) + 4);
         const checkX = bomb.x + dir.x * lookahead;
         const checkY = bomb.y + dir.y * lookahead;
         const targetCol = Math.floor(checkX / TILE_SIZE);
@@ -2135,16 +1888,17 @@ export default class GameScene extends Phaser.Scene {
         } else if (this.map[targetRow][targetCol] !== TILE_EMPTY) {
           blocked = true;
         } else {
-          this.bombs.getChildren().forEach((other) => {
-            const ob = other as Phaser.Physics.Arcade.Sprite;
-            if (ob.active && ob !== bomb) {
+          for (let oi = 0; oi < bombsList.length; oi++) {
+            const ob = bombsList[oi] as Phaser.Physics.Arcade.Sprite;
+            if (ob && ob.active && ob !== bomb) {
               const obr = Math.floor(ob.y / TILE_SIZE);
               const obc = Math.floor(ob.x / TILE_SIZE);
               if (obr === targetRow && obc === targetCol) {
                 blocked = true;
+                break;
               }
             }
-          });
+          }
         }
 
         // Check collision with active boss
@@ -2152,7 +1906,7 @@ export default class GameScene extends Phaser.Scene {
           const bossDist = Phaser.Math.Distance.Between(bomb.x, bomb.y, this.activeBoss.x, this.activeBoss.y);
           if (bossDist < (this.activeBoss.config.colliderRadius || 35) + 16) {
             this.explodeBomb(bomb, bRow, bCol);
-            return;
+            continue;
           }
         }
 
@@ -2182,10 +1936,9 @@ export default class GameScene extends Phaser.Scene {
           // Prevent bomb stacking: check if target cell already contains another bomb (PHYS-REV-04)
           let bombBlocking = false;
           if (leadRow !== bRow || leadCol !== bCol) {
-            const allBombs = this.bombs.getChildren();
-            for (let bi = 0; bi < allBombs.length; bi++) {
-              const other = allBombs[bi] as Phaser.Physics.Arcade.Sprite;
-              if (other !== bomb && other.active && Math.floor(other.y / TILE_SIZE) === leadRow && Math.floor(other.x / TILE_SIZE) === leadCol) {
+            for (let oi = 0; oi < bombsList.length; oi++) {
+              const other = bombsList[oi] as Phaser.Physics.Arcade.Sprite;
+              if (other !== bomb && other && other.active && Math.floor(other.y / TILE_SIZE) === leadRow && Math.floor(other.x / TILE_SIZE) === leadCol) {
                 bombBlocking = true;
                 break;
               }
@@ -2210,7 +1963,7 @@ export default class GameScene extends Phaser.Scene {
       if (this.bombSparkEmitter && Math.random() < 0.35) {
         this.bombSparkEmitter.emitParticleAt(bomb.x + 9, bomb.y - 15, 1);
       }
-    });
+    }
 
     // 8. Shield visual follow
     if (this.hasShield) {
@@ -2233,18 +1986,20 @@ export default class GameScene extends Phaser.Scene {
     // 9. Collect active bomb tiles for AI path avoidance (Zero-GC persistent FlatHazardMask)
     this.persistentHazardMask.clear();
     const bombTiles = this.persistentHazardMask as unknown as Set<string>;
-    this.bombs.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
-      const b = child as Phaser.Physics.Arcade.Sprite;
-      if (b.active) {
+    for (let bi = 0; bi < bombsList.length; bi++) {
+      const b = bombsList[bi] as Phaser.Physics.Arcade.Sprite;
+      if (b && b.active) {
         const col = Math.floor(b.x / TILE_SIZE);
         const row = Math.floor(b.y / TILE_SIZE);
         this.persistentHazardMask.setCoord(row, col, 1);
       }
-    });
+    }
 
     // 10. Update enemies, neutrals, and allies with advanced AI
+    const enemiesList = this.enemies.getChildren();
     if (!this.isTimeFrozen) {
-      this.enemies.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
+      for (let ei = 0; ei < enemiesList.length; ei++) {
+        const child = enemiesList[ei] as Phaser.GameObjects.GameObject;
         if (child && child.active) {
           if (child instanceof ChaserEnemy) {
             child.updateAI(
@@ -2297,10 +2052,12 @@ export default class GameScene extends Phaser.Scene {
             child.updateEntity(delta, _time);
           }
         }
-      });
+      }
 
       if (this.neutrals) {
-        this.neutrals.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
+        const neutralsList = this.neutrals.getChildren();
+        for (let ni = 0; ni < neutralsList.length; ni++) {
+          const child = neutralsList[ni] as Phaser.GameObjects.GameObject;
           if (child && child.active) {
             if (child instanceof MerchantNPC) {
               child.updateAI(delta, _time, this.player, this.map, bombTiles);
@@ -2310,14 +2067,13 @@ export default class GameScene extends Phaser.Scene {
               child.updateEntity(delta, _time);
             }
           }
-        });
+        }
       }
 
       if (this.allies) {
         this.scratchActiveEnemies.length = 0;
-        const enemyChildren = this.enemies.getChildren();
-        for (let ei = 0; ei < enemyChildren.length; ei++) {
-          const c = enemyChildren[ei];
+        for (let ei = 0; ei < enemiesList.length; ei++) {
+          const c = enemiesList[ei];
           if (c && c.active && c instanceof BaseEntity) {
             this.scratchActiveEnemies.push(c);
           }
@@ -2334,7 +2090,9 @@ export default class GameScene extends Phaser.Scene {
         const activeEnemies = this.scratchActiveEnemies;
         const activeItems = this.scratchActiveItems;
 
-        this.allies.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
+        const alliesList = this.allies.getChildren();
+        for (let ai = 0; ai < alliesList.length; ai++) {
+          const child = alliesList[ai] as Phaser.GameObjects.GameObject;
           if (child && child.active) {
             if (child instanceof MiniBomberAlly) {
               child.updateAI(delta, _time, this.player, this.map, bombTiles, (r, c, power) => {
@@ -2348,22 +2106,23 @@ export default class GameScene extends Phaser.Scene {
               child.updateEntity(delta, _time);
             }
           }
-        });
+        }
       }
     } else {
-      this.enemies.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
-        const enemy = child as Phaser.Physics.Arcade.Sprite;
-        if (enemy.active && enemy.body) {
+      for (let ei = 0; ei < enemiesList.length; ei++) {
+        const enemy = enemiesList[ei] as Phaser.Physics.Arcade.Sprite;
+        if (enemy && enemy.active && enemy.body) {
           enemy.setVelocity(0, 0);
         }
-      });
+      }
       if (this.neutrals) {
-        this.neutrals.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
-          const n = child as Phaser.Physics.Arcade.Sprite;
-          if (n.active && n.body) {
+        const neutralsList = this.neutrals.getChildren();
+        for (let ni = 0; ni < neutralsList.length; ni++) {
+          const n = neutralsList[ni] as Phaser.Physics.Arcade.Sprite;
+          if (n && n.active && n.body) {
             n.setVelocity(0, 0);
           }
-        });
+        }
       }
     }
 
@@ -2775,6 +2534,46 @@ export default class GameScene extends Phaser.Scene {
 
       this.renderDynamicHazardGraphics(_time);
     }
+
+    // 13f. Update Miasma Hazard System (Toxic Miasma & Spore Bloom)
+    if (this.miasmaHazard && this.miasmaHazard.state !== MiasmaLifecycleState.DORMANT) {
+      this.miasmaHazard.update(delta);
+      if (this.miasmaHazardAudio) {
+        this.miasmaHazardAudio.playMiasmaHazardState(this.miasmaHazard.state, this.miasmaHazard.getTelegraphPhase(), this.time?.now ?? Date.now());
+      }
+
+      if (this.miasmaHazard.state === MiasmaLifecycleState.CORROSIVE_BURST && !this.isGameOver) {
+        // Enemy Collision Check against corrosive burst
+        const enemiesList = this.enemies.getChildren();
+        for (let i = 0; i < enemiesList.length; i++) {
+          const enemy = enemiesList[i] as BaseEntity;
+          if (enemy && enemy.active && !enemy.isDead) {
+            const er = Math.floor(enemy.y / TILE_SIZE);
+            const ec = Math.floor(enemy.x / TILE_SIZE);
+            const isBoss = enemy === (this.activeBoss as unknown as BaseEntity);
+            const enemyHit = this.miasmaHazard.checkEnemyCollision(er, ec, isBoss, this.time.now);
+            if (enemyHit.hit) {
+              if (enemyHit.isDissolved || enemyHit.isDecomposed) {
+                if (typeof enemy.takeDamage === 'function') {
+                  enemy.takeDamage(enemyHit.damage, 'hazard', this.time.now);
+                }
+                this.score += enemyHit.scoreBonus;
+                this.addUltimateCharge(enemyHit.ultimateChargeBonus);
+                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#10b981');
+              } else if ((enemyHit.isStunned || enemyHit.isSporeStunned) && isBoss && this.activeBoss) {
+                this.activeBoss.takeBombDamage(Math.floor(this.activeBoss.maxHp * BOSS_MIASMA_DAMAGE_RATIO));
+                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#10b981');
+                if (this.bossHUD) {
+                  this.bossHUD.triggerStun(enemyHit.stunDurationMs / 1000, 'Spore Overgrowth Stasis!');
+                }
+              }
+            }
+          }
+        }
+      }
+
+      this.renderDynamicHazardGraphics(_time);
+    }
   }
 
   private renderCrisisHazards(time: number): void {
@@ -2924,6 +2723,10 @@ export default class GameScene extends Phaser.Scene {
     const originalSpeed = this.playerSpeed;
     this.playerSpeed = this.playerSpeed * 1.30;
 
+    // Cleanse conflicting debuff
+    this.activeBuffs = this.activeBuffs.filter((b) => b.id !== 'PHASE_JITTER');
+    this.phaseJitterRemaining = 0;
+
     this.spawnFloatingText(this.player.x, this.player.y - 25, FLOATING_TEXT_QUANTUM_PHASED, '#00ffff');
     if (this.cameras?.main) {
       this.cameras.main.flash(120, 0, 229, 255);
@@ -3000,6 +2803,9 @@ export default class GameScene extends Phaser.Scene {
     const originalSpeed = this.playerSpeed;
     this.playerSpeed = this.playerSpeed * (1.0 + THERMAL_BREAK_SPEED_BURST_RATIO);
 
+    // Cleanse conflicting debuffs
+    this.activeBuffs = this.activeBuffs.filter((b) => b.id !== 'FROST_CHILL' && b.id !== 'THERMAL_SINGE');
+
     const existing = this.activeBuffs.find((b) => b.id === 'THERMAL_BREAK');
     if (existing) {
       existing.remainingMs = THERMAL_BREAK_INVULN_MS;
@@ -3040,7 +2846,8 @@ export default class GameScene extends Phaser.Scene {
   applyFrostChill(): void {
     if (this.isGameOver || !this.player || !this.player.active) return;
     const now = this.time?.now ?? Date.now();
-    if (this.isInvulnerable || this.isDashing) return;
+    if (this.isInvulnerable || this.isDashing || this.activeBuffs.some((b) => b.id === 'THERMAL_BREAK' || b.id === 'MAGMA_SURF')) return;
+    this.activeBuffs = this.activeBuffs.filter((b) => b.id !== 'THERMAL_SINGE');
 
     const existing = this.activeBuffs.find((b) => b.id === 'FROST_CHILL');
     if (existing) {
@@ -3091,6 +2898,9 @@ export default class GameScene extends Phaser.Scene {
     const originalSpeed = this.playerSpeed;
     this.playerSpeed = originalSpeed * (1.0 + SUPERCONDUCTOR_SPEED_BURST_RATIO);
 
+    // Cleanse conflicting debuff
+    this.activeBuffs = this.activeBuffs.filter((b) => b.id !== 'STATIC_SHOCK');
+
     const existing = this.activeBuffs.find((b) => b.id === 'SUPERCONDUCTOR_DASH');
     if (existing) {
       existing.remainingMs = SUPERCONDUCTOR_DASH_INVULN_MS;
@@ -3131,7 +2941,7 @@ export default class GameScene extends Phaser.Scene {
   applyStaticShock(): void {
     if (this.isGameOver || !this.player || !this.player.active) return;
     const now = this.time?.now ?? Date.now();
-    if (this.isInvulnerable || this.isDashing) return;
+    if (this.isInvulnerable || this.isDashing || this.activeBuffs.some((b) => b.id === 'SUPERCONDUCTOR_DASH')) return;
 
     const existing = this.activeBuffs.find((b) => b.id === 'STATIC_SHOCK');
     if (existing) {
@@ -3182,6 +2992,9 @@ export default class GameScene extends Phaser.Scene {
     const originalSpeed = this.playerSpeed;
     this.playerSpeed = originalSpeed * (1.0 + MAGMA_SURF_SPEED_BURST_RATIO);
 
+    // Cleanse conflicting debuffs
+    this.activeBuffs = this.activeBuffs.filter((b) => b.id !== 'THERMAL_SINGE' && b.id !== 'FROST_CHILL');
+
     const existing = this.activeBuffs.find((b) => b.id === 'MAGMA_SURF');
     if (existing) {
       existing.remainingMs = MAGMA_SURF_INVULN_MS;
@@ -3222,7 +3035,8 @@ export default class GameScene extends Phaser.Scene {
   applyThermalSinge(): void {
     if (this.isGameOver || !this.player || !this.player.active) return;
     const now = this.time?.now ?? Date.now();
-    if (this.isInvulnerable || this.isDashing) return;
+    if (this.isInvulnerable || this.isDashing || this.activeBuffs.some((b) => b.id === 'MAGMA_SURF' || b.id === 'THERMAL_BREAK')) return;
+    this.activeBuffs = this.activeBuffs.filter((b) => b.id !== 'FROST_CHILL');
 
     const existing = this.activeBuffs.find((b) => b.id === 'THERMAL_SINGE');
     if (existing) {
@@ -3259,9 +3073,96 @@ export default class GameScene extends Phaser.Scene {
     this.emitStatsUpdate();
   }
 
-  applyPhaseJitter(durationMs: number = PHASE_JITTER_DURATION_MS): void {
+  grantSporeSurge(): void {
+    if (this.isGameOver || !this.player || !this.player.active) return;
+    this.isInvulnerable = true;
+    const originalSpeed = this.playerSpeed;
+    this.playerSpeed = Math.floor(originalSpeed * (1.0 + SPORE_SURGE_SPEED_BURST_RATIO));
 
+    this.player.setTint(0x10b981);
+    this.player.setAlpha(0.85);
+
+    const existing = this.activeBuffs.find((b) => b.id === 'SPORE_SURGE');
+    if (existing) {
+      existing.remainingMs = SPORE_SURGE_INVULN_MS;
+      existing.totalMs = SPORE_SURGE_INVULN_MS;
+    } else {
+      this.activeBuffs.push({
+        id: 'SPORE_SURGE',
+        name: 'Spore Surge',
+        icon: '✦',
+        color: '#10b981',
+        remainingMs: SPORE_SURGE_INVULN_MS,
+        totalMs: SPORE_SURGE_INVULN_MS,
+      });
+    }
+
+    this.spawnFloatingText(this.player.x, this.player.y - 25, FLOATING_TEXT_SPORE_SURGE, '#10b981');
+    if (this.cameras?.main) {
+      this.cameras.main.flash(100, 16, 185, 129);
+    }
+    if (this.miasmaHazardAudio) {
+      this.miasmaHazardAudio.playSporeSurge();
+    }
+
+    this.time.delayedCall(SPORE_SURGE_INVULN_MS, () => {
+      if (this.player && this.player.active) {
+        this.player.setAlpha(1.0);
+        this.player.clearTint();
+        if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
+          this.isInvulnerable = false;
+        }
+      }
+      this.playerSpeed = originalSpeed;
+    });
+
+    this.emitStatsUpdate();
+  }
+
+  applyNeurotoxin(): void {
+    if (this.isGameOver || !this.player || !this.player.active) return;
+    const now = this.time?.now ?? Date.now();
+    if (this.isInvulnerable || this.isDashing) return;
+
+    const existing = this.activeBuffs.find((b) => b.id === 'NEUROTOXIN');
+    if (existing) {
+      existing.remainingMs = NEUROTOXIN_DURATION_MS;
+      existing.totalMs = NEUROTOXIN_DURATION_MS;
+    } else {
+      this.activeBuffs.push({
+        id: 'NEUROTOXIN',
+        name: 'Neurotoxin',
+        icon: '🧪',
+        color: '#84cc16',
+        remainingMs: NEUROTOXIN_DURATION_MS,
+        totalMs: NEUROTOXIN_DURATION_MS,
+      });
+    }
+
+    if (now - this.lastNeurotoxinFloatingTextMs >= 2000) {
+      this.lastNeurotoxinFloatingTextMs = now;
+      this.spawnFloatingText(this.player.x, this.player.y - 25, FLOATING_TEXT_NEUROTOXIN, '#84cc16');
+      if (this.miasmaHazardAudio) {
+        this.miasmaHazardAudio.playNeurotoxin(now);
+      }
+    }
+
+    if (this.player && this.player.active && !this.isInvulnerable) {
+      this.player.setTint(0xbbf7d0);
+      this.time.delayedCall(NEUROTOXIN_DURATION_MS, () => {
+        if (this.player && this.player.active && !this.activeBuffs.some((b) => b.id === 'NEUROTOXIN')) {
+          this.player.clearTint();
+        }
+      });
+    }
+
+    this.emitStatsUpdate();
+  }
+
+  applyPhaseJitter(durationMs: number = PHASE_JITTER_DURATION_MS): void {
     if (this.isGameOver) return;
+    const now = this.time?.now ?? Date.now();
+    if (this.isInvulnerable || this.isDashing || now < this.shieldInvulnerableUntil) return;
     this.phaseJitterRemaining = Math.max(this.phaseJitterRemaining, durationMs);
 
     const existing = this.activeBuffs.find((b) => b.id === 'PHASE_JITTER');
@@ -3300,12 +3201,14 @@ export default class GameScene extends Phaser.Scene {
     const fState = this.frostHazard?.getState();
     const vState = this.voltHazard?.getState();
     const mState = this.magmaHazard?.getState();
+    const miState = this.miasmaHazard?.getState();
     const hasDynamic = this.dynamicHazard && dState !== HazardLifecycleState.INACTIVE;
     const hasFrost = this.frostHazard && fState !== FrostLifecycleState.DORMANT && fState !== FrostLifecycleState.THAW_COOLDOWN;
     const hasVolt = this.voltHazard && vState !== VoltLifecycleState.DORMANT && vState !== VoltLifecycleState.DISCHARGE_COOLDOWN;
     const hasMagma = this.magmaHazard && mState !== MagmaLifecycleState.DORMANT && mState !== MagmaLifecycleState.OBSIDIAN_COOLDOWN;
+    const hasMiasma = this.miasmaHazard && miState !== MiasmaLifecycleState.DORMANT && miState !== MiasmaLifecycleState.SPORE_DISSIPATION;
 
-    if (!hasDynamic && !hasFrost && !hasVolt && !hasMagma) return;
+    if (!hasDynamic && !hasFrost && !hasVolt && !hasMagma && !hasMiasma) return;
 
     if (hasDynamic) {
       // 1. Render Active & Telegraph Beams
@@ -3518,6 +3421,53 @@ export default class GameScene extends Phaser.Scene {
       }
     }
   }
+
+  // 6. Render Miasma Hazard (Toxic Spores & Corrosive Bloom)
+  if (hasMiasma && this.miasmaHazard) {
+    const sporeIndices = this.miasmaHazard.getActiveSporeIndices();
+    const sporeCount = this.miasmaHazard.getActiveSporeCount();
+    const isBurst = miState === MiasmaLifecycleState.CORROSIVE_BURST;
+    const phase = this.miasmaHazard.getTelegraphPhase();
+    const dangerMask = this.miasmaHazard.dangerMask;
+
+    for (let i = 0; i < sporeCount; i++) {
+      const idx = sporeIndices[i];
+      const r = Math.floor(idx / COLS);
+      const c = idx % COLS;
+      const left = c * TILE_SIZE;
+      const top = r * TILE_SIZE;
+      const cx = left + TILE_SIZE / 2;
+      const cy = top + TILE_SIZE / 2;
+      const maskVal = dangerMask[idx];
+
+      if (maskVal === 3) {
+        // Fertile cleansed soil
+        this.hazardGraphics.fillStyle(0x34d399, 0.25);
+        this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        this.hazardGraphics.lineStyle(1.5, 0x10b981, 0.65);
+        this.hazardGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+      } else if (isBurst || maskVal === 2) {
+        // Corrosive burst: intense toxic emerald pulse
+        const pulse = 0.8 + 0.2 * Math.sin(time / 20);
+        this.hazardGraphics.fillStyle(0xa7f3d0, 0.90);
+        this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        this.hazardGraphics.lineStyle(2.5, 0x10b981, 0.95 * pulse);
+        this.hazardGraphics.strokeRect(left + 1, top + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+      } else {
+        // Telegraph spore incubation phases
+        const alpha =
+          phase === MiasmaTelegraphPhase.POD_SWELLING
+            ? 0.20
+            : phase === MiasmaTelegraphPhase.SPORE_EXHALATION
+            ? 0.40
+            : 0.65; // BLOOM_IMMINENT
+        this.hazardGraphics.fillStyle(0x059669, alpha);
+        this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        this.hazardGraphics.lineStyle(1.5, 0x10b981, 0.7);
+        this.hazardGraphics.strokeCircle(cx, cy, 7);
+      }
+    }
+  }
 }
 
 
@@ -3586,6 +3536,8 @@ export default class GameScene extends Phaser.Scene {
     const isStaticShockActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'STATIC_SHOCK')) || false;
     const isMagmaSurfActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'MAGMA_SURF')) || false;
     const isThermalSingeActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'THERMAL_SINGE')) || false;
+    const isSporeSurgeActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'SPORE_SURGE')) || false;
+    const isNeurotoxinActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'NEUROTOXIN')) || false;
 
     let gravityMultiplier = 1.0;
     if (this.gravityHazard && this.gravityHazard.state !== GravityLifecycleState.DORMANT && this.gravityHazard.state !== GravityLifecycleState.COOLDOWN) {
@@ -3659,6 +3611,29 @@ export default class GameScene extends Phaser.Scene {
       magmaMultiplier *= (1.0 - THERMAL_SINGE_SLOW_RATIO);
     }
 
+    let miasmaMultiplier = 1.0;
+    if (this.miasmaHazard && this.miasmaHazard.state !== MiasmaLifecycleState.DORMANT && this.miasmaHazard.state !== MiasmaLifecycleState.SPORE_DISSIPATION) {
+      const miRes = this.miasmaHazard.evaluatePlayer(px, py, this.isDashing, this.time?.now ?? Date.now(), wantX, wantY);
+      if (miRes.sporeSurgeGranted) {
+        this.grantSporeSurge();
+      } else if (miRes.hit && miRes.damage > 0 && !this.isInvulnerable && !this.isDashing) {
+        this.spawnFloatingText(this.player.x, this.player.y - 14, `-${miRes.damage} CORROSIVE BURST`, '#ef4444');
+        if (this.cameraTrauma) {
+          this.cameraTrauma.addTrauma(0.40);
+        }
+        this.playerDie();
+      } else if (miRes.neurotoxinInflicted && !this.isDashing && !this.isInvulnerable) {
+        this.applyNeurotoxin();
+      }
+      miasmaMultiplier = miRes.slowFactor;
+    }
+    if (isSporeSurgeActive) {
+      miasmaMultiplier *= (1.0 + SPORE_SURGE_SPEED_BURST_RATIO);
+    }
+    if (isNeurotoxinActive) {
+      miasmaMultiplier *= (1.0 - NEUROTOXIN_SLOW_RATIO);
+    }
+
     const speed = calculateClampedPlayerSpeed({
       baseSpeed: this.playerSpeed,
       perkSpeedBonus,
@@ -3666,7 +3641,7 @@ export default class GameScene extends Phaser.Scene {
       isDashing: this.isDashing,
       dashSpeed: DASH_SPEED,
       phaseJitterActive: isPhaseJittered,
-      speedMultiplier: gravityMultiplier * frostMultiplier * voltMultiplier * magmaMultiplier,
+      speedMultiplier: gravityMultiplier * frostMultiplier * voltMultiplier * magmaMultiplier * miasmaMultiplier,
     });
     const slideSpeed = speed;
     const snapThreshold = Math.max(2, speed * (delta / 1000));
@@ -3937,6 +3912,15 @@ export default class GameScene extends Phaser.Scene {
         fuseDuration = magmaInteraction.modifiedFuseMs;
         bomb.setTint(magmaInteraction.tint ?? 0xf97316);
         this.spawnFloatingText(centerX, centerY - 25, magmaInteraction.floatingText ?? '🔥 PYRO-FUSED (-1.2s)', '#f97316');
+      }
+    }
+
+    if (this.miasmaHazard && this.miasmaHazard.state !== MiasmaLifecycleState.DORMANT && this.miasmaHazard.state !== MiasmaLifecycleState.SPORE_DISSIPATION) {
+      const miasmaInteraction = this.miasmaHazard.onBombPlaced(bombId, row, col, this.bombPower, fuseDuration);
+      if (miasmaInteraction.isBioFused) {
+        fuseDuration = miasmaInteraction.modifiedFuseMs;
+        bomb.setTint(miasmaInteraction.tint ?? MIASMA_SUPER_BOMB_TINT);
+        this.spawnFloatingText(centerX, centerY - 25, miasmaInteraction.floatingText ?? FLOATING_TEXT_BIO_FUSED, '#10b981');
       }
     }
 
@@ -4440,6 +4424,19 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    if (this.miasmaHazard && this.miasmaHazard.state !== MiasmaLifecycleState.DORMANT && this.miasmaHazard.state !== MiasmaLifecycleState.SPORE_DISSIPATION) {
+      const miDet = this.miasmaHazard.onBombDetonated(bombId, actualRow, actualCol, effectivePower);
+      if (miDet.isCatalytic) {
+        effectivePower = miDet.modifiedPower;
+        isPiercing = isPiercing || miDet.piercing;
+        const cX = actualCol * TILE_SIZE + TILE_SIZE / 2;
+        const cY = actualRow * TILE_SIZE + TILE_SIZE / 2;
+        this.spawnFloatingText(cX, cY - 25, miDet.floatingText || FLOATING_TEXT_CATALYTIC_DETONATION, '#10b981');
+        this.score += miDet.bonusScore;
+        this.emitStatsUpdate();
+      }
+    }
+
     // 3. Polarization Strike helper (blast cleanses spire into golden channel for 8.0s)
     const checkPolarizationStrike = (r: number, c: number) => {
       if (this.frostHazard) {
@@ -4456,6 +4453,17 @@ export default class GameScene extends Phaser.Scene {
           this.spawnFloatingText(px, py - 20, quenchRes.floatingText, '#6366f1');
           if (this.magmaHazardAudio) {
             this.magmaHazardAudio.playObsidianQuenchSnap();
+          }
+        }
+      }
+      if (this.miasmaHazard) {
+        const cleanseRes = this.miasmaHazard.onBombBlastImpact(r, c);
+        if (cleanseRes.cleansed) {
+          const px = c * TILE_SIZE + TILE_SIZE / 2;
+          const py = r * TILE_SIZE + TILE_SIZE / 2;
+          this.spawnFloatingText(px, py - 20, cleanseRes.floatingText, '#10b981');
+          if (this.miasmaHazardAudio) {
+            this.miasmaHazardAudio.playFloralCleanseSnap();
           }
         }
       }
@@ -5353,6 +5361,13 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    // Player Mastery: Spore Surge when dashing inside miasma spore zone
+    if (this.miasmaHazard && this.miasmaHazard.state !== MiasmaLifecycleState.DORMANT && this.miasmaHazard.state !== MiasmaLifecycleState.SPORE_DISSIPATION) {
+      if (this.miasmaHazard.isPointInSporeZone(this.player.x, this.player.y)) {
+        this.grantSporeSurge();
+      }
+    }
+
     let dirX = 0;
     let dirY = 0;
     switch (this.playerFacing) {
@@ -5601,7 +5616,20 @@ export default class GameScene extends Phaser.Scene {
     if (hasOtherBomb) return;
 
     // Initiate sliding bomb
+    let kickSpeed = BOMB_KICK_SPEED;
+    if (this.miasmaHazard && this.miasmaHazard.state !== MiasmaLifecycleState.DORMANT) {
+      const kickRes = this.miasmaHazard.onBombKicked(bomb.getData('id') || 'bomb', bRow, bCol, BOMB_KICK_SPEED);
+      if (kickRes.isBioSlick) {
+        kickSpeed = kickRes.modifiedSpeed || BOMB_KICK_MIASMA_SPEED;
+        const txt = kickRes.floatingText || FLOATING_TEXT_BIO_SLICK_GLIDE;
+        this.spawnFloatingText(bomb.x, bomb.y - 20, txt, '#10b981');
+        if (this.miasmaHazardAudio) {
+          this.miasmaHazardAudio.playBioSlickKick();
+        }
+      }
+    }
     bomb.setData('isSliding', true);
+    bomb.setData('slideSpeed', kickSpeed);
     let slideDir = bomb.getData('slideDir') as { x: number; y: number } | undefined;
     if (!slideDir) {
       slideDir = { x: dirX, y: dirY };
@@ -5611,7 +5639,7 @@ export default class GameScene extends Phaser.Scene {
       slideDir.y = dirY;
     }
     (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(false);
-    bomb.setVelocity(dirX * BOMB_KICK_SPEED, dirY * BOMB_KICK_SPEED);
+    bomb.setVelocity(dirX * kickSpeed, dirY * kickSpeed);
   }
 
   private spawnFloatingText(x: number, y: number, text: string, color: string) {
@@ -5661,514 +5689,12 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  private generateItemTextures() {
-    const itemDefs: Array<{
-      key: string;
-      bgColor: number;
-      ringColor: number;
-      drawGlyph: (ctx: CanvasRenderingContext2D) => void;
-    }> = [
-      {
-        key: 'item_speed',
-        bgColor: 0x06b6d4,
-        ringColor: 0x22d3ee,
-        drawGlyph: (ctx) => {
-          ctx.fillStyle = '#ffffff';
-          ctx.beginPath();
-          ctx.moveTo(10, 22); ctx.lineTo(18, 12); ctx.lineTo(14, 12); ctx.lineTo(20, 8);
-          ctx.lineTo(13, 16); ctx.lineTo(17, 16); ctx.closePath();
-          ctx.fill();
-        },
-      },
-      {
-        key: 'item_bomb',
-        bgColor: 0x334155,
-        ringColor: 0x94a3b8,
-        drawGlyph: (ctx) => {
-          ctx.fillStyle = '#0f172a';
-          ctx.beginPath();
-          ctx.arc(16, 18, 7, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.strokeStyle = '#facc15';
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(16, 11); ctx.quadraticCurveTo(18, 8, 21, 9);
-          ctx.stroke();
-          ctx.fillStyle = '#ef4444';
-          ctx.beginPath();
-          ctx.arc(21, 9, 2, 0, Math.PI * 2);
-          ctx.fill();
-        },
-      },
-      {
-        key: 'item_fire',
-        bgColor: 0xe11d48,
-        ringColor: 0xfb7185,
-        drawGlyph: (ctx) => {
-          ctx.fillStyle = '#facc15';
-          ctx.beginPath();
-          ctx.moveTo(16, 8);
-          ctx.quadraticCurveTo(22, 14, 20, 22);
-          ctx.quadraticCurveTo(16, 25, 12, 22);
-          ctx.quadraticCurveTo(10, 14, 16, 8);
-          ctx.fill();
-          ctx.fillStyle = '#f97316';
-          ctx.beginPath();
-          ctx.moveTo(16, 13);
-          ctx.quadraticCurveTo(19, 17, 18, 22);
-          ctx.quadraticCurveTo(16, 24, 14, 22);
-          ctx.quadraticCurveTo(13, 17, 16, 13);
-          ctx.fill();
-        },
-      },
-      {
-        key: 'item_kick',
-        bgColor: 0x16a34a,
-        ringColor: 0x4ade80,
-        drawGlyph: (ctx) => {
-          ctx.fillStyle = '#ffffff';
-          ctx.beginPath();
-          ctx.moveTo(10, 10); ctx.lineTo(15, 10); ctx.lineTo(15, 17); ctx.lineTo(22, 17);
-          ctx.lineTo(23, 22); ctx.lineTo(10, 22); ctx.closePath();
-          ctx.fill();
-        },
-      },
-      {
-        key: 'item_shield',
-        bgColor: 0xd97706,
-        ringColor: 0xfbbf24,
-        drawGlyph: (ctx) => {
-          ctx.fillStyle = '#fef08a';
-          ctx.beginPath();
-          ctx.moveTo(16, 8); ctx.lineTo(23, 12); ctx.lineTo(21, 20); ctx.lineTo(16, 24); ctx.lineTo(11, 20); ctx.lineTo(9, 12); ctx.closePath();
-          ctx.fill();
-        },
-      },
-      {
-        key: 'item_piercing_bomb',
-        bgColor: 0x1e293b,
-        ringColor: 0x06b6d4,
-        drawGlyph: (ctx) => {
-          ctx.fillStyle = '#94a3b8';
-          ctx.beginPath();
-          ctx.moveTo(16, 6); ctx.lineTo(18, 12); ctx.lineTo(14, 12); ctx.closePath();
-          ctx.moveTo(16, 26); ctx.lineTo(18, 20); ctx.lineTo(14, 20); ctx.closePath();
-          ctx.moveTo(6, 16); ctx.lineTo(12, 14); ctx.lineTo(12, 18); ctx.closePath();
-          ctx.moveTo(26, 16); ctx.lineTo(20, 14); ctx.lineTo(20, 18); ctx.closePath();
-          ctx.fill();
-          ctx.fillStyle = '#06b6d4';
-          ctx.beginPath();
-          ctx.arc(16, 16, 5, 0, Math.PI * 2);
-          ctx.fill();
-        },
-      },
-      {
-        key: 'item_remote_bomb',
-        bgColor: 0x881337,
-        ringColor: 0xfbbf24,
-        drawGlyph: (ctx) => {
-          ctx.fillStyle = '#1e293b';
-          ctx.beginPath();
-          ctx.arc(16, 19, 6.5, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.strokeStyle = '#94a3b8';
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(16, 13); ctx.lineTo(16, 7);
-          ctx.stroke();
-          ctx.fillStyle = '#22c55e';
-          ctx.beginPath();
-          ctx.arc(16, 7, 2.5, 0, Math.PI * 2);
-          ctx.fill();
-        },
-      },
-      {
-        key: 'item_cluster_bomb',
-        bgColor: 0x3b0764,
-        ringColor: 0xe879f9,
-        drawGlyph: (ctx) => {
-          ctx.fillStyle = '#facc15';
-          [ [12, 13], [20, 13], [16, 21] ].forEach(([cx, cy]) => {
-            ctx.beginPath();
-            ctx.arc(cx, cy, 3.5, 0, Math.PI * 2);
-            ctx.fill();
-          });
-          ctx.strokeStyle = '#e879f9';
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.moveTo(12, 13); ctx.lineTo(20, 13); ctx.lineTo(16, 21); ctx.closePath();
-          ctx.stroke();
-        },
-      },
-      {
-        key: 'item_landmine',
-        bgColor: 0x334155,
-        ringColor: 0xeab308,
-        drawGlyph: (ctx) => {
-          ctx.fillStyle = '#1e293b';
-          ctx.beginPath();
-          ctx.ellipse(16, 18, 9, 5, 0, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillStyle = '#f43f5e';
-          ctx.beginPath();
-          ctx.arc(16, 18, 3, 0, Math.PI * 2);
-          ctx.fill();
-        },
-      },
-      {
-        key: 'item_ice_bomb',
-        bgColor: 0x082f49,
-        ringColor: 0x38bdf8,
-        drawGlyph: (ctx) => {
-          ctx.strokeStyle = '#38bdf8';
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(16, 8); ctx.lineTo(16, 24);
-          ctx.moveTo(9, 12); ctx.lineTo(23, 20);
-          ctx.moveTo(9, 20); ctx.lineTo(23, 12);
-          ctx.stroke();
-          ctx.fillStyle = '#ffffff';
-          ctx.beginPath();
-          ctx.arc(16, 16, 2, 0, Math.PI * 2);
-          ctx.fill();
-        },
-      },
-      {
-        key: 'item_ricochet_bomb',
-        bgColor: 0x581c87,
-        ringColor: 0x22c55e,
-        drawGlyph: (ctx) => {
-          ctx.fillStyle = '#1e293b';
-          ctx.beginPath();
-          ctx.arc(16, 16, 6, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.strokeStyle = '#22c55e';
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.arc(16, 16, 9, -Math.PI * 0.75, Math.PI * 0.25);
-          ctx.stroke();
-        },
-      },
-      {
-        key: 'item_mega_fire',
-        bgColor: 0xea580c,
-        ringColor: 0xfde047,
-        drawGlyph: (ctx) => {
-          ctx.fillStyle = '#fef08a';
-          ctx.beginPath();
-          for (let i = 0; i < 8; i++) {
-            const angle = (i * Math.PI) / 4;
-            const r = i % 2 === 0 ? 9 : 4;
-            const x = 16 + Math.cos(angle) * r;
-            const y = 16 + Math.sin(angle) * r;
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-          }
-          ctx.closePath();
-          ctx.fill();
-        },
-      },
-      {
-        key: 'item_armor_up',
-        bgColor: 0x1e3a5f,
-        ringColor: 0x60a5fa,
-        drawGlyph: (ctx) => {
-          ctx.fillStyle = '#60a5fa';
-          ctx.beginPath();
-          ctx.moveTo(10, 10); ctx.lineTo(22, 10); ctx.lineTo(20, 22); ctx.lineTo(12, 22); ctx.closePath();
-          ctx.fill();
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(13, 13, 2, 2);
-          ctx.fillRect(17, 13, 2, 2);
-        },
-      },
-      {
-        key: 'item_blast_resist',
-        bgColor: 0xc2410c,
-        ringColor: 0xf97316,
-        drawGlyph: (ctx) => {
-          ctx.fillStyle = '#fed7aa';
-          ctx.beginPath();
-          ctx.moveTo(16, 8); ctx.lineTo(25, 23); ctx.lineTo(7, 23); ctx.closePath();
-          ctx.fill();
-          ctx.fillStyle = '#c2410c';
-          ctx.fillRect(15, 12, 2, 6);
-          ctx.fillRect(15, 20, 2, 2);
-        },
-      },
-      {
-        key: 'item_wall_pass',
-        bgColor: 0x581c87,
-        ringColor: 0xc084fc,
-        drawGlyph: (ctx) => {
-          ctx.strokeStyle = '#e9d5ff';
-          ctx.lineWidth = 1.5;
-          ctx.strokeRect(9, 10, 14, 5);
-          ctx.strokeRect(9, 17, 14, 5);
-          ctx.fillStyle = '#c084fc';
-          ctx.beginPath();
-          ctx.moveTo(14, 22); ctx.lineTo(22, 14); ctx.lineTo(19, 11); ctx.lineTo(11, 19); ctx.closePath();
-          ctx.fill();
-        },
-      },
-      {
-        key: 'item_bomb_pass',
-        bgColor: 0x312e81,
-        ringColor: 0x818cf8,
-        drawGlyph: (ctx) => {
-          ctx.strokeStyle = '#a5b4fc';
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.arc(16, 16, 7, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(10, 22); ctx.lineTo(22, 10);
-          ctx.stroke();
-        },
-      },
-      {
-        key: 'item_time_freeze',
-        bgColor: 0x78350f,
-        ringColor: 0xfacc15,
-        drawGlyph: (ctx) => {
-          ctx.strokeStyle = '#fef08a';
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.arc(16, 17, 7, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(16, 17); ctx.lineTo(16, 13);
-          ctx.moveTo(16, 17); ctx.lineTo(19, 17);
-          ctx.stroke();
-          ctx.strokeRect(14, 7, 4, 3);
-        },
-      },
-      {
-        key: 'item_magnet',
-        bgColor: 0x172554,
-        ringColor: 0x38bdf8,
-        drawGlyph: (ctx) => {
-          ctx.lineWidth = 3;
-          ctx.strokeStyle = '#ef4444';
-          ctx.beginPath();
-          ctx.arc(16, 15, 6, Math.PI, Math.PI * 1.5);
-          ctx.stroke();
-          ctx.strokeStyle = '#3b82f6';
-          ctx.beginPath();
-          ctx.arc(16, 15, 6, Math.PI * 1.5, 0);
-          ctx.stroke();
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(9, 15, 3, 4);
-          ctx.fillRect(20, 15, 3, 4);
-        },
-      },
-      {
-        key: 'item_extra_life',
-        bgColor: 0x881337,
-        ringColor: 0xfbbf24,
-        drawGlyph: (ctx) => {
-          ctx.fillStyle = '#f43f5e';
-          ctx.beginPath();
-          ctx.moveTo(16, 22);
-          ctx.bezierCurveTo(9, 17, 9, 11, 13, 11);
-          ctx.bezierCurveTo(15, 11, 16, 13, 16, 13);
-          ctx.bezierCurveTo(16, 13, 17, 11, 19, 11);
-          ctx.bezierCurveTo(23, 11, 23, 17, 16, 22);
-          ctx.fill();
-        },
-      },
-      {
-        key: 'item_cloak',
-        bgColor: 0x0f172a,
-        ringColor: 0x818cf8,
-        drawGlyph: (ctx) => {
-          ctx.fillStyle = '#c084fc';
-          ctx.beginPath();
-          ctx.moveTo(16, 9); ctx.lineTo(23, 21); ctx.lineTo(9, 21); ctx.closePath();
-          ctx.fill();
-          ctx.fillStyle = '#ffffff';
-          ctx.beginPath();
-          ctx.arc(14, 16, 1.5, 0, Math.PI * 2);
-          ctx.arc(18, 16, 1.5, 0, Math.PI * 2);
-          ctx.fill();
-        },
-      },
-      {
-        key: 'item_deflector',
-        bgColor: 0x0f766e,
-        ringColor: 0x2dd4bf,
-        drawGlyph: (ctx) => {
-          ctx.fillStyle = '#2dd4bf';
-          ctx.beginPath();
-          ctx.moveTo(16, 8); ctx.lineTo(24, 16); ctx.lineTo(16, 24); ctx.lineTo(8, 16); ctx.closePath();
-          ctx.fill();
-          ctx.fillStyle = '#ffffff';
-          ctx.beginPath();
-          ctx.moveTo(16, 11); ctx.lineTo(21, 16); ctx.lineTo(16, 21); ctx.lineTo(11, 16); ctx.closePath();
-          ctx.fill();
-        },
-      },
-      {
-        key: 'item_speed_surge',
-        bgColor: 0x15803d,
-        ringColor: 0x84cc16,
-        drawGlyph: (ctx) => {
-          ctx.fillStyle = '#bef264';
-          ctx.beginPath();
-          ctx.moveTo(14, 9); ctx.lineTo(18, 9); ctx.lineTo(18, 13); ctx.lineTo(22, 21);
-          ctx.lineTo(10, 21); ctx.lineTo(14, 13); ctx.closePath();
-          ctx.fill();
-        },
-      },
-      {
-        key: 'item_vampiric',
-        bgColor: 0x450a0a,
-        ringColor: 0xef4444,
-        drawGlyph: (ctx) => {
-          ctx.fillStyle = '#ef4444';
-          ctx.beginPath();
-          ctx.moveTo(16, 8); ctx.lineTo(22, 14); ctx.lineTo(16, 24); ctx.lineTo(10, 14); ctx.closePath();
-          ctx.fill();
-          ctx.fillStyle = '#ffffff';
-          ctx.beginPath();
-          ctx.arc(16, 14, 2, 0, Math.PI * 2);
-          ctx.fill();
-        },
-      },
-      {
-        key: 'item_poison_mist',
-        bgColor: 0x064e3b,
-        ringColor: 0x10b981,
-        drawGlyph: (ctx) => {
-          ctx.fillStyle = '#34d399';
-          ctx.beginPath();
-          ctx.arc(13, 17, 4, 0, Math.PI * 2);
-          ctx.arc(19, 17, 4, 0, Math.PI * 2);
-          ctx.arc(16, 13, 4.5, 0, Math.PI * 2);
-          ctx.fill();
-        },
-      },
-    ];
-
-    itemDefs.forEach(({ key, bgColor, ringColor, drawGlyph }) => {
-      if (this.textures.exists(key)) return;
-      try {
-        const canvas = this.textures.createCanvas(key, 32, 32);
-        if (canvas) {
-          const ctx = canvas.getContext();
-          ctx.fillStyle = '#' + bgColor.toString(16).padStart(6, '0');
-          ctx.beginPath();
-          if (typeof ctx.roundRect === 'function') {
-            ctx.roundRect(2, 2, 28, 28, 6);
-          } else {
-            ctx.rect(2, 2, 28, 28);
-          }
-          ctx.fill();
-          ctx.lineWidth = 2;
-          ctx.strokeStyle = '#' + ringColor.toString(16).padStart(6, '0');
-          ctx.stroke();
-
-          // Draw distinct item glyph
-          try {
-            drawGlyph(ctx);
-          } catch {
-            // Glyph drawing safe fallback
-          }
-
-          canvas.refresh();
-          return;
-        }
-      } catch {
-        // Fallback below
-      }
-
-      try {
-        const g = this.add.graphics();
-        g.fillStyle(bgColor, 1);
-        g.fillRoundedRect(2, 2, 28, 28, 6);
-        g.lineStyle(2, ringColor, 1);
-        g.strokeRoundedRect(2, 2, 28, 28, 6);
-        g.generateTexture(key, 32, 32);
-        g.destroy();
-      } catch {
-        // No-op
-      }
-    });
+  private generateItemTextures(): void {
+    generateProceduralItemTextures(this);
   }
 
   public ensureJuiceTextures(): void {
-    if (!this.textures) return;
-
-    // 1. Particle textures (dust, spark, debris)
-    if (!this.textures.exists('particle_dust')) {
-      try {
-        const g = this.add.graphics();
-        g.fillStyle(0xd6cbb8, 1);
-        g.fillCircle(4, 4, 4);
-        g.generateTexture('particle_dust', 8, 8);
-        g.destroy();
-      } catch {
-        // Safe headless fallback
-      }
-    }
-
-    if (!this.textures.exists('particle_spark')) {
-      try {
-        const g = this.add.graphics();
-        g.fillStyle(0xfde047, 1);
-        g.fillRect(1, 1, 4, 4);
-        g.generateTexture('particle_spark', 6, 6);
-        g.destroy();
-      } catch {
-        // Safe headless fallback
-      }
-    }
-
-    if (!this.textures.exists('particle_debris')) {
-      try {
-        const g = this.add.graphics();
-        g.fillStyle(0xe2e8f0, 1);
-        g.fillRect(0, 0, 6, 6);
-        g.generateTexture('particle_debris', 6, 6);
-        g.destroy();
-      } catch {
-        // Safe headless fallback
-      }
-    }
-
-    // 2. Procedural radial shadow ellipse texture (32x16)
-    if (!this.textures.exists('shadow_ellipse')) {
-      try {
-        if (typeof document !== 'undefined') {
-          const canvas = this.textures.createCanvas('shadow_ellipse', 32, 16);
-          if (canvas) {
-            const ctx = canvas.getContext();
-            const grad = ctx.createRadialGradient(16, 8, 1, 16, 8, 15);
-            grad.addColorStop(0, 'rgba(0, 0, 0, 0.55)');
-            grad.addColorStop(0.5, 'rgba(0, 0, 0, 0.35)');
-            grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-            ctx.fillStyle = grad;
-            ctx.beginPath();
-            ctx.ellipse(16, 8, 15, 7, 0, 0, Math.PI * 2);
-            ctx.fill();
-            canvas.refresh();
-          }
-        }
-      } catch {
-        // Fallback graphics below
-      }
-
-      if (!this.textures.exists('shadow_ellipse')) {
-        try {
-          const g = this.add.graphics();
-          g.fillStyle(0x000000, 0.4);
-          g.fillEllipse(16, 8, 30, 14);
-          g.generateTexture('shadow_ellipse', 32, 16);
-          g.destroy();
-        } catch {
-          // Safe headless fallback
-        }
-      }
-    }
+    ensureProceduralJuiceTextures(this);
   }
 }
+

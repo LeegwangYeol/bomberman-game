@@ -129,6 +129,8 @@ export const FROST_AUDIO_PRESETS = {
 export class FrostHazardAudio {
   private static instance: FrostHazardAudio | null = null;
   private pool: AudioVoicePool | null = null;
+  private ctx: AudioContext | null = null;
+  private ownsPool: boolean = false;
   private lastPlayTimeMs: number = -Infinity;
   private lastCrystallizationMs: number = -Infinity;
   private lastBlizzardMs: number = -Infinity;
@@ -137,19 +139,61 @@ export class FrostHazardAudio {
   private lastThermalBreakMs: number = -Infinity;
   private lastChillMs: number = -Infinity;
 
-  constructor(pool?: AudioVoicePool) {
-    if (pool) {
-      this.pool = pool;
+  constructor(poolOrCtx?: AudioVoicePool | AudioContext | null) {
+    if (poolOrCtx) {
+      if (poolOrCtx instanceof AudioVoicePool) {
+        this.bindPool(poolOrCtx);
+      } else if (typeof AudioContext !== 'undefined' && poolOrCtx instanceof AudioContext) {
+        this.init(poolOrCtx);
+      }
+    } else if (poolOrCtx === null) {
+      this.pool = null;
     } else {
       this.pool = AudioVoicePool.getInstance();
     }
   }
 
-  public static getInstance(pool?: AudioVoicePool): FrostHazardAudio {
+  public static getInstance(poolOrCtx?: AudioVoicePool | AudioContext | null): FrostHazardAudio {
     if (!FrostHazardAudio.instance) {
-      FrostHazardAudio.instance = new FrostHazardAudio(pool);
+      FrostHazardAudio.instance = new FrostHazardAudio(poolOrCtx);
     }
     return FrostHazardAudio.instance;
+  }
+
+  public static resetInstance(): void {
+    if (FrostHazardAudio.instance) {
+      FrostHazardAudio.instance.destroy();
+      FrostHazardAudio.instance = null;
+    }
+  }
+
+  public init(ctx: AudioContext, pool?: AudioVoicePool): void {
+    this.ctx = ctx;
+    if (pool) {
+      this.bindPool(pool);
+      this.ownsPool = false;
+    } else if (!this.pool) {
+      this.pool = AudioVoicePool.getInstance();
+      this.pool.init(ctx);
+      this.ownsPool = false;
+    } else {
+      this.pool.init(ctx);
+    }
+    if (ctx && ctx.state === 'suspended' && typeof ctx.resume === 'function') {
+      ctx.resume().catch(() => {});
+    }
+  }
+
+  public bindPool(pool: AudioVoicePool): void {
+    this.pool = pool;
+  }
+
+  public setVoicePool(pool: AudioVoicePool): void {
+    this.bindPool(pool);
+  }
+
+  public getAudioContext(): AudioContext | null {
+    return this.ctx || (this.pool ? this.pool.getAudioContext() : null);
   }
 
   public playCrystallization(currentTimeMs: number = 0): void {
@@ -213,7 +257,18 @@ export class FrostHazardAudio {
     }
   }
 
+  public stop(): void {
+    this.reset();
+  }
+
+  public disconnect(): void {
+    this.destroy();
+  }
+
   public reset(): void {
+    if (this.pool) {
+      this.pool.reset();
+    }
     this.lastPlayTimeMs = -Infinity;
     this.lastCrystallizationMs = -Infinity;
     this.lastBlizzardMs = -Infinity;
@@ -225,5 +280,13 @@ export class FrostHazardAudio {
 
   public destroy(): void {
     this.reset();
+    if (this.ownsPool && this.pool) {
+      this.pool.destroy();
+    }
+    this.pool = null;
+    this.ctx = null;
+    if (FrostHazardAudio.instance === this) {
+      FrostHazardAudio.instance = null;
+    }
   }
 }

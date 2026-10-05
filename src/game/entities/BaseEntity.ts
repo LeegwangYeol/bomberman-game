@@ -25,7 +25,12 @@ export function applyPhysicsBodyInvariantGuard(
 ): void {
   const body = sprite.body as Phaser.Physics.Arcade.Body | undefined;
   if (!body) return;
-  body.setSize(targetWidth, targetHeight).setOffset(offsetX, offsetY);
+  if (typeof body.setSize === 'function') {
+    body.setSize(targetWidth, targetHeight);
+  }
+  if (typeof body.setOffset === 'function') {
+    body.setOffset(offsetX, offsetY);
+  }
   const fixedHalfW = targetWidth / 2;
   const fixedHalfH = targetHeight / 2;
   const fixedRelX = offsetX - 20;

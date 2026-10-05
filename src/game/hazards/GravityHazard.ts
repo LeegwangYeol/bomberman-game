@@ -548,6 +548,7 @@ export class GravityHazard {
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         const idx = r * COLS + c;
+        if (idx < 0 || idx >= TOTAL_TILES || idx * 2 + 1 >= this.pullField.length) continue;
         const dr = this.centerRow - r;
         const dc = this.centerCol - c;
         const dist = Math.hypot(dr, dc);
@@ -556,10 +557,11 @@ export class GravityHazard {
           this.pullField[idx * 2] = 0;
           this.pullField[idx * 2 + 1] = 0;
         } else if (dist <= GRAVITY_PULL_RADIUS_TILES) {
-          this.pullField[idx * 2] = dr / dist;
-          this.pullField[idx * 2 + 1] = dc / dist;
-          this.pullVectorsX[idx] = (dc / dist) * GRAVITY_MAX_PULL_SPEED;
-          this.pullVectorsY[idx] = (dr / dist) * GRAVITY_MAX_PULL_SPEED;
+          const invDist = Number.isFinite(dist) && dist > 0 ? 1 / dist : 0;
+          this.pullField[idx * 2] = dr * invDist;
+          this.pullField[idx * 2 + 1] = dc * invDist;
+          this.pullVectorsX[idx] = (dc * invDist) * GRAVITY_MAX_PULL_SPEED;
+          this.pullVectorsY[idx] = (dr * invDist) * GRAVITY_MAX_PULL_SPEED;
           this.intensityGrid[idx] = (GRAVITY_PULL_RADIUS_TILES - dist) / GRAVITY_PULL_RADIUS_TILES;
         } else {
           this.pullField[idx * 2] = 0;
@@ -594,6 +596,7 @@ export class GravityHazard {
         // Euclidean circle of radius 3 contains exactly 29 tiles (distSq <= 9)
         if (distSq <= GRAVITY_PULL_RADIUS_TILES * GRAVITY_PULL_RADIUS_TILES) {
           const idx = r * COLS + c;
+          if (idx < 0 || idx >= TOTAL_TILES) continue;
           if (isBurst) {
             this.dangerMask[idx] = 2; // All 29 tiles in burst become lethal 2
             if (this.eventHorizonCount < MAX_EVENT_HORIZON_TILES) {
@@ -1111,7 +1114,7 @@ export class GravityHazard {
         return;
       }
       const idx = (r | 0) * COLS + (c | 0);
-      if (this.radialVisitedMask[idx] === 0) {
+      if (idx >= 0 && idx < TOTAL_TILES && this.radialVisitedMask[idx] === 0) {
         this.radialVisitedMask[idx] = 1;
         let slot: RadialBlastTile;
         if (poolIdx < this.radialBlastPool.length) {

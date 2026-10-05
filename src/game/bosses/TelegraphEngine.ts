@@ -147,10 +147,14 @@ export class TelegraphEngine {
    */
   public setWalkableArena(walkableBitmask: Uint8Array): void {
     let count = 0;
-    for (let i = 0; i < this.totalTiles; i++) {
+    const len = Math.min(this.totalTiles, walkableBitmask.length);
+    for (let i = 0; i < len; i++) {
       const isWalkable = walkableBitmask[i] !== 0 && walkableBitmask[i] !== TILE_WALL ? 1 : 0;
       this.walkableMask[i] = isWalkable;
       if (isWalkable) count++;
+    }
+    for (let i = len; i < this.totalTiles; i++) {
+      this.walkableMask[i] = 0;
     }
     this._totalWalkableTiles = count > 0 ? count : STANDARD_WALKABLE_TILES;
     this.recalculateActiveWalkableDanger();
@@ -212,7 +216,11 @@ export class TelegraphEngine {
     let newlyMarkedWalkable = 0;
 
     for (let i = 0; i < targetTiles.length; i++) {
-      const idx = targetTiles[i];
+      const raw = targetTiles[i];
+      if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+        continue;
+      }
+      const idx = raw | 0;
       if (idx < 0 || idx >= this.totalTiles || this.walkableMask[idx] === 0) {
         continue;
       }
@@ -238,12 +246,20 @@ export class TelegraphEngine {
   public validateConnectedEscape(targetTiles: readonly number[]): boolean {
     this.scratchProposedMask.set(this.activeTileMask);
     for (let i = 0; i < targetTiles.length; i++) {
-      const idx = targetTiles[i];
+      const raw = targetTiles[i];
+      if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+        continue;
+      }
+      const idx = raw | 0;
       if (idx >= 0 && idx < this.totalTiles) {
         this.scratchProposedMask[idx] = 1;
       }
     }
 
+    if (this.scratchBfsGen >= 250) {
+      this.scratchBfsVisited.fill(0);
+      this.scratchBfsGen = 1;
+    }
     const gen = ++this.scratchBfsGen;
     let maxComponentSize = 0;
 
@@ -256,11 +272,13 @@ export class TelegraphEngine {
       ) {
         let head = 0;
         let tail = 0;
-        this.scratchBfsQueue[tail++] = i;
+        if (tail < this.scratchBfsQueue.length) {
+          this.scratchBfsQueue[tail++] = i;
+        }
         this.scratchBfsVisited[i] = gen;
         let currentSize = 0;
 
-        while (head < tail) {
+        while (head < tail && head < this.scratchBfsQueue.length) {
           const curr = this.scratchBfsQueue[head++];
           currentSize++;
           const cr = (curr / this.cols) | 0;
@@ -278,12 +296,16 @@ export class TelegraphEngine {
             const nIdx = neighbors[n];
             if (
               nIdx !== -1 &&
+              nIdx >= 0 &&
+              nIdx < this.totalTiles &&
               this.walkableMask[nIdx] === 1 &&
               this.scratchProposedMask[nIdx] === 0 &&
               this.scratchBfsVisited[nIdx] !== gen
             ) {
               this.scratchBfsVisited[nIdx] = gen;
-              this.scratchBfsQueue[tail++] = nIdx;
+              if (tail < this.scratchBfsQueue.length) {
+                this.scratchBfsQueue[tail++] = nIdx;
+              }
             }
           }
         }
@@ -362,10 +384,14 @@ export class TelegraphEngine {
     // Allocate and commit slots
     let registeredCount = 0;
     for (let i = 0; i < tilesToRegister.length; i++) {
-      const idx = tilesToRegister[i];
-      if (idx < 0 || idx >= this.totalTiles || isNaN(idx)) continue;
+      const raw = tilesToRegister[i];
+      if (typeof raw !== 'number' || !Number.isFinite(raw)) continue;
+      const idx = raw | 0;
+      if (idx < 0 || idx >= this.totalTiles) continue;
+      if (this._activeCount >= MAX_TELEGRAPH_TILES) break;
 
       const slot = this._activeCount++;
+      if (slot < 0 || slot >= MAX_TELEGRAPH_TILES) break;
       this.activeSlots[slot] = slot;
 
       this.slotTileIndex[slot] = idx;
@@ -410,12 +436,12 @@ export class TelegraphEngine {
     let removed = 0;
     let i = 0;
 
-    while (i < this._activeCount) {
+    while (i < this._activeCount && i < MAX_TELEGRAPH_TILES) {
       if (this.slotAttackId[i] === attackId) {
         const idx = this.slotTileIndex[i];
 
         // Decrement spatial ref
-        if (this.tileRefCount[idx] > 0) {
+        if (idx >= 0 && idx < this.totalTiles && this.tileRefCount[idx] > 0) {
           this.tileRefCount[idx]--;
           if (this.tileRefCount[idx] === 0) {
             this.activeTileMask[idx] = 0;
@@ -427,7 +453,7 @@ export class TelegraphEngine {
 
         // ARCH-01: In-place swap-and-pop slot reallocation
         const lastSlotIdx = --this._activeCount;
-        if (i < lastSlotIdx) {
+        if (i < lastSlotIdx && lastSlotIdx < MAX_TELEGRAPH_TILES) {
           this.slotTileIndex[i] = this.slotTileIndex[lastSlotIdx];
           this.slotAttackId[i] = this.slotAttackId[lastSlotIdx];
           this.slotRemainingTimeMs[i] = this.slotRemainingTimeMs[lastSlotIdx];
@@ -453,10 +479,10 @@ export class TelegraphEngine {
    * Zero heap allocations.
    */
   public update(deltaMs: number): void {
-    if (deltaMs <= 0 || isNaN(deltaMs)) return;
+    if (deltaMs <= 0 || !Number.isFinite(deltaMs)) return;
 
     let i = 0;
-    while (i < this._activeCount) {
+    while (i < this._activeCount && i < MAX_TELEGRAPH_TILES) {
       const remaining = this.slotRemainingTimeMs[i] - deltaMs;
       this.slotRemainingTimeMs[i] = remaining;
 
@@ -470,7 +496,7 @@ export class TelegraphEngine {
         }
 
         // Decrement spatial ref
-        if (this.tileRefCount[tileIdx] > 0) {
+        if (tileIdx >= 0 && tileIdx < this.totalTiles && this.tileRefCount[tileIdx] > 0) {
           this.tileRefCount[tileIdx]--;
           if (this.tileRefCount[tileIdx] === 0) {
             this.activeTileMask[tileIdx] = 0;
@@ -482,7 +508,7 @@ export class TelegraphEngine {
 
         // ARCH-01: In-place swap-and-pop slot reallocation
         const lastSlotIdx = --this._activeCount;
-        if (i < lastSlotIdx) {
+        if (i < lastSlotIdx && lastSlotIdx < MAX_TELEGRAPH_TILES) {
           this.slotTileIndex[i] = this.slotTileIndex[lastSlotIdx];
           this.slotAttackId[i] = this.slotAttackId[lastSlotIdx];
           this.slotRemainingTimeMs[i] = this.slotRemainingTimeMs[lastSlotIdx];
@@ -517,8 +543,10 @@ export class TelegraphEngine {
     this.tileDominantStage.fill(0);
     this.tileRemainingTime.fill(999999);
 
-    for (let i = 0; i < this._activeCount; i++) {
+    const count = Math.min(this._activeCount, MAX_TELEGRAPH_TILES);
+    for (let i = 0; i < count; i++) {
       const idx = this.slotTileIndex[i];
+      if (idx < 0 || idx >= this.totalTiles) continue;
       const stg = this.slotStage[i];
       const rem = this.slotRemainingTimeMs[i];
 

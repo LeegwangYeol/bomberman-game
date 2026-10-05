@@ -171,12 +171,20 @@ export class FlatHazardMask implements Iterable<string> {
 
   public copyFrom(source: FlatHazardMask | Uint8Array): this {
     if (source instanceof FlatHazardMask) {
-      this.mask.set(source.mask);
+      const copyLen = Math.min(this.length, source.length);
+      this.mask.set(source.mask.subarray(0, copyLen));
+      if (this.length > copyLen) {
+        this.mask.fill(0, copyLen);
+      }
       this._size = source.size;
     } else {
-      this.mask.set(source);
+      const copyLen = Math.min(this.length, source.length);
+      this.mask.set(source.subarray(0, copyLen));
+      if (this.length > copyLen) {
+        this.mask.fill(0, copyLen);
+      }
       let count = 0;
-      for (let i = 0; i < source.length; i++) {
+      for (let i = 0; i < copyLen; i++) {
         if (source[i] !== 0) count++;
       }
       this._size = count;
@@ -355,7 +363,11 @@ export class ZeroGCPathfinder {
   }
 
   public setObstacles(walkableBitmask: Uint8Array): void {
-    this.obstacleMask.set(walkableBitmask);
+    const copyLen = Math.min(this.obstacleMask.length, walkableBitmask.length);
+    this.obstacleMask.set(walkableBitmask.subarray(0, copyLen));
+    if (this.obstacleMask.length > copyLen) {
+      this.obstacleMask.fill(0, copyLen);
+    }
   }
 
   private resetVisited(): void {
@@ -434,28 +446,53 @@ export class ZeroGCPathfinder {
       }
 
       // 4 directions in exact order: Up, Down, Left, Right
-      for (let dir = 0; dir < 4; dir++) {
-        let nr = currR;
-        let nc = currC;
-        if (dir === 0) nr--;      // Up
-        else if (dir === 1) nr++; // Down
-        else if (dir === 2) nc--; // Left
-        else nc++;                // Right
-
-        if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
-        const nIdx = nr * cols + nc;
-
-        if (visited[nIdx] === gen) continue;
-
-        // Obstacle check: Walls or Breakable Blocks
-        if (obstacleMask[nIdx] === TILE_WALL || (!ignoreBlocks && obstacleMask[nIdx] === TILE_BLOCK)) continue;
-
-        // Bomb check: avoid active bombs (unless target is the player's tile)
-        if (bombMask && bombMask[nIdx] !== 0 && nIdx !== targetIdx) continue;
-
-        visited[nIdx] = gen;
-        parent[nIdx] = curr;
-        queue[tail++] = nIdx;
+      // Up
+      if (currR > 0) {
+        const nIdx = curr - cols;
+        if (visited[nIdx] !== gen &&
+            obstacleMask[nIdx] !== TILE_WALL &&
+            (ignoreBlocks || obstacleMask[nIdx] !== TILE_BLOCK) &&
+            (!bombMask || bombMask[nIdx] === 0 || nIdx === targetIdx)) {
+          visited[nIdx] = gen;
+          parent[nIdx] = curr;
+          if (tail < queue.length) queue[tail++] = nIdx;
+        }
+      }
+      // Down
+      if (currR < rows - 1) {
+        const nIdx = curr + cols;
+        if (visited[nIdx] !== gen &&
+            obstacleMask[nIdx] !== TILE_WALL &&
+            (ignoreBlocks || obstacleMask[nIdx] !== TILE_BLOCK) &&
+            (!bombMask || bombMask[nIdx] === 0 || nIdx === targetIdx)) {
+          visited[nIdx] = gen;
+          parent[nIdx] = curr;
+          if (tail < queue.length) queue[tail++] = nIdx;
+        }
+      }
+      // Left
+      if (currC > 0) {
+        const nIdx = curr - 1;
+        if (visited[nIdx] !== gen &&
+            obstacleMask[nIdx] !== TILE_WALL &&
+            (ignoreBlocks || obstacleMask[nIdx] !== TILE_BLOCK) &&
+            (!bombMask || bombMask[nIdx] === 0 || nIdx === targetIdx)) {
+          visited[nIdx] = gen;
+          parent[nIdx] = curr;
+          if (tail < queue.length) queue[tail++] = nIdx;
+        }
+      }
+      // Right
+      if (currC < cols - 1) {
+        const nIdx = curr + 1;
+        if (visited[nIdx] !== gen &&
+            obstacleMask[nIdx] !== TILE_WALL &&
+            (ignoreBlocks || obstacleMask[nIdx] !== TILE_BLOCK) &&
+            (!bombMask || bombMask[nIdx] === 0 || nIdx === targetIdx)) {
+          visited[nIdx] = gen;
+          parent[nIdx] = curr;
+          if (tail < queue.length) queue[tail++] = nIdx;
+        }
       }
     }
 
@@ -467,17 +504,18 @@ export class ZeroGCPathfinder {
     // Reconstruct path
     let stepCount = 0;
     let curr = destination;
-    while (curr !== startIdx && curr >= 0 && stepCount < this.totalTiles) {
+    while (curr !== startIdx && curr >= 0 && stepCount < this.totalTiles && stepCount < this.tempPath.length) {
       this.tempPath[stepCount++] = curr;
       curr = parent[curr];
     }
 
     // Reverse into outPath
-    for (let i = 0; i < stepCount; i++) {
+    const writeCount = Math.min(stepCount, outPath.length);
+    for (let i = 0; i < writeCount; i++) {
       outPath[i] = this.tempPath[stepCount - 1 - i];
     }
 
-    return stepCount;
+    return writeCount;
   }
 
   /**
@@ -537,25 +575,57 @@ export class ZeroGCPathfinder {
       const currR = (curr / cols) | 0;
       const currC = curr % cols;
 
-      for (let dir = 0; dir < 4; dir++) {
-        let nr = currR;
-        let nc = currC;
-        if (dir === 0) nr--;
-        else if (dir === 1) nr++;
-        else if (dir === 2) nc--;
-        else nc++;
-
-        if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
-        const nIdx = nr * cols + nc;
-
-        if (visited[nIdx] === gen) continue;
-        if (obstacleMask[nIdx] === TILE_WALL || obstacleMask[nIdx] === TILE_BLOCK) continue;
-        if (existingBombsMask && existingBombsMask[nIdx] !== 0 && nIdx !== startIdx) continue;
-
-        visited[nIdx] = gen;
-        parent[nIdx] = curr;
-        dist[nIdx] = d + 1;
-        queue[tail++] = nIdx;
+      // 1. Up
+      if (currR > 0) {
+        const nIdx = curr - cols;
+        if (visited[nIdx] !== gen &&
+            obstacleMask[nIdx] !== TILE_WALL &&
+            obstacleMask[nIdx] !== TILE_BLOCK &&
+            (!existingBombsMask || existingBombsMask[nIdx] === 0 || nIdx === startIdx)) {
+          visited[nIdx] = gen;
+          parent[nIdx] = curr;
+          dist[nIdx] = d + 1;
+          if (tail < queue.length) queue[tail++] = nIdx;
+        }
+      }
+      // 2. Down
+      if (currR < rows - 1) {
+        const nIdx = curr + cols;
+        if (visited[nIdx] !== gen &&
+            obstacleMask[nIdx] !== TILE_WALL &&
+            obstacleMask[nIdx] !== TILE_BLOCK &&
+            (!existingBombsMask || existingBombsMask[nIdx] === 0 || nIdx === startIdx)) {
+          visited[nIdx] = gen;
+          parent[nIdx] = curr;
+          dist[nIdx] = d + 1;
+          if (tail < queue.length) queue[tail++] = nIdx;
+        }
+      }
+      // 3. Left
+      if (currC > 0) {
+        const nIdx = curr - 1;
+        if (visited[nIdx] !== gen &&
+            obstacleMask[nIdx] !== TILE_WALL &&
+            obstacleMask[nIdx] !== TILE_BLOCK &&
+            (!existingBombsMask || existingBombsMask[nIdx] === 0 || nIdx === startIdx)) {
+          visited[nIdx] = gen;
+          parent[nIdx] = curr;
+          dist[nIdx] = d + 1;
+          if (tail < queue.length) queue[tail++] = nIdx;
+        }
+      }
+      // 4. Right
+      if (currC < cols - 1) {
+        const nIdx = curr + 1;
+        if (visited[nIdx] !== gen &&
+            obstacleMask[nIdx] !== TILE_WALL &&
+            obstacleMask[nIdx] !== TILE_BLOCK &&
+            (!existingBombsMask || existingBombsMask[nIdx] === 0 || nIdx === startIdx)) {
+          visited[nIdx] = gen;
+          parent[nIdx] = curr;
+          dist[nIdx] = d + 1;
+          if (tail < queue.length) queue[tail++] = nIdx;
+        }
       }
     }
 
@@ -564,16 +634,17 @@ export class ZeroGCPathfinder {
     // Reconstruct path
     let stepCount = 0;
     let curr = safeTarget;
-    while (curr !== startIdx && curr >= 0 && stepCount < this.totalTiles) {
+    while (curr !== startIdx && curr >= 0 && stepCount < this.totalTiles && stepCount < this.tempPath.length) {
       this.tempPath[stepCount++] = curr;
       curr = parent[curr];
     }
 
-    for (let i = 0; i < stepCount; i++) {
+    const writeCount = Math.min(stepCount, outPath.length);
+    for (let i = 0; i < writeCount; i++) {
       outPath[i] = this.tempPath[stepCount - 1 - i];
     }
 
-    return stepCount;
+    return writeCount;
   }
 
   /**
@@ -627,24 +698,53 @@ export class ZeroGCPathfinder {
       const currR = (curr / cols) | 0;
       const currC = curr % cols;
 
-      for (let dir = 0; dir < 4; dir++) {
-        let nr = currR;
-        let nc = currC;
-        if (dir === 0) nr--;
-        else if (dir === 1) nr++;
-        else if (dir === 2) nc--;
-        else nc++;
-
-        if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
-        const nIdx = nr * cols + nc;
-
-        if (visited[nIdx] === gen) continue;
-        if (obstacleMask[nIdx] === TILE_WALL || obstacleMask[nIdx] === TILE_BLOCK) continue;
-        if (existingBombsMask && existingBombsMask[nIdx] !== 0 && nIdx !== startIdx) continue;
-
-        visited[nIdx] = gen;
-        dist[nIdx] = d + 1;
-        queue[tail++] = nIdx;
+      // 1. Up
+      if (currR > 0) {
+        const nIdx = curr - cols;
+        if (visited[nIdx] !== gen &&
+            obstacleMask[nIdx] !== TILE_WALL &&
+            obstacleMask[nIdx] !== TILE_BLOCK &&
+            (!existingBombsMask || existingBombsMask[nIdx] === 0 || nIdx === startIdx)) {
+          visited[nIdx] = gen;
+          dist[nIdx] = d + 1;
+          if (tail < queue.length) queue[tail++] = nIdx;
+        }
+      }
+      // 2. Down
+      if (currR < rows - 1) {
+        const nIdx = curr + cols;
+        if (visited[nIdx] !== gen &&
+            obstacleMask[nIdx] !== TILE_WALL &&
+            obstacleMask[nIdx] !== TILE_BLOCK &&
+            (!existingBombsMask || existingBombsMask[nIdx] === 0 || nIdx === startIdx)) {
+          visited[nIdx] = gen;
+          dist[nIdx] = d + 1;
+          if (tail < queue.length) queue[tail++] = nIdx;
+        }
+      }
+      // 3. Left
+      if (currC > 0) {
+        const nIdx = curr - 1;
+        if (visited[nIdx] !== gen &&
+            obstacleMask[nIdx] !== TILE_WALL &&
+            obstacleMask[nIdx] !== TILE_BLOCK &&
+            (!existingBombsMask || existingBombsMask[nIdx] === 0 || nIdx === startIdx)) {
+          visited[nIdx] = gen;
+          dist[nIdx] = d + 1;
+          if (tail < queue.length) queue[tail++] = nIdx;
+        }
+      }
+      // 4. Right
+      if (currC < cols - 1) {
+        const nIdx = curr + 1;
+        if (visited[nIdx] !== gen &&
+            obstacleMask[nIdx] !== TILE_WALL &&
+            obstacleMask[nIdx] !== TILE_BLOCK &&
+            (!existingBombsMask || existingBombsMask[nIdx] === 0 || nIdx === startIdx)) {
+          visited[nIdx] = gen;
+          dist[nIdx] = d + 1;
+          if (tail < queue.length) queue[tail++] = nIdx;
+        }
       }
     }
 
@@ -754,42 +854,103 @@ export class ZeroGCPathfinder {
 
       const currDist = dist[curr];
 
-      for (let dir = 0; dir < 4; dir++) {
-        let nr = currR;
-        let nc = currC;
-        if (dir === 0) nr--;
-        else if (dir === 1) nr++;
-        else if (dir === 2) nc--;
-        else nc++;
-
-        if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
-        const nIdx = nr * cols + nc;
-
-        if (obstacleMask[nIdx] === TILE_WALL) continue;
-        if (bombMask && bombMask[nIdx] !== 0 && nIdx !== targetIdx) continue;
-
-        const isBlock = obstacleMask[nIdx] === TILE_BLOCK;
-        const stepCost = isBlock ? 1 + blockPenalty : 1;
-        const alt = currDist + stepCost;
-
-        if (alt < dist[nIdx]) {
-          dist[nIdx] = alt;
-          parent[nIdx] = curr;
-          visited[nIdx] = gen;
-
-          if (this.heapSize < heap.length) {
-            let i = this.heapSize++;
-            while (i > 0) {
-              const p = (i - 1) >> 1;
-              const pNode = heap[p];
-              if (alt < dist[pNode]) {
-                heap[i] = pNode;
-                i = p;
-              } else {
-                break;
+      // 1. Up
+      if (currR > 0) {
+        const nIdx = curr - cols;
+        if (obstacleMask[nIdx] !== TILE_WALL && (!bombMask || bombMask[nIdx] === 0 || nIdx === targetIdx)) {
+          const isBlock = obstacleMask[nIdx] === TILE_BLOCK;
+          const alt = currDist + (isBlock ? 1 + blockPenalty : 1);
+          if (alt < dist[nIdx]) {
+            dist[nIdx] = alt;
+            parent[nIdx] = curr;
+            visited[nIdx] = gen;
+            if (this.heapSize < heap.length) {
+              let i = this.heapSize++;
+              while (i > 0) {
+                const p = (i - 1) >> 1;
+                const pNode = heap[p];
+                if (alt < dist[pNode]) {
+                  heap[i] = pNode;
+                  i = p;
+                } else break;
               }
+              heap[i] = nIdx;
             }
-            heap[i] = nIdx;
+          }
+        }
+      }
+      // 2. Down
+      if (currR < rows - 1) {
+        const nIdx = curr + cols;
+        if (obstacleMask[nIdx] !== TILE_WALL && (!bombMask || bombMask[nIdx] === 0 || nIdx === targetIdx)) {
+          const isBlock = obstacleMask[nIdx] === TILE_BLOCK;
+          const alt = currDist + (isBlock ? 1 + blockPenalty : 1);
+          if (alt < dist[nIdx]) {
+            dist[nIdx] = alt;
+            parent[nIdx] = curr;
+            visited[nIdx] = gen;
+            if (this.heapSize < heap.length) {
+              let i = this.heapSize++;
+              while (i > 0) {
+                const p = (i - 1) >> 1;
+                const pNode = heap[p];
+                if (alt < dist[pNode]) {
+                  heap[i] = pNode;
+                  i = p;
+                } else break;
+              }
+              heap[i] = nIdx;
+            }
+          }
+        }
+      }
+      // 3. Left
+      if (currC > 0) {
+        const nIdx = curr - 1;
+        if (obstacleMask[nIdx] !== TILE_WALL && (!bombMask || bombMask[nIdx] === 0 || nIdx === targetIdx)) {
+          const isBlock = obstacleMask[nIdx] === TILE_BLOCK;
+          const alt = currDist + (isBlock ? 1 + blockPenalty : 1);
+          if (alt < dist[nIdx]) {
+            dist[nIdx] = alt;
+            parent[nIdx] = curr;
+            visited[nIdx] = gen;
+            if (this.heapSize < heap.length) {
+              let i = this.heapSize++;
+              while (i > 0) {
+                const p = (i - 1) >> 1;
+                const pNode = heap[p];
+                if (alt < dist[pNode]) {
+                  heap[i] = pNode;
+                  i = p;
+                } else break;
+              }
+              heap[i] = nIdx;
+            }
+          }
+        }
+      }
+      // 4. Right
+      if (currC < cols - 1) {
+        const nIdx = curr + 1;
+        if (obstacleMask[nIdx] !== TILE_WALL && (!bombMask || bombMask[nIdx] === 0 || nIdx === targetIdx)) {
+          const isBlock = obstacleMask[nIdx] === TILE_BLOCK;
+          const alt = currDist + (isBlock ? 1 + blockPenalty : 1);
+          if (alt < dist[nIdx]) {
+            dist[nIdx] = alt;
+            parent[nIdx] = curr;
+            visited[nIdx] = gen;
+            if (this.heapSize < heap.length) {
+              let i = this.heapSize++;
+              while (i > 0) {
+                const p = (i - 1) >> 1;
+                const pNode = heap[p];
+                if (alt < dist[pNode]) {
+                  heap[i] = pNode;
+                  i = p;
+                } else break;
+              }
+              heap[i] = nIdx;
+            }
           }
         }
       }
@@ -807,19 +968,20 @@ export class ZeroGCPathfinder {
 
     let stepCount = 0;
     let currNode = destination;
-    while (currNode !== startIdx && currNode >= 0 && stepCount < this.totalTiles) {
+    while (currNode !== startIdx && currNode >= 0 && stepCount < this.totalTiles && stepCount < this.tempPath.length) {
       this.tempPath[stepCount++] = currNode;
       currNode = parent[currNode];
     }
 
-    res.pathLength = stepCount;
-    for (let i = 0; i < stepCount; i++) {
+    const writeCount = Math.min(stepCount, outPath.length);
+    res.pathLength = writeCount;
+    for (let i = 0; i < writeCount; i++) {
       outPath[i] = this.tempPath[stepCount - 1 - i];
     }
 
-    for (let i = 0; i < stepCount; i++) {
+    for (let i = 0; i < writeCount; i++) {
       const idx = outPath[i];
-      if (obstacleMask[idx] === TILE_BLOCK) {
+      if (idx >= 0 && idx < obstacleMask.length && obstacleMask[idx] === TILE_BLOCK) {
         res.blockCount++;
         if (res.blockingBlockIdx === -1) {
           res.blockingBlockIdx = idx;
@@ -831,9 +993,9 @@ export class ZeroGCPathfinder {
     }
 
     if (res.hasDirectPath) {
-      res.openStepCount = stepCount;
+      res.openStepCount = writeCount;
     } else if (res.blockingBlockIdx === -1) {
-      res.openStepCount = stepCount;
+      res.openStepCount = writeCount;
     }
 
     return res;
@@ -850,14 +1012,25 @@ export class ZeroGCPathfinder {
     clearFirst: boolean = false
   ): void {
     if (clearFirst) outMask.fill(0);
-    if (centerIdx < 0 || centerIdx >= this.totalTiles) return;
+    if (
+      typeof centerIdx !== 'number' ||
+      !Number.isFinite(centerIdx) ||
+      (centerIdx | 0) < 0 ||
+      (centerIdx | 0) >= this.totalTiles
+    ) {
+      return;
+    }
 
-    outMask[centerIdx] = 1;
-    const cr = (centerIdx / this.cols) | 0;
-    const cc = centerIdx % this.cols;
+    const safeCenter = centerIdx | 0;
+    if (safeCenter < outMask.length) {
+      outMask[safeCenter] = 1;
+    }
+    const cr = (safeCenter / this.cols) | 0;
+    const cc = safeCenter % this.cols;
+    const safePower = (typeof power === 'number' && Number.isFinite(power)) ? Math.max(0, power | 0) : 0;
 
     for (let dir = 0; dir < 4; dir++) {
-      for (let i = 1; i <= power; i++) {
+      for (let i = 1; i <= safePower; i++) {
         let nr = cr;
         let nc = cc;
         if (dir === 0) nr -= i;
@@ -867,8 +1040,10 @@ export class ZeroGCPathfinder {
 
         if (nr < 0 || nr >= this.rows || nc < 0 || nc >= this.cols) break;
         const nIdx = nr * this.cols + nc;
-        if (obstacleMask[nIdx] === TILE_WALL) break;
-        outMask[nIdx] = 1;
+        if (nIdx >= obstacleMask.length || obstacleMask[nIdx] === TILE_WALL) break;
+        if (nIdx < outMask.length) {
+          outMask[nIdx] = 1;
+        }
         if (obstacleMask[nIdx] === TILE_BLOCK) break;
       }
     }
@@ -889,7 +1064,8 @@ const sharedHazardScratch: GridCoord = { r: 0, c: 0 };
 function populateObstacleMask(map: number[][] | Uint8Array, outMask: Uint8Array): void {
   outMask.fill(0);
   if (map instanceof Uint8Array) {
-    outMask.set(map);
+    const copyLen = Math.min(outMask.length, map.length);
+    outMask.set(map.subarray(0, copyLen));
     return;
   }
   const rMax = Math.min(ROWS, map.length);
@@ -899,7 +1075,9 @@ function populateObstacleMask(map: number[][] | Uint8Array, outMask: Uint8Array)
     const base = r * COLS;
     const cMax = Math.min(COLS, row.length);
     for (let c = 0; c < cMax; c++) {
-      outMask[base + c] = row[c];
+      if (base + c < outMask.length) {
+        outMask[base + c] = row[c];
+      }
     }
   }
 }
@@ -911,9 +1089,11 @@ function populateMaskFromSetOrArray(
   outMask.fill(0);
   if (!source) return;
   if (source instanceof FlatHazardMask) {
-    outMask.set(source.mask);
+    const copyLen = Math.min(outMask.length, source.length);
+    outMask.set(source.mask.subarray(0, copyLen));
   } else if (source instanceof Uint8Array) {
-    outMask.set(source);
+    const copyLen = Math.min(outMask.length, source.length);
+    outMask.set(source.subarray(0, copyLen));
   } else if (source instanceof Set) {
     for (const key of source) {
       const comma = key.indexOf(',');
@@ -1276,9 +1456,11 @@ export function cloneBombTilesAsSet(
     outTarget.fill(0);
     if (!bombTiles) return outTarget;
     if (bombTiles instanceof FlatHazardMask) {
-      outTarget.set(bombTiles.mask);
+      const copyLen = Math.min(outTarget.length, bombTiles.length);
+      outTarget.set(bombTiles.mask.subarray(0, copyLen));
     } else if (bombTiles instanceof Uint8Array) {
-      outTarget.set(bombTiles);
+      const copyLen = Math.min(outTarget.length, bombTiles.length);
+      outTarget.set(bombTiles.subarray(0, copyLen));
     } else if (bombTiles instanceof Set) {
       for (const bStr of bombTiles) {
         const comma = bStr.indexOf(',');

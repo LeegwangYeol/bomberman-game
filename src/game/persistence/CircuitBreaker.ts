@@ -410,4 +410,12 @@ export class APIQuotaCircuitBreaker {
     this.nextAttemptTime = 0;
     this.currentBackoffMs = 0;
   }
+
+  public destroy(): void {
+    this.reset();
+  }
+
+  public dispose(): void {
+    this.destroy();
+  }
 }

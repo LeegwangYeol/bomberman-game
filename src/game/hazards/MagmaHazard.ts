@@ -418,6 +418,7 @@ export class MagmaHazard {
     // Update any active obsidian quenched crust timers
     for (let i = 0; i < this.activeMagmaCount; i++) {
       const idx = this.activeMagmaIndices[i];
+      if (idx < 0 || idx >= TOTAL_TILES) continue;
       if (this.obsidianTimerGrid[idx] > 0) {
         this.obsidianTimerGrid[idx] = Math.max(0, this.obsidianTimerGrid[idx] - deltaMs);
         if (this.obsidianTimerGrid[idx] === 0 && this.dangerMask[idx] === MagmaDangerValue.OBSIDIAN_CRUST) {
@@ -484,11 +485,12 @@ export class MagmaHazard {
 
       for (let i = 0; i < count; i++) {
         const idx = this.activeMagmaIndices[i];
+        if (idx < 0 || idx >= TOTAL_TILES) continue;
         if (this.obsidianTimerGrid[idx] > 0) continue; // Respect solidified obsidian crust
 
-        const r = Math.floor(idx / COLS);
+        const r = (idx / COLS) | 0;
         const c = idx % COLS;
-        const dist = Math.sqrt((r - r0) * (r - r0) + (c - c0) * (c - c0));
+        const dist = Math.hypot(r - r0, c - c0);
         const falloff = Math.max(0.2, 1.0 - dist / (this.radiusTiles + 0.5));
 
         this.dangerMask[idx] = MagmaDangerValue.HEATING;
@@ -497,6 +499,7 @@ export class MagmaHazard {
     } else if (this.state === MagmaLifecycleState.PYROCLASTIC_BURST) {
       for (let i = 0; i < count; i++) {
         const idx = this.activeMagmaIndices[i];
+        if (idx < 0 || idx >= TOTAL_TILES) continue;
         if (this.obsidianTimerGrid[idx] > 0) continue; // Obsidian shields from lethal burst
 
         this.dangerMask[idx] = MagmaDangerValue.BURST;
@@ -506,6 +509,7 @@ export class MagmaHazard {
       const decay = Math.max(0, 1.0 - this.stateElapsedMs / Math.min(1500, this.cooldownDurationMs));
       for (let i = 0; i < count; i++) {
         const idx = this.activeMagmaIndices[i];
+        if (idx < 0 || idx >= TOTAL_TILES) continue;
         if (this.obsidianTimerGrid[idx] > 0) continue;
 
         this.dangerMask[idx] = decay > 0.05 ? MagmaDangerValue.HEATING : MagmaDangerValue.SAFE;

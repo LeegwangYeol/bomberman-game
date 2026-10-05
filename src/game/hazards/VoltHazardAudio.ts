@@ -222,6 +222,8 @@ export class VoltHazardAudio {
       } else if (typeof AudioContext !== 'undefined' && poolOrCtx instanceof AudioContext) {
         this.init(poolOrCtx);
       }
+    } else if (poolOrCtx === null) {
+      this.pool = null;
     } else {
       this.pool = AudioVoicePool.getInstance();
     }
@@ -235,7 +237,10 @@ export class VoltHazardAudio {
   }
 
   public static resetInstance(): void {
-    VoltHazardAudio.instance = null;
+    if (VoltHazardAudio.instance) {
+      VoltHazardAudio.instance.destroy();
+      VoltHazardAudio.instance = null;
+    }
   }
 
   public init(ctx: AudioContext, pool?: AudioVoicePool): void {
@@ -534,13 +539,13 @@ export class VoltHazardAudio {
     for (const node of this.activeTransientNodes) {
       try {
         const sourceNode = node as unknown as StopAndEndedAudioNode;
+        if ('onended' in sourceNode) {
+          sourceNode.onended = null;
+        }
         if (typeof sourceNode.stop === 'function') {
           try {
             sourceNode.stop();
           } catch {}
-        }
-        if ('onended' in sourceNode) {
-          sourceNode.onended = null;
         }
         node.disconnect();
       } catch {}

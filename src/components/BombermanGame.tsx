@@ -36,6 +36,8 @@ import {
   resolveJoystickDirection,
   resetJoystickDirection,
   resetAllMobileInputs,
+  resolveContradictoryDirections,
+  MultiTouchPointerTracker,
 } from '../game/input_state';
 
 // Re-export interface for backward compatibility
@@ -51,6 +53,7 @@ export default function BombermanGame() {
   const gameRef = useRef<HTMLDivElement>(null);
   const joystickRef = useRef<HTMLDivElement>(null);
   const phaserGameRef = useRef<Phaser.Game | null>(null);
+  const pointerTrackerRef = useRef<MultiTouchPointerTracker>(new MultiTouchPointerTracker({ debounceMs: 30 }));
   const [isMobile, setIsMobile] = useState(false);
   const [joystickEpoch, setJoystickEpoch] = useState<number>(0);
 
@@ -106,6 +109,7 @@ export default function BombermanGame() {
     isAnyModalOpenRef.current = isAnyModalOpen;
     if (isAnyModalOpen) {
       if (typeof window !== 'undefined' && window.mobileInput) {
+        pointerTrackerRef.current.cancelAllPointers(window.mobileInput);
         resetAllMobileInputs(window.mobileInput);
       }
       if (phaserGameRef.current) {
@@ -422,6 +426,7 @@ export default function BombermanGame() {
 
     const resetInputState = () => {
       if (typeof window !== 'undefined' && window.mobileInput) {
+        pointerTrackerRef.current.cancelAllPointers(window.mobileInput);
         resetAllMobileInputs(window.mobileInput);
       }
       if (phaserGameRef.current) {
@@ -437,9 +442,29 @@ export default function BombermanGame() {
       resetInputState();
     };
 
+    const handleTouchOrPointerCancel = (e: TouchEvent | PointerEvent) => {
+      if (typeof window !== 'undefined' && window.mobileInput) {
+        if ('pointerId' in e && typeof e.pointerId === 'number') {
+          pointerTrackerRef.current.onPointerCancel(e.pointerId, window.mobileInput);
+        } else {
+          pointerTrackerRef.current.cancelAllPointers(window.mobileInput);
+        }
+      }
+    };
+
     window.addEventListener('blur', handleVisibilityOrBlur);
     window.addEventListener('focus', handleVisibilityOrBlur);
     document.addEventListener('visibilitychange', handleVisibilityOrBlur);
+    window.addEventListener('touchcancel', handleTouchOrPointerCancel, { passive: true });
+    window.addEventListener('pointercancel', handleTouchOrPointerCancel, { passive: true });
+    window.addEventListener('contextmenu', resetInputState);
+
+    // Watchdog to auto-recover any orphaned pointers if OS drops events
+    const watchdogTimer = setInterval(() => {
+      if (typeof window !== 'undefined' && window.mobileInput) {
+        pointerTrackerRef.current.recoverDroppedPointers(window.mobileInput, 3000);
+      }
+    }, 1000);
 
     // Keyboard controls (Arrow keys + WASD + Spacebar + Shift/E + R/Q)
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -482,6 +507,7 @@ export default function BombermanGame() {
       if (key === 's' || key === 'arrowdown') window.mobileInput.down = true;
       if (key === 'a' || key === 'arrowleft') window.mobileInput.left = true;
       if (key === 'd' || key === 'arrowright') window.mobileInput.right = true;
+      resolveContradictoryDirections(window.mobileInput);
       if (key === ' ' || e.code === 'Space') {
         window.mobileInput.bomb = true;
       }
@@ -596,6 +622,10 @@ export default function BombermanGame() {
       window.removeEventListener('blur', handleVisibilityOrBlur);
       window.removeEventListener('focus', handleVisibilityOrBlur);
       document.removeEventListener('visibilitychange', handleVisibilityOrBlur);
+      window.removeEventListener('touchcancel', handleTouchOrPointerCancel);
+      window.removeEventListener('pointercancel', handleTouchOrPointerCancel);
+      window.removeEventListener('contextmenu', resetInputState);
+      clearInterval(watchdogTimer);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       if (phaserGameRef.current) {
@@ -642,6 +672,7 @@ export default function BombermanGame() {
           window.mobileInput.down = dir.down;
           window.mobileInput.left = dir.left;
           window.mobileInput.right = dir.right;
+          resolveContradictoryDirections(window.mobileInput);
         });
 
         manager.on('end', () => {
@@ -669,93 +700,108 @@ export default function BombermanGame() {
     };
   }, [isMobile, joystickEpoch]);
 
-  const handleBombPress = () => {
-    if (window.mobileInput) {
-      window.mobileInput.bomb = true;
-      // Frame-synchronized fallback clearing to prevent input drop while avoiding timer collision races
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (window.mobileInput) {
-            window.mobileInput.bomb = false;
-          }
-        });
-      });
+  const handleBombPress = (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    try {
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+    } catch {}
+    if (typeof window !== 'undefined' && window.mobileInput) {
+      pointerTrackerRef.current.onPointerDown(e.pointerId, 'bomb', window.mobileInput);
     }
   };
 
-  const handleBombRelease = () => {
-    requestAnimationFrame(() => {
-      if (window.mobileInput) {
-        window.mobileInput.bomb = false;
+  const handleBombRelease = (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    try {
+      if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+        e.currentTarget.releasePointerCapture?.(e.pointerId);
       }
-    });
-  };
-
-  const handleBombCancel = () => {
-    if (window.mobileInput) {
-      window.mobileInput.bomb = false;
+    } catch {}
+    if (typeof window !== 'undefined' && window.mobileInput) {
+      pointerTrackerRef.current.onPointerUp(e.pointerId, window.mobileInput);
     }
   };
 
-  const handleDashPress = () => {
-    if (window.mobileInput) {
-      window.mobileInput.dash = true;
-      // Frame-synchronized fallback clearing to prevent input drop while avoiding timer collision races
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (window.mobileInput) {
-            window.mobileInput.dash = false;
-          }
-        });
-      });
-    }
-  };
-
-  const handleDashRelease = () => {
-    requestAnimationFrame(() => {
-      if (window.mobileInput) {
-        window.mobileInput.dash = false;
+  const handleBombCancel = (e: React.PointerEvent<HTMLButtonElement>) => {
+    try {
+      if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+        e.currentTarget.releasePointerCapture?.(e.pointerId);
       }
-    });
-  };
-
-  const handleDashCancel = () => {
-    if (window.mobileInput) {
-      window.mobileInput.dash = false;
+    } catch {}
+    if (typeof window !== 'undefined' && window.mobileInput) {
+      pointerTrackerRef.current.onPointerCancel(e.pointerId, window.mobileInput);
     }
   };
 
-  const handleUltimatePress = () => {
-    if (window.mobileInput) {
-      if (stats.ultimateGauge >= 100 && stats.ultimateLockoutRemaining <= 0) {
-        window.mobileInput.ultimate = true;
-        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-          try {
-            navigator.vibrate([40, 20, 40]);
-          } catch {}
-        }
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            if (window.mobileInput) {
-              window.mobileInput.ultimate = false;
-            }
-          });
-        });
-      }
+  const handleDashPress = (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    try {
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+    } catch {}
+    if (typeof window !== 'undefined' && window.mobileInput) {
+      pointerTrackerRef.current.onPointerDown(e.pointerId, 'dash', window.mobileInput);
     }
   };
 
-  const handleUltimateRelease = () => {
-    requestAnimationFrame(() => {
-      if (window.mobileInput) {
-        window.mobileInput.ultimate = false;
+  const handleDashRelease = (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    try {
+      if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+        e.currentTarget.releasePointerCapture?.(e.pointerId);
       }
-    });
+    } catch {}
+    if (typeof window !== 'undefined' && window.mobileInput) {
+      pointerTrackerRef.current.onPointerUp(e.pointerId, window.mobileInput);
+    }
   };
 
-  const handleUltimateCancel = () => {
-    if (window.mobileInput) {
-      window.mobileInput.ultimate = false;
+  const handleDashCancel = (e: React.PointerEvent<HTMLButtonElement>) => {
+    try {
+      if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+        e.currentTarget.releasePointerCapture?.(e.pointerId);
+      }
+    } catch {}
+    if (typeof window !== 'undefined' && window.mobileInput) {
+      pointerTrackerRef.current.onPointerCancel(e.pointerId, window.mobileInput);
+    }
+  };
+
+  const handleUltimatePress = (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    if (stats.ultimateGauge < 100 || stats.ultimateLockoutRemaining > 0) return;
+    try {
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+    } catch {}
+    if (typeof window !== 'undefined' && window.mobileInput) {
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        try {
+          navigator.vibrate([40, 20, 40]);
+        } catch {}
+      }
+      pointerTrackerRef.current.onPointerDown(e.pointerId, 'ultimate', window.mobileInput);
+    }
+  };
+
+  const handleUltimateRelease = (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    try {
+      if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+        e.currentTarget.releasePointerCapture?.(e.pointerId);
+      }
+    } catch {}
+    if (typeof window !== 'undefined' && window.mobileInput) {
+      pointerTrackerRef.current.onPointerUp(e.pointerId, window.mobileInput);
+    }
+  };
+
+  const handleUltimateCancel = (e: React.PointerEvent<HTMLButtonElement>) => {
+    try {
+      if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+        e.currentTarget.releasePointerCapture?.(e.pointerId);
+      }
+    } catch {}
+    if (typeof window !== 'undefined' && window.mobileInput) {
+      pointerTrackerRef.current.onPointerCancel(e.pointerId, window.mobileInput);
     }
   };
 
@@ -1411,7 +1457,7 @@ export default function BombermanGame() {
                 onPointerUp={handleUltimateRelease}
                 onPointerCancel={handleUltimateCancel}
                 onPointerLeave={handleUltimateRelease}
-                disabled={stats.ultimateGauge < 100 || stats.ultimateLockoutRemaining > 0}
+                aria-disabled={stats.ultimateGauge < 100 || stats.ultimateLockoutRemaining > 0}
                 aria-label="Ultimate Skill"
                 className={`w-16 h-16 rounded-full border-3 flex flex-col items-center justify-center transition-all select-none touch-none cursor-pointer ${
                   stats.ultimateGauge >= 100 && stats.ultimateLockoutRemaining <= 0

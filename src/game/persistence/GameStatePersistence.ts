@@ -325,7 +325,18 @@ export class GameStatePersistence {
   }
 
   public static resetInstance(): void {
-    GameStatePersistence.instance = null;
+    if (GameStatePersistence.instance) {
+      GameStatePersistence.instance.circuitBreaker.reset();
+      GameStatePersistence.instance = null;
+    }
+  }
+
+  public destroy(): void {
+    this.circuitBreaker.reset();
+  }
+
+  public dispose(): void {
+    this.destroy();
   }
 
   public getCircuitBreaker(): APIQuotaCircuitBreaker {

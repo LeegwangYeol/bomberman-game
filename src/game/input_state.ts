@@ -80,11 +80,34 @@ export function resolveJoystickDirection(
  * Resolves joystick direction directly from raw coordinate offsets (dx, dy).
  * Computes angle and euclidean distance while strictly handling (0,0), NaN, and non-finite values.
  */
+export interface JoystickVectorResult {
+  up: boolean;
+  down: boolean;
+  left: boolean;
+  right: boolean;
+  angle: number;
+  distance: number;
+}
+
+/**
+ * Resolves joystick direction directly from raw coordinate offsets (dx, dy).
+ * Computes angle and euclidean distance while strictly handling (0,0), NaN, and non-finite values.
+ */
 export function resolveJoystickVector(
   dx: number,
   dy: number,
-  deadzone: number = 5
-): { up: boolean; down: boolean; left: boolean; right: boolean; angle: number; distance: number } {
+  deadzone: number = 5,
+  out?: JoystickVectorResult
+): JoystickVectorResult {
+  const result: JoystickVectorResult = out ?? {
+    up: false,
+    down: false,
+    left: false,
+    right: false,
+    angle: 0,
+    distance: 0,
+  };
+
   if (
     typeof dx !== 'number' ||
     typeof dy !== 'number' ||
@@ -93,7 +116,13 @@ export function resolveJoystickVector(
     Number.isNaN(dx) ||
     Number.isNaN(dy)
   ) {
-    return { up: false, down: false, left: false, right: false, angle: 0, distance: 0 };
+    result.up = false;
+    result.down = false;
+    result.left = false;
+    result.right = false;
+    result.angle = 0;
+    result.distance = 0;
+    return result;
   }
 
   const effectiveDeadzone =
@@ -101,7 +130,13 @@ export function resolveJoystickVector(
   const distSq = dx * dx + dy * dy;
   const deadzoneSq = effectiveDeadzone * effectiveDeadzone;
   if (distSq < deadzoneSq) {
-    return { up: false, down: false, left: false, right: false, angle: 0, distance: Math.sqrt(distSq) };
+    result.up = false;
+    result.down = false;
+    result.left = false;
+    result.right = false;
+    result.angle = 0;
+    result.distance = Math.sqrt(distSq);
+    return result;
   }
   const distance = Math.sqrt(distSq);
 
@@ -111,14 +146,13 @@ export function resolveJoystickVector(
   if (deg < 0) deg += 360;
 
   const norm = ((deg % 360) + 360) % 360;
-  return {
-    up: norm >= 22.5 && norm <= 157.5,
-    down: norm >= 202.5 && norm <= 337.5,
-    left: norm >= 112.5 && norm <= 247.5,
-    right: norm <= 67.5 || norm >= 292.5,
-    angle: deg,
-    distance,
-  };
+  result.up = norm >= 22.5 && norm <= 157.5;
+  result.down = norm >= 202.5 && norm <= 337.5;
+  result.left = norm >= 112.5 && norm <= 247.5;
+  result.right = norm <= 67.5 || norm >= 292.5;
+  result.angle = deg;
+  result.distance = distance;
+  return result;
 }
 
 /**
@@ -147,25 +181,76 @@ export function resetAllMobileInputs(state: MobileInputState): void {
 }
 
 /**
+ * Resolves simultaneous contradictory directional inputs (SOCD Cleaner).
+ * Under standard neutral SOCD rules:
+ * - Opposing vertical directions (UP + DOWN) neutralize to false.
+ * - Opposing horizontal directions (LEFT + RIGHT) neutralize to false.
+ * Guarantees the invariant: !(state.up && state.down) && !(state.left && state.right).
+ */
+export function resolveContradictoryDirections(
+  state: MobileInputState,
+  policy: 'neutral' | 'cancel' = 'neutral'
+): void {
+  if (!state) return;
+  void policy;
+  if (state.up && state.down) {
+    state.up = false;
+    state.down = false;
+  }
+  if (state.left && state.right) {
+    state.left = false;
+    state.right = false;
+  }
+}
+
+/**
+ * Checks whether the input state currently has contradictory opposing cardinal directions.
+ */
+export function hasContradictoryDirections(state: MobileInputState): boolean {
+  if (!state) return false;
+  return Boolean((state.up && state.down) || (state.left && state.right));
+}
+
+/**
+ * Sanitizes the MobileInputState against malformed types, NaN, and contradictory directions.
+ * Guarantees all fields are strictly booleans and no opposing cardinal axes are active simultaneously.
+ */
+export function sanitizeMobileInputState(state: MobileInputState): MobileInputState {
+  if (!state) return createDefaultMobileInputState();
+  state.up = Boolean(state.up);
+  state.down = Boolean(state.down);
+  state.left = Boolean(state.left);
+  state.right = Boolean(state.right);
+  state.bomb = Boolean(state.bomb);
+  state.dash = Boolean(state.dash);
+  state.ultimate = Boolean(state.ultimate);
+
+  resolveContradictoryDirections(state);
+  return state;
+}
+
+const defaultFallbackScheduler: (cb: () => void) => void =
+  typeof requestAnimationFrame === 'function'
+    ? requestAnimationFrame
+    : (cb: () => void) => { setTimeout(cb, 16); };
+
+/**
  * High-reliability action button activation with frame-synchronized double-RAF fallback.
  * Prevents input drops and eliminates permanent "sticky button" state if pointer events are dropped.
  */
 export function triggerMobileAction(
   state: MobileInputState,
   action: 'bomb' | 'dash' | 'ultimate',
-  scheduler?: (cb: () => void) => void
+  scheduler?: (cb: () => void) => void,
+  shouldKeepActive?: () => boolean
 ): void {
   if (!state) return;
   state[action] = true;
-  const schedule =
-    scheduler ??
-    (typeof requestAnimationFrame === 'function'
-      ? requestAnimationFrame
-      : (cb: () => void) => setTimeout(cb, 16));
+  const schedule = scheduler ?? (typeof requestAnimationFrame === 'function' ? requestAnimationFrame : defaultFallbackScheduler);
 
   schedule(() => {
     schedule(() => {
-      if (state) {
+      if (!shouldKeepActive || !shouldKeepActive()) {
         state[action] = false;
       }
     });
@@ -190,16 +275,10 @@ export function releaseMobileAction(
   scheduler?: (cb: () => void) => void
 ): void {
   if (!state) return;
-  const schedule =
-    scheduler ??
-    (typeof requestAnimationFrame === 'function'
-      ? requestAnimationFrame
-      : (cb: () => void) => setTimeout(cb, 16));
+  const schedule = scheduler ?? (typeof requestAnimationFrame === 'function' ? requestAnimationFrame : defaultFallbackScheduler);
 
   schedule(() => {
-    if (state) {
-      state[action] = false;
-    }
+    state[action] = false;
   });
 }
 
@@ -294,7 +373,8 @@ export function triggerMobileActionDebounced(
   debounceWindowMs: number = 50,
   debouncer?: ButtonDebouncer,
   now?: number,
-  scheduler?: (cb: () => void) => void
+  scheduler?: (cb: () => void) => void,
+  shouldKeepActive?: () => boolean
 ): boolean {
   if (!state) return false;
 
@@ -304,7 +384,7 @@ export function triggerMobileActionDebounced(
     }
   }
 
-  triggerMobileAction(state, action, scheduler);
+  triggerMobileAction(state, action, scheduler, shouldKeepActive);
   return true;
 }
 
@@ -340,6 +420,7 @@ export class MultiTouchPointerTracker {
     ['ultimate', new Set<number>()],
   ]);
   private debouncer: ButtonDebouncer;
+  private recordPool: ActivePointerRecord[] = [];
 
   constructor(options?: MultiTouchPointerTrackerOptions) {
     this.debouncer = new ButtonDebouncer(options?.debounceMs ?? 0);
@@ -349,6 +430,40 @@ export class MultiTouchPointerTracker {
           this.debouncer.setDebounceWindow(target, ms);
         }
       }
+    }
+  }
+
+  private acquireRecord(
+    pointerId: number,
+    target: TouchControlTarget,
+    timestamp: number,
+    coords?: { x: number; y: number }
+  ): ActivePointerRecord {
+    const record = this.recordPool.pop();
+    if (record) {
+      record.pointerId = pointerId;
+      record.target = target;
+      record.timestamp = timestamp;
+      record.startX = coords?.x;
+      record.startY = coords?.y;
+      record.currentX = coords?.x;
+      record.currentY = coords?.y;
+      return record;
+    }
+    return {
+      pointerId,
+      target,
+      timestamp,
+      startX: coords?.x,
+      startY: coords?.y,
+      currentX: coords?.x,
+      currentY: coords?.y,
+    };
+  }
+
+  private releaseRecord(record: ActivePointerRecord): void {
+    if (this.recordPool.length < 64) {
+      this.recordPool.push(record);
     }
   }
 
@@ -392,6 +507,7 @@ export class MultiTouchPointerTracker {
     const existing = this.activePointers.get(pointerId);
     if (existing && existing.target !== target) {
       this.releasePointerFromTarget(pointerId, existing.target, state);
+      existing.target = target;
     }
 
     const now =
@@ -402,10 +518,6 @@ export class MultiTouchPointerTracker {
           : Date.now();
 
     if (existing) {
-      if (existing.target !== target) {
-        this.releasePointerFromTarget(pointerId, existing.target, state);
-        existing.target = target;
-      }
       targetSet.add(pointerId);
       existing.timestamp = now;
       existing.startX = coords?.x;
@@ -413,15 +525,7 @@ export class MultiTouchPointerTracker {
       existing.currentX = coords?.x;
       existing.currentY = coords?.y;
     } else {
-      const record: ActivePointerRecord = {
-        pointerId,
-        target,
-        timestamp: now,
-        startX: coords?.x,
-        startY: coords?.y,
-        currentX: coords?.x,
-        currentY: coords?.y,
-      };
+      const record = this.acquireRecord(pointerId, target, now, coords);
       this.activePointers.set(pointerId, record);
       targetSet.add(pointerId);
     }
@@ -437,7 +541,12 @@ export class MultiTouchPointerTracker {
       } else {
         this.debouncer.recordTrigger(target, now);
       }
-      triggerMobileAction(state, target, scheduler);
+      triggerMobileAction(
+        state,
+        target,
+        scheduler,
+        () => (this.controlActivePointers.get(target)?.size ?? 0) > 0
+      );
     }
     return true;
   }
@@ -495,6 +604,7 @@ export class MultiTouchPointerTracker {
           state.down = norm >= 202.5 && norm <= 337.5;
           state.left = norm >= 112.5 && norm <= 247.5;
           state.right = norm <= 67.5 || norm >= 292.5;
+          resolveContradictoryDirections(state);
         }
       }
     }
@@ -515,6 +625,7 @@ export class MultiTouchPointerTracker {
     if (!record) return;
 
     this.activePointers.delete(pointerId);
+    this.releaseRecord(record);
     const targetSet = this.controlActivePointers.get(record.target);
     if (targetSet) {
       targetSet.delete(pointerId);
@@ -540,6 +651,7 @@ export class MultiTouchPointerTracker {
     if (!record) return;
 
     this.activePointers.delete(pointerId);
+    this.releaseRecord(record);
     const targetSet = this.controlActivePointers.get(record.target);
     if (targetSet) {
       targetSet.delete(pointerId);
@@ -550,6 +662,23 @@ export class MultiTouchPointerTracker {
           cancelMobileAction(state, record.target);
         }
       }
+    }
+  }
+
+  /**
+   * Immediately clears all tracked pointers and releases any active targets.
+   * Call upon system touchcancel, window blur, modal opening, or pagehide.
+   */
+  public cancelAllPointers(state: MobileInputState): void {
+    for (const record of this.activePointers.values()) {
+      this.releaseRecord(record);
+    }
+    this.activePointers.clear();
+    for (const set of this.controlActivePointers.values()) {
+      set.clear();
+    }
+    if (state) {
+      resetAllMobileInputs(state);
     }
   }
 
@@ -575,6 +704,7 @@ export class MultiTouchPointerTracker {
     for (const [pointerId, record] of this.activePointers.entries()) {
       if (now - record.timestamp > maxAgeMs) {
         this.activePointers.delete(pointerId);
+        this.releaseRecord(record);
         const targetSet = this.controlActivePointers.get(record.target);
         if (targetSet) {
           targetSet.delete(pointerId);
@@ -590,6 +720,10 @@ export class MultiTouchPointerTracker {
       }
     }
 
+    if (this.activePointers.size === 0) {
+      resetAllMobileInputs(state);
+    }
+
     return recoveredCount;
   }
 
@@ -597,6 +731,9 @@ export class MultiTouchPointerTracker {
    * Resets all pointer tracking and zeroes the input state.
    */
   public reset(state?: MobileInputState): void {
+    for (const record of this.activePointers.values()) {
+      this.releaseRecord(record);
+    }
     this.activePointers.clear();
     for (const set of this.controlActivePointers.values()) {
       set.clear();

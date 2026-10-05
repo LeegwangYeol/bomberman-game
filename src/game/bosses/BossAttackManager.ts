@@ -77,7 +77,7 @@ export class BossAttackManager {
       factory: (i) => ({
         id: i,
         active: false,
-        type: 'GUMMY_CUB',
+        type: 'GUMMY_CUB' as const,
         x: 0,
         y: 0,
         vx: 0,
@@ -181,6 +181,44 @@ export class BossAttackManager {
     t.timerMs = durationMs;
     t.durationMs = durationMs;
     return t;
+  }
+
+  /**
+   * Spawns a boss minion from pool in O(1).
+   */
+  public spawnMinion(
+    type: 'GUMMY_CUB' | 'WORKER_BEE' = 'GUMMY_CUB',
+    x: number = 0,
+    y: number = 0,
+    vx: number = 0,
+    vy: number = 0
+  ): BossMinion | null {
+    const m = this.minionPool.acquire();
+    if (!m) return null;
+
+    m.active = true;
+    m.type = type;
+    m.x = x;
+    m.y = y;
+    m.vx = vx;
+    m.vy = vy;
+    m.hp = 1;
+    m.maxHp = 1;
+    m.state = 0;
+    m.targetTileIdx = -1;
+    m.carriedBombId = -1;
+    return m;
+  }
+
+  /**
+   * Alias for addTelegraphTile for simulation API compatibility.
+   */
+  public spawnTelegraphTile(
+    row: number,
+    col: number,
+    durationMs: number = 2000
+  ): TelegraphTile | null {
+    return this.addTelegraphTile(row, col, durationMs);
   }
 
   /**

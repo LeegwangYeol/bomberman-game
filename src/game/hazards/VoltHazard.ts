@@ -464,9 +464,10 @@ export class VoltHazard {
 
       for (let i = 0; i < count; i++) {
         const idx = this.activeVoltIndices[i];
-        const r = Math.floor(idx / COLS);
+        if (idx < 0 || idx >= TOTAL_TILES) continue;
+        const r = (idx / COLS) | 0;
         const c = idx % COLS;
-        const dist = Math.sqrt((r - r0) * (r - r0) + (c - c0) * (c - c0));
+        const dist = Math.hypot(r - r0, c - c0);
         const falloff = Math.max(0.2, 1.0 - dist / (this.radiusTiles + 0.5));
 
         this.dangerMask[idx] = VoltDangerValue.IONIZING;
@@ -476,6 +477,7 @@ export class VoltHazard {
     } else if (this.state === VoltLifecycleState.LIGHTNING_DISCHARGE) {
       for (let i = 0; i < count; i++) {
         const idx = this.activeVoltIndices[i];
+        if (idx < 0 || idx >= TOTAL_TILES) continue;
         this.dangerMask[idx] = VoltDangerValue.LIGHTNING_BURST;
         this.voltageGrid[idx] = 1.0;
         this.conductanceGrid[idx] = 1.0;
@@ -484,6 +486,7 @@ export class VoltHazard {
       const decay = Math.max(0, 1.0 - this.stateElapsedMs / Math.min(1500, this.cooldownDurationMs));
       for (let i = 0; i < count; i++) {
         const idx = this.activeVoltIndices[i];
+        if (idx < 0 || idx >= TOTAL_TILES) continue;
         this.dangerMask[idx] = decay > 0.05 ? VoltDangerValue.DISSIPATING : VoltDangerValue.SAFE;
         this.voltageGrid[idx] = decay * 0.3;
         this.conductanceGrid[idx] = decay * 0.2;
@@ -525,13 +528,14 @@ export class VoltHazard {
    */
   public isPointElectrified(x: number, y: number): boolean {
     if (this.state === VoltLifecycleState.DORMANT) return false;
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) return false;
 
-    const c = Math.floor(x / TILE_SIZE);
-    const r = Math.floor(y / TILE_SIZE);
+    const c = (x / TILE_SIZE) | 0;
+    const r = (y / TILE_SIZE) | 0;
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
 
     const idx = r * COLS + c;
+    if (idx < 0 || idx >= TOTAL_TILES) return false;
     return this.dangerMask[idx] !== VoltDangerValue.SAFE;
   }
 
@@ -540,8 +544,13 @@ export class VoltHazard {
    */
   public isTileElectrified(r: number, c: number): boolean {
     if (this.state === VoltLifecycleState.DORMANT) return false;
-    if (!Number.isInteger(r) || !Number.isInteger(c) || r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
-    return this.dangerMask[r * COLS + c] !== VoltDangerValue.SAFE;
+    if (typeof r !== 'number' || typeof c !== 'number' || !Number.isFinite(r) || !Number.isFinite(c)) return false;
+    const ir = r | 0;
+    const ic = c | 0;
+    if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return false;
+    const idx = ir * COLS + ic;
+    if (idx < 0 || idx >= TOTAL_TILES) return false;
+    return this.dangerMask[idx] !== VoltDangerValue.SAFE;
   }
 
   /**
@@ -549,8 +558,13 @@ export class VoltHazard {
    */
   public isTileLethal(r: number, c: number): boolean {
     if (this.state !== VoltLifecycleState.LIGHTNING_DISCHARGE) return false;
-    if (!Number.isInteger(r) || !Number.isInteger(c) || r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
-    return this.dangerMask[r * COLS + c] === VoltDangerValue.LIGHTNING_DISCHARGE;
+    if (typeof r !== 'number' || typeof c !== 'number' || !Number.isFinite(r) || !Number.isFinite(c)) return false;
+    const ir = r | 0;
+    const ic = c | 0;
+    if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return false;
+    const idx = ir * COLS + ic;
+    if (idx < 0 || idx >= TOTAL_TILES) return false;
+    return this.dangerMask[idx] === VoltDangerValue.LIGHTNING_DISCHARGE;
   }
 
   /**
@@ -832,5 +846,9 @@ export class VoltHazard {
    */
   public calculateSafeAreaRatio(): number {
     return (TOTAL_TILES - this.activeVoltCount) / TOTAL_TILES;
+  }
+
+  public getSafeAreaRatio(): number {
+    return this.calculateSafeAreaRatio();
   }
 }

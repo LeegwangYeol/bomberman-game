@@ -553,14 +553,16 @@ export class DynamicHazard {
       for (let c = minC; c <= maxC; c++) {
         if (this.isWalkableOrPiercable(r1, c)) {
           const idx = r1 * COLS + c;
-          if (this.dangerMask[idx] === 0) {
-            this.dangerMask[idx] = dangerCode;
-            if (this.activeBeamCount < MAX_BEAM_TILES) {
-              this.activeBeamIndices[this.activeBeamCount++] = idx;
+          if (idx >= 0 && idx < TOTAL_TILES) {
+            if (this.dangerMask[idx] === 0) {
+              this.dangerMask[idx] = dangerCode;
+              if (this.activeBeamCount < MAX_BEAM_TILES) {
+                this.activeBeamIndices[this.activeBeamCount++] = idx;
+              }
+            } else if (dangerCode === 2 && this.dangerMask[idx] === 3) {
+              // Non-polarized takes precedence if lethal
+              this.dangerMask[idx] = dangerCode;
             }
-          } else if (dangerCode === 2 && this.dangerMask[idx] === 3) {
-            // Non-polarized takes precedence if lethal
-            this.dangerMask[idx] = dangerCode;
           }
         }
       }
@@ -569,13 +571,15 @@ export class DynamicHazard {
       for (let r = minR; r <= maxR; r++) {
         if (this.isWalkableOrPiercable(r, c1)) {
           const idx = r * COLS + c1;
-          if (this.dangerMask[idx] === 0) {
-            this.dangerMask[idx] = dangerCode;
-            if (this.activeBeamCount < MAX_BEAM_TILES) {
-              this.activeBeamIndices[this.activeBeamCount++] = idx;
+          if (idx >= 0 && idx < TOTAL_TILES) {
+            if (this.dangerMask[idx] === 0) {
+              this.dangerMask[idx] = dangerCode;
+              if (this.activeBeamCount < MAX_BEAM_TILES) {
+                this.activeBeamIndices[this.activeBeamCount++] = idx;
+              }
+            } else if (dangerCode === 2 && this.dangerMask[idx] === 3) {
+              this.dangerMask[idx] = dangerCode;
             }
-          } else if (dangerCode === 2 && this.dangerMask[idx] === 3) {
-            this.dangerMask[idx] = dangerCode;
           }
         }
       }
@@ -609,17 +613,24 @@ export class DynamicHazard {
   }
 
   private setBeamIntensity(intensity: number): void {
-    for (let i = 0; i < this.activeBeamCount; i++) {
+    const safeIntensity = (typeof intensity === 'number' && Number.isFinite(intensity)) ? Math.max(0, Math.min(1.0, intensity)) : 0.0;
+    const count = Math.min(this.activeBeamCount, MAX_BEAM_TILES);
+    for (let i = 0; i < count; i++) {
       const idx = this.activeBeamIndices[i];
-      this.intensityGrid[idx] = intensity;
+      if (idx >= 0 && idx < TOTAL_TILES) {
+        this.intensityGrid[idx] = safeIntensity;
+      }
     }
   }
 
   private clearBeams(): void {
-    for (let i = 0; i < this.activeBeamCount; i++) {
+    const count = Math.min(this.activeBeamCount, MAX_BEAM_TILES);
+    for (let i = 0; i < count; i++) {
       const idx = this.activeBeamIndices[i];
-      this.dangerMask[idx] = 0;
-      this.intensityGrid[idx] = 0;
+      if (idx >= 0 && idx < TOTAL_TILES) {
+        this.dangerMask[idx] = 0;
+        this.intensityGrid[idx] = 0;
+      }
     }
     this.activeBeamCount = 0;
   }
@@ -659,6 +670,7 @@ export class DynamicHazard {
       return false;
     }
     const idx = (r | 0) * COLS + (c | 0);
+    if (idx < 0 || idx >= TOTAL_TILES) return false;
     return this.dangerMask[idx] === 2; // 2 = Lethal Active Beam
   }
 
@@ -676,6 +688,7 @@ export class DynamicHazard {
       return false;
     }
     const idx = (r | 0) * COLS + (c | 0);
+    if (idx < 0 || idx >= TOTAL_TILES) return false;
     return this.dangerMask[idx] === 1;
   }
 
@@ -693,6 +706,7 @@ export class DynamicHazard {
       return false;
     }
     const idx = (r | 0) * COLS + (c | 0);
+    if (idx < 0 || idx >= TOTAL_TILES) return false;
     return this.dangerMask[idx] === 3;
   }
 
@@ -744,6 +758,7 @@ export class DynamicHazard {
     }
 
     const idx = ((playerR | 0) * COLS) + (playerC | 0);
+    if (idx < 0 || idx >= TOTAL_TILES) return res;
     const tileCode = this.dangerMask[idx];
 
     // Polarized beam is completely harmless
@@ -829,6 +844,7 @@ export class DynamicHazard {
     }
 
     const idx = (enemyR | 0) * COLS + (enemyC | 0);
+    if (idx < 0 || idx >= TOTAL_TILES) return res;
     if (this.dangerMask[idx] === 2) {
       if (isBoss) {
         if (!this.bossHitInCurrentBurst) {

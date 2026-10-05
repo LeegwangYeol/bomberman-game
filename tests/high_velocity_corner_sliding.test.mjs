@@ -523,11 +523,27 @@ test('HIGHVEL-03: Extreme 425 px/s Compound Speed (Dash 350 + Speed Surge 75)', 
   assert.ok(sim.player.y <= 60.1, 'Player cleanly navigated into corridor at 425 px/s');
 });
 
-test('HIGHVEL-04: Continuous Multi-Lap Pillar Laps (20 Consecutive Corners at 250 & 350 px/s)', () => {
+test('HIGHVEL-03B: Maximum 450 px/s Extreme Speed Corner Sliding with Zero Clipping', () => {
+  const sim = new HighVelocitySlidingSimulator();
+  sim.setSpeed(450); // Maximum 450 px/s extreme velocity
+
+  sim.player.setPosition(60, 94);
+  sim.inputs = { left: false, right: true, up: true, down: false, timeX: 1, timeY: 2 };
+
+  for (let frame = 0; frame < 30; frame++) {
+    sim.step(1 / 60);
+    const pen = sim.getPenetration();
+    assert.strictEqual(pen.area, 0, `450 px/s Extreme speed must have 0 wall penetration at frame ${frame}`);
+  }
+
+  assert.ok(sim.player.y <= 60.1, 'Player cleanly navigated into corridor at 450 px/s');
+});
+
+test('HIGHVEL-04: Continuous Multi-Lap Pillar Laps (20 Consecutive Corners at 250, 350 & 450 px/s)', () => {
   const sim = new HighVelocitySlidingSimulator();
 
-  // Test both speeds
-  for (const testSpeed of [250, 350]) {
+  // Test across all speed tiers up to 450 px/s
+  for (const testSpeed of [250, 350, 450]) {
     sim.setSpeed(testSpeed);
     // Player will navigate counter-clockwise around pillar (2, 2):
     // (1, 1) -> (1, 3) -> (3, 3) -> (3, 1) -> (1, 1)
@@ -646,7 +662,7 @@ test('HIGHVEL-07: Entity Invariant Guard Clearance at High Dash Speeds (Chaser 2
   assert.strictEqual(clearance, 8.0, 'Entity has exactly 8.0px corridor clearance');
 });
 
-test('HIGHVEL-08: 10,000-Frame High-Velocity Soak Across Entire Arena (250 & 350 px/s)', () => {
+test('HIGHVEL-08: 10,000-Frame High-Velocity Soak Across Entire Arena (250, 350 & 450 px/s)', () => {
   const sim = new HighVelocitySlidingSimulator();
 
   let seed = 987654321;
@@ -670,10 +686,11 @@ test('HIGHVEL-08: 10,000-Frame High-Velocity Soak Across Entire Arena (250 & 350
   let currentDir = dirs[1];
   let dirTicks = 0;
 
+  const soakSpeeds = [250, 350, 450];
   for (let frame = 0; frame < 10000; frame++) {
-    // Alternate between 250 px/s and 350 px/s dash every 500 frames
+    // Cycle between 250, 350, and 450 px/s every 500 frames
     if (frame % 500 === 0) {
-      sim.setSpeed(frame % 1000 === 0 ? 350 : 250);
+      sim.setSpeed(soakSpeeds[Math.floor(frame / 500) % soakSpeeds.length]);
     }
 
     if (dirTicks <= 0) {

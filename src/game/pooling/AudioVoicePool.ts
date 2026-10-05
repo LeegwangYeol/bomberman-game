@@ -85,7 +85,7 @@ export class AudioVoice {
   }
 
   public play(params: AudioVoiceToneParams, ctx: AudioContext): void {
-    if (!this.osc || !this.gain || !this.filter) return;
+    if (!ctx || !this.osc || !this.gain || !this.filter) return;
     const now = ctx.currentTime;
     const duration = Math.max(0.01, Number.isFinite(params.duration) ? params.duration : 0.1);
     const wasActive = this.isBusy && Number.isFinite(this.endTime) && now < this.endTime;
@@ -141,7 +141,9 @@ export class AudioVoice {
     const attack = (params.attackTime && Number.isFinite(params.attackTime)) ? Math.max(0.001, params.attackTime) : 0.005;
 
     if (wasActive) {
-      // 2ms micro-fade down to eliminate DC jump pop/click, then ramp attack
+      // Anchor current gain and micro-fade down over 2ms to eliminate DC jump pop/click, then ramp attack
+      const currentGain = Number.isFinite(this.gain.gain.value) ? Math.max(0.0001, this.gain.gain.value) : 0.0001;
+      this.gain.gain.setValueAtTime(currentGain, now);
       this.gain.gain.linearRampToValueAtTime(0.0001, now + 0.002);
       this.gain.gain.linearRampToValueAtTime(peakGain, now + 0.002 + attack);
     } else {
@@ -171,7 +173,7 @@ export class AudioVoice {
 
   public forceSilence(ctx: AudioContext): void {
     this.detachAllModulators();
-    if (!this.gain) return;
+    if (!ctx || !this.gain) return;
     const now = ctx.currentTime;
     this.gain.gain.cancelScheduledValues(now);
     if (this.osc) {
@@ -181,7 +183,9 @@ export class AudioVoice {
       this.filter.frequency.cancelScheduledValues(now);
       this.filter.Q.cancelScheduledValues(now);
     }
-    // 3ms quick fade to avoid speaker clicks
+    // Anchor and execute 3ms quick fade to avoid speaker clicks
+    const currentGain = Number.isFinite(this.gain.gain.value) ? Math.max(0.0001, this.gain.gain.value) : 0.0001;
+    this.gain.gain.setValueAtTime(currentGain, now);
     this.gain.gain.linearRampToValueAtTime(0.0001, now + 0.003);
     this.isBusy = false;
     this.endTime = now + 0.003;
