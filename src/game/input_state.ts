@@ -720,7 +720,7 @@ export class MultiTouchPointerTracker {
       }
     }
 
-    if (this.activePointers.size === 0) {
+    if (recoveredCount > 0 && this.activePointers.size === 0) {
       resetAllMobileInputs(state);
     }
 

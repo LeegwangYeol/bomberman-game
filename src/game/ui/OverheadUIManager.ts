@@ -149,7 +149,7 @@ export class OverheadUIManager {
               offsetsX[j] += shift;
             } else if (eA.x > eB.x) {
               offsetsX[i] += shift;
-              offsetsX[j] += shift;
+              offsetsX[j] -= shift;
             } else {
               offsetsX[i] -= shift;
               offsetsX[j] += shift;

@@ -202,6 +202,24 @@ import {
   FLOATING_TEXT_CATALYTIC_DETONATION,
   BOMB_KICK_MIASMA_SPEED,
   FLOATING_TEXT_BIO_SLICK_GLIDE,
+  ChronoHazard,
+  ChronoLifecycleState,
+  ChronoTelegraphPhase,
+  CHRONO_SURGE_INVULN_MS,
+  CHRONO_SURGE_SPEED_BURST_RATIO,
+  FLOATING_TEXT_CHRONO_SURGE,
+  TEMPORAL_DILATION_DURATION_MS,
+  TEMPORAL_DILATION_SLOW_RATIO,
+  FLOATING_TEXT_TEMPORAL_DILATION,
+  BOSS_CHRONO_DAMAGE_RATIO,
+  ChronoHazardAudio,
+  CHRONO_SUPER_BOMB_TINT,
+  FLOATING_TEXT_CHRONO_SHIFTED,
+  FLOATING_TEXT_TEMPORAL_IMPLOSION,
+  BOMB_KICK_CHRONO_SPEED,
+  FLOATING_TEXT_CHRONO_SLIPSTREAM,
+  FLOATING_TEXT_TIMELINE_STABILIZED,
+  HazardRenderer,
 } from './hazards/index.ts';
 import { PerkTreeManager, RelicManager, type RelicId } from './progression/index.ts';
 
@@ -402,15 +420,18 @@ export default class GameScene extends Phaser.Scene {
   public voltHazard: VoltHazard = new VoltHazard();
   public magmaHazard: MagmaHazard = new MagmaHazard();
   public miasmaHazard: MiasmaHazard = new MiasmaHazard();
+  public chronoHazard: ChronoHazard = new ChronoHazard();
   public lastGravitationalEscapeTimestampMs: number = 0;
   public lastFrostChillFloatingTextMs: number = -9999;
   public lastStaticShockFloatingTextMs: number = -9999;
   public lastThermalSingeFloatingTextMs: number = -9999;
   public lastNeurotoxinFloatingTextMs: number = -9999;
+  public lastTemporalDilationFloatingTextMs: number = -9999;
   public frostHazardAudio: FrostHazardAudio = FrostHazardAudio.getInstance();
   public voltHazardAudio: VoltHazardAudio = VoltHazardAudio.getInstance();
   public magmaHazardAudio: MagmaHazardAudio = MagmaHazardAudio.getInstance();
   public miasmaHazardAudio: MiasmaHazardAudio = MiasmaHazardAudio.getInstance();
+  public chronoHazardAudio: ChronoHazardAudio = ChronoHazardAudio.getInstance();
   public hazardGraphics: Phaser.GameObjects.Graphics | null = null;
 
 
@@ -577,6 +598,9 @@ export default class GameScene extends Phaser.Scene {
     if (this.miasmaHazard) {
       this.miasmaHazard.stop();
     }
+    if (this.chronoHazard) {
+      this.chronoHazard.stop();
+    }
     if (this.hazardGraphics) {
       this.hazardGraphics.clear();
     }
@@ -584,6 +608,7 @@ export default class GameScene extends Phaser.Scene {
     this.voltHazardAudio?.stop();
     this.magmaHazardAudio?.stop();
     this.miasmaHazardAudio?.stop();
+    this.chronoHazardAudio?.stop();
   }
 
 
@@ -791,6 +816,9 @@ export default class GameScene extends Phaser.Scene {
     }
     if (this.miasmaHazardAudio) {
       this.miasmaHazardAudio.destroy();
+    }
+    if (this.chronoHazardAudio) {
+      this.chronoHazardAudio.destroy();
     }
     webAudioSynth.destroy();
   }
@@ -1561,6 +1589,7 @@ export default class GameScene extends Phaser.Scene {
     this.voltHazardAudio = VoltHazardAudio.getInstance();
     this.magmaHazardAudio = MagmaHazardAudio.getInstance();
     this.miasmaHazardAudio = MiasmaHazardAudio.getInstance();
+    this.chronoHazardAudio = ChronoHazardAudio.getInstance();
 
     this.dynamicHazard.init(this.map);
     this.gravityHazard.init(6, 7);
@@ -1568,6 +1597,7 @@ export default class GameScene extends Phaser.Scene {
     this.voltHazard.init(6, 7);
     this.magmaHazard.init(6, 7);
     this.miasmaHazard.init(6, 7);
+    this.chronoHazard.init(6, 7);
     this.hazardGraphics = this.add.graphics();
     this.hazardGraphics.setDepth(RENDER_DEPTH.CRISIS_HAZARDS);
 
@@ -1875,8 +1905,17 @@ export default class GameScene extends Phaser.Scene {
             bomb.setVelocity(dir.x * currentSpeed, dir.y * currentSpeed);
           }
         }
+        if (this.chronoHazard && this.chronoHazard.state !== ChronoLifecycleState.DORMANT) {
+          const slideRes = this.chronoHazard.evaluateBombSlide(bRow, bCol, currentSpeed);
+          if (slideRes.speed !== currentSpeed) {
+            currentSpeed = slideRes.speed;
+            bomb.setData('slideSpeed', currentSpeed);
+            bomb.setVelocity(dir.x * currentSpeed, dir.y * currentSpeed);
+          }
+        }
 
-        const lookahead = Math.max(16, currentSpeed * (delta / 1000) + 4);
+        const stepDistance = currentSpeed * (delta / 1000);
+        const lookahead = Math.max(16, 16 + stepDistance + 2);
         const checkX = bomb.x + dir.x * lookahead;
         const checkY = bomb.y + dir.y * lookahead;
         const targetCol = Math.floor(checkX / TILE_SIZE);
@@ -2408,9 +2447,6 @@ export default class GameScene extends Phaser.Scene {
           }
         }
       }
-
-      // Render Dynamic Hazard Visuals (Spires & Beams)
-      this.renderDynamicHazardGraphics(_time);
     }
 
     // 13b. Update Frost Hazard System
@@ -2446,8 +2482,6 @@ export default class GameScene extends Phaser.Scene {
           }
         }
       }
-
-      this.renderDynamicHazardGraphics(_time);
     }
 
     // 13c. Update Gravity Hazard System (Gravitational Singularity)
@@ -2491,8 +2525,6 @@ export default class GameScene extends Phaser.Scene {
           }
         }
       }
-
-      this.renderDynamicHazardGraphics(_time);
     }
 
     // 13e. Update Magma Hazard System (Magma Caldera & Pyroclastic Surge)
@@ -2531,8 +2563,6 @@ export default class GameScene extends Phaser.Scene {
           }
         }
       }
-
-      this.renderDynamicHazardGraphics(_time);
     }
 
     // 13f. Update Miasma Hazard System (Toxic Miasma & Spore Bloom)
@@ -2571,9 +2601,48 @@ export default class GameScene extends Phaser.Scene {
           }
         }
       }
-
-      this.renderDynamicHazardGraphics(_time);
     }
+
+    // 13g. Update Chrono Hazard System (Temporal Dilation & Time Collapse)
+    if (this.chronoHazard && this.chronoHazard.state !== ChronoLifecycleState.DORMANT) {
+      this.chronoHazard.update(delta);
+      if (this.chronoHazardAudio) {
+        this.chronoHazardAudio.playChronoHazardState(this.chronoHazard.state, this.chronoHazard.getTelegraphPhase(), this.time?.now ?? Date.now());
+      }
+
+      if (this.chronoHazard.state === ChronoLifecycleState.TIME_COLLAPSE && !this.isGameOver) {
+        // Enemy Collision Check against time collapse
+        const enemiesList = this.enemies.getChildren();
+        for (let i = 0; i < enemiesList.length; i++) {
+          const enemy = enemiesList[i] as BaseEntity;
+          if (enemy && enemy.active && !enemy.isDead) {
+            const er = Math.floor(enemy.y / TILE_SIZE);
+            const ec = Math.floor(enemy.x / TILE_SIZE);
+            const isBoss = enemy === (this.activeBoss as unknown as BaseEntity);
+            const enemyHit = this.chronoHazard.checkEnemyCollision(er, ec, isBoss, this.time.now);
+            if (enemyHit.hit) {
+              if (enemyHit.isDissolved || enemyHit.isDecomposed) {
+                if (typeof enemy.takeDamage === 'function') {
+                  enemy.takeDamage(enemyHit.damage, 'hazard', this.time.now);
+                }
+                this.score += enemyHit.scoreBonus;
+                this.addUltimateCharge(enemyHit.ultimateChargeBonus);
+                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#818cf8');
+              } else if (enemyHit.isStunned && isBoss && this.activeBoss) {
+                this.activeBoss.takeBombDamage(Math.floor(this.activeBoss.maxHp * BOSS_CHRONO_DAMAGE_RATIO));
+                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#818cf8');
+                if (this.bossHUD) {
+                  this.bossHUD.triggerStun(enemyHit.stunDurationMs / 1000, 'Temporal Stasis Distortion!');
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Single unified hazard rendering pass per tick
+    this.renderDynamicHazardGraphics(_time);
   }
 
   private renderCrisisHazards(time: number): void {
@@ -3159,6 +3228,92 @@ export default class GameScene extends Phaser.Scene {
     this.emitStatsUpdate();
   }
 
+  grantChronoSurge(): void {
+    if (this.isGameOver || !this.player || !this.player.active) return;
+    this.isInvulnerable = true;
+    const originalSpeed = this.playerSpeed;
+    this.playerSpeed = Math.floor(originalSpeed * (1.0 + CHRONO_SURGE_SPEED_BURST_RATIO));
+
+    this.player.setTint(0x818cf8);
+    this.player.setAlpha(0.85);
+
+    const existing = this.activeBuffs.find((b) => b.id === 'CHRONO_SURGE');
+    if (existing) {
+      existing.remainingMs = CHRONO_SURGE_INVULN_MS;
+      existing.totalMs = CHRONO_SURGE_INVULN_MS;
+    } else {
+      this.activeBuffs.push({
+        id: 'CHRONO_SURGE',
+        name: 'Chrono Surge',
+        icon: '⏳',
+        color: '#818cf8',
+        remainingMs: CHRONO_SURGE_INVULN_MS,
+        totalMs: CHRONO_SURGE_INVULN_MS,
+      });
+    }
+
+    this.spawnFloatingText(this.player.x, this.player.y - 25, FLOATING_TEXT_CHRONO_SURGE, '#818cf8');
+    if (this.cameras?.main) {
+      this.cameras.main.flash(100, 129, 140, 248);
+    }
+    if (this.chronoHazardAudio) {
+      this.chronoHazardAudio.playChronoSurge();
+    }
+
+    this.time.delayedCall(CHRONO_SURGE_INVULN_MS, () => {
+      if (this.player && this.player.active) {
+        this.player.setAlpha(1.0);
+        this.player.clearTint();
+        if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
+          this.isInvulnerable = false;
+        }
+      }
+      this.playerSpeed = originalSpeed;
+    });
+
+    this.emitStatsUpdate();
+  }
+
+  applyTemporalDilation(): void {
+    if (this.isGameOver || !this.player || !this.player.active) return;
+    const now = this.time?.now ?? Date.now();
+    if (this.isInvulnerable || this.isDashing) return;
+
+    const existing = this.activeBuffs.find((b) => b.id === 'TEMPORAL_DILATION');
+    if (existing) {
+      existing.remainingMs = TEMPORAL_DILATION_DURATION_MS;
+      existing.totalMs = TEMPORAL_DILATION_DURATION_MS;
+    } else {
+      this.activeBuffs.push({
+        id: 'TEMPORAL_DILATION',
+        name: 'Temporal Dilation',
+        icon: '⌛',
+        color: '#a5b4fc',
+        remainingMs: TEMPORAL_DILATION_DURATION_MS,
+        totalMs: TEMPORAL_DILATION_DURATION_MS,
+      });
+    }
+
+    if (now - this.lastTemporalDilationFloatingTextMs >= 2000) {
+      this.lastTemporalDilationFloatingTextMs = now;
+      this.spawnFloatingText(this.player.x, this.player.y - 25, FLOATING_TEXT_TEMPORAL_DILATION, '#a5b4fc');
+      if (this.chronoHazardAudio) {
+        this.chronoHazardAudio.playTemporalDilation(now);
+      }
+    }
+
+    if (this.player && this.player.active && !this.isInvulnerable) {
+      this.player.setTint(0xc7d2fe);
+      this.time.delayedCall(TEMPORAL_DILATION_DURATION_MS, () => {
+        if (this.player && this.player.active && !this.activeBuffs.some((b) => b.id === 'TEMPORAL_DILATION')) {
+          this.player.clearTint();
+        }
+      });
+    }
+
+    this.emitStatsUpdate();
+  }
+
   applyPhaseJitter(durationMs: number = PHASE_JITTER_DURATION_MS): void {
     if (this.isGameOver) return;
     const now = this.time?.now ?? Date.now();
@@ -3195,280 +3350,20 @@ export default class GameScene extends Phaser.Scene {
 
   private renderDynamicHazardGraphics(time: number): void {
     if (!this.hazardGraphics) return;
-    this.hazardGraphics.clear();
-
-    const dState = this.dynamicHazard?.getState();
-    const fState = this.frostHazard?.getState();
-    const vState = this.voltHazard?.getState();
-    const mState = this.magmaHazard?.getState();
-    const miState = this.miasmaHazard?.getState();
-    const hasDynamic = this.dynamicHazard && dState !== HazardLifecycleState.INACTIVE;
-    const hasFrost = this.frostHazard && fState !== FrostLifecycleState.DORMANT && fState !== FrostLifecycleState.THAW_COOLDOWN;
-    const hasVolt = this.voltHazard && vState !== VoltLifecycleState.DORMANT && vState !== VoltLifecycleState.DISCHARGE_COOLDOWN;
-    const hasMagma = this.magmaHazard && mState !== MagmaLifecycleState.DORMANT && mState !== MagmaLifecycleState.OBSIDIAN_COOLDOWN;
-    const hasMiasma = this.miasmaHazard && miState !== MiasmaLifecycleState.DORMANT && miState !== MiasmaLifecycleState.SPORE_DISSIPATION;
-
-    if (!hasDynamic && !hasFrost && !hasVolt && !hasMagma && !hasMiasma) return;
-
-    if (hasDynamic) {
-      // 1. Render Active & Telegraph Beams
-      const beamIndices = this.dynamicHazard.getActiveBeamIndices();
-      const beamCount = this.dynamicHazard.getActiveBeamCount();
-      const dangerMask = this.dynamicHazard.getDangerMask();
-
-      for (let i = 0; i < beamCount; i++) {
-      const idx = beamIndices[i];
-      const r = Math.floor(idx / COLS);
-      const c = idx % COLS;
-      const left = c * TILE_SIZE;
-      const top = r * TILE_SIZE;
-      const code = dangerMask[idx];
-
-      if (code === 1) {
-        // Telegraph phase
-        const phase = this.dynamicHazard.getTelegraphPhase();
-        if (phase === TelegraphPhase.YELLOW) {
-          this.hazardGraphics.lineStyle(2, 0x00e5ff, 0.45);
-          this.hazardGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-          this.hazardGraphics.fillStyle(0x00e5ff, 0.15);
-          this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-        } else if (phase === TelegraphPhase.AMBER) {
-          this.hazardGraphics.lineStyle(2, 0xa855f7, 0.7);
-          this.hazardGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-          this.hazardGraphics.fillStyle(0xa855f7, 0.35);
-          this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-        } else if (phase === TelegraphPhase.RED) {
-          const pulse = 0.7 + 0.3 * Math.sin(time / 40);
-          this.hazardGraphics.lineStyle(2.5, 0xef4444, 0.9 * pulse);
-          this.hazardGraphics.strokeRect(left + 1, top + 1, TILE_SIZE - 2, TILE_SIZE - 2);
-          this.hazardGraphics.fillStyle(0xd946ef, 0.55 * pulse);
-          this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-        }
-      } else if (code === 2) {
-        // Lethal Active Tachyon Beam (White Flash & Cyan Core)
-        this.hazardGraphics.fillStyle(0xffffff, 0.95);
-        this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-        this.hazardGraphics.lineStyle(3, 0x00ffff, 0.9);
-        this.hazardGraphics.strokeRect(left + 1, top + 1, TILE_SIZE - 2, TILE_SIZE - 2);
-      } else if (code === 3) {
-        // Polarized Safe Beam (Radiant Solar Gold Channel)
-        const goldPulse = 0.8 + 0.2 * Math.sin(time / 120);
-        this.hazardGraphics.fillStyle(0xfacc15, 0.45 * goldPulse);
-        this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-        this.hazardGraphics.lineStyle(2, 0xffe066, 0.85);
-        this.hazardGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-      }
-    }
-
-    // 2. Render Spire Crystals
-    const spires = this.dynamicHazard.getSpires();
-    for (let i = 0; i < spires.length; i++) {
-      const spire = spires[i];
-      const sx = spire.c * TILE_SIZE + TILE_SIZE / 2;
-      const sy = spire.r * TILE_SIZE + TILE_SIZE / 2;
-
-      if (spire.isPolarized) {
-        // Golden Polarized Spire
-        const aura = 18 + 4 * Math.sin(time / 100 + i);
-        this.hazardGraphics.fillStyle(0xfacc15, 0.35);
-        this.hazardGraphics.fillCircle(sx, sy, aura);
-
-        this.hazardGraphics.fillStyle(0xfde047, 0.95);
-        this.hazardGraphics.fillCircle(sx, sy, 10);
-        this.hazardGraphics.lineStyle(2, 0xffffff, 1.0);
-        this.hazardGraphics.strokeCircle(sx, sy, 10);
-      } else {
-        // Electric Cyan or Magenta Crystal
-        const color = spire.subtype === HazardSubtype.NEXUS ? 0xd946ef : 0x00e5ff;
-        const pulse = 0.8 + 0.2 * Math.sin(time / 180 + i);
-        this.hazardGraphics.fillStyle(color, 0.25 * pulse);
-        this.hazardGraphics.fillCircle(sx, sy, 16 * pulse);
-
-        this.hazardGraphics.fillStyle(color, 0.9);
-        this.hazardGraphics.beginPath();
-        this.hazardGraphics.moveTo(sx, sy - 12);
-        this.hazardGraphics.lineTo(sx + 10, sy);
-        this.hazardGraphics.lineTo(sx, sy + 12);
-        this.hazardGraphics.lineTo(sx - 10, sy);
-        this.hazardGraphics.closePath();
-        this.hazardGraphics.fillPath();
-
-        this.hazardGraphics.lineStyle(1.5, 0xffffff, 0.9);
-        this.hazardGraphics.strokePath();
-      }
-    }
+    HazardRenderer.render(
+      this.hazardGraphics,
+      {
+        dynamicHazard: this.dynamicHazard,
+        frostHazard: this.frostHazard,
+        voltHazard: this.voltHazard,
+        magmaHazard: this.magmaHazard,
+        miasmaHazard: this.miasmaHazard,
+        chronoHazard: this.chronoHazard,
+      },
+      time
+    );
+    return;
   }
-
-  // 3. Render Frost Hazard Glaciated Tiles & Crystals
-  if (hasFrost && this.frostHazard) {
-    const frostIndices = this.frostHazard.getActiveFrostIndices();
-    const frostCount = this.frostHazard.getActiveFrostCount();
-    const isBurst = fState === FrostLifecycleState.ABSOLUTE_ZERO_BURST;
-    const phase = this.frostHazard.getHoarfrostPhase();
-
-    for (let i = 0; i < frostCount; i++) {
-      const idx = frostIndices[i];
-      const r = Math.floor(idx / COLS);
-      const c = idx % COLS;
-      const left = c * TILE_SIZE;
-      const top = r * TILE_SIZE;
-      const cx = left + TILE_SIZE / 2;
-      const cy = top + TILE_SIZE / 2;
-
-      if (isBurst) {
-        const pulse = 0.8 + 0.2 * Math.sin(time / 30);
-        this.hazardGraphics.fillStyle(0x00ffff, 0.45 * pulse);
-        this.hazardGraphics.fillRect(left + 1, top + 1, TILE_SIZE - 2, TILE_SIZE - 2);
-        this.hazardGraphics.lineStyle(2, 0xffffff, 0.9);
-        this.hazardGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-      } else {
-        const alpha =
-          phase === HoarfrostPhase.CRYSTALLIZATION
-            ? 0.15
-            : phase === HoarfrostPhase.PERMAFROST_CREEP
-            ? 0.30
-            : 0.45;
-        this.hazardGraphics.fillStyle(0x38bdf8, alpha);
-        this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-        this.hazardGraphics.lineStyle(1.5, 0x93c5fd, 0.5);
-        this.hazardGraphics.strokeCircle(cx, cy, 6);
-      }
-    }
-  }
-
-  // 4. Render Volt Hazard Electrified Tiles & Arcs
-  if (hasVolt && this.voltHazard) {
-    const voltIndices = this.voltHazard.getActiveVoltIndices();
-    const voltCount = this.voltHazard.getActiveVoltCount();
-    const isBurst = vState === VoltLifecycleState.LIGHTNING_DISCHARGE;
-    const phase = this.voltHazard.getTelegraphPhase();
-
-    for (let i = 0; i < voltCount; i++) {
-      const idx = voltIndices[i];
-      const r = Math.floor(idx / COLS);
-      const c = idx % COLS;
-      const left = c * TILE_SIZE;
-      const top = r * TILE_SIZE;
-      const cx = left + TILE_SIZE / 2;
-      const cy = top + TILE_SIZE / 2;
-
-      if (isBurst) {
-        // Lethal lightning discharge burst: intense white core + electric yellow strobe
-        const pulse = 0.8 + 0.2 * Math.sin(time / 25);
-        this.hazardGraphics.fillStyle(0xffffff, 0.95);
-        this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-        this.hazardGraphics.lineStyle(2.5, 0xfacc15, 0.95 * pulse);
-        this.hazardGraphics.strokeRect(left + 1, top + 1, TILE_SIZE - 2, TILE_SIZE - 2);
-      } else {
-        // Telegraph ionization: yellow tinted grid with cyan spark circle
-        const alpha =
-          phase === VoltTelegraphPhase.STATIC_CHARGE
-            ? 0.15
-            : phase === VoltTelegraphPhase.ARC_BUILDUP
-            ? 0.30
-            : 0.50; // STEPPED_LEADER
-        this.hazardGraphics.fillStyle(0xfacc15, alpha);
-        this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-        this.hazardGraphics.lineStyle(1.5, 0x38bdf8, 0.6);
-        this.hazardGraphics.strokeCircle(cx, cy, 6);
-      }
-    }
-  }
-
-  // 5. Render Magma Hazard Molten Caldera & Pyroclastic Surge
-  if (hasMagma && this.magmaHazard) {
-    const magmaIndices = this.magmaHazard.getActiveMagmaIndices();
-    const magmaCount = this.magmaHazard.getActiveMagmaCount();
-    const isBurst = mState === MagmaLifecycleState.PYROCLASTIC_BURST;
-    const phase = this.magmaHazard.getTelegraphPhase();
-    const dangerMask = this.magmaHazard.dangerMask;
-
-    for (let i = 0; i < magmaCount; i++) {
-      const idx = magmaIndices[i];
-      const r = Math.floor(idx / COLS);
-      const c = idx % COLS;
-      const left = c * TILE_SIZE;
-      const top = r * TILE_SIZE;
-      const cx = left + TILE_SIZE / 2;
-      const cy = top + TILE_SIZE / 2;
-      const code = dangerMask[idx];
-
-      if (code === 3) {
-        // Solidified Obsidian Crust (Temporary safe footing: dark indigo/purple crust)
-        this.hazardGraphics.fillStyle(0x312e81, 0.65);
-        this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-        this.hazardGraphics.lineStyle(2, 0x6366f1, 0.85);
-        this.hazardGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-      } else if (isBurst || code === 2) {
-        // Lethal Pyroclastic Burst: blazing white-hot center + fiery volcanic orange shell
-        const pulse = 0.8 + 0.2 * Math.sin(time / 20);
-        this.hazardGraphics.fillStyle(0xffedd5, 0.95);
-        this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-        this.hazardGraphics.lineStyle(2.5, 0xf97316, 0.95 * pulse);
-        this.hazardGraphics.strokeRect(left + 1, top + 1, TILE_SIZE - 2, TILE_SIZE - 2);
-      } else {
-        // Telegraph Heating / Upwelling Fissures: warm amber/crimson glow
-        const alpha =
-          phase === MagmaTelegraphPhase.CRUST_HEATING
-            ? 0.20
-            : phase === MagmaTelegraphPhase.MAGMA_UPWELLING
-            ? 0.40
-            : 0.65; // ERUPTION_IMMINENT
-        this.hazardGraphics.fillStyle(0xea580c, alpha);
-        this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-        this.hazardGraphics.lineStyle(1.5, 0xf97316, 0.7);
-        this.hazardGraphics.strokeCircle(cx, cy, 7);
-      }
-    }
-  }
-
-  // 6. Render Miasma Hazard (Toxic Spores & Corrosive Bloom)
-  if (hasMiasma && this.miasmaHazard) {
-    const sporeIndices = this.miasmaHazard.getActiveSporeIndices();
-    const sporeCount = this.miasmaHazard.getActiveSporeCount();
-    const isBurst = miState === MiasmaLifecycleState.CORROSIVE_BURST;
-    const phase = this.miasmaHazard.getTelegraphPhase();
-    const dangerMask = this.miasmaHazard.dangerMask;
-
-    for (let i = 0; i < sporeCount; i++) {
-      const idx = sporeIndices[i];
-      const r = Math.floor(idx / COLS);
-      const c = idx % COLS;
-      const left = c * TILE_SIZE;
-      const top = r * TILE_SIZE;
-      const cx = left + TILE_SIZE / 2;
-      const cy = top + TILE_SIZE / 2;
-      const maskVal = dangerMask[idx];
-
-      if (maskVal === 3) {
-        // Fertile cleansed soil
-        this.hazardGraphics.fillStyle(0x34d399, 0.25);
-        this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-        this.hazardGraphics.lineStyle(1.5, 0x10b981, 0.65);
-        this.hazardGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-      } else if (isBurst || maskVal === 2) {
-        // Corrosive burst: intense toxic emerald pulse
-        const pulse = 0.8 + 0.2 * Math.sin(time / 20);
-        this.hazardGraphics.fillStyle(0xa7f3d0, 0.90);
-        this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-        this.hazardGraphics.lineStyle(2.5, 0x10b981, 0.95 * pulse);
-        this.hazardGraphics.strokeRect(left + 1, top + 1, TILE_SIZE - 2, TILE_SIZE - 2);
-      } else {
-        // Telegraph spore incubation phases
-        const alpha =
-          phase === MiasmaTelegraphPhase.POD_SWELLING
-            ? 0.20
-            : phase === MiasmaTelegraphPhase.SPORE_EXHALATION
-            ? 0.40
-            : 0.65; // BLOOM_IMMINENT
-        this.hazardGraphics.fillStyle(0x059669, alpha);
-        this.hazardGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-        this.hazardGraphics.lineStyle(1.5, 0x10b981, 0.7);
-        this.hazardGraphics.strokeCircle(cx, cy, 7);
-      }
-    }
-  }
-}
 
 
   /**
@@ -3634,6 +3529,34 @@ export default class GameScene extends Phaser.Scene {
       miasmaMultiplier *= (1.0 - NEUROTOXIN_SLOW_RATIO);
     }
 
+    let chronoMultiplier = 1.0;
+    const isChronoSurgeActive = this.activeBuffs.some((b) => b.id === 'CHRONO_SURGE');
+    const isTemporalDilationActive = this.activeBuffs.some((b) => b.id === 'TEMPORAL_DILATION');
+    if (this.chronoHazard && this.chronoHazard.state !== ChronoLifecycleState.DORMANT && this.chronoHazard.state !== ChronoLifecycleState.TACHYON_RECOVERY) {
+      const chRes = this.chronoHazard.evaluatePlayer(px, py, this.isDashing, this.time?.now ?? Date.now(), wantX, wantY);
+      if (chRes.chronoSurgeGranted) {
+        this.grantChronoSurge();
+      } else if (chRes.hit && chRes.damage > 0 && !this.isInvulnerable && !this.isDashing) {
+        this.spawnFloatingText(this.player.x, this.player.y - 14, `-${chRes.damage} TIME COLLAPSE`, '#818cf8');
+        if (this.cameraTrauma) {
+          this.cameraTrauma.addTrauma(0.40);
+        }
+        this.playerDie();
+      } else if (chRes.temporalDilationInflicted && !this.isDashing && !this.isInvulnerable) {
+        this.applyTemporalDilation();
+      }
+      chronoMultiplier = chRes.slowFactor;
+    }
+    if (isChronoSurgeActive) {
+      chronoMultiplier *= (1.0 + CHRONO_SURGE_SPEED_BURST_RATIO);
+    }
+    if (isTemporalDilationActive) {
+      chronoMultiplier *= (1.0 - TEMPORAL_DILATION_SLOW_RATIO);
+    }
+
+    const rawCompoundMultiplier = gravityMultiplier * frostMultiplier * voltMultiplier * magmaMultiplier * miasmaMultiplier * chronoMultiplier;
+    const clampedHazardMultiplier = Math.min(1.85, Math.max(0.30, Number.isFinite(rawCompoundMultiplier) && rawCompoundMultiplier > 0 ? rawCompoundMultiplier : 1.0));
+
     const speed = calculateClampedPlayerSpeed({
       baseSpeed: this.playerSpeed,
       perkSpeedBonus,
@@ -3641,7 +3564,7 @@ export default class GameScene extends Phaser.Scene {
       isDashing: this.isDashing,
       dashSpeed: DASH_SPEED,
       phaseJitterActive: isPhaseJittered,
-      speedMultiplier: gravityMultiplier * frostMultiplier * voltMultiplier * magmaMultiplier * miasmaMultiplier,
+      speedMultiplier: clampedHazardMultiplier,
     });
     const slideSpeed = speed;
     const snapThreshold = Math.max(2, speed * (delta / 1000));
@@ -3921,6 +3844,15 @@ export default class GameScene extends Phaser.Scene {
         fuseDuration = miasmaInteraction.modifiedFuseMs;
         bomb.setTint(miasmaInteraction.tint ?? MIASMA_SUPER_BOMB_TINT);
         this.spawnFloatingText(centerX, centerY - 25, miasmaInteraction.floatingText ?? FLOATING_TEXT_BIO_FUSED, '#10b981');
+      }
+    }
+
+    if (this.chronoHazard && this.chronoHazard.state !== ChronoLifecycleState.DORMANT && this.chronoHazard.state !== ChronoLifecycleState.TACHYON_RECOVERY) {
+      const chronoInteraction = this.chronoHazard.onBombPlaced(bombId, row, col, this.bombPower, fuseDuration);
+      if (chronoInteraction.isChronoShifted) {
+        fuseDuration = chronoInteraction.modifiedFuseMs;
+        bomb.setTint(chronoInteraction.tint ?? CHRONO_SUPER_BOMB_TINT);
+        this.spawnFloatingText(centerX, centerY - 25, chronoInteraction.floatingText ?? FLOATING_TEXT_CHRONO_SHIFTED, '#818cf8');
       }
     }
 
@@ -4437,6 +4369,19 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    if (this.chronoHazard && this.chronoHazard.state !== ChronoLifecycleState.DORMANT && this.chronoHazard.state !== ChronoLifecycleState.TACHYON_RECOVERY) {
+      const chDet = this.chronoHazard.onBombDetonated(bombId, actualRow, actualCol, effectivePower);
+      if (chDet.isTemporalImplosion) {
+        effectivePower = chDet.modifiedPower;
+        isPiercing = isPiercing || chDet.piercing;
+        const cX = actualCol * TILE_SIZE + TILE_SIZE / 2;
+        const cY = actualRow * TILE_SIZE + TILE_SIZE / 2;
+        this.spawnFloatingText(cX, cY - 25, chDet.floatingText || FLOATING_TEXT_TEMPORAL_IMPLOSION, '#818cf8');
+        this.score += chDet.bonusScore;
+        this.emitStatsUpdate();
+      }
+    }
+
     // 3. Polarization Strike helper (blast cleanses spire into golden channel for 8.0s)
     const checkPolarizationStrike = (r: number, c: number) => {
       if (this.frostHazard) {
@@ -4464,6 +4409,17 @@ export default class GameScene extends Phaser.Scene {
           this.spawnFloatingText(px, py - 20, cleanseRes.floatingText, '#10b981');
           if (this.miasmaHazardAudio) {
             this.miasmaHazardAudio.playFloralCleanseSnap();
+          }
+        }
+      }
+      if (this.chronoHazard) {
+        const stabRes = this.chronoHazard.onBombBlastImpact(r, c);
+        if (stabRes.stabilized) {
+          const px = c * TILE_SIZE + TILE_SIZE / 2;
+          const py = r * TILE_SIZE + TILE_SIZE / 2;
+          this.spawnFloatingText(px, py - 20, stabRes.floatingText, '#818cf8');
+          if (this.chronoHazardAudio) {
+            this.chronoHazardAudio.playTimelineStabilizeSnap();
           }
         }
       }
@@ -5625,6 +5581,17 @@ export default class GameScene extends Phaser.Scene {
         this.spawnFloatingText(bomb.x, bomb.y - 20, txt, '#10b981');
         if (this.miasmaHazardAudio) {
           this.miasmaHazardAudio.playBioSlickKick();
+        }
+      }
+    }
+    if (this.chronoHazard && this.chronoHazard.state !== ChronoLifecycleState.DORMANT) {
+      const kickRes = this.chronoHazard.onBombKicked(bomb.getData('id') || 'bomb', bRow, bCol, BOMB_KICK_SPEED);
+      if (kickRes.isSlipstream) {
+        kickSpeed = kickRes.modifiedSpeed || BOMB_KICK_CHRONO_SPEED;
+        const txt = kickRes.floatingText || FLOATING_TEXT_CHRONO_SLIPSTREAM;
+        this.spawnFloatingText(bomb.x, bomb.y - 20, txt, '#818cf8');
+        if (this.chronoHazardAudio) {
+          this.chronoHazardAudio.playChronoSlipstreamKick();
         }
       }
     }
