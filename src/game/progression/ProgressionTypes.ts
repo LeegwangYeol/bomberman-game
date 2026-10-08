@@ -106,6 +106,9 @@ export const WaveMutatorId = {
   MAGNETIC_DRIFT: 'MAGNETIC_DRIFT',
   SOLAR_CORONA: 'SOLAR_CORONA',
   ZERO_G_FIZZ: 'ZERO_G_FIZZ',
+  CHRONO_ANOMALY: 'CHRONO_ANOMALY',
+  PSIONIC_HAZE: 'PSIONIC_HAZE',
+  VERDANT_OVERGROWTH: 'VERDANT_OVERGROWTH',
 } as const;
 
 export type WaveMutatorId = typeof WaveMutatorId[keyof typeof WaveMutatorId];

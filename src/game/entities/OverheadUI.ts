@@ -2,6 +2,13 @@ import type Phaser from 'phaser';
 import type { EntityFaction, OverheadRenderLayers, NameTagLODMode } from './types.ts';
 import { RENDER_DEPTH } from './types.ts';
 
+interface ISceneGraphicsPool {
+  graphicsPool?: {
+    acquire: () => Phaser.GameObjects.Graphics;
+    release: (graphics: Phaser.GameObjects.Graphics) => void;
+  };
+}
+
 /**
  * 3-Tier Overhead UI Component for Bomberman Entities.
  * Tier 1 (y - 14): Segmented HP Bar (24x4px, segmented by maxHp)
@@ -71,8 +78,17 @@ export class OverheadUI {
     if (scene && scene.add) {
       // Tier 1: HP Bar Graphics
       if (typeof scene.add.graphics === 'function') {
-        this.hpGraphics = scene.add.graphics();
-        this.hpGraphics.setDepth(RENDER_DEPTH.ENTITY_Y_BASE + RENDER_DEPTH.OFFSET_HP_BAR);
+        const sceneWithPool = scene as unknown as ISceneGraphicsPool;
+        if (sceneWithPool.graphicsPool) {
+          this.hpGraphics = sceneWithPool.graphicsPool.acquire();
+        } else {
+          this.hpGraphics = scene.add.graphics();
+        }
+        if (this.hpGraphics) {
+          if (typeof this.hpGraphics.setActive === 'function') this.hpGraphics.setActive(true);
+          if (typeof this.hpGraphics.setVisible === 'function') this.hpGraphics.setVisible(true);
+          this.hpGraphics.setDepth(RENDER_DEPTH.ENTITY_Y_BASE + RENDER_DEPTH.OFFSET_HP_BAR);
+        }
       }
 
       // Tier 2: Name Tag Text
@@ -138,6 +154,11 @@ export class OverheadUI {
       this.indicator.setPosition(effectiveX, effectiveY + this.tier3_intent_y_offset);
     }
 
+    // Maintain continuous 2.5D dynamic depth synchronized with physical Y coordinate
+    if (Number.isFinite(y)) {
+      this.setDepth(RENDER_DEPTH.ENTITY_Y_BASE + y * RENDER_DEPTH.ENTITY_Y_SCALE);
+    }
+
     this.renderHpBar(barX, barY);
   }
 
@@ -168,6 +189,7 @@ export class OverheadUI {
     this.lastRenderedColor = this.hpBarColor;
     this.lastRenderedVisible = isVisible;
 
+    if (typeof this.hpGraphics.clear !== 'function') return;
     this.hpGraphics.clear();
     if (!isVisible) return;
 
@@ -278,6 +300,19 @@ export class OverheadUI {
     }
   }
 
+  public setVisible(visible: boolean): void {
+    if (this.isDestroyed) return;
+    if (this.hpGraphics && typeof this.hpGraphics.setVisible === 'function') {
+      this.hpGraphics.setVisible(visible);
+    }
+    if (this.nameTag && typeof this.nameTag.setVisible === 'function') {
+      this.nameTag.setVisible(visible);
+    }
+    if (this.indicator && typeof this.indicator.setVisible === 'function') {
+      this.indicator.setVisible(visible);
+    }
+  }
+
   public getRenderLayers(includeOffsets: boolean = false): OverheadRenderLayers {
     const effectiveX = includeOffsets ? this.x + this.customOffsetX : this.x;
     const effectiveY = includeOffsets ? this.y + this.customOffsetY : this.y;
@@ -313,10 +348,16 @@ export class OverheadUI {
   public destroy(): void {
     this.isDestroyed = true;
     if (this.hpGraphics && this.hpGraphics.active) {
-      this.hpGraphics.destroy();
+      const sceneWithPool = this.scene as unknown as ISceneGraphicsPool | undefined;
+      if (sceneWithPool?.graphicsPool) {
+        sceneWithPool.graphicsPool.release(this.hpGraphics);
+      } else if (typeof this.hpGraphics.destroy === 'function') {
+        this.hpGraphics.destroy();
+      }
       this.hpGraphics = null;
     }
     if (this.nameTag && this.nameTag.active) {
+      // not pooled yet, just destroy or hide
       this.nameTag.destroy();
       this.nameTag = null;
     }

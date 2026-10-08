@@ -11,6 +11,7 @@ import type {
   GameModeInfo,
   BoonOption,
   AppliedBoonBonuses,
+  RunProgressionState,
 } from './ProgressionTypes.ts';
 
 /* ==============================================================================
@@ -350,5 +351,76 @@ export class GameModeManager {
     }
 
     return draft;
+  }
+
+  public serialize(): RunProgressionState {
+    return {
+      mode: this.currentMode,
+      wave: this.wave,
+      chamberNumber: this.chamberNumber,
+      score: this.score,
+      killCount: 0,
+      starCandiesEarned: this.starCandies,
+      cosmicEssenceEarned: this.cosmicEssence,
+      equippedRelics: [],
+      appliedPerks: {
+        startingBlastRadiusBonus: 0,
+        bombCooldownReduction: 0,
+        chainScoreBonus: 0,
+        chainUltChargeBonus: 0,
+        maxBombCapacity: 6,
+        baseSpeedBonus: 0,
+        cornerSlideTolerance: 8,
+        hasDashDecoy: false,
+        dashCooldownReductionMs: 0,
+        dashSpeedBurstRatio: 0,
+        startingShields: 0,
+        hasSecondWind: false,
+        groundSlowdownReduction: 0,
+        extraHeartContainer: 0,
+        itemDropRateBonus: 0,
+        shopDiscountRatio: 0,
+        relicDropChanceBonus: 0,
+        maxRelicSlots: 1,
+        gildedChestChance: 0,
+      },
+      activeMutators: [],
+      secondWindConsumed: false,
+      bossRushCurrentIndex: this.bossRushIndex,
+      bossRushElapsedMs: this.bossRushElapsedMs,
+      survivalElapsedMs: this.survivalElapsedMs,
+      nextCrisisCountdownMs: this.nextCrisisCountdownMs,
+      nextDropPodCountdownMs: this.nextDropPodCountdownMs,
+      crisesPurifiedCount: this.crisesPurifiedCount,
+    };
+  }
+
+  public deserialize(saved: Partial<RunProgressionState>): boolean {
+    if (!saved || typeof saved !== 'object') return false;
+
+    if (saved.mode && Object.values(GameModeType).includes(saved.mode)) {
+      this.currentMode = saved.mode;
+    }
+
+    const safeInt = (val: unknown, fallback: number = 1): number =>
+      typeof val === 'number' && Number.isFinite(val) ? Math.max(0, Math.floor(val)) : fallback;
+
+    this.wave = safeInt(saved.wave, 1);
+    this.chamberNumber = safeInt(saved.chamberNumber, 1);
+    this.score = safeInt(saved.score, 0);
+    this.starCandies = safeInt(saved.starCandiesEarned, 0);
+    this.cosmicEssence = safeInt(saved.cosmicEssenceEarned, 0);
+    this.survivalElapsedMs = safeInt(saved.survivalElapsedMs, 0);
+    this.nextCrisisCountdownMs = typeof saved.nextCrisisCountdownMs === 'number' && Number.isFinite(saved.nextCrisisCountdownMs)
+      ? Math.max(0, saved.nextCrisisCountdownMs)
+      : 60000;
+    this.nextDropPodCountdownMs = typeof saved.nextDropPodCountdownMs === 'number' && Number.isFinite(saved.nextDropPodCountdownMs)
+      ? Math.max(0, saved.nextDropPodCountdownMs)
+      : 45000;
+    this.crisesPurifiedCount = safeInt(saved.crisesPurifiedCount, 0);
+    this.bossRushIndex = safeInt(saved.bossRushCurrentIndex, 0);
+    this.bossRushElapsedMs = safeInt(saved.bossRushElapsedMs, 0);
+
+    return true;
   }
 }

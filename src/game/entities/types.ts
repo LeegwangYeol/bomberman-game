@@ -45,6 +45,7 @@ export const RENDER_DEPTH = {
   // Boss Graphics Layer
   BOSS_BODY: 800,
   BOSS_VFX: 810,
+  BOSS_PHASE_BARS: 820,
 
   // Floating Labels & Popups
   FLOATING_TEXT: 900,

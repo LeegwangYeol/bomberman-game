@@ -13,8 +13,8 @@ export interface DeclutterEntity {
 export class OverheadUIManager {
   public smoothOuterBubble: boolean = false;
   private readonly _scratchActive: DeclutterEntity[] = [];
-  private _offsetsX: Float32Array = new Float32Array(512);
-  private _offsetsY: Float32Array = new Float32Array(512);
+  private _offsetsX: Float32Array = new Float32Array(1024);
+  private _offsetsY: Float32Array = new Float32Array(1024);
 
   constructor(smoothOuterBubble: boolean = false) {
     this.smoothOuterBubble = smoothOuterBubble;
@@ -41,7 +41,7 @@ export class OverheadUIManager {
         this._scratchActive.push(e);
       }
     }
-    const active = this._scratchActive;
+    const active = this._scratchActive as DeclutterEntity[];
 
     // 1. Unified 2.5D dynamic Y-sorting depth pass
     for (const entity of active) {
@@ -109,7 +109,7 @@ export class OverheadUIManager {
 
     // 3. AABB Collision Detection, Horizontal Spring Repulsion & Vertical Staggering
     if (this._offsetsX.length < active.length) {
-      const newCap = Math.max(active.length, this._offsetsX.length * 2, 512);
+      const newCap = Math.max(active.length, this._offsetsX.length * 2, 1024);
       this._offsetsX = new Float32Array(newCap);
       this._offsetsY = new Float32Array(newCap);
     }
@@ -250,5 +250,24 @@ export class OverheadUIManager {
       entity.overheadUI.setAlpha(alpha);
       entity.overheadUI.setCustomOffsets(ox, oy);
     }
+
+    // Zero-GC reference cleanup: release strong entity references to prevent heap retention
+    for (let k = 0; k < this._scratchActive.length; k++) {
+      this._scratchActive[k] = null as unknown as DeclutterEntity;
+    }
+    this._scratchActive.length = 0;
+  }
+
+  public reset(): void {
+    for (let k = 0; k < this._scratchActive.length; k++) {
+      this._scratchActive[k] = null as unknown as DeclutterEntity;
+    }
+    this._scratchActive.length = 0;
+    this._offsetsX.fill(0);
+    this._offsetsY.fill(0);
+  }
+
+  public destroy(): void {
+    this.reset();
   }
 }

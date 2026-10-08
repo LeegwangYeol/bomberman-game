@@ -25,6 +25,7 @@ import type {
   PerkState,
 } from '../progression/ProgressionTypes.ts';
 import { CONFECTIONERY_PERKS } from '../progression/PerkTree.ts';
+import { sanitizeRunProgressionState } from '../progression/ProgressionPersistence.ts';
 import { APIQuotaCircuitBreaker } from './CircuitBreaker.ts';
 
 /* ==============================================================================
@@ -357,6 +358,10 @@ export class GameStatePersistence {
       cloned.board.mapRLE = compressGrid(cloned.board.map);
     }
 
+    if (cloned.progression) {
+      cloned.progression = sanitizeRunProgressionState(cloned.progression);
+    }
+
     cloned.version = STORAGE_SCHEMA_VERSION;
     cloned.timestamp = Date.now();
     cloned.checksum = calculateChecksum(cloned);
@@ -397,6 +402,10 @@ export class GameStatePersistence {
         } catch (e) {
           console.error('GameStatePersistence: Failed to decompress map RLE', e);
         }
+      }
+
+      if (parsed.progression) {
+        parsed.progression = sanitizeRunProgressionState(parsed.progression);
       }
 
       this.cachedActiveRun = parsed;

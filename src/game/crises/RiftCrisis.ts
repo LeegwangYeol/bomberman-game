@@ -247,7 +247,17 @@ export class RiftCrisis extends BaseCrisis {
     );
   }
 
-  protected onResolveObjective(): void {
-    // Handled in bomb blast
+  protected onResolveObjective(objectiveId: string, value?: number): void {
+    void value;
+    if (objectiveId === 'quantum_sync') {
+      const polarizedCount = this.spires.filter((s) => s.isPolarized).length;
+      this.adjustThreat(-8 * polarizedCount);
+      const obj = this.objectives.find((o) => o.id === 'quantum_sync');
+      if (obj && obj.isCompleted && !this.isVictorious) {
+        this.resolveCrisis('Quantum Synchronization achieved! Dimensional rifts collapsed and reality stabilized!');
+      }
+    } else if (objectiveId === 'navigate_rifts') {
+      this.adjustThreat(-5);
+    }
   }
 }

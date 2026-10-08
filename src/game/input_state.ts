@@ -128,6 +128,15 @@ export function resolveJoystickVector(
   const effectiveDeadzone =
     typeof deadzone === 'number' && Number.isFinite(deadzone) && deadzone >= 0 ? deadzone : 5;
   const distSq = dx * dx + dy * dy;
+  if (!Number.isFinite(distSq)) {
+    result.up = false;
+    result.down = false;
+    result.left = false;
+    result.right = false;
+    result.angle = 0;
+    result.distance = 0;
+    return result;
+  }
   const deadzoneSq = effectiveDeadzone * effectiveDeadzone;
   if (distSq < deadzoneSq) {
     result.up = false;
@@ -144,6 +153,7 @@ export function resolveJoystickVector(
   // Converting screen dy (inverted y) to standard mathematical angle (0=Right, 90=Up, 180=Left, 270=Down):
   let deg = (Math.atan2(-dy, dx) * 180) / Math.PI;
   if (deg < 0) deg += 360;
+  if (Object.is(deg, -0) || deg === 0) deg = 0;
 
   const norm = ((deg % 360) + 360) % 360;
   result.up = norm >= 22.5 && norm <= 157.5;
@@ -188,11 +198,30 @@ export function resetAllMobileInputs(state: MobileInputState): void {
  * Guarantees the invariant: !(state.up && state.down) && !(state.left && state.right).
  */
 export function resolveContradictoryDirections(
-  state: MobileInputState,
-  policy: 'neutral' | 'cancel' = 'neutral'
-): void {
-  if (!state) return;
-  void policy;
+  stateOrUp: MobileInputState | boolean,
+  policyOrDown: 'neutral' | 'cancel' | boolean = 'neutral',
+  argLeft?: boolean,
+  argRight?: boolean
+): MobileInputState | { up: boolean; down: boolean; left: boolean; right: boolean } {
+  if (typeof stateOrUp === 'boolean') {
+    let up = Boolean(stateOrUp);
+    let down = Boolean(policyOrDown);
+    let left = Boolean(argLeft);
+    let right = Boolean(argRight);
+    if (up && down) {
+      up = false;
+      down = false;
+    }
+    if (left && right) {
+      left = false;
+      right = false;
+    }
+    return { up, down, left, right };
+  }
+
+  const state = stateOrUp;
+  if (!state) return state;
+  void policyOrDown;
   if (state.up && state.down) {
     state.up = false;
     state.down = false;
@@ -201,6 +230,7 @@ export function resolveContradictoryDirections(
     state.left = false;
     state.right = false;
   }
+  return state;
 }
 
 /**
@@ -244,7 +274,7 @@ export function triggerMobileAction(
   scheduler?: (cb: () => void) => void,
   shouldKeepActive?: () => boolean
 ): void {
-  if (!state) return;
+  if (!state || (action !== 'bomb' && action !== 'dash' && action !== 'ultimate')) return;
   state[action] = true;
   const schedule = scheduler ?? (typeof requestAnimationFrame === 'function' ? requestAnimationFrame : defaultFallbackScheduler);
 
@@ -261,7 +291,7 @@ export function triggerMobileAction(
  * Immediate cancellation of an action input upon pointer cancel.
  */
 export function cancelMobileAction(state: MobileInputState, action: 'bomb' | 'dash' | 'ultimate'): void {
-  if (state) {
+  if (state && (action === 'bomb' || action === 'dash' || action === 'ultimate')) {
     state[action] = false;
   }
 }
@@ -274,7 +304,7 @@ export function releaseMobileAction(
   action: 'bomb' | 'dash' | 'ultimate',
   scheduler?: (cb: () => void) => void
 ): void {
-  if (!state) return;
+  if (!state || (action !== 'bomb' && action !== 'dash' && action !== 'ultimate')) return;
   const schedule = scheduler ?? (typeof requestAnimationFrame === 'function' ? requestAnimationFrame : defaultFallbackScheduler);
 
   schedule(() => {
@@ -293,7 +323,10 @@ export class ButtonDebouncer {
   private actionWindows: Map<string, number> = new Map();
 
   constructor(defaultWindowMs: number = 50) {
-    this.defaultWindowMs = Math.max(0, defaultWindowMs);
+    this.defaultWindowMs =
+      typeof defaultWindowMs === 'number' && Number.isFinite(defaultWindowMs) && defaultWindowMs >= 0
+        ? defaultWindowMs
+        : 50;
   }
 
   public setDebounceWindow(action: TouchControlTarget | string, windowMs: number): void {
@@ -307,6 +340,7 @@ export class ButtonDebouncer {
   }
 
   public canTrigger(action: TouchControlTarget | string, now?: number, customWindowMs?: number): boolean {
+    if (!action) return false;
     const currentTime =
       typeof now === 'number' && Number.isFinite(now)
         ? now
@@ -320,7 +354,7 @@ export class ButtonDebouncer {
     }
 
     const window =
-      typeof customWindowMs === 'number' && Number.isFinite(customWindowMs)
+      typeof customWindowMs === 'number' && Number.isFinite(customWindowMs) && customWindowMs >= 0
         ? customWindowMs
         : this.getDebounceWindow(action);
 
@@ -439,29 +473,38 @@ export class MultiTouchPointerTracker {
     timestamp: number,
     coords?: { x: number; y: number }
   ): ActivePointerRecord {
+    const validX =
+      coords && typeof coords.x === 'number' && Number.isFinite(coords.x) ? coords.x : undefined;
+    const validY =
+      coords && typeof coords.y === 'number' && Number.isFinite(coords.y) ? coords.y : undefined;
+
     const record = this.recordPool.pop();
     if (record) {
       record.pointerId = pointerId;
       record.target = target;
       record.timestamp = timestamp;
-      record.startX = coords?.x;
-      record.startY = coords?.y;
-      record.currentX = coords?.x;
-      record.currentY = coords?.y;
+      record.startX = validX;
+      record.startY = validY;
+      record.currentX = validX;
+      record.currentY = validY;
       return record;
     }
     return {
       pointerId,
       target,
       timestamp,
-      startX: coords?.x,
-      startY: coords?.y,
-      currentX: coords?.x,
-      currentY: coords?.y,
+      startX: validX,
+      startY: validY,
+      currentX: validX,
+      currentY: validY,
     };
   }
 
   private releaseRecord(record: ActivePointerRecord): void {
+    record.startX = undefined;
+    record.startY = undefined;
+    record.currentX = undefined;
+    record.currentY = undefined;
     if (this.recordPool.length < 64) {
       this.recordPool.push(record);
     }
@@ -482,6 +525,24 @@ export class MultiTouchPointerTracker {
 
   public getDebouncer(): ButtonDebouncer {
     return this.debouncer;
+  }
+
+  /**
+   * Refreshes the activity timestamp of an active pointer.
+   * Useful for steady holds (e.g. continuous button press or motionless joystick hold)
+   * to inform the watchdog timer that the touch is actively maintained and not orphaned.
+   */
+  public refreshPointer(pointerId: number, timestamp?: number): boolean {
+    const record = this.activePointers.get(pointerId);
+    if (!record) return false;
+    const now =
+      typeof timestamp === 'number' && Number.isFinite(timestamp)
+        ? timestamp
+        : typeof performance !== 'undefined'
+          ? performance.now()
+          : Date.now();
+    record.timestamp = now;
+    return true;
   }
 
   /**
@@ -517,13 +578,18 @@ export class MultiTouchPointerTracker {
           ? performance.now()
           : Date.now();
 
+    const validX =
+      coords && typeof coords.x === 'number' && Number.isFinite(coords.x) ? coords.x : undefined;
+    const validY =
+      coords && typeof coords.y === 'number' && Number.isFinite(coords.y) ? coords.y : undefined;
+
     if (existing) {
       targetSet.add(pointerId);
       existing.timestamp = now;
-      existing.startX = coords?.x;
-      existing.startY = coords?.y;
-      existing.currentX = coords?.x;
-      existing.currentY = coords?.y;
+      existing.startX = validX;
+      existing.startY = validY;
+      existing.currentX = validX;
+      existing.currentY = validY;
     } else {
       const record = this.acquireRecord(pointerId, target, now, coords);
       this.activePointers.set(pointerId, record);
@@ -559,7 +625,8 @@ export class MultiTouchPointerTracker {
     pointerId: number,
     coords: { x: number; y: number },
     state: MobileInputState,
-    origin?: { x: number; y: number }
+    origin?: { x: number; y: number },
+    timestamp?: number
   ): void {
     if (!state) return;
     if (typeof pointerId !== 'number' || !Number.isFinite(pointerId)) return;
@@ -580,18 +647,31 @@ export class MultiTouchPointerTracker {
       return;
     }
 
+    const now =
+      typeof timestamp === 'number' && Number.isFinite(timestamp)
+        ? timestamp
+        : typeof performance !== 'undefined'
+          ? performance.now()
+          : Date.now();
+    record.timestamp = now;
+
     record.currentX = coords.x;
     record.currentY = coords.y;
 
     if (record.target === 'joystick') {
-      const ox = origin ? origin.x : record.startX;
-      const oy = origin ? origin.y : record.startY;
+      if (record.startX === undefined || !Number.isFinite(record.startX)) {
+        record.startX = coords.x;
+        record.startY = coords.y;
+      }
+
+      const ox = origin && Number.isFinite(origin.x) ? origin.x : record.startX;
+      const oy = origin && Number.isFinite(origin.y) ? origin.y : record.startY;
 
       if (ox !== undefined && oy !== undefined && Number.isFinite(ox) && Number.isFinite(oy)) {
         const dx = coords.x - ox;
         const dy = coords.y - oy;
         const distSq = dx * dx + dy * dy;
-        if (distSq < 25) {
+        if (!Number.isFinite(distSq) || distSq < 25) {
           state.up = false;
           state.down = false;
           state.left = false;
@@ -606,6 +686,8 @@ export class MultiTouchPointerTracker {
           state.right = norm <= 67.5 || norm >= 292.5;
           resolveContradictoryDirections(state);
         }
+      } else {
+        resetJoystickDirection(state);
       }
     }
   }
@@ -693,6 +775,8 @@ export class MultiTouchPointerTracker {
     currentTime?: number
   ): number {
     if (!state) return 0;
+    const effectiveMaxAge =
+      typeof maxAgeMs === 'number' && Number.isFinite(maxAgeMs) && maxAgeMs >= 0 ? maxAgeMs : 3000;
     const now =
       typeof currentTime === 'number' && Number.isFinite(currentTime)
         ? currentTime
@@ -702,7 +786,7 @@ export class MultiTouchPointerTracker {
     let recoveredCount = 0;
 
     for (const [pointerId, record] of this.activePointers.entries()) {
-      if (now - record.timestamp > maxAgeMs) {
+      if (now - record.timestamp > effectiveMaxAge) {
         this.activePointers.delete(pointerId);
         this.releaseRecord(record);
         const targetSet = this.controlActivePointers.get(record.target);

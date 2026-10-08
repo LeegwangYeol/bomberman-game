@@ -35,6 +35,20 @@ export const BOSS_METADATA: Record<
     themeColor: '#FF1144',
     phaseHpSegments: [3, 3, 3], // 9 HP total
   },
+  boss_mutant_flora: {
+    name: 'Mutant Flora',
+    title: 'Carnivorous Bloom',
+    avatarEmoji: '🌺',
+    themeColor: '#10b981',
+    phaseHpSegments: [6, 5, 4], // 15 HP total (Phase 1: 6, Phase 2: 5, Phase 3: 4)
+  },
+  mutant_flora: {
+    name: 'Mutant Flora',
+    title: 'Carnivorous Bloom',
+    avatarEmoji: '🌺',
+    themeColor: '#10b981',
+    phaseHpSegments: [6, 5, 4],
+  },
   boss_gummy_bear: {
     name: 'King Gummy Bear',
     title: 'Colossus of Gelatin',
@@ -116,7 +130,8 @@ export class BossHUD {
 
   public initBoss(bossId: BossId, startingHp?: number): void {
     const meta = BOSS_METADATA[bossId] || BOSS_METADATA.king_gummy_bear;
-    const maxHp = startingHp ?? meta.phaseHpSegments.reduce((a, b) => a + b, 0);
+    const defaultTotal = meta.phaseHpSegments.reduce((a, b) => a + b, 0);
+    const maxHp = Number.isFinite(startingHp) && (startingHp as number) > 0 ? (startingHp as number) : defaultTotal;
 
     this.state = {
       ...this.createDefaultState(),
@@ -141,7 +156,7 @@ export class BossHUD {
   }
 
   public update(deltaMs: number): void {
-    if (!this.state.isActive) return;
+    if (!this.state.isActive || !Number.isFinite(deltaMs) || deltaMs <= 0) return;
 
     let stateChanged = false;
 
@@ -209,6 +224,7 @@ export class BossHUD {
   }
 
   public setHp(newHp: number): void {
+    if (!Number.isFinite(newHp)) return;
     const clampedHp = Math.max(0, Math.min(this.state.maxHp, newHp));
     if (this.state.currentHp !== clampedHp) {
       this.state.currentHp = clampedHp;
@@ -221,8 +237,10 @@ export class BossHUD {
   }
 
   public setPhase(phase: number): void {
-    if (this.state.phase !== phase) {
-      this.state.phase = phase;
+    if (!Number.isFinite(phase) || phase < 1) return;
+    const clampedPhase = Math.min(this.state.maxPhase, Math.floor(phase));
+    if (this.state.phase !== clampedPhase) {
+      this.state.phase = clampedPhase;
       this.recomputeSegments();
       this.emitState(true);
     }
@@ -239,6 +257,7 @@ export class BossHUD {
   }
 
   public setEnrageGauge(value: number): void {
+    if (!Number.isFinite(value)) return;
     const clamped = Math.max(0, Math.min(100, value));
     if (this.state.enrageGauge !== clamped) {
       this.state.enrageGauge = clamped;
@@ -268,29 +287,33 @@ export class BossHUD {
   }
 
   public triggerStun(durationSec: number, reason: string): void {
+    if (!Number.isFinite(durationSec) || durationSec <= 0) return;
+    const stunMs = durationSec * 1000;
     this.state.isStunned = true;
-    this.state.stunDurationMs = durationSec * 1000;
-    this.state.stunRemainingMs = durationSec * 1000;
+    this.state.stunDurationMs = stunMs;
+    this.state.stunRemainingMs = stunMs;
     this.state.stunReason = reason;
     this.state.state = BossState.STUNNED;
 
     this.postAlert({
-      id: `stun_${Date.now()}`,
+      id: 'stun_alert',
       title: 'TACTICAL STUN WINDOW!',
       subtitle: `${reason} (${durationSec.toFixed(1)}s window)`,
       level: 'info',
       icon: '💫',
-      durationMs: durationSec * 1000,
-      remainingMs: durationSec * 1000,
+      durationMs: stunMs,
+      remainingMs: stunMs,
     });
 
     this.emitState(true);
   }
 
   public registerComboHit(hits: number, windowMs: number = 150): void {
-    this.state.comboHits = hits;
+    if (!Number.isFinite(hits) || hits < 0) return;
+    const safeWindow = Number.isFinite(windowMs) && windowMs > 0 ? windowMs : 150;
+    this.state.comboHits = Math.floor(hits);
     this.state.isComboWindowActive = true;
-    this.state.comboWindowRemainingMs = windowMs;
+    this.state.comboWindowRemainingMs = safeWindow;
     this.emitState(true);
   }
 

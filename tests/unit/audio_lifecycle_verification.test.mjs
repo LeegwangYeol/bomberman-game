@@ -3,6 +3,11 @@ import assert from 'node:assert/strict';
 import { AudioVoicePool } from '../../src/game/pooling/AudioVoicePool.ts';
 import { WebAudioSynth, webAudioSynth } from '../../src/game/ultimate_skills.ts';
 import { DynamicHazardAudio } from '../../src/game/hazards/DynamicHazardAudio.ts';
+import { MiasmaHazardAudio } from '../../src/game/hazards/MiasmaHazardAudio.ts';
+import { ChronoHazardAudio } from '../../src/game/hazards/ChronoHazardAudio.ts';
+import { VoltHazardAudio } from '../../src/game/hazards/VoltHazardAudio.ts';
+import { MagmaHazardAudio } from '../../src/game/hazards/MagmaHazardAudio.ts';
+import { FrostHazardAudio } from '../../src/game/hazards/FrostHazardAudio.ts';
 
 /**
  * Mock Web Audio API for comprehensive lifecycle & node disconnection audit
@@ -301,7 +306,7 @@ test('WebAudioSynth: transient AudioNodes auto-disconnect on playback completion
     synth.destroy();
     assert.strictEqual(mockCtx.closed, true, 'destroy() must close AudioContext');
   } finally {
-    global.window = originalWindow;
+    global.window = originalWindow || globalThis;
   }
 });
 
@@ -330,7 +335,7 @@ test('WebAudioSynth: destroy() cancels all pending safeTimeout tasks and closes 
     assert.doesNotThrow(() => synth.destroy());
     assert.doesNotThrow(() => synth.disconnect());
   } finally {
-    global.window = originalWindow;
+    global.window = originalWindow || globalThis;
   }
 });
 
@@ -386,7 +391,7 @@ test('Mode transition simulation: rapid mode changes do not leak audio resources
     synth.destroy();
     assert.strictEqual(mockCtx.closed, true);
   } finally {
-    global.window = originalWindow;
+    global.window = originalWindow || globalThis;
   }
 });
 
@@ -758,6 +763,162 @@ test('DynamicHazardAudio: transient start() exception immediately cleans up node
   hazardAudio.destroy();
 });
 
+test('MiasmaHazardAudio: playFilteredNoiseBurst schedules source.stop(), auto-disconnects, and supports full lifecycle', () => {
+  const mockCtx = new MockAudioContext();
+  const pool = new AudioVoicePool(4);
+  pool.init(mockCtx);
 
+  const miasmaAudio = new MiasmaHazardAudio(mockCtx, pool);
 
+  // Play noise burst
+  miasmaAudio.playFilteredNoiseBurst(0.15, 800, 200, 0.2);
 
+  const bufferSources = mockCtx.nodes.filter((n) => n instanceof MockBufferSourceNode);
+  assert.ok(bufferSources.length > 0, 'Buffer source must be created for Miasma noise burst');
+  const bs = bufferSources[bufferSources.length - 1];
+  assert.strictEqual(bs.started, true);
+  assert.strictEqual(bs.stopped, true, 'source.stop() MUST be scheduled to avoid infinite buffer rendering');
+
+  // Verify auto-disconnection on ended
+  bs.finishPlayback();
+  assert.strictEqual(bs.disconnected, true, 'Buffer source must be disconnected onended');
+
+  // Test reset and stop
+  miasmaAudio.playSubDrone();
+  assert.strictEqual(pool.getActiveCount() > 0, true);
+  miasmaAudio.reset();
+  assert.strictEqual(pool.getActiveCount(), 0, 'reset() must silence voice pool');
+
+  // Test destroy teardown
+  miasmaAudio.destroy();
+  pool.destroy();
+});
+
+test('ChronoHazardAudio: getAudioContext reuses cached context without leaking new AudioContext instances, and auto-disconnects', () => {
+  let audioContextInstantiationCount = 0;
+  const mockCtx = new MockAudioContext();
+  const originalWindow = global.window;
+  global.window = {
+    AudioContext: function () {
+      audioContextInstantiationCount++;
+      return mockCtx;
+    },
+  };
+
+  try {
+    ChronoHazardAudio.resetInstance();
+    const chronoAudio = ChronoHazardAudio.getInstance();
+
+    // Trigger multiple noise bursts
+    chronoAudio.playTimeCollapseImpact();
+    chronoAudio.playTimeCollapseImpact();
+    chronoAudio.playTimeCollapseImpact();
+
+    // Verify AudioContext was NOT created multiple times
+    assert.strictEqual(
+      audioContextInstantiationCount,
+      1,
+      'ChronoHazardAudio must cache and reuse its AudioContext instead of creating a new instance per burst'
+    );
+
+    // Verify transient nodes were scheduled to stop and auto-disconnect
+    const bufferSources = mockCtx.nodes.filter((n) => n instanceof MockBufferSourceNode);
+    assert.ok(bufferSources.length > 0);
+    for (const bs of bufferSources) {
+      assert.strictEqual(bs.stopped, true, 'source.stop() must be scheduled');
+      bs.finishPlayback();
+      assert.strictEqual(bs.disconnected, true, 'source must be disconnected onended');
+    }
+
+    chronoAudio.stop();
+    chronoAudio.destroy();
+  } finally {
+    global.window = originalWindow;
+    ChronoHazardAudio.resetInstance();
+  }
+});
+
+test('WebAudioSynth: activeNodes tracking enables immediate disconnection on clearPendingNodes and destroy', () => {
+  const mockCtx = new MockAudioContext();
+  const originalWindow = global.window;
+  global.window = {
+    AudioContext: function () {
+      return mockCtx;
+    },
+  };
+
+  try {
+    const synth = new WebAudioSynth();
+
+    // Play multiple overlapping sounds
+    synth.playNuclearLaunch();
+    synth.playAegisChime();
+    synth.playUltimateReadyChime();
+
+    const preStopOscs = mockCtx.nodes.filter((n) => n instanceof MockOscillatorNode);
+    assert.ok(preStopOscs.length > 0);
+
+    // Force immediate destroy while nodes are still active
+    synth.destroy();
+
+    const undisconnected = mockCtx.nodes.filter((n) => !n.disconnected);
+    assert.strictEqual(
+      undisconnected.length,
+      0,
+      'destroy() must forcefully disconnect ALL active nodes even if onended has not fired'
+    );
+  } finally {
+    global.window = originalWindow;
+  }
+});
+
+test('All HazardAudio classes (Volt, Magma, Frost, Miasma, Chrono, Dynamic): stop() and destroy() leave zero orphaned nodes', () => {
+  const mockCtx = new MockAudioContext();
+  const pool = new AudioVoicePool(16);
+  pool.init(mockCtx);
+
+  const volt = new VoltHazardAudio(mockCtx);
+  volt.init(mockCtx, pool);
+  const magma = new MagmaHazardAudio(mockCtx);
+  magma.init(mockCtx, pool);
+  const frost = new FrostHazardAudio(mockCtx);
+  frost.init(mockCtx, pool);
+  const miasma = new MiasmaHazardAudio(mockCtx);
+  miasma.init(mockCtx, pool);
+  const chrono = new ChronoHazardAudio(mockCtx);
+  chrono.init(mockCtx, pool);
+  const dynamic = new DynamicHazardAudio(mockCtx);
+  dynamic.init(mockCtx, pool);
+
+  // Trigger sound events across all hazard audios
+  volt.playLightningBurst(100);
+  magma.playFilteredNoiseBurst(0.1, 1000, 200, 0.2);
+  frost.playAbsoluteZeroBurst(100);
+  miasma.playFilteredNoiseBurst(0.1, 800, 200, 0.2);
+  chrono.playTimeCollapseImpact();
+  dynamic.playLaserDischarge(100);
+
+  // Simulate end of all transient buffers
+  const bufferSources = mockCtx.nodes.filter((n) => n instanceof MockBufferSourceNode);
+  for (const bs of bufferSources) {
+    if (!bs.disconnected) {
+      bs.finishPlayback();
+    }
+  }
+
+  // Teardown all hazard audios
+  volt.destroy();
+  magma.destroy();
+  frost.destroy();
+  miasma.destroy();
+  chrono.destroy();
+  dynamic.destroy();
+  pool.destroy();
+
+  const undisconnected = mockCtx.nodes.filter((n) => !n.disconnected);
+  assert.strictEqual(
+    undisconnected.length,
+    0,
+    'All hazard audios must leave 0 undisconnected AudioNodes upon destroy'
+  );
+});

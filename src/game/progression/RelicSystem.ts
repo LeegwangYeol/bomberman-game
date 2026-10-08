@@ -219,6 +219,67 @@ export class RelicManager {
     return true;
   }
 
+  public serialize(): {
+    equippedRelics: RelicId[];
+    discoveredRelics: RelicId[];
+    maxSlots: number;
+    vampiricKillStreak: number;
+    solarChargeElapsedMs: number;
+    hasSolarShield: boolean;
+  } {
+    return {
+      equippedRelics: [...this.equippedRelics],
+      discoveredRelics: Array.from(this.discoveredRelics),
+      maxSlots: this.maxSlots,
+      vampiricKillStreak: this.vampiricKillStreak,
+      solarChargeElapsedMs: this.solarChargeElapsedMs,
+      hasSolarShield: this.hasSolarShield,
+    };
+  }
+
+  public deserialize(saved: unknown): boolean {
+    if (!saved || typeof saved !== 'object') return false;
+    const s = saved as Record<string, unknown>;
+
+    if (typeof s.maxSlots === 'number' && Number.isFinite(s.maxSlots)) {
+      this.setMaxSlots(s.maxSlots);
+    }
+
+    const validRelicIds = new Set<string>(Object.values(RelicId));
+
+    if (Array.isArray(s.discoveredRelics)) {
+      for (const r of s.discoveredRelics) {
+        if (typeof r === 'string' && validRelicIds.has(r)) {
+          this.discoveredRelics.add(r as RelicId);
+        }
+      }
+    }
+
+    if (Array.isArray(s.equippedRelics)) {
+      this.equippedRelics = [];
+      for (const r of s.equippedRelics) {
+        if (typeof r === 'string' && validRelicIds.has(r) && this.equippedRelics.length < this.maxSlots) {
+          if (!this.equippedRelics.includes(r as RelicId)) {
+            this.equippedRelics.push(r as RelicId);
+            this.discoveredRelics.add(r as RelicId);
+          }
+        }
+      }
+    }
+
+    if (typeof s.vampiricKillStreak === 'number' && Number.isFinite(s.vampiricKillStreak)) {
+      this.vampiricKillStreak = Math.max(0, Math.floor(s.vampiricKillStreak));
+    }
+    if (typeof s.solarChargeElapsedMs === 'number' && Number.isFinite(s.solarChargeElapsedMs)) {
+      this.solarChargeElapsedMs = Math.max(0, s.solarChargeElapsedMs);
+    }
+    if (typeof s.hasSolarShield === 'boolean') {
+      this.hasSolarShield = s.hasSolarShield;
+    }
+
+    return true;
+  }
+
   /**
    * Check active synergies
    */

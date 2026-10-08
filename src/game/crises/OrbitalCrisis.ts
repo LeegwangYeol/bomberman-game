@@ -200,7 +200,17 @@ export class OrbitalCrisis extends BaseCrisis {
     }
   }
 
-  protected onResolveObjective(): void {
-    // Handled in update and bomb blast
+  protected onResolveObjective(objectiveId: string, value?: number): void {
+    void value;
+    if (objectiveId === 'override_uplinks') {
+      const activeCount = this.uplinks.filter((up) => up.isOverridden).length;
+      this.adjustThreat(-8 * activeCount);
+      const obj = this.objectives.find((o) => o.id === 'override_uplinks');
+      if (obj && obj.isCompleted && !this.isVictorious) {
+        this.resolveCrisis('Planetary defense grid activated! Counter-orbital EMP neutralized the dreadnought fleet!');
+      }
+    } else if (objectiveId === 'dodge_salvos') {
+      this.adjustThreat(-5);
+    }
   }
 }

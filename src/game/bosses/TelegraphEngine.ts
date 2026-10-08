@@ -667,10 +667,12 @@ export class TelegraphEngine {
           const isWhiteStrobe = (((timeMs * 0.016) | 0) & 1) === 1;
 
           if (isWhiteStrobe) {
-            g.fillStyle(COLOR_WHITE_FLASH, 0.85);
+            // High-visibility flash wash calibrated to 0.40 alpha to ensure zero visual occlusion of bombs & items
+            g.fillStyle(COLOR_WHITE_FLASH, 0.40);
             g.lineStyle(3, COLOR_RUBY_STROKE, 1.0);
           } else {
-            g.fillStyle(COLOR_RED, 0.8);
+            // Intense crimson wash calibrated to 0.38 alpha for clear visibility of underlying bombs & items
+            g.fillStyle(COLOR_RED, 0.38);
             g.lineStyle(3, COLOR_RUBY_STROKE, 0.95);
           }
 

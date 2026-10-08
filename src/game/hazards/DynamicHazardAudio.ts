@@ -584,6 +584,125 @@ export const HAZARD_AUDIO_PRESETS = {
     releaseTime: 0.06,
     filter: { type: 'bandpass', frequency: 700, q: 2.0 },
   } as AudioVoiceToneParams,
+
+  // Psionic Warp Hum Presets (Psychic Invasion / Psionic Manifestations)
+  PSIONIC_WARP_HUM_VOICE_A: {
+    type: 'sine',
+    frequency: 108.0,
+    frequencyRamp: { target: 96.0, duration: 0.90, exponential: true },
+    gain: 0.32,
+    duration: 1.25,
+    attackTime: 0.15,
+    decayTime: 0.35,
+    sustainLevel: 0.50,
+    releaseTime: 0.45,
+    filter: { type: 'lowpass', frequency: 220, q: 3.0 },
+  } as AudioVoiceToneParams,
+
+  PSIONIC_WARP_HUM_VOICE_B: {
+    type: 'sine',
+    frequency: 112.5, // 4.5 Hz theta-wave acoustic beat against 108.0 Hz
+    frequencyRamp: { target: 100.5, duration: 0.90, exponential: true },
+    gain: 0.28,
+    duration: 1.25,
+    attackTime: 0.15,
+    decayTime: 0.35,
+    sustainLevel: 0.50,
+    releaseTime: 0.45,
+    filter: { type: 'lowpass', frequency: 220, q: 3.0 },
+  } as AudioVoiceToneParams,
+
+  PSIONIC_WARP_WARBLE: {
+    type: 'triangle',
+    frequency: 216.0,
+    frequencyRamp: { target: 324.0, duration: 0.60, exponential: true },
+    gain: 0.20,
+    duration: 0.80,
+    attackTime: 0.08,
+    decayTime: 0.25,
+    sustainLevel: 0.35,
+    releaseTime: 0.25,
+    filter: { type: 'bandpass', frequency: 480, q: 4.0, rampTarget: 860, rampDuration: 0.60 },
+  } as AudioVoiceToneParams,
+
+  PSIONIC_WARP_SHIMMER: {
+    type: 'sine',
+    frequency: 880.0,
+    frequencyRamp: { target: 1320.0, duration: 0.50, exponential: true },
+    gain: 0.15,
+    duration: 0.70,
+    attackTime: 0.04,
+    decayTime: 0.20,
+    sustainLevel: 0.30,
+    releaseTime: 0.35,
+    filter: { type: 'highpass', frequency: 800, q: 2.2 },
+  } as AudioVoiceToneParams,
+
+  PSIONIC_WARP_SUB_DRONE: {
+    type: 'sine',
+    frequency: 44.0,
+    frequencyRamp: { target: 38.0, duration: 1.10, exponential: true },
+    gain: 0.35,
+    duration: 1.40,
+    attackTime: 0.20,
+    decayTime: 0.40,
+    sustainLevel: 0.60,
+    releaseTime: 0.50,
+    filter: { type: 'lowpass', frequency: 85, q: 1.8 },
+  } as AudioVoiceToneParams,
+
+  // Floral Bloom Spore Release Presets
+  FLORAL_BLOOM_POD_POP: {
+    type: 'sine',
+    frequency: 340.0,
+    frequencyRamp: { target: 88.0, duration: 0.06, exponential: true },
+    gain: 0.36,
+    duration: 0.12,
+    attackTime: 0.002,
+    decayTime: 0.04,
+    sustainLevel: 0.15,
+    releaseTime: 0.06,
+    filter: { type: 'bandpass', frequency: 720, q: 3.2, rampTarget: 260, rampDuration: 0.07 },
+  } as AudioVoiceToneParams,
+
+  FLORAL_BLOOM_CHIME: {
+    type: 'triangle',
+    frequency: 698.46, // F5
+    frequencyRamp: { target: 987.77, duration: 0.22, exponential: true }, // F5 -> B5 botanical bloom
+    gain: 0.24,
+    duration: 0.45,
+    attackTime: 0.012,
+    decayTime: 0.18,
+    sustainLevel: 0.35,
+    releaseTime: 0.22,
+    filter: { type: 'bandpass', frequency: 1250, q: 2.8, rampTarget: 1800, rampDuration: 0.25 },
+  } as AudioVoiceToneParams,
+
+  FLORAL_BLOOM_SPORE_SWEEP: {
+    type: 'sine',
+    frequency: 520.0,
+    frequencyRamp: { target: 1040.0, duration: 0.20, exponential: true },
+    gain: 0.20,
+    duration: 0.38,
+    attackTime: 0.02,
+    decayTime: 0.12,
+    sustainLevel: 0.30,
+    releaseTime: 0.18,
+    filter: { type: 'bandpass', frequency: 1400, q: 2.4, rampTarget: 750, rampDuration: 0.25 },
+  } as AudioVoiceToneParams,
+
+  FLORAL_BLOOM_RUSTLE: {
+    type: 'sawtooth',
+    frequency: 240.0,
+    frequencyRamp: { target: 120.0, duration: 0.25, exponential: false },
+    gain: 0.14,
+    duration: 0.32,
+    attackTime: 0.03,
+    decayTime: 0.12,
+    sustainLevel: 0.25,
+    releaseTime: 0.15,
+    filter: { type: 'bandpass', frequency: 950, q: 3.2, rampTarget: 1600, rampDuration: 0.25 },
+  } as AudioVoiceToneParams,
 } as const;
 
 
@@ -618,13 +737,18 @@ export class DynamicHazardAudio {
   private lastGlassShatterTimeMs: number = -Infinity;
   private lastFrostMeltTimeMs: number = -Infinity;
   private lastCryoGlideTimeMs: number = -Infinity;
+  private lastPsionicWarpTimeMs: number = -Infinity;
+  private lastFloralBloomTimeMs: number = -Infinity;
 
   constructor(poolOrCtx?: AudioVoicePool | AudioContext | null) {
     if (poolOrCtx) {
-      if (poolOrCtx instanceof AudioVoicePool) {
-        this.bindPool(poolOrCtx);
-      } else if (typeof AudioContext !== 'undefined' && poolOrCtx instanceof AudioContext) {
-        this.init(poolOrCtx);
+      if (poolOrCtx instanceof AudioVoicePool || ('acquireVoice' in poolOrCtx && 'playTone' in poolOrCtx)) {
+        this.bindPool(poolOrCtx as AudioVoicePool);
+      } else if (
+        'createOscillator' in poolOrCtx &&
+        'currentTime' in poolOrCtx
+      ) {
+        this.init(poolOrCtx as AudioContext);
       }
     }
   }
@@ -637,6 +761,9 @@ export class DynamicHazardAudio {
 
     if (pool) {
       this.bindPool(pool);
+      if (!pool.getAudioContext()) {
+        pool.init(ctx);
+      }
       this.ownsPool = false;
     } else if (!this.pool) {
       // Allocate dedicated 16-voice pool if not supplied
@@ -656,18 +783,23 @@ export class DynamicHazardAudio {
    * Binds an existing pre-allocated AudioVoicePool
    */
   public bindPool(pool: AudioVoicePool): void {
+    if (this.ownsPool && this.pool && this.pool !== pool) {
+      this.pool.destroy();
+    }
     this.pool = pool;
+    this.ownsPool = false;
   }
 
   /**
    * Safe timeout tracker for multi-stage procedural events
    */
-  private safeTimeout(fn: () => void, delayMs: number): void {
+  private safeTimeout(fn: () => void, delayMs: number): ReturnType<typeof setTimeout> {
     const tid = setTimeout(() => {
       this.activeTimeouts.delete(tid);
       fn();
     }, delayMs);
     this.activeTimeouts.add(tid);
+    return tid;
   }
 
   /* ==============================================================================
@@ -795,10 +927,15 @@ export class DynamicHazardAudio {
       this.activeTransientNodes.add(filter);
       this.activeTransientNodes.add(gain);
 
+      let tid: ReturnType<typeof setTimeout> | null = null;
       let cleanedUp = false;
       const cleanup = () => {
         if (cleanedUp) return;
         cleanedUp = true;
+        if (tid !== null) {
+          clearTimeout(tid);
+          this.activeTimeouts.delete(tid);
+        }
         try {
           source.onended = null;
           source.disconnect();
@@ -811,7 +948,7 @@ export class DynamicHazardAudio {
       };
 
       source.onended = cleanup;
-      this.safeTimeout(cleanup, Math.ceil((duration + 0.05) * 1000));
+      tid = this.safeTimeout(cleanup, Math.ceil((duration + 0.05) * 1000));
 
       try {
         source.start(now);
@@ -1002,10 +1139,15 @@ export class DynamicHazardAudio {
         this.activeTransientNodes.add(lfoOsc);
         this.activeTransientNodes.add(lfoGain);
 
+        let tid: ReturnType<typeof setTimeout> | null = null;
         let cleanedUp = false;
         const cleanup = () => {
           if (cleanedUp) return;
           cleanedUp = true;
+          if (tid !== null) {
+            clearTimeout(tid);
+            this.activeTimeouts.delete(tid);
+          }
           try {
             lfoOsc.onended = null;
             lfoOsc.disconnect();
@@ -1019,7 +1161,7 @@ export class DynamicHazardAudio {
         };
 
         lfoOsc.onended = cleanup;
-        this.safeTimeout(cleanup, Math.ceil((duration + 0.05) * 1000));
+        tid = this.safeTimeout(cleanup, Math.ceil((duration + 0.05) * 1000));
 
         try {
           lfoOsc.start(now);
@@ -1219,10 +1361,15 @@ export class DynamicHazardAudio {
         this.activeTransientNodes.add(lfoOsc);
         this.activeTransientNodes.add(lfoGain);
 
+        let tid: ReturnType<typeof setTimeout> | null = null;
         let cleanedUp = false;
         const cleanup = () => {
           if (cleanedUp) return;
           cleanedUp = true;
+          if (tid !== null) {
+            clearTimeout(tid);
+            this.activeTimeouts.delete(tid);
+          }
           try {
             lfoOsc.onended = null;
             lfoOsc.disconnect();
@@ -1236,7 +1383,7 @@ export class DynamicHazardAudio {
         };
 
         lfoOsc.onended = cleanup;
-        this.safeTimeout(cleanup, Math.ceil((duration + 0.05) * 1000));
+        tid = this.safeTimeout(cleanup, Math.ceil((duration + 0.05) * 1000));
 
         try {
           lfoOsc.start(now);
@@ -1321,6 +1468,58 @@ export class DynamicHazardAudio {
     } else if (s.includes('THAW') || s.includes('MELT') || s.includes('COOLDOWN')) {
       this.playFrostMeltingDrip(currentTimeMs);
     }
+  }
+
+  /* ==============================================================================
+   * PSIONIC WARP HUM & FLORAL BLOOM SPORE RELEASE
+   * Zero audio asset dependency procedural WebAudio routines
+   * ============================================================================== */
+
+  /**
+   * Plays the Psionic Warp Hum:
+   * 1. Dual detuned voices creating a 4.5 Hz theta-wave binaural acoustic beat (108 Hz + 112.5 Hz)
+   * 2. Resonant bandpass warp sweep (216 Hz -> 324 Hz, filter 480 Hz -> 860 Hz)
+   * 3. Ethereal psychic shimmer overtone (880 Hz -> 1320 Hz)
+   * 4. Deep sub-bass anchor (44 Hz)
+   * 100% WebAudio procedural synthesis, Zero-GC, Zero-Leak.
+   */
+  public playPsionicWarpHum(intensity: number = 1.0, currentTimeMs: number = 0): void {
+    if (!this.pool) return;
+    if (currentTimeMs > 0 && currentTimeMs - this.lastPsionicWarpTimeMs < 350) {
+      return;
+    }
+    this.lastPsionicWarpTimeMs = currentTimeMs;
+
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.PSIONIC_WARP_HUM_VOICE_A);
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.PSIONIC_WARP_HUM_VOICE_B);
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.PSIONIC_WARP_WARBLE);
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.PSIONIC_WARP_SUB_DRONE);
+    if (intensity > 0.5) {
+      this.pool.playTone(HAZARD_AUDIO_PRESETS.PSIONIC_WARP_SHIMMER);
+    }
+  }
+
+  /**
+   * Plays the Floral Bloom Spore Release:
+   * 1. Soft organic pod cavitation pop (340 Hz -> 88 Hz)
+   * 2. Resonant botanical blossom chime (F5 -> B5)
+   * 3. Spore dispersion sweep (520 Hz -> 1040 Hz)
+   * 4. Vegetative foliage rustle (240 Hz -> 120 Hz)
+   * 5. Filtered procedural white noise puff of microscopic spore diffusion (1600 Hz -> 650 Hz)
+   * Zero-GC, Zero-Leak, Zero audio asset dependencies.
+   */
+  public playFloralBloomSporeRelease(currentTimeMs: number = 0): void {
+    if (!this.pool) return;
+    if (currentTimeMs > 0 && currentTimeMs - this.lastFloralBloomTimeMs < 200) {
+      return;
+    }
+    this.lastFloralBloomTimeMs = currentTimeMs;
+
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.FLORAL_BLOOM_POD_POP);
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.FLORAL_BLOOM_CHIME);
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.FLORAL_BLOOM_SPORE_SWEEP);
+    this.pool.playTone(HAZARD_AUDIO_PRESETS.FLORAL_BLOOM_RUSTLE);
+    this.playWhiteNoiseBurst(0.28, 0.16, 1600, 650);
   }
 
   /* ==============================================================================
@@ -1425,6 +1624,10 @@ export class DynamicHazardAudio {
       this.pool = null;
     }
 
+    const closeable = this.ctx as unknown as { close?: () => Promise<void> } | null;
+    if (closeable && typeof closeable.close === 'function') {
+      try { void closeable.close().catch(() => {}); } catch {}
+    }
     this.ctx = null;
   }
 }

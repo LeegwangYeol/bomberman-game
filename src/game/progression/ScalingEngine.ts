@@ -85,6 +85,34 @@ export const WAVE_MUTATOR_CATALOG: Record<WaveMutatorId, WaveMutator> = {
       bombKickRebounds: 2,
     },
   },
+  [WaveMutatorId.CHRONO_ANOMALY]: {
+    id: WaveMutatorId.CHRONO_ANOMALY,
+    name: 'Chrono Anomaly',
+    icon: '⏳',
+    description: 'Time dilation slows player by 15%, but enemies take 20% more damage.',
+    statModifiers: {
+      playerDamageMultiplier: 1.2,
+    },
+  },
+  [WaveMutatorId.PSIONIC_HAZE]: {
+    id: WaveMutatorId.PSIONIC_HAZE,
+    name: 'Psionic Haze',
+    icon: '🧠',
+    description: 'Ethereal illusions drift across the arena; player psychic barrier absorbs 1 hit.',
+    statModifiers: {
+      playerDamageMultiplier: 1.15,
+    },
+  },
+  [WaveMutatorId.VERDANT_OVERGROWTH]: {
+    id: WaveMutatorId.VERDANT_OVERGROWTH,
+    name: 'Verdant Overgrowth',
+    icon: '🌿',
+    description: 'Mutant flora tendrils increase soft block resilience; bomb blasts trigger floral blooms.',
+    statModifiers: {
+      softBlockDensityMultiplier: 1.25,
+      blastRadiusDelta: 1,
+    },
+  },
 };
 
 /* ==============================================================================

@@ -42,6 +42,18 @@ export abstract class BaseBoss {
   public readonly config: BossConfig;
   public currentHp: number;
   public maxHp: number;
+  public get id(): string {
+    return this.config.id;
+  }
+
+  public get name(): string {
+    return this.config.name;
+  }
+
+  public forceState(nextState: BossState): void {
+    this.transitionTo(nextState);
+  }
+
   public phase: number = 1;
   public bossState: BossState = BossState.INTRO;
 
@@ -51,6 +63,12 @@ export abstract class BaseBoss {
   public vx: number = 0;
   public vy: number = 0;
   public currentSpeed: number = 0;
+
+  // Safe Arena Boundary Limits (Tile grid: 15 cols x 13 rows, 40px/tile)
+  public minArenaX: number = 60;
+  public maxArenaX: number = 540;
+  public minArenaY: number = 60;
+  public maxArenaY: number = 460;
 
   // Enrage Mechanics
   public enrageGauge: number = 0; // 0.0 to 100.0
@@ -90,18 +108,117 @@ export abstract class BaseBoss {
     this.config = config;
     this.maxHp = Math.max(1, config.maxHp);
     this.currentHp = this.maxHp;
-    this.x = startX;
-    this.y = startY;
-    this.currentSpeed = config.baseSpeed;
+    const safeX = Number.isFinite(startX) ? startX : 300;
+    const safeY = Number.isFinite(startY) ? startY : 260;
+    this.x = Math.max(this.minArenaX, Math.min(this.maxArenaX, safeX));
+    this.y = Math.max(this.minArenaY, Math.min(this.maxArenaY, safeY));
+    this.currentSpeed = Number.isFinite(config.baseSpeed) ? config.baseSpeed : 0;
     this.bossState = BossState.INTRO;
     this.stateTimerMs = this.introDurationMs;
     this.isInvulnerable = true;
   }
 
   /**
+   * Clamps boss position within arena boundaries with zero heap allocation.
+   * Resets outward velocities if boundary is struck to prevent wall penetration.
+   * Returns true if position was clamped.
+   */
+  public clampPosition(
+    minX: number = this.minArenaX,
+    maxX: number = this.maxArenaX,
+    minY: number = this.minArenaY,
+    maxY: number = this.maxArenaY
+  ): boolean {
+    if (!Number.isFinite(this.x)) this.x = (minX + maxX) / 2;
+    if (!Number.isFinite(this.y)) this.y = (minY + maxY) / 2;
+
+    let clamped = false;
+    if (this.x <= minX) {
+      this.x = minX;
+      if (this.vx < 0) this.vx = 0;
+      clamped = true;
+    } else if (this.x >= maxX) {
+      this.x = maxX;
+      if (this.vx > 0) this.vx = 0;
+      clamped = true;
+    }
+
+    if (this.y <= minY) {
+      this.y = minY;
+      if (this.vy < 0) this.vy = 0;
+      clamped = true;
+    } else if (this.y >= maxY) {
+      this.y = maxY;
+      if (this.vy > 0) this.vy = 0;
+      clamped = true;
+    }
+
+    return clamped;
+  }
+
+  /**
+   * Sets velocity vector toward target with strict distance threshold and zero NaN guarantee.
+   */
+  public setVelocityTowards(
+    targetX: number,
+    targetY: number,
+    speed: number = this.currentSpeed
+  ): void {
+    if (
+      !Number.isFinite(targetX) ||
+      !Number.isFinite(targetY) ||
+      !Number.isFinite(speed) ||
+      speed <= 0
+    ) {
+      this.vx = 0;
+      this.vy = 0;
+      return;
+    }
+
+    const dx = targetX - this.x;
+    const dy = targetY - this.y;
+    const dist = Math.hypot(dx, dy);
+
+    if (dist > 1e-4) {
+      this.vx = (dx / dist) * speed;
+      this.vy = (dy / dist) * speed;
+    } else {
+      this.vx = 0;
+      this.vy = 0;
+    }
+
+    if (!Number.isFinite(this.vx)) this.vx = 0;
+    if (!Number.isFinite(this.vy)) this.vy = 0;
+  }
+
+  /**
+   * Moves boss by current velocity over dt milliseconds, clamping to arena bounds.
+   */
+  public integrateMovement(dt: number): void {
+    if (!Number.isFinite(dt) || dt <= 0) return;
+    if (!Number.isFinite(this.vx)) this.vx = 0;
+    if (!Number.isFinite(this.vy)) this.vy = 0;
+
+    this.x += this.vx * (dt / 1000);
+    this.y += this.vy * (dt / 1000);
+    this.clampPosition();
+  }
+
+  /**
    * Main per-frame simulation update (Zero-GC, 60 FPS tick).
    */
   public update(dt: number, playerX: number = 0, playerY: number = 0): void {
+    if (!Number.isFinite(dt) || dt <= 0) return;
+    if (!Number.isFinite(playerX)) playerX = this.x;
+    if (!Number.isFinite(playerY)) playerY = this.y;
+
+    // Sanitize physics state to prevent NaN propagation
+    if (!Number.isFinite(this.x)) this.x = (this.minArenaX + this.maxArenaX) / 2;
+    if (!Number.isFinite(this.y)) this.y = (this.minArenaY + this.maxArenaY) / 2;
+    if (!Number.isFinite(this.vx)) this.vx = 0;
+    if (!Number.isFinite(this.vy)) this.vy = 0;
+    if (!Number.isFinite(this.currentSpeed)) this.currentSpeed = this.config.baseSpeed;
+
     if (this.bossState === BossState.DEFEATED) {
       if (!this.isDeathAnimationComplete) {
         this.deathTimerMs -= dt;
@@ -193,6 +310,9 @@ export abstract class BaseBoss {
     source: 'bomb' | 'skill' = 'bomb'
   ): boolean {
     void source;
+    if (!Number.isFinite(damage) || damage <= 0) {
+      return false;
+    }
     if (
       this.bossState === BossState.DEFEATED ||
       this.bossState === BossState.INTRO ||
@@ -234,6 +354,9 @@ export abstract class BaseBoss {
     return true;
   }
 
+  // Pre-allocated Zero-GC return structure for hazard damage queries
+  private static readonly _hazardDamageResult = { damage: 0, defeated: false };
+
   /**
    * Applies direct hazard / environmental beam damage (percentage based) and stun.
    * Bosses taking beam hits receive 15% HP damage and 1.5s stun.
@@ -244,26 +367,36 @@ export abstract class BaseBoss {
     stunSec: number = 1.5,
     currentTimeMs: number = Date.now()
   ): { damage: number; defeated: boolean } {
+    const res = BaseBoss._hazardDamageResult;
+    res.damage = 0;
+    res.defeated = this.bossState === BossState.DEFEATED;
+
+    const safeDmgPct = Number.isFinite(damagePercent) && damagePercent > 0 ? damagePercent : 15;
+    const safeStunSec = Number.isFinite(stunSec) && stunSec > 0 ? stunSec : 1.5;
+    const safeTimeMs = Number.isFinite(currentTimeMs) ? currentTimeMs : Date.now();
+
     if (
       this.bossState === BossState.DEFEATED ||
       this.bossState === BossState.INTRO ||
       this.bossState === BossState.INTERMISSION
     ) {
-      return { damage: 0, defeated: this.bossState === BossState.DEFEATED };
+      return res;
     }
     if (this.isInvulnerable && this.iFrameTimerMs > 0) {
-      return { damage: 0, defeated: false };
+      return res;
     }
-    if (currentTimeMs - this.lastHazardHitTimestampMs < this.minHazardHitCooldownMs) {
-      return { damage: 0, defeated: false };
+    if (safeTimeMs - this.lastHazardHitTimestampMs < this.minHazardHitCooldownMs) {
+      return res;
     }
 
-    this.lastHazardHitTimestampMs = currentTimeMs;
-    const damage = (this.maxHp * damagePercent) / 100;
+    this.lastHazardHitTimestampMs = safeTimeMs;
+    const damage = (this.maxHp * safeDmgPct) / 100;
     this.currentHp = Math.max(0, this.currentHp - damage);
-    this.applyStun(stunSec);
+    this.applyStun(safeStunSec);
     this.checkDefeatCondition();
-    return { damage, defeated: (this.bossState as BossState) === BossState.DEFEATED };
+    res.damage = damage;
+    res.defeated = (this.bossState as BossState) === BossState.DEFEATED;
+    return res;
   }
 
   /**
@@ -315,6 +448,7 @@ export abstract class BaseBoss {
    * Applies stun for specified duration in seconds.
    */
   public applyStun(durationSec: number): void {
+    if (!Number.isFinite(durationSec) || durationSec <= 0) return;
     if (this.bossState === BossState.DEFEATED) return;
     if (this.bossState !== BossState.STUNNED) {
       this.previousStateBeforeStun = this.bossState;
@@ -451,26 +585,47 @@ export abstract class BaseBoss {
   public get deathAnimationProgress(): number {
     if (this.bossState !== BossState.DEFEATED) return 0;
     if (this.deathDurationMs <= 0) return 1.0;
-    return Math.min(1.0, Math.max(0, 1.0 - this.deathTimerMs / this.deathDurationMs));
+    const progress = 1.0 - this.deathTimerMs / this.deathDurationMs;
+    return Number.isFinite(progress) ? Math.min(1.0, Math.max(0, progress)) : 1.0;
   }
 
-  protected onDeathAnimationFinished(): void {}
+  protected onDeathAnimationFinished(): void {
+    this.vx = 0;
+    this.vy = 0;
+    this.isInvulnerable = true;
+  }
+
+  // Pre-allocated Zero-GC return structure for HUD state polling
+  private readonly _cachedHUDData: BossHUDData = {
+    bossId: '',
+    name: '',
+    title: '',
+    avatarEmoji: '',
+    currentHp: 0,
+    maxHp: 0,
+    phase: 1,
+    state: BossState.INTRO,
+    enrageGauge: 0,
+    isStunned: false,
+    stunRemainingMs: 0,
+    isInvulnerable: false,
+  };
 
   public getHUDData(): BossHUDData {
-    return {
-      bossId: this.config.id,
-      name: this.config.name,
-      title: this.config.title,
-      avatarEmoji: this.config.avatarEmoji,
-      currentHp: this.currentHp,
-      maxHp: this.maxHp,
-      phase: this.phase,
-      state: this.bossState,
-      enrageGauge: Math.floor(this.enrageGauge),
-      isStunned: this.bossState === BossState.STUNNED,
-      stunRemainingMs: Math.max(0, this.stunTimerMs),
-      isInvulnerable: this.isInvulnerable,
-    };
+    const d = this._cachedHUDData;
+    d.bossId = this.config.id;
+    d.name = this.config.name;
+    d.title = this.config.title;
+    d.avatarEmoji = this.config.avatarEmoji;
+    d.currentHp = this.currentHp;
+    d.maxHp = this.maxHp;
+    d.phase = this.phase;
+    d.state = this.bossState;
+    d.enrageGauge = Math.floor(this.enrageGauge);
+    d.isStunned = this.bossState === BossState.STUNNED;
+    d.stunRemainingMs = Math.max(0, this.stunTimerMs);
+    d.isInvulnerable = this.isInvulnerable;
+    return d;
   }
 
   // Abstract Hooks for Subclasses

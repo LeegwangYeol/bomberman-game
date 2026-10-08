@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
 import { type EntityFaction, FACTIONS } from './types.ts';
 import { OverheadUI } from './OverheadUI.ts';
+import { clamp, clampSpeed, clampVelocity } from './SpatialSeparation.ts';
+export { clamp, clampSpeed, clampVelocity };
 
 /**
  * Physics Body Invariant Guard:
@@ -14,6 +16,10 @@ interface MutableArcadeBody extends Phaser.Physics.Arcade.Body {
   halfWidth: number;
   halfHeight: number;
   transform: { x: number; y: number; rotation?: number; scaleX?: number; scaleY?: number };
+}
+
+interface ISceneShadowPool {
+  shadowPool?: { release: (sprite: Phaser.GameObjects.Sprite) => void };
 }
 
 export function applyPhysicsBodyInvariantGuard(
@@ -217,7 +223,12 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
     this.isDead = true;
 
     if (this.dropShadow) {
-      this.dropShadow.destroy();
+      const sceneWithPool = this.scene as unknown as ISceneShadowPool | undefined;
+      if (sceneWithPool?.shadowPool) {
+        sceneWithPool.shadowPool.release(this.dropShadow);
+      } else {
+        this.dropShadow.destroy();
+      }
       this.dropShadow = undefined;
     }
 
@@ -249,11 +260,27 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
     this.destroy();
   }
 
-  /**
-   * Protected hook for archetype-specific death effects (e.g., Splitter division, Merchant loot).
-   */
   protected onDeath(_currentTime?: number): void {
     void _currentTime;
+    const body = this.body as Phaser.Physics.Arcade.Body | undefined;
+    if (body) {
+      body.setVelocity(0, 0);
+    }
+    if (this.overheadUI) {
+      this.overheadUI.setVisible(false);
+    }
+  }
+
+  /**
+   * Clamps current physics body velocity within [minSpeed, maxSpeed] (default: 50 to 400 px/s).
+   * Guards against NaN, -Infinity, and extreme impulses.
+   */
+  public clampBodyVelocity(minSpeed: number = 50, maxSpeed: number = 400): void {
+    const body = this.body as Phaser.Physics.Arcade.Body | undefined;
+    if (!body || !body.velocity) return;
+    const clamped = clampVelocity(body.velocity.x, body.velocity.y, minSpeed, maxSpeed);
+    body.velocity.x = clamped.vx;
+    body.velocity.y = clamped.vy;
   }
 
   /**
@@ -272,6 +299,19 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
     }
 
     const body = this.body as Phaser.Physics.Arcade.Body | undefined;
+    if (body?.velocity) {
+      if (!Number.isFinite(body.velocity.x) || !Number.isFinite(body.velocity.y)) {
+        body.velocity.x = 0;
+        body.velocity.y = 0;
+      } else {
+        const speed = Math.hypot(body.velocity.x, body.velocity.y);
+        if (speed > 400) {
+          const scale = 400 / speed;
+          body.velocity.x *= scale;
+          body.velocity.y *= scale;
+        }
+      }
+    }
     const vx = body ? body.velocity.x : 0;
     const vy = body ? body.velocity.y : 0;
     const isMoving = Math.abs(vx) > 1 || Math.abs(vy) > 1;
@@ -346,7 +386,12 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
 
   public override destroy(fromScene?: boolean): void {
     if (this.dropShadow) {
-      this.dropShadow.destroy();
+      const sceneWithPool = this.scene as unknown as ISceneShadowPool | undefined;
+      if (sceneWithPool?.shadowPool) {
+        sceneWithPool.shadowPool.release(this.dropShadow);
+      } else {
+        this.dropShadow.destroy();
+      }
       this.dropShadow = undefined;
     }
     if (this.overheadUI) {

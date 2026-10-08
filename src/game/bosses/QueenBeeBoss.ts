@@ -217,11 +217,18 @@ export class QueenBeeBoss extends BaseBoss {
 
   protected override onHitReceived(damage: number, isChained: boolean): void {
     void damage;
-    void isChained;
+    // Ground impact damage disrupts bee flight mechanics and chips rotating shields
+    if (this.activeShieldCount > 0) {
+      this.activeShieldCount = Math.max(0, this.activeShieldCount - 1);
+    }
+    if (isChained) {
+      this.enrageGauge = Math.min(100, this.enrageGauge + 5);
+    }
   }
 
   protected override onDamageBlocked(): void {
-    // Airborne immunity deflects ground blast
+    // Airborne flight deflects ground blast; brief upward gust elevation
+    this.altitude = Math.min(60, this.altitude + 6);
   }
 
   protected override onStateChanged(

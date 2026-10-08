@@ -5,14 +5,15 @@ export interface ActiveFloatingText {
 }
 
 export class FloatingTextManager {
-  public static readonly MAX_POOL = 1024;
-  private static readonly MASK = 1023;
+  public static readonly MAX_POOL = 4096;
+  private static readonly MASK = 4095;
   private readonly poolX: Float32Array = new Float32Array(FloatingTextManager.MAX_POOL);
   private readonly poolY: Float32Array = new Float32Array(FloatingTextManager.MAX_POOL);
   private readonly poolTime: Float64Array = new Float64Array(FloatingTextManager.MAX_POOL);
   private head: number = 0;
   private tail: number = 0;
   private size: number = 0;
+  private saturationOffset: number = 0;
 
   constructor() {
     this.poolTime.fill(-1);
@@ -44,6 +45,7 @@ export class FloatingTextManager {
     if (this.size === 0) {
       this.head = 0;
       this.tail = 0;
+      this.saturationOffset = 0;
     }
 
     const head = this.head;
@@ -82,7 +84,7 @@ export class FloatingTextManager {
       }
     }
 
-    const offset = nearbyCount * 16;
+    const offset = nearbyCount * 16 + (nearbyCount >= FloatingTextManager.MAX_POOL ? this.saturationOffset : 0);
 
     if (this.size < FloatingTextManager.MAX_POOL) {
       const tail = this.tail;
@@ -99,6 +101,9 @@ export class FloatingTextManager {
       poolTime[h] = currentTime;
       this.head = (h + 1) & mask;
       this.tail = (this.tail + 1) & mask;
+      if (nearbyCount >= FloatingTextManager.MAX_POOL) {
+        this.saturationOffset += 16;
+      }
     }
 
     return offset;
@@ -123,6 +128,7 @@ export class FloatingTextManager {
       if (this.size === 0) {
         this.head = 0;
         this.tail = 0;
+        this.saturationOffset = 0;
       }
     }
     return this.size;
@@ -132,6 +138,7 @@ export class FloatingTextManager {
     this.head = 0;
     this.tail = 0;
     this.size = 0;
+    this.saturationOffset = 0;
     this.poolTime.fill(-1);
   }
 }

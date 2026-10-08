@@ -210,6 +210,7 @@ export class ChronoHazard {
 
   private centerRow: number = 6;
   private centerCol: number = 7;
+  public isCenterAnchored: boolean = true;
   private currentCooldownDurationMs: number = DEFAULT_CHRONO_COOLDOWN_MS;
   private stateTimerMs: number = 0;
 
@@ -344,6 +345,18 @@ export class ChronoHazard {
     return { r: this.centerRow, c: this.centerCol };
   }
 
+  public setCenter(centerR: number, centerC: number, anchor: boolean = true): void {
+    if (!Number.isFinite(centerR) || !Number.isFinite(centerC)) return;
+    this.centerRow = Math.max(1, Math.min(ROWS - 2, centerR | 0));
+    this.centerCol = Math.max(1, Math.min(COLS - 2, centerC | 0));
+    this.isCenterAnchored = anchor;
+    this.buildLatticeBall(this.centerRow, this.centerCol);
+  }
+
+  public setEpicenter(centerR: number, centerC: number, anchor: boolean = true): void {
+    this.setCenter(centerR, centerC, anchor);
+  }
+
   public calculateSafeAreaRatio(): number {
     let dangerousCount = 0;
     for (let i = 0; i < TOTAL_TILES; i++) {
@@ -426,11 +439,13 @@ export class ChronoHazard {
 
       case ChronoLifecycleState.TACHYON_RECOVERY: {
         if (this.stateTimerMs >= this.currentCooldownDurationMs) {
-          // Relocate center within arena bounds
-          const nextR = 2 + Math.floor(Math.random() * (ROWS - 4));
-          const nextC = 2 + Math.floor(Math.random() * (COLS - 4));
-          this.centerRow = nextR;
-          this.centerCol = nextC;
+          // Relocate center within arena bounds unless anchored
+          if (!this.isCenterAnchored) {
+            const nextR = 2 + Math.floor(Math.random() * (ROWS - 4));
+            const nextC = 2 + Math.floor(Math.random() * (COLS - 4));
+            this.centerRow = nextR;
+            this.centerCol = nextC;
+          }
           this.buildLatticeBall(this.centerRow, this.centerCol);
 
           this.state = ChronoLifecycleState.CHRONO_DISTORTION;
@@ -730,7 +745,13 @@ export class ChronoHazard {
   }
 
   public init(centerR: number = 6, centerC: number = 7): void {
-    this.start('NORMAL', centerR, centerC);
+    this.setCenter(centerR, centerC);
+    this.state = ChronoLifecycleState.DORMANT;
+    this.telegraphPhase = ChronoTelegraphPhase.NONE;
+    this.stateTimerMs = 0;
+    this.dangerMask.fill(ChronoDangerValue.SAFE);
+    this.dilationGrid.fill(0);
+    this.cleanseGrid.fill(0);
   }
 
   public evaluateBombSlide(br: number, bc: number, currentSpeed: number): { speed: number } {

@@ -853,6 +853,10 @@ export class MagmaHazard {
     return this.state;
   }
 
+  public getDangerMask(): Uint8Array {
+    return this.dangerMask;
+  }
+
   public getTelegraphPhase(): MagmaTelegraphPhase {
     return this.telegraphPhase;
   }

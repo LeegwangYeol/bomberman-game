@@ -20,7 +20,9 @@ export type BossId =
   | 'queen_bee_cupcake'
   | 'boss_gummy_bear'
   | 'boss_hamster_nibbles'
-  | 'boss_queen_bee';
+  | 'boss_queen_bee'
+  | 'boss_mutant_flora'
+  | 'mutant_flora';
 
 export const TelegraphTier = {
   NONE: 0,

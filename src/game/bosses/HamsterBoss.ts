@@ -207,11 +207,20 @@ export class HamsterBoss extends BaseBoss {
 
   protected override onHitReceived(damage: number, isChained: boolean): void {
     void damage;
-    void isChained;
+    // Unshielded impact disrupts gyro alignment and halts active dash
+    this.isDashing = false;
+    this.vx = 0;
+    this.vy = 0;
+    if (isChained) {
+      this.enrageGauge = Math.min(100, this.enrageGauge + 5);
+    }
   }
 
   protected override onDamageBlocked(): void {
-    // Kinetic shield blocks
+    // Kinetic shield absorbs explosive impact into gyroscope kinetic charge
+    this.enrageGauge = Math.min(100, this.enrageGauge + 3);
+    this.x = Math.max(this.minArenaX, Math.min(this.maxArenaX, this.x - Math.sign(this.dashDirection.x || 1) * 6));
+    this.y = Math.max(this.minArenaY, Math.min(this.maxArenaY, this.y - Math.sign(this.dashDirection.y || 1) * 6));
   }
 
   protected override onStateChanged(

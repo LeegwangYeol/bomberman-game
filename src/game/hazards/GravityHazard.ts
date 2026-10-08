@@ -1286,6 +1286,10 @@ export class GravityHazard {
     }
   }
 
+  public getState(): GravityLifecycleState {
+    return this.state;
+  }
+
   public getStateElapsedMs(): number {
     return this.stateTimerMs;
   }

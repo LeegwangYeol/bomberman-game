@@ -31,6 +31,7 @@ import {
   SolarFlareCrisis,
   LavaCrisis,
   RiftCrisis,
+  PsychicCrisis,
   SituationLog,
 } from '../src/game/crises/index.ts';
 import { ROWS, COLS } from '../src/game/pathfinding.ts';
@@ -851,5 +852,115 @@ test('Tier 6 [SituationLog Integration]: Bridges crisis updates to listeners and
   assert.equal(lastPayload.threatLevel, 0);
   assert.equal(lastPayload.crisisId, '');
 });
+
+/* ==============================================================================
+ * TIER 7: PSYCHIC CRISIS EXPANSION & CRISIS MANAGER EVENT DECOUPLING
+ * ============================================================================== */
+
+test('Tier 7 [Psychic Crisis]: Full 3-Stage FSM progression & 195-tile flat buffer reuse', () => {
+  const psychic = new PsychicCrisis();
+  psychic.init();
+
+  assert.equal(psychic.getStage(), CrisisStage.WHISPERS);
+  assert.equal(psychic.manifestations.length, 3);
+  assert.ok(psychic.getThreat() >= 10);
+  assert.ok(psychic.getActiveHazardCount() > 0);
+
+  // Manifestations seeded on flat buffer
+  for (const pos of PsychicCrisis.MANIFESTATION_POSITIONS) {
+    const hazard = psychic.getHazardAt(pos.r, pos.c);
+    assert.ok(hazard !== null, `Missing hazard at manifestation pos (${pos.r}, ${pos.c})`);
+    assert.equal(hazard.type, HazardType.PSIONIC_MANIFESTATION);
+  }
+
+  // Advance to OUTBREAK
+  psychic.transitionToStage(CrisisStage.OUTBREAK);
+  assert.equal(psychic.getStage(), CrisisStage.OUTBREAK);
+  assert.ok(psychic.getThreat() >= 35);
+  psychic.spawnDisruptionZones();
+
+  // Invariant: Safe area ratio >= 80%
+  assert.ok(psychic.getSafeAreaRatio() >= 0.80);
+  assert.ok(psychic.getWalkableSafeAreaRatio() >= 0.80);
+
+  // Advance to CLIMAX
+  psychic.transitionToStage(CrisisStage.CLIMAX);
+  assert.equal(psychic.getStage(), CrisisStage.CLIMAX);
+  assert.ok(psychic.getThreat() >= 70);
+
+  // Bombing all 3 manifestations
+  for (const pos of PsychicCrisis.MANIFESTATION_POSITIONS) {
+    psychic.handleBombBlast(pos.r, pos.c, 1);
+  }
+
+  // Victory achieved
+  assert.equal(psychic.getStage(), CrisisStage.RESOLVED);
+  assert.equal(psychic.getStatus().isVictorious, true);
+  assert.equal(psychic.getActiveHazardCount(), 0);
+
+  // Reset preserves recycled manifestations without GC leak
+  psychic.reset();
+  assert.equal(psychic.getStage(), CrisisStage.INACTIVE);
+  assert.equal(psychic.manifestations.length, 3);
+  assert.equal(psychic.getActiveHazardCount(), 0);
+});
+
+test('Tier 7 [Psychic Crisis]: Dispel illusion mechanics and single-increment objective invariant', () => {
+  const psychic = new PsychicCrisis();
+  psychic.init();
+  psychic.transitionToStage(CrisisStage.OUTBREAK);
+
+  const initialObj = psychic.getObjectives().find((o) => o.id === 'resist_psionics');
+  assert.ok(initialObj);
+  assert.equal(initialObj.currentCount, 0);
+
+  // Dispel first manifestation at (3, 3)
+  const dispelled = psychic.dispelIllusionAt(3, 3);
+  assert.equal(dispelled, true);
+
+  const updatedObj = psychic.getObjectives().find((o) => o.id === 'resist_psionics');
+  // Must be strictly 1, NOT double-incremented to 2
+  assert.equal(updatedObj.currentCount, 1);
+  assert.equal(psychic.isTileHazardous(3, 3), false);
+});
+
+test('Tier 7 [CrisisManager Event Decoupling]: Direct listener subscription and lifecycle dispatch', () => {
+  const manager = new CrisisManager();
+  const eventsReceived = [];
+
+  manager.on('crisis-triggered', (payload) => {
+    eventsReceived.push({ event: 'triggered', payload });
+  });
+  manager.on('crisis-stage-changed', (payload) => {
+    eventsReceived.push({ event: 'stage-changed', payload });
+  });
+  manager.on('crisis-resolved', (payload) => {
+    eventsReceived.push({ event: 'resolved', payload });
+  });
+
+  // 1. Trigger
+  manager.triggerCrisis(CrisisType.PSYCHIC_INVASION);
+  assert.equal(eventsReceived.length, 1);
+  assert.equal(eventsReceived[0].event, 'triggered');
+
+  // 2. Stage progression via update
+  manager.update(21000); // Exceeds Whispers duration (20000ms)
+  const stageChangeEvent = eventsReceived.find((e) => e.event === 'stage-changed');
+  assert.ok(stageChangeEvent);
+  assert.equal(stageChangeEvent.payload.stage, CrisisStage.OUTBREAK);
+
+  // 3. Resolve crisis
+  manager.resolveCrisis('Test victory');
+  const resolvedEvent = eventsReceived.find((e) => e.event === 'resolved');
+  assert.ok(resolvedEvent);
+  assert.equal(resolvedEvent.payload.totalCrisesResolved, 1);
+
+  // 4. Default status returns cached immutable reference (Zero-GC)
+  manager.reset();
+  const status1 = manager.getStatus();
+  const status2 = manager.getStatus();
+  assert.equal(status1, status2, 'getStatus when inactive must return the identical cached reference for zero-GC');
+});
+
 
 

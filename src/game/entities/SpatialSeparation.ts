@@ -468,9 +468,9 @@ export class SpatialSeparationGrid {
           vy = 0;
         } else {
           const MAX_SPEED = 400;
-          const speedSq = vx * vx + vy * vy;
-          if (speedSq > MAX_SPEED * MAX_SPEED) {
-            const scale = MAX_SPEED / Math.sqrt(speedSq);
+          const speed = Math.hypot(vx, vy);
+          if (speed > MAX_SPEED) {
+            const scale = MAX_SPEED / speed;
             vx *= scale;
             vy *= scale;
           }
@@ -718,11 +718,18 @@ export class SpatialSeparationGrid {
             const overlapL = wRight - eLeft;
             const overlapB = eBottom - wTop;
             const overlapT = wBottom - eTop;
-
             const minX = Math.min(overlapR, overlapL);
             const minY = Math.min(overlapB, overlapT);
 
-            if (minX < minY) {
+            if (c === 0) {
+              this.posX[i] = Math.max(this.posX[i], wRight + radius);
+            } else if (c === cols - 1) {
+              this.posX[i] = Math.min(this.posX[i], wLeft - radius);
+            } else if (r === 0) {
+              this.posY[i] = Math.max(this.posY[i], wBottom + radius);
+            } else if (r === rows - 1) {
+              this.posY[i] = Math.min(this.posY[i], wTop - radius);
+            } else if (minX < minY) {
               this.posX[i] += overlapR < overlapL ? -overlapR : overlapL;
             } else {
               this.posY[i] += overlapB < overlapT ? -overlapB : overlapT;
@@ -752,9 +759,9 @@ export class SpatialSeparationGrid {
           e.body.velocity.y = 0;
         } else {
           const MAX_VELOCITY = 400;
-          const speedSq = vx * vx + vy * vy;
-          if (speedSq > MAX_VELOCITY * MAX_VELOCITY) {
-            const scale = MAX_VELOCITY / Math.sqrt(speedSq);
+          const speed = Math.hypot(vx, vy);
+          if (speed > MAX_VELOCITY) {
+            const scale = MAX_VELOCITY / speed;
             e.body.velocity.x = vx * scale;
             e.body.velocity.y = vy * scale;
           }
@@ -788,3 +795,54 @@ export function resolveEntitySeparation(
 ): SpatialSeparationStats {
   return defaultSpatialGrid.resolveSeparation(entities, options);
 }
+
+/**
+ * Strict numeric clamp utility:
+ * Clamps value to [min, max] (default: [50, 400]).
+ * Rejects and sanitizes NaN, -Infinity, +Infinity, and invalid types.
+ */
+export function clamp(val: number, min: number = 50, max: number = 400): number {
+  if (typeof val !== 'number' || Number.isNaN(val) || val === -Infinity) {
+    return min;
+  }
+  if (val === Infinity) {
+    return max;
+  }
+  return Math.min(max, Math.max(min, val));
+}
+
+/**
+ * Clamps entity movement speed to [minSpeed, maxSpeed] (default: [50, 400] px/s).
+ */
+export function clampSpeed(speed: number, minSpeed: number = 50, maxSpeed: number = 400): number {
+  return clamp(speed, minSpeed, maxSpeed);
+}
+
+/**
+ * Clamps 2D velocity vector so that its magnitude lies within [minSpeed, maxSpeed],
+ * preserving direction. Stationary (zero) velocities remain (0, 0).
+ * Replaces NaN or infinite components with 0.
+ */
+export function clampVelocity(
+  vx: number,
+  vy: number,
+  minSpeed: number = 50,
+  maxSpeed: number = 400
+): { vx: number; vy: number; speed: number } {
+  const safeVx = Number.isFinite(vx) ? vx : 0;
+  const safeVy = Number.isFinite(vy) ? vy : 0;
+  const rawSpeed = Math.hypot(safeVx, safeVy);
+
+  if (rawSpeed === 0) {
+    return { vx: 0, vy: 0, speed: 0 };
+  }
+
+  const clamped = clamp(rawSpeed, minSpeed, maxSpeed);
+  const scale = clamped / rawSpeed;
+  return {
+    vx: safeVx * scale,
+    vy: safeVy * scale,
+    speed: clamped,
+  };
+}
+

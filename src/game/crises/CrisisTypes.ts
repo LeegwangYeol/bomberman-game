@@ -9,6 +9,7 @@ export const CrisisType = {
   SOLAR_FLARES: 'solar_flares',
   CREEPING_LAVA: 'creeping_lava',
   DIMENSIONAL_RIFTS: 'dimensional_rifts',
+  PSYCHIC_INVASION: 'psychic_invasion',
 } as const;
 
 export type CrisisType = typeof CrisisType[keyof typeof CrisisType];
@@ -43,6 +44,9 @@ export const HazardType = {
   CALDERA_VALVE: 15,
   DIMENSIONAL_WARP: 16,
   QUANTUM_SPIRE: 17,
+  PSIONIC_DISRUPTION: 18,
+  PSIONIC_MANIFESTATION: 19,
+  PSIONIC_ILLUSION: 20,
 } as const;
 
 export type HazardType = typeof HazardType[keyof typeof HazardType];
@@ -204,7 +208,35 @@ export const CRISIS_DEFINITIONS: Record<CrisisType, CrisisDefinition> = {
       [CrisisStage.CLIMAX]: 35000,
     },
   },
+  [CrisisType.PSYCHIC_INVASION]: {
+    id: CrisisType.PSYCHIC_INVASION,
+    name: 'Psychic Entity Invasion',
+    icon: '🧠👁️',
+    themeColor: '#EC4899',
+    description: 'Psionic manifestations confusing entity targeting and warping corridors.',
+    stageDurations: {
+      [CrisisStage.WHISPERS]: 20000,
+      [CrisisStage.OUTBREAK]: 55000,
+      [CrisisStage.CLIMAX]: 35000,
+    },
+  },
 };
+
+export interface SerializedCrisisState {
+  crisisType: CrisisType | null;
+  stage: CrisisStage;
+  stageElapsedMs: number;
+  stageDurationMs: number;
+  threatMeter: number;
+  threatTrend: 'stable' | 'rising' | 'critical' | 'declining';
+  objectives: CrisisObjective[];
+  activeAlert: CrisisThreatAlert | null;
+  hazardTiles: HazardTile[];
+  totalCrisesResolved: number;
+  isVictorious: boolean;
+  isDefeated: boolean;
+  extraState?: Record<string, unknown>;
+}
 
 export interface ICrisis {
   readonly id: CrisisType;
@@ -217,6 +249,9 @@ export interface ICrisis {
   getActiveAlert(): CrisisThreatAlert | null;
   getStatus(): CrisisStatus;
   init(): void;
+  start?(): void;
+  setStage?(stage: CrisisStage): void;
+  isCrisisVictorious?(): boolean;
   update(deltaMs: number, playerPos?: { r: number; c: number; x?: number; y?: number }): void;
   handleBombBlast(r: number, c: number, radius?: number): void;
   resolveObjective(objectiveId: string, value?: number): void;
@@ -226,4 +261,6 @@ export interface ICrisis {
   resolveCrisis(victoryMessage?: string): void;
   failCrisis(failureMessage?: string): void;
   reset(): void;
+  serialize?(): SerializedCrisisState;
+  deserialize?(state: Partial<SerializedCrisisState>): void;
 }

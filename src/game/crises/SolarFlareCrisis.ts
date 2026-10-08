@@ -232,7 +232,17 @@ export class SolarFlareCrisis extends BaseCrisis {
     }
   }
 
-  protected onResolveObjective(): void {
-    // Handled in bomb blast
+  protected onResolveObjective(objectiveId: string, value?: number): void {
+    void value;
+    if (objectiveId === 'cool_thermal_vents') {
+      const cooledCount = this.vents.filter((v) => v.isCooled).length;
+      this.adjustThreat(-6 * cooledCount);
+      const obj = this.objectives.find((o) => o.id === 'cool_thermal_vents');
+      if (obj && obj.isCompleted && !this.isVictorious) {
+        this.resolveCrisis('All 4 Thermal Vents cooled! Super-flare extinguished and stellar calm restored!');
+      }
+    } else if (objectiveId === 'shelter_flares') {
+      this.adjustThreat(-5);
+    }
   }
 }

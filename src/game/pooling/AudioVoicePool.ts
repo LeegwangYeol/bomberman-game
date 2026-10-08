@@ -249,8 +249,11 @@ export class AudioVoicePool {
   private masterBus: GainNode | null = null;
   private sequence: number = 0;
 
-  constructor(capacity: number = 16) {
+  constructor(capacity: number = 16, ctx?: AudioContext | null) {
     this.capacity = capacity;
+    if (ctx) {
+      this.init(ctx);
+    }
   }
 
   public init(ctx: AudioContext): void {
@@ -368,6 +371,10 @@ export class AudioVoicePool {
       }
     }
     return count;
+  }
+
+  public getActiveVoiceCount(): number {
+    return this.getActiveCount();
   }
 
   public getAudioContext(): AudioContext | null {

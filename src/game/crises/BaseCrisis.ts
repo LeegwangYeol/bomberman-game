@@ -15,12 +15,16 @@ import type {
   CrisisThreatAlert,
   CrisisStatus,
   CrisisDefinition,
+  SerializedCrisisState,
   ICrisis,
 } from './CrisisTypes.ts';
 import { ROWS, COLS, TOTAL_TILES, coordToIdx } from '../pathfinding.ts';
 
 export abstract class BaseCrisis implements ICrisis {
   public readonly id: CrisisType;
+  public get type(): CrisisType {
+    return this.id;
+  }
   public readonly name: string;
   public readonly icon: string;
   public readonly themeColor: string;
@@ -35,12 +39,13 @@ export abstract class BaseCrisis implements ICrisis {
 
   // Pre-allocated flat buffer of 195 HazardTiles for Zero-GC
   protected hazardTileBuffer: HazardTile[];
-  protected activeHazardList: HazardTile[] = [];
+  protected activeHazardList: HazardTile[];
   protected activeHazardCount: number = 0;
 
   // Objectives and Alerts
   protected objectives: CrisisObjective[] = [];
   protected activeAlert: CrisisThreatAlert | null = null;
+  private readonly cachedAlert: CrisisThreatAlert;
 
   // Outcome flags
   protected isVictorious: boolean = false;
@@ -48,6 +53,10 @@ export abstract class BaseCrisis implements ICrisis {
 
   // Pre-allocated CrisisStatus to eliminate per-frame heap allocations
   protected readonly cachedStatus: CrisisStatus;
+  protected cachedSummary: string = '';
+
+  // Scratch active slice to eliminate per-frame GC churn in 60 FPS update loops
+  private readonly scratchActiveSlice: HazardTile[];
 
   constructor(id: CrisisType) {
     this.id = id;
@@ -55,6 +64,18 @@ export abstract class BaseCrisis implements ICrisis {
     this.name = this.definition.name;
     this.icon = this.definition.icon;
     this.themeColor = this.definition.themeColor;
+
+    this.cachedSummary = `${this.name} (${CrisisStage.INACTIVE})`;
+
+    this.cachedAlert = {
+      id: '',
+      title: '',
+      message: '',
+      level: 'warning',
+      icon: '⚠️',
+      durationMs: 0,
+      remainingMs: 0,
+    };
 
     this.cachedStatus = {
       isActive: false,
@@ -70,11 +91,13 @@ export abstract class BaseCrisis implements ICrisis {
       hazardTileCount: 0,
       isVictorious: false,
       isDefeated: false,
-      summary: '',
+      summary: this.cachedSummary,
     };
 
-    // Pre-allocate 195 tile descriptors
+    // Pre-allocate 195 tile descriptors and flat reusable buffers
     this.hazardTileBuffer = new Array<HazardTile>(TOTAL_TILES);
+    this.activeHazardList = new Array<HazardTile>(TOTAL_TILES);
+    this.scratchActiveSlice = new Array<HazardTile>(TOTAL_TILES);
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         const idx = coordToIdx(r, c);
@@ -108,6 +131,7 @@ export abstract class BaseCrisis implements ICrisis {
     return this.activeAlert;
   }
 
+
   public init(): void {
     this.stage = CrisisStage.WHISPERS;
     this.stageElapsedMs = 0;
@@ -121,11 +145,27 @@ export abstract class BaseCrisis implements ICrisis {
     this.objectives = [];
     this.activeAlert = null;
 
+    this.cachedSummary = `${this.name} (${this.stage})`;
     this.onInit();
     this.onStageEnter(CrisisStage.WHISPERS);
   }
 
+  public start(): void {
+    this.init();
+  }
+
+  public setStage(stage: CrisisStage): void {
+    this.transitionToStage(stage);
+  }
+
+  public isCrisisVictorious(): boolean {
+    return this.isVictorious;
+  }
+
   public update(deltaMs: number, playerPos?: { r: number; c: number; x?: number; y?: number }): void {
+    if (typeof deltaMs !== 'number' || !Number.isFinite(deltaMs) || Number.isNaN(deltaMs) || deltaMs < 0) {
+      deltaMs = 0;
+    }
     if (this.stage === CrisisStage.INACTIVE || this.stage === CrisisStage.RESOLVED || this.stage === CrisisStage.FAILED) {
       return;
     }
@@ -182,6 +222,7 @@ export abstract class BaseCrisis implements ICrisis {
     if (this.stage === newStage) return;
     this.stage = newStage;
     this.stageElapsedMs = 0;
+    this.cachedSummary = `${this.name} (${this.stage})`;
 
     if (newStage === CrisisStage.OUTBREAK) {
       this.stageDurationMs = this.definition.stageDurations[CrisisStage.OUTBREAK];
@@ -205,19 +246,15 @@ export abstract class BaseCrisis implements ICrisis {
   }
 
   public resolveCrisis(victoryMessage?: string): void {
+    if (this.stage === CrisisStage.RESOLVED) return;
     this.transitionToStage(CrisisStage.RESOLVED);
-    this.stage = CrisisStage.RESOLVED;
-    this.isVictorious = true;
-    this.threatMeter = 0;
     const msg = victoryMessage || 'Crisis successfully stabilized!';
     this.triggerAlert('resolved', 'CRISIS STABILIZED', msg, 'info', '✨', 5000);
   }
 
   public failCrisis(failureMessage?: string): void {
+    if (this.stage === CrisisStage.FAILED) return;
     this.transitionToStage(CrisisStage.FAILED);
-    this.stage = CrisisStage.FAILED;
-    this.isDefeated = true;
-    this.threatMeter = 100;
     const msg = failureMessage || 'Catastrophic failure: Area consumed!';
     this.triggerAlert('failed', 'CRISIS UNCONTAINED', msg, 'critical', '💀', 5000);
   }
@@ -230,6 +267,9 @@ export abstract class BaseCrisis implements ICrisis {
   }
 
   public resolveObjective(objectiveId: string, value?: number): void {
+    if (this.stage === CrisisStage.INACTIVE || this.stage === CrisisStage.RESOLVED || this.stage === CrisisStage.FAILED) {
+      return;
+    }
     const obj = this.objectives.find((o) => o.id === objectiveId);
     if (!obj) return;
 
@@ -251,22 +291,19 @@ export abstract class BaseCrisis implements ICrisis {
     s.isActive = this.stage !== CrisisStage.INACTIVE;
     s.crisisType = this.id;
     s.stage = this.stage;
-    s.threatMeter = this.threatMeter;
+    s.threatMeter = Number.isFinite(this.threatMeter) ? this.threatMeter : 0;
     s.threatTrend = this.threatTrend;
-    s.stageElapsedMs = this.stageElapsedMs;
-    s.stageDurationMs = this.stageDurationMs;
-    s.stageRemainingMs = Math.max(0, this.stageDurationMs - this.stageElapsedMs);
+    s.stageElapsedMs = Number.isFinite(this.stageElapsedMs) ? this.stageElapsedMs : 0;
+    s.stageDurationMs = Number.isFinite(this.stageDurationMs) ? this.stageDurationMs : 0;
+    s.stageRemainingMs = Math.max(0, Number.isFinite(this.stageDurationMs - this.stageElapsedMs) ? this.stageDurationMs - this.stageElapsedMs : 0);
     s.objectives = this.objectives;
     s.activeAlert = this.activeAlert;
     s.hazardTileCount = this.activeHazardCount;
     s.isVictorious = this.isVictorious;
     s.isDefeated = this.isDefeated;
-    s.summary = `${this.name} (${this.stage})`;
+    s.summary = this.cachedSummary;
     return s;
   }
-
-  // Scratch active slice to eliminate per-frame GC churn in 60 FPS update loops
-  private readonly scratchActiveSlice: HazardTile[] = [];
 
   // --- Zero-GC Hazard Management ---
 
@@ -285,6 +322,13 @@ export abstract class BaseCrisis implements ICrisis {
     const idx = ir * COLS + ic;
     const tile = this.hazardTileBuffer[idx];
 
+    if (type === HazardType.NONE) {
+      if (tile.type !== HazardType.NONE) {
+        this.clearHazardTile(ir, ic);
+      }
+      return tile;
+    }
+
     const wasActive = tile.type !== HazardType.NONE;
     tile.type = type;
     tile.intensity = Math.max(0, Math.min(1, intensity));
@@ -292,8 +336,10 @@ export abstract class BaseCrisis implements ICrisis {
     tile.remainingMs = durationMs;
     tile.data = data;
 
-    if (!wasActive && type !== HazardType.NONE) {
-      this.activeHazardList[this.activeHazardCount++] = tile;
+    if (!wasActive) {
+      if (this.activeHazardCount < TOTAL_TILES) {
+        this.activeHazardList[this.activeHazardCount++] = tile;
+      }
     }
 
     return tile;
@@ -334,6 +380,7 @@ export abstract class BaseCrisis implements ICrisis {
       tile.data = 0;
     }
     this.activeHazardCount = 0;
+    this.scratchActiveSlice.length = 0;
   }
 
   public isTileHazardous(r: number, c: number): boolean {
@@ -371,10 +418,16 @@ export abstract class BaseCrisis implements ICrisis {
   // --- Threat, Objectives & Alerts Helpers ---
 
   public setThreat(value: number): void {
+    if (typeof value !== 'number' || !Number.isFinite(value) || Number.isNaN(value)) {
+      value = 0;
+    }
     this.threatMeter = Math.max(0, Math.min(100, value));
   }
 
   public adjustThreat(delta: number): void {
+    if (typeof delta !== 'number' || !Number.isFinite(delta) || Number.isNaN(delta)) {
+      delta = 0;
+    }
     this.setThreat(this.threatMeter + delta);
   }
 
@@ -386,15 +439,15 @@ export abstract class BaseCrisis implements ICrisis {
     icon: string = '⚠️',
     durationMs: number = 3500
   ): void {
-    this.activeAlert = {
-      id,
-      title,
-      message,
-      level,
-      icon,
-      durationMs,
-      remainingMs: durationMs,
-    };
+    const alert = this.cachedAlert;
+    alert.id = id;
+    alert.title = title;
+    alert.message = message;
+    alert.level = level;
+    alert.icon = icon;
+    alert.durationMs = durationMs;
+    alert.remainingMs = durationMs;
+    this.activeAlert = alert;
   }
 
   public reset(): void {
@@ -408,8 +461,128 @@ export abstract class BaseCrisis implements ICrisis {
     this.clearAllHazards();
     this.objectives = [];
     this.activeAlert = null;
+    this.cachedSummary = `${this.name} (${this.stage})`;
     this.onReset();
   }
+
+  public serialize(): SerializedCrisisState {
+    const activeHazards: HazardTile[] = [];
+    for (let i = 0; i < this.activeHazardCount; i++) {
+      const h = this.activeHazardList[i];
+      activeHazards.push({
+        idx: h.idx,
+        r: h.r,
+        c: h.c,
+        type: h.type,
+        intensity: h.intensity,
+        durationMs: h.durationMs,
+        remainingMs: h.remainingMs,
+        data: h.data,
+      });
+    }
+
+    const objectivesCopy: CrisisObjective[] = this.objectives.map((obj) => ({
+      id: obj.id,
+      title: obj.title,
+      description: obj.description,
+      targetCount: obj.targetCount,
+      currentCount: obj.currentCount,
+      isCompleted: obj.isCompleted,
+      isFailed: obj.isFailed,
+      timeLimitMs: obj.timeLimitMs,
+      remainingTimeMs: obj.remainingTimeMs,
+    }));
+
+    const alertCopy: CrisisThreatAlert | null = this.activeAlert
+      ? {
+          id: this.activeAlert.id,
+          title: this.activeAlert.title,
+          message: this.activeAlert.message,
+          level: this.activeAlert.level,
+          icon: this.activeAlert.icon,
+          durationMs: this.activeAlert.durationMs,
+          remainingMs: this.activeAlert.remainingMs,
+        }
+      : null;
+
+    return {
+      crisisType: this.id,
+      stage: this.stage,
+      stageElapsedMs: this.stageElapsedMs,
+      stageDurationMs: this.stageDurationMs,
+      threatMeter: this.threatMeter,
+      threatTrend: this.threatTrend,
+      objectives: objectivesCopy,
+      activeAlert: alertCopy,
+      hazardTiles: activeHazards,
+      totalCrisesResolved: 0,
+      isVictorious: this.isVictorious,
+      isDefeated: this.isDefeated,
+      extraState: this.getExtraSerializedState ? this.getExtraSerializedState() : undefined,
+    };
+  }
+
+  public deserialize(state: Partial<SerializedCrisisState>): void {
+    if (!state || typeof state !== 'object') return;
+
+    this.stage = state.stage || CrisisStage.INACTIVE;
+    this.stageElapsedMs = typeof state.stageElapsedMs === 'number' && Number.isFinite(state.stageElapsedMs)
+      ? Math.max(0, state.stageElapsedMs)
+      : 0;
+    this.stageDurationMs = typeof state.stageDurationMs === 'number' && Number.isFinite(state.stageDurationMs)
+      ? Math.max(0, state.stageDurationMs)
+      : (this.definition.stageDurations[this.stage as keyof typeof this.definition.stageDurations] || 0);
+    this.threatMeter = typeof state.threatMeter === 'number' && Number.isFinite(state.threatMeter)
+      ? Math.max(0, Math.min(100, state.threatMeter))
+      : 0;
+    this.threatTrend = state.threatTrend || 'stable';
+    this.isVictorious = Boolean(state.isVictorious);
+    this.isDefeated = Boolean(state.isDefeated);
+
+    if (Array.isArray(state.objectives)) {
+      this.objectives = state.objectives.map((o) => ({
+        id: String(o.id || ''),
+        title: String(o.title || ''),
+        description: String(o.description || ''),
+        targetCount: typeof o.targetCount === 'number' && Number.isFinite(o.targetCount) ? Math.max(0, o.targetCount) : 0,
+        currentCount: typeof o.currentCount === 'number' && Number.isFinite(o.currentCount) ? Math.max(0, o.currentCount) : 0,
+        isCompleted: Boolean(o.isCompleted),
+        isFailed: Boolean(o.isFailed),
+        timeLimitMs: typeof o.timeLimitMs === 'number' && Number.isFinite(o.timeLimitMs) ? o.timeLimitMs : undefined,
+        remainingTimeMs: typeof o.remainingTimeMs === 'number' && Number.isFinite(o.remainingTimeMs) ? o.remainingTimeMs : undefined,
+      }));
+    }
+
+    if (state.activeAlert && typeof state.activeAlert === 'object') {
+      this.activeAlert = {
+        id: String(state.activeAlert.id || ''),
+        title: String(state.activeAlert.title || ''),
+        message: String(state.activeAlert.message || ''),
+        level: state.activeAlert.level || 'warning',
+        icon: String(state.activeAlert.icon || '⚠️'),
+        durationMs: typeof state.activeAlert.durationMs === 'number' && Number.isFinite(state.activeAlert.durationMs) ? state.activeAlert.durationMs : 3500,
+        remainingMs: typeof state.activeAlert.remainingMs === 'number' && Number.isFinite(state.activeAlert.remainingMs) ? state.activeAlert.remainingMs : 3500,
+      };
+    } else {
+      this.activeAlert = null;
+    }
+
+    this.clearAllHazards();
+    if (Array.isArray(state.hazardTiles)) {
+      for (const h of state.hazardTiles) {
+        if (h && typeof h.r === 'number' && typeof h.c === 'number') {
+          this.setHazardTile(h.r, h.c, h.type, h.intensity, h.remainingMs ?? h.durationMs, h.data);
+        }
+      }
+    }
+
+    if (state.extraState && typeof state.extraState === 'object' && this.applyExtraSerializedState) {
+      this.applyExtraSerializedState(state.extraState);
+    }
+  }
+
+  protected getExtraSerializedState?(): Record<string, unknown>;
+  protected applyExtraSerializedState?(extra: Record<string, unknown>): void;
 
   protected onReset(): void {
     // Reinitialize subclass state (timers, pending craters, counts, etc.)

@@ -246,6 +246,59 @@ export const MIASMA_AUDIO_PRESETS = {
     releaseTime: 0.06,
     filter: { type: 'bandpass', frequency: 1600, q: 2.5, rampTarget: 350, rampDuration: 0.09 },
   } as AudioVoiceToneParams,
+
+  // 8. Floral Bloom Spore Release: Botanical blossom rupture + ascending harmonic chime + spore dispersion sweep
+  FLORAL_BLOOM_POD_POP: {
+    type: 'sine',
+    frequency: 340.0,
+    frequencyRamp: { target: 88.0, duration: 0.06, exponential: true },
+    gain: 0.36,
+    duration: 0.12,
+    attackTime: 0.002,
+    decayTime: 0.04,
+    sustainLevel: 0.15,
+    releaseTime: 0.06,
+    filter: { type: 'bandpass', frequency: 720, q: 3.2, rampTarget: 260, rampDuration: 0.07 },
+  } as AudioVoiceToneParams,
+
+  FLORAL_BLOOM_CHIME: {
+    type: 'triangle',
+    frequency: 698.46, // F5
+    frequencyRamp: { target: 987.77, duration: 0.22, exponential: true }, // F5 -> B5 botanical bloom
+    gain: 0.24,
+    duration: 0.45,
+    attackTime: 0.012,
+    decayTime: 0.18,
+    sustainLevel: 0.35,
+    releaseTime: 0.22,
+    filter: { type: 'bandpass', frequency: 1250, q: 2.8, rampTarget: 1800, rampDuration: 0.25 },
+  } as AudioVoiceToneParams,
+
+  FLORAL_BLOOM_SPORE_SWEEP: {
+    type: 'sine',
+    frequency: 520.0,
+    frequencyRamp: { target: 1040.0, duration: 0.20, exponential: true },
+    gain: 0.20,
+    duration: 0.38,
+    attackTime: 0.02,
+    decayTime: 0.12,
+    sustainLevel: 0.30,
+    releaseTime: 0.18,
+    filter: { type: 'bandpass', frequency: 1400, q: 2.4, rampTarget: 750, rampDuration: 0.25 },
+  } as AudioVoiceToneParams,
+
+  FLORAL_BLOOM_RUSTLE: {
+    type: 'sawtooth',
+    frequency: 240.0,
+    frequencyRamp: { target: 120.0, duration: 0.25, exponential: false },
+    gain: 0.14,
+    duration: 0.32,
+    attackTime: 0.03,
+    decayTime: 0.12,
+    sustainLevel: 0.25,
+    releaseTime: 0.15,
+    filter: { type: 'bandpass', frequency: 950, q: 3.2, rampTarget: 1600, rampDuration: 0.25 },
+  } as AudioVoiceToneParams,
 } as const;
 
 export class MiasmaHazardAudio {
@@ -269,6 +322,7 @@ export class MiasmaHazardAudio {
   private lastNeurotoxinSoundMs: number = -Infinity;
   private lastRustleSoundMs: number = -Infinity;
   private lastCleanseSoundMs: number = -Infinity;
+  private lastFloralBloomSoundMs: number = -Infinity;
 
   constructor(poolOrCtx?: AudioVoicePool | AudioContext | null, pool?: AudioVoicePool | null) {
     if (poolOrCtx) {
@@ -279,6 +333,8 @@ export class MiasmaHazardAudio {
       }
     } else if (pool) {
       this.bindPool(pool);
+    } else if (poolOrCtx === null) {
+      this.pool = null;
     } else {
       this.pool = AudioVoicePool.getInstance(16);
     }
@@ -308,11 +364,14 @@ export class MiasmaHazardAudio {
     this.ctx = ctx;
     if (pool) {
       this.bindPool(pool);
+      if (!pool.getAudioContext()) {
+        pool.init(ctx);
+      }
       this.ownsPool = false;
     } else if (!this.pool) {
-      this.pool = AudioVoicePool.getInstance(16);
+      this.pool = new AudioVoicePool(16);
       this.pool.init(ctx);
-      this.ownsPool = false;
+      this.ownsPool = true;
     } else {
       this.pool.init(ctx);
     }
@@ -323,8 +382,13 @@ export class MiasmaHazardAudio {
   }
 
   public bindPool(pool: AudioVoicePool): void {
+    if (this.ownsPool && this.pool && this.pool !== pool) {
+      this.pool.destroy();
+    }
     this.pool = pool;
-    this.ctx = pool.getAudioContext();
+    if (!this.ctx) {
+      this.ctx = pool.getAudioContext();
+    }
     this.ownsPool = false;
   }
 
@@ -349,6 +413,10 @@ export class MiasmaHazardAudio {
           }
           this.pool.init(this.ctx);
         } catch {
+          const closeable = this.ctx as unknown as { close?: () => Promise<void> } | null;
+          if (closeable && typeof closeable.close === 'function') {
+            try { void closeable.close().catch(() => {}); } catch {}
+          }
           this.ctx = null;
         }
       }
@@ -529,6 +597,32 @@ export class MiasmaHazardAudio {
   }
 
   /**
+   * 7. Floral Bloom Spore Release:
+   * Plays composite botanical rupture:
+   * 1. Organic pod cavitation pop (340 Hz -> 88 Hz)
+   * 2. Resonant botanical blossom chime (F5 -> B5)
+   * 3. Spore dispersion sweep (520 Hz -> 1040 Hz)
+   * 4. Vegetative foliage rustle (240 Hz -> 120 Hz)
+   * 5. Filtered procedural white noise puff of microscopic spore diffusion (1600 Hz -> 650 Hz bandpass)
+   * Zero-GC, zero-leak, zero audio asset dependencies.
+   */
+  public playFloralBloomSporeRelease(nowMs: number = Date.now()): void {
+    if (nowMs - this.lastFloralBloomSoundMs < 200) return;
+    this.lastFloralBloomSoundMs = nowMs;
+
+    const pool = this.getPool();
+    if (!pool) return;
+
+    pool.playTone(MIASMA_AUDIO_PRESETS.FLORAL_BLOOM_POD_POP);
+    pool.playTone(MIASMA_AUDIO_PRESETS.FLORAL_BLOOM_CHIME);
+    pool.playTone(MIASMA_AUDIO_PRESETS.FLORAL_BLOOM_SPORE_SWEEP);
+    pool.playTone(MIASMA_AUDIO_PRESETS.FLORAL_BLOOM_RUSTLE);
+
+    // Procedural spore diffusion cloud noise burst
+    this.playFilteredNoiseBurst(0.28, 1600, 650, 0.16);
+  }
+
+  /**
    * State Machine Audio Event Dispatcher
    */
   public playMiasmaHazardState(
@@ -632,7 +726,20 @@ export class MiasmaHazardAudio {
       this.activeTransientNodes.add(gain);
 
       this.wireAutoDisconnect(source, filter, gain, duration);
-      source.start(now);
+      try {
+        source.start(now);
+        source.stop(now + duration);
+      } catch {
+        try {
+          source.onended = null;
+          source.disconnect();
+          filter.disconnect();
+          gain.disconnect();
+        } catch {}
+        this.activeTransientNodes.delete(source);
+        this.activeTransientNodes.delete(filter);
+        this.activeTransientNodes.delete(gain);
+      }
     } catch {
       // Safe fallback for restricted audio contexts or headless environments
     }
@@ -688,26 +795,54 @@ export class MiasmaHazardAudio {
     for (const node of this.activeTransientNodes) {
       try {
         const stopNode = node as AudioScheduledSourceNode;
-        if (typeof stopNode.stop === 'function') {
-          stopNode.stop();
+        if ('onended' in stopNode) {
+          stopNode.onended = null;
         }
-        stopNode.onended = null;
+        if (typeof stopNode.stop === 'function') {
+          try {
+            stopNode.stop();
+          } catch {}
+        }
         node.disconnect();
       } catch {}
     }
     this.activeTransientNodes.clear();
   }
 
-  public stop(): void {
+  public reset(): void {
+    if (this.pool) {
+      this.pool.reset();
+    }
     this.clearPendingNodes();
+    this.lastTelegraphSoundMs = -Infinity;
+    this.lastBurstSoundMs = -Infinity;
+    this.lastNeurotoxinSoundMs = -Infinity;
+    this.lastRustleSoundMs = -Infinity;
+    this.lastCleanseSoundMs = -Infinity;
+  }
+
+  public stop(): void {
+    this.reset();
+  }
+
+  public disconnect(): void {
+    this.destroy();
   }
 
   public destroy(): void {
     this.stop();
-    if (this.ownsPool && this.pool) {
-      this.pool.destroy();
+    if (this.pool) {
+      if (this.ownsPool) {
+        this.pool.destroy();
+      } else {
+        this.pool.reset();
+      }
+      this.pool = null;
     }
-    this.pool = null;
+    const closeable = this.ctx as unknown as { close?: () => Promise<void> } | null;
+    if (closeable && typeof closeable.close === 'function') {
+      try { void closeable.close().catch(() => {}); } catch {}
+    }
     this.ctx = null;
     if (MiasmaHazardAudio.instance === this) {
       MiasmaHazardAudio.instance = null;

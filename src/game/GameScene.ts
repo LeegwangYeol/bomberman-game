@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import * as Pooling from './pooling/ObjectPool.ts';
 import {
   TILE_SIZE as PATH_TILE_SIZE,
   ROWS as PATH_ROWS,
@@ -17,7 +18,9 @@ import {
   type ItemType,
   BASE_PLAYER_SPEED,
   BASE_MAX_BOMBS,
+  MAX_BOMBS_CAP,
   BASE_BOMB_POWER,
+  MAX_BOMB_POWER_CAP,
   DASH_SPEED,
   DASH_DURATION_MS,
   DASH_COOLDOWN_MS,
@@ -36,6 +39,7 @@ import {
   calculateClampedPlayerSpeed,
   updateInvulnerabilityExpiry,
   ITEM_GRACE_PERIOD_MS,
+  SHIELD_INVULN_MS,
 } from './gameplay_mechanics';
 
 export const TILE_SIZE = PATH_TILE_SIZE;
@@ -76,7 +80,7 @@ export {
   SHIELD_INVULN_MS,
   CONVEYOR_DRIFT_SPEED,
   PORTAL_COOLDOWN_MS,
-} from './gameplay_mechanics';
+} from './gameplay_mechanics.ts';
 
 import {
   BaseEntity,
@@ -128,6 +132,7 @@ import {
   GummyBearBoss,
   HamsterBoss,
   QueenBeeBoss,
+  MutantFloraBoss,
   TelegraphEngine,
   BossHUD,
 } from './bosses/index.ts';
@@ -221,10 +226,22 @@ import {
   FLOATING_TEXT_TIMELINE_STABILIZED,
   HazardRenderer,
 } from './hazards/index.ts';
-import { PerkTreeManager, RelicManager, type RelicId } from './progression/index.ts';
+import { PerkTreeManager, RelicManager, type RelicId, type AppliedPerkBonuses } from './progression/index.ts';
 
-import { decompressGrid } from './persistence/GameStatePersistence.ts';
-import type { SerializedRunState } from './persistence/PersistenceTypes.ts';
+import { decompressGrid, compressGrid } from './persistence/GameStatePersistence.ts';
+import type {
+  SerializedRunState,
+  SaveTriggerType,
+  SerializedBomb,
+  SerializedItem,
+  SerializedEntity,
+  GameModeType,
+} from './persistence/PersistenceTypes.ts';
+
+interface PooledEnemySprite extends BaseEntity {
+  archetype?: string;
+  reset?: () => void;
+}
 import {
   generateItemTextures as generateProceduralItemTextures,
   ensureJuiceTextures as ensureProceduralJuiceTextures,
@@ -259,6 +276,13 @@ export type { DeclutterEntity, ActiveFloatingText } from './ui/index.ts';
  * Main Phaser GameScene for Bomberman.
  */
 export default class GameScene extends Phaser.Scene {
+  public circlePool!: Pooling.ObjectPool<Phaser.GameObjects.Arc>;
+  public rectPool!: Pooling.ObjectPool<Phaser.GameObjects.Rectangle>;
+  public graphicsPool!: Pooling.ObjectPool<Phaser.GameObjects.Graphics>;
+  public spritePool!: Pooling.ObjectPool<Phaser.GameObjects.Sprite>;
+  public shadowPool!: Pooling.ObjectPool<Phaser.GameObjects.Sprite>;
+  public floatingTextPool!: Pooling.ObjectPool<Phaser.GameObjects.Text>;
+
   private player!: Phaser.Physics.Arcade.Sprite;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private walls!: Phaser.Physics.Arcade.StaticGroup;
@@ -297,6 +321,12 @@ export default class GameScene extends Phaser.Scene {
   public activeBombType: ItemType | 'REGULAR' = 'REGULAR';
   public isDashing: boolean = false;
   public dashCooldownRemaining: number = 0;
+  public dashBufferRemaining: number = 0;
+  public bombBufferRemaining: number = 0;
+  public ultBufferRemaining: number = 0;
+  public dashSpeedBurstRemaining: number = 0;
+  public dashSpeedBurstMultiplier: number = 1.0;
+  public appliedPerkBonuses: AppliedPerkBonuses | null = null;
   public dashStartTime: number = 0;
   public phaseJitterRemaining: number = 0;
   public lastQuantumTunnelTimestampMs: number = 0;
@@ -304,6 +334,8 @@ export default class GameScene extends Phaser.Scene {
   public shieldInvulnerableUntil: number = 0;
   public portalCooldown: number = 0;
   public score: number = 0;
+  public starCandies: number = 0;
+  public cosmicEssence: number = 0;
   public isTimeFrozen: boolean = false;
   public isCloaked: boolean = false;
   public activeBuffs: ActiveBuff[] = [];
@@ -347,6 +379,7 @@ export default class GameScene extends Phaser.Scene {
   public telegraphEngine: TelegraphEngine | null = null;
   public telegraphGraphics: Phaser.GameObjects.Graphics | null = null;
   public bossGraphics: Phaser.GameObjects.Graphics | null = null;
+  public bossPhaseBarGraphics: Phaser.GameObjects.Graphics | null = null;
   public bossHUD: BossHUD | null = null;
   public currentBossIndex: number = 0;
 
@@ -412,6 +445,7 @@ export default class GameScene extends Phaser.Scene {
   public crisisManager: CrisisManager = new CrisisManager();
   public situationLog: SituationLog | null = null;
   public crisisGraphics: Phaser.GameObjects.Graphics | null = null;
+  public hasRewardedActiveCrisis: boolean = false;
 
   // Dynamic Hazard System Integration
   public dynamicHazard: DynamicHazard = new DynamicHazard();
@@ -439,7 +473,7 @@ export default class GameScene extends Phaser.Scene {
   public dustEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
   public bombSparkEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
   public blockDebrisEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
-  public playerDropShadow?: Phaser.GameObjects.Sprite;
+  public playerDropShadow?: Phaser.GameObjects.Sprite | null;
   public playerStepCycle: number = 0;
   public playerBobOffset: number = 0;
   private lastHitStopMs: number = 0;
@@ -483,13 +517,16 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  public attachEntityDropShadow(entity: BaseEntity): void {
+  public attachEntityDropShadow(entity: { x: number; y: number; dropShadow?: Phaser.GameObjects.Sprite }): void {
     if (this.textures && this.textures.exists('shadow_ellipse')) {
-      const shadow = this.add.sprite(entity.x, entity.y + 14, 'shadow_ellipse');
-      shadow.setDepth(6);
-      shadow.setAlpha(0.45);
-      shadow.setScale(1.0, 0.7);
-      entity.dropShadow = shadow;
+      const shadow = this.shadowPool ? this.shadowPool.acquire() : null;
+      if (shadow) {
+        shadow.setActive(true).setVisible(true).setPosition(entity.x, entity.y + 14);
+        shadow.setDepth(6);
+        shadow.setAlpha(0.45);
+        shadow.setScale(1.0, 0.7);
+        entity.dropShadow = shadow;
+      }
     }
   }
 
@@ -564,6 +601,7 @@ export default class GameScene extends Phaser.Scene {
 
   public startCrisisMode(type: CrisisType = CrisisType.PASTEL_VOID): void {
     this.stopCrisisMode();
+    this.hasRewardedActiveCrisis = false;
     this.crisisManager.triggerCrisis(type);
     if (this.situationLog) {
       this.situationLog.updateFromCrisisManager(this.crisisManager, Date.now(), true);
@@ -574,6 +612,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   public stopCrisisMode(): void {
+    this.hasRewardedActiveCrisis = false;
     if (this.crisisManager) {
       this.crisisManager.stopCrisis('reset');
     }
@@ -623,6 +662,7 @@ export default class GameScene extends Phaser.Scene {
     }
     if (perks) {
       const bonuses = PerkTreeManager.calculateAppliedBonuses(perks);
+      this.appliedPerkBonuses = bonuses;
       let secondWindConsumed = false;
       this.perkManager = {
         triggerSecondWind: () => {
@@ -635,15 +675,21 @@ export default class GameScene extends Phaser.Scene {
         },
       };
       const cornerLvl = typeof perks['corner_magnet'] === 'number' ? perks['corner_magnet'] : 0;
-      this.cornerSlideTolerance = cornerLvl === 1 ? 11 : cornerLvl >= 2 ? 14 : 8;
+      this.cornerSlideTolerance = bonuses.cornerSlideTolerance || (cornerLvl === 1 ? 11 : cornerLvl >= 2 ? 14 : 8);
       const bouncy = typeof perks['bouncy_soles'] === 'number' ? perks['bouncy_soles'] : 0;
-      if (bouncy > 0) {
-        this.baseSpeedBonus = Math.min(3, bouncy) * 10;
+      if (bouncy > 0 || bonuses.baseSpeedBonus > 0) {
+        this.baseSpeedBonus = bonuses.baseSpeedBonus || Math.min(3, bouncy) * 10;
       }
       const sugar = typeof perks['sugar_coating'] === 'number' ? perks['sugar_coating'] : 0;
-      if (sugar > 0) {
-        this.shieldCharges = Math.max(this.shieldCharges, Math.min(2, sugar));
+      if (sugar > 0 || bonuses.startingShields > 0) {
+        this.shieldCharges = Math.max(this.shieldCharges, bonuses.startingShields || Math.min(2, sugar));
         this.hasShield = this.shieldCharges > 0;
+      }
+      if (bonuses.startingBlastRadiusBonus > 0) {
+        this.bombPower = Math.min(MAX_BOMB_POWER_CAP, BASE_BOMB_POWER + bonuses.startingBlastRadiusBonus);
+      }
+      if (bonuses.maxBombCapacity > 6) {
+        this.maxBombs = Math.min(MAX_BOMBS_CAP, bonuses.maxBombCapacity);
       }
       this.emitStatsUpdate();
     }
@@ -744,8 +790,142 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    // 5. Restore crisis & situation log state
+    if (state.crisis && this.crisisManager) {
+      this.crisisManager.deserialize(state.crisis);
+      if (this.situationLog) {
+        if (state.situationLog) {
+          this.situationLog.deserialize(state.situationLog);
+        } else {
+          this.situationLog.updateFromCrisisManager(this.crisisManager, Date.now(), true);
+        }
+      }
+    } else if (state.crisis === null && this.crisisManager) {
+      this.crisisManager.stopCrisis('reset');
+      if (this.situationLog) {
+        this.situationLog.reset();
+      }
+    } else if (state.situationLog && this.situationLog) {
+      this.situationLog.deserialize(state.situationLog);
+    }
+
     this.emitStatsUpdate();
   };
+
+  public captureRunState(saveTrigger: SaveTriggerType = 'manual'): SerializedRunState {
+    const serializedBombs: SerializedBomb[] = [];
+    if (this.bombs) {
+      this.bombs.getChildren().forEach((b) => {
+        const bomb = b as Phaser.Physics.Arcade.Sprite & {
+          id?: string | number;
+          fuseRemainingMs?: number;
+          power?: number;
+          owner?: string;
+          bombType?: string;
+        };
+        if (bomb.active) {
+          const col = Math.floor(bomb.x / TILE_SIZE);
+          const row = Math.floor(bomb.y / TILE_SIZE);
+          serializedBombs.push({
+            id: bomb.id || `bomb_${row}_${col}_${Date.now()}`,
+            x: bomb.x,
+            y: bomb.y,
+            row,
+            col,
+            fuseRemainingMs: typeof bomb.fuseRemainingMs === 'number' ? bomb.fuseRemainingMs : 2000,
+            power: typeof bomb.power === 'number' ? bomb.power : this.bombPower,
+            owner: bomb.owner || 'player',
+            bombType: bomb.bombType || 'standard',
+          });
+        }
+      });
+    }
+
+    const serializedItems: SerializedItem[] = [];
+    if (this.items) {
+      this.items.getChildren().forEach((it) => {
+        const item = it as Phaser.Physics.Arcade.Sprite & { itemType?: string };
+        if (item.active) {
+          const col = Math.floor(item.x / TILE_SIZE);
+          const row = Math.floor(item.y / TILE_SIZE);
+          serializedItems.push({
+            row,
+            col,
+            itemType: item.itemType || 'bomb_up',
+            spawnTime: Date.now(),
+          });
+        }
+      });
+    }
+
+    const serializedEntities: SerializedEntity[] = [];
+    if (this.enemies) {
+      this.enemies.getChildren().forEach((e) => {
+        const enemy = e as Phaser.Physics.Arcade.Sprite & {
+          id?: string | number;
+          archetype?: string;
+          faction?: 'enemy' | 'neutral' | 'ally';
+          hp?: number;
+          maxHp?: number;
+          aiState?: string;
+        };
+        if (enemy.active) {
+          serializedEntities.push({
+            id: enemy.id || `enemy_${Date.now()}`,
+            archetype: enemy.archetype || 'slime',
+            faction: enemy.faction || 'enemy',
+            x: enemy.x,
+            y: enemy.y,
+            hp: typeof enemy.hp === 'number' ? enemy.hp : 1,
+            maxHp: typeof enemy.maxHp === 'number' ? enemy.maxHp : 1,
+            aiState: enemy.aiState || 'IDLE',
+          });
+        }
+      });
+    }
+
+    const playerCol = this.player ? Math.floor(this.player.x / TILE_SIZE) : 1;
+    const playerRow = this.player ? Math.floor(this.player.y / TILE_SIZE) : 1;
+
+    const crisisState = this.crisisManager ? this.crisisManager.serialize() : null;
+    const sitLogState = this.situationLog ? this.situationLog.serialize() : null;
+
+    return {
+      version: 1,
+      timestamp: Date.now(),
+      saveTrigger,
+      meta: {
+        runId: `run_${Date.now()}`,
+        stageIndex: 1,
+        gameMode: 'STANDARD' as GameModeType,
+        score: this.score,
+        elapsedTimeMs: 0,
+        activeCrisesCount: crisisState && crisisState.stage !== CrisisStage.INACTIVE ? 1 : 0,
+        bossEncounterActive: Boolean(this.activeBoss),
+      },
+      player: {
+        x: this.player ? this.player.x : 60,
+        y: this.player ? this.player.y : 60,
+        gridRow: playerRow,
+        gridCol: playerCol,
+        facing: this.playerFacing || 'down',
+        stats: this.getStats(),
+        hp: this.extraLives + 1,
+      },
+      board: {
+        rows: ROWS,
+        cols: COLS,
+        mapRLE: compressGrid(this.map || []),
+        map: this.map ? this.map.map((r) => [...r]) : undefined,
+      },
+      activeBombs: serializedBombs,
+      activeEntities: serializedEntities,
+      activeItems: serializedItems,
+      crisis: crisisState,
+      situationLog: sitLogState,
+      checksum: '',
+    };
+  }
 
   public shutdown(): void {
     if (this.events) {
@@ -781,16 +961,25 @@ export default class GameScene extends Phaser.Scene {
     this.scratchActiveItems.length = 0;
     this.activeBuffs = [];
     this.floatingTextManager?.reset();
+    this.overheadUIManager?.reset();
     if (this.aegisDomeVisual) {
       this.aegisDomeVisual.destroy();
       this.aegisDomeVisual = null;
     }
     if (this.shieldVisual) {
-      this.shieldVisual.destroy();
+      if (this.graphicsPool) {
+        this.graphicsPool.release(this.shieldVisual);
+      } else {
+        this.shieldVisual.destroy();
+      }
       this.shieldVisual = null;
     }
     if (this.playerDropShadow) {
-      this.playerDropShadow.destroy();
+      if (this.shadowPool) {
+        this.shadowPool.release(this.playerDropShadow);
+      } else {
+        this.playerDropShadow.destroy();
+      }
       this.playerDropShadow = undefined;
     }
     if (this.dustEmitter) {
@@ -821,6 +1010,13 @@ export default class GameScene extends Phaser.Scene {
       this.chronoHazardAudio.destroy();
     }
     webAudioSynth.destroy();
+
+    this.circlePool?.destroy();
+    this.rectPool?.destroy();
+    this.graphicsPool?.destroy();
+    this.spritePool?.destroy();
+    this.shadowPool?.destroy();
+    this.floatingTextPool?.destroy();
   }
 
   constructor() {
@@ -851,6 +1047,50 @@ export default class GameScene extends Phaser.Scene {
   }
 
   create() {
+    // Generate procedural textures for items, drop shadows, and VFX particles first
+    this.generateItemTextures();
+    this.ensureJuiceTextures();
+
+    this.circlePool = new Pooling.ObjectPool({
+      capacity: 512,
+      factory: () => this.add.circle(-1000, -1000, 4, 0xffffff, 1).setVisible(false).setActive(false),
+      reset: (arc) => { arc.setVisible(false).setActive(false); if(this.tweens) this.tweens.killTweensOf(arc); }
+    });
+    this.rectPool = new Pooling.ObjectPool({
+      capacity: 512,
+      factory: () => this.add.rectangle(-1000, -1000, 4, 4, 0xffffff).setVisible(false).setActive(false),
+      reset: (rect) => { rect.setVisible(false).setActive(false); if(this.tweens) this.tweens.killTweensOf(rect); }
+    });
+    this.graphicsPool = new Pooling.ObjectPool({
+      capacity: 256,
+      factory: () => this.add.graphics().setVisible(false).setActive(false),
+      reset: (g) => { g.clear(); g.setVisible(false).setActive(false); if(this.tweens) this.tweens.killTweensOf(g); }
+    });
+    this.spritePool = new Pooling.ObjectPool({
+      capacity: 128,
+      factory: () => this.add.sprite(-1000, -1000, 'player').setVisible(false).setActive(false),
+      reset: (s) => { s.setVisible(false).setActive(false); if(this.tweens) this.tweens.killTweensOf(s); }
+    });
+    this.shadowPool = new Pooling.ObjectPool({
+      capacity: 256,
+      factory: () => {
+        const key = this.textures && this.textures.exists('shadow_ellipse') ? 'shadow_ellipse' : '';
+        return this.add.sprite(-1000, -1000, key).setVisible(false).setActive(false);
+      },
+      reset: (s) => { s.setVisible(false).setActive(false); if(this.tweens) this.tweens.killTweensOf(s); }
+    });
+    this.floatingTextPool = new Pooling.ObjectPool({
+      capacity: Pooling.POOL_PRESETS.FLOATING_TEXT,
+      factory: () => this.add.text(-1000, -1000, '', {
+        fontSize: '12px',
+        fontStyle: 'bold',
+        fontFamily: 'monospace, "Press Start 2P", Arial, sans-serif',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 3,
+      }).setOrigin(0.5, 0.5).setVisible(false).setActive(false),
+      reset: (t) => { t.setVisible(false).setActive(false); if(this.tweens) this.tweens.killTweensOf(t); }
+    });
     this.isGameOver = false;
     this.isHitStopActive = false;
     if (this.physics && this.physics.world && this.physics.world.isPaused) {
@@ -880,6 +1120,11 @@ export default class GameScene extends Phaser.Scene {
     this.activeBombType = 'REGULAR';
     this.isDashing = false;
     this.dashCooldownRemaining = 0;
+    this.dashBufferRemaining = 0;
+    this.bombBufferRemaining = 0;
+    this.ultBufferRemaining = 0;
+    this.dashSpeedBurstRemaining = 0;
+    this.dashSpeedBurstMultiplier = 1.0;
     this.dashStartTime = 0;
     this.phaseJitterRemaining = 0;
     this.lastQuantumTunnelTimestampMs = 0;
@@ -920,10 +1165,6 @@ export default class GameScene extends Phaser.Scene {
       shield: 0,
     };
     this.cameras.main.setBackgroundColor('#87CEEB');
-
-    // Generate procedural textures for items and juice
-    this.generateItemTextures();
-    this.ensureJuiceTextures();
 
     // Pre-allocate Zero-GC particle emitters
     if (this.add && this.add.particles && this.textures.exists('particle_dust')) {
@@ -1026,12 +1267,12 @@ export default class GameScene extends Phaser.Scene {
     // Physics Groups
     this.walls = this.physics.add.staticGroup();
     this.blocks = this.physics.add.staticGroup();
-    this.bombs = this.physics.add.group();
-    this.explosions = this.physics.add.group();
-    this.enemies = this.physics.add.group();
-    this.neutrals = this.physics.add.group();
-    this.allies = this.physics.add.group();
-    this.items = this.physics.add.group();
+    this.bombs = this.physics.add.group({ maxSize: Pooling.POOL_PRESETS.BOMBS, classType: Phaser.Physics.Arcade.Sprite, defaultKey: 'bomb' });
+    this.explosions = this.physics.add.group({ maxSize: Pooling.POOL_PRESETS.EXPLOSIONS, classType: Phaser.Physics.Arcade.Sprite, defaultKey: 'explosion' });
+    this.enemies = this.physics.add.group({ maxSize: 128 });
+    this.neutrals = this.physics.add.group({ maxSize: 32 });
+    this.allies = this.physics.add.group({ maxSize: 32 });
+    this.items = this.physics.add.group({ maxSize: Pooling.POOL_PRESETS.ITEM_DROPS });
 
     this.generateMap();
 
@@ -1050,10 +1291,13 @@ export default class GameScene extends Phaser.Scene {
 
     // Dynamic drop shadow under player (depth 6)
     if (this.textures && this.textures.exists('shadow_ellipse')) {
-      this.playerDropShadow = this.add.sprite(this.player.x, this.player.y + 14, 'shadow_ellipse');
-      this.playerDropShadow.setDepth(6);
-      this.playerDropShadow.setAlpha(0.45);
-      this.playerDropShadow.setScale(1.0, 0.7);
+      this.playerDropShadow = (this.shadowPool ? this.shadowPool.acquire() : null) ?? undefined;
+      if (this.playerDropShadow) {
+        this.playerDropShadow.setActive(true).setVisible(true).setPosition(this.player.x, this.player.y + 14);
+        this.playerDropShadow.setDepth(6);
+        this.playerDropShadow.setAlpha(0.45);
+        this.playerDropShadow.setScale(1.0, 0.7);
+      }
     }
 
     // Spawn diverse entities: 5 enemy archetypes, neutral NPCs, and AI allies
@@ -1169,7 +1413,14 @@ export default class GameScene extends Phaser.Scene {
       if (!item || !item.active) return;
       const type = item.getData('itemType') as ItemType;
       this.collectItem(type, item.x, item.y);
-      item.destroy();
+      const shadow = item.getData('itemShadow') as Phaser.GameObjects.Sprite | null;
+      if (shadow && shadow.active) {
+        if (this.tweens) this.tweens.killTweensOf(shadow);
+        if (this.shadowPool) this.shadowPool.release(shadow);
+        item.setData('itemShadow', null);
+      }
+      if (this.tweens) this.tweens.killTweensOf(item);
+      if (item.active) { item.disableBody(true, true); }
     });
 
     // Explosions destroy items ONLY after 600ms grace period
@@ -1178,7 +1429,14 @@ export default class GameScene extends Phaser.Scene {
       if (!item || !item.active) return;
       const spawnTime = (item.getData('spawnTime') as number) || 0;
       if (!isItemProtectedFromExplosion(spawnTime, this.time.now)) {
-        item.destroy();
+        const shadow = item.getData('itemShadow') as Phaser.GameObjects.Sprite | null;
+        if (shadow && shadow.active) {
+          if (this.tweens) this.tweens.killTweensOf(shadow);
+          if (this.shadowPool) this.shadowPool.release(shadow);
+          item.setData('itemShadow', null);
+        }
+        if (this.tweens) this.tweens.killTweensOf(item);
+        if (item.active) { item.disableBody(true, true); }
       }
     });
 
@@ -1230,7 +1488,7 @@ export default class GameScene extends Phaser.Scene {
           if ('takeDamage' in enemy && typeof (enemy as BaseEntity).takeDamage === 'function') {
             (enemy as BaseEntity).takeDamage(ULTIMATE_SKILLS.AEGIS_OVERDRIVE.reflectDamage ?? 100, 'player', this.time.now);
           } else {
-            enemy.destroy();
+            if (enemy.active) { enemy['disableBody'](true, true); }
             this.addUltimateCharge(CHARGE_VALUES.ENEMY_DEFEATED);
           }
         }
@@ -1314,7 +1572,7 @@ export default class GameScene extends Phaser.Scene {
             this.addUltimateCharge(isTracker ? CHARGE_VALUES.TRACKER_DEFEATED : CHARGE_VALUES.ENEMY_DEFEATED);
           }
         } else {
-          target.destroy();
+          if (target.active) { target['disableBody'](true, true); }
           if (owner === 'player') {
             this.addUltimateCharge(CHARGE_VALUES.ENEMY_DEFEATED);
           }
@@ -1408,9 +1666,20 @@ export default class GameScene extends Phaser.Scene {
         const x = c * TILE_SIZE + TILE_SIZE / 2;
         const y = r * TILE_SIZE + TILE_SIZE / 2;
 
-        const enemy = createEnemy(this, archetype, x, y);
-        this.enemies.add(enemy);
-        this.attachEntityDropShadow(enemy);
+        let enemy = this.enemies.getChildren().find((e) => {
+          const pe = e as unknown as PooledEnemySprite;
+          return !pe.active && pe.archetype === archetype;
+        }) as unknown as PooledEnemySprite | undefined;
+        if (enemy) {
+          enemy.enableBody(true, x, y, true, true);
+          enemy.hp = enemy.maxHp;
+          if (enemy.reset) enemy.reset();
+        } else {
+          enemy = createEnemy(this, archetype, x, y);
+          enemy.archetype = archetype;
+          this.enemies.add(enemy);
+          this.attachEntityDropShadow(enemy);
+        }
         spawned++;
       }
     }
@@ -1486,8 +1755,12 @@ export default class GameScene extends Phaser.Scene {
           wall.setDepth(RENDER_DEPTH.WALLS);
           wall.refreshBody();
           if (r < ROWS - 1) {
-            const ao = this.add.rectangle(c * TILE_SIZE + TILE_SIZE / 2, (r + 1) * TILE_SIZE + 2, TILE_SIZE, 4, 0x000000, 0.28);
-            ao.setDepth(1);
+            const ao = this.rectPool ? this.rectPool.acquire() : null;
+            if (ao) {
+              ao.setActive(true).setVisible(true).setPosition(c * TILE_SIZE + TILE_SIZE / 2, (r + 1) * TILE_SIZE + 2)
+                .setSize(TILE_SIZE, 4).setFillStyle(0x000000, 0.28).setAlpha(0.28).setScale(1).setAngle(0);
+              ao.setDepth(1);
+            }
           }
         }
         // Inner fixed pillars
@@ -1497,8 +1770,12 @@ export default class GameScene extends Phaser.Scene {
           wall.setDepth(RENDER_DEPTH.WALLS);
           wall.refreshBody();
           if (r < ROWS - 1) {
-            const ao = this.add.rectangle(c * TILE_SIZE + TILE_SIZE / 2, (r + 1) * TILE_SIZE + 2, TILE_SIZE, 4, 0x000000, 0.28);
-            ao.setDepth(1);
+            const ao = this.rectPool ? this.rectPool.acquire() : null;
+            if (ao) {
+              ao.setActive(true).setVisible(true).setPosition(c * TILE_SIZE + TILE_SIZE / 2, (r + 1) * TILE_SIZE + 2)
+                .setSize(TILE_SIZE, 4).setFillStyle(0x000000, 0.28).setAlpha(0.28).setScale(1).setAngle(0);
+              ao.setDepth(1);
+            }
           }
         }
         // Breakable blocks or empty space
@@ -1525,9 +1802,13 @@ export default class GameScene extends Phaser.Scene {
             block.setData('col', c);
             block.refreshBody();
             if (r < ROWS - 1) {
-              const ao = this.add.rectangle(c * TILE_SIZE + TILE_SIZE / 2, (r + 1) * TILE_SIZE + 2, TILE_SIZE, 4, 0x000000, 0.28);
-              ao.setDepth(1);
-              block.setData('aoShadow', ao);
+              const ao = this.rectPool ? this.rectPool.acquire() : null;
+              if (ao) {
+                ao.setActive(true).setVisible(true).setPosition(c * TILE_SIZE + TILE_SIZE / 2, (r + 1) * TILE_SIZE + 2)
+                  .setSize(TILE_SIZE, 4).setFillStyle(0x000000, 0.28).setAlpha(0.28).setScale(1).setAngle(0);
+                ao.setDepth(1);
+                block.setData('aoShadow', ao);
+              }
             }
           } else {
             this.map[r][c] = TILE_EMPTY;
@@ -1577,6 +1858,8 @@ export default class GameScene extends Phaser.Scene {
     this.telegraphGraphics.setDepth(RENDER_DEPTH.TELEGRAPHS);
     this.bossGraphics = this.add.graphics();
     this.bossGraphics.setDepth(RENDER_DEPTH.BOSS_BODY);
+    this.bossPhaseBarGraphics = this.add.graphics();
+    this.bossPhaseBarGraphics.setDepth(RENDER_DEPTH.BOSS_PHASE_BARS);
     this.telegraphEngine = new TelegraphEngine(this.telegraphGraphics);
 
     // Initialize Crisis Subsystem Renderers & Bridge
@@ -1631,6 +1914,8 @@ export default class GameScene extends Phaser.Scene {
       this.activeBoss = new HamsterBoss(startX, startY);
     } else if (bossId === 'queen_bee_cupcake' || bossId === 'boss_queen_bee') {
       this.activeBoss = new QueenBeeBoss(startX, startY);
+    } else if (bossId === 'boss_mutant_flora' || bossId === 'mutant_flora' || bossId === 'verdant_terror') {
+      this.activeBoss = new MutantFloraBoss(startX, startY);
     } else {
       this.activeBoss = new GummyBearBoss(startX, startY);
     }
@@ -1649,6 +1934,9 @@ export default class GameScene extends Phaser.Scene {
     }
     if (this.bossGraphics) {
       this.bossGraphics.clear();
+    }
+    if (this.bossPhaseBarGraphics) {
+      this.bossPhaseBarGraphics.clear();
     }
     if (this.bossHUD) {
       this.bossHUD.dismissBoss();
@@ -1727,6 +2015,14 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.isGameOver || !this.player || !this.cursors) return;
 
+    // Update post-dash speed burst
+    if (this.dashSpeedBurstRemaining > 0) {
+      this.dashSpeedBurstRemaining = Math.max(0, this.dashSpeedBurstRemaining - delta);
+      if (this.dashSpeedBurstRemaining === 0) {
+        this.dashSpeedBurstMultiplier = 1.0;
+      }
+    }
+
     // 1. Dash cooldown & portal cooldown decrements (SPEED_SURGE halves dash cooldown)
     let hasSpeedSurge = false;
     if (this.activeBuffs) {
@@ -1738,9 +2034,10 @@ export default class GameScene extends Phaser.Scene {
       }
     }
     const cdMult = hasSpeedSurge ? 2 : 1;
+    const mobileFairnessMult = this.isMobileDevice() ? 1.15 : 1.0;
     if (this.dashCooldownRemaining > 0) {
       const prevCd = this.dashCooldownRemaining;
-      this.dashCooldownRemaining = Math.max(0, this.dashCooldownRemaining - delta * cdMult);
+      this.dashCooldownRemaining = Math.max(0, this.dashCooldownRemaining - delta * cdMult * mobileFairnessMult);
       if (prevCd > 0 && this.dashCooldownRemaining === 0) {
         this.emitStatsUpdate();
       }
@@ -1784,9 +2081,9 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    // 1c. Item magnet attraction aura (3 tiles = 120px)
+    // 1c. Item magnet attraction aura (3 tiles = 120px on desktop, 140px on mobile)
     if (this.hasMagnet && this.player && this.player.active) {
-      const pullDist = 120;
+      const pullDist = this.isMobileDevice() ? 140 : 120;
       const pullSpeed = 160 * (delta / 1000);
       const itemsList = this.items.getChildren();
       for (let i = 0; i < itemsList.length; i++) {
@@ -1802,19 +2099,34 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    // 2. Dash skill trigger check (disabled during Phase Jitter)
+    // 2. Dash skill trigger check (with 250ms input buffer)
     const mInput = window.mobileInput || DEFAULT_MOBILE_INPUT;
     const dashPressed = Boolean(this.shiftKey?.isDown || this.eKey?.isDown || mInput.dash);
     if (mInput.dash) mInput.dash = false; // consume mobile dash
 
-    if (
-      dashPressed &&
-      !this.isDashing &&
-      this.dashCooldownRemaining <= 0 &&
-      this.phaseJitterRemaining <= 0 &&
-      !this.isGameOver
-    ) {
-      this.performDash();
+    if (dashPressed) {
+      if (
+        !this.isDashing &&
+        this.dashCooldownRemaining <= 0 &&
+        this.phaseJitterRemaining <= 0 &&
+        !this.isGameOver
+      ) {
+        this.dashBufferRemaining = 0;
+        this.performDash();
+      } else if (this.dashCooldownRemaining > 0 && this.dashCooldownRemaining <= 250 && !this.isGameOver) {
+        this.dashBufferRemaining = this.dashCooldownRemaining + 16;
+      }
+    } else if (this.dashBufferRemaining > 0) {
+      this.dashBufferRemaining -= delta;
+      if (
+        !this.isDashing &&
+        this.dashCooldownRemaining <= 0 &&
+        this.phaseJitterRemaining <= 0 &&
+        !this.isGameOver
+      ) {
+        this.dashBufferRemaining = 0;
+        this.performDash();
+      }
     }
 
     // 2b. Ultimate Skill selection via 1-5 keys
@@ -1824,7 +2136,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.num4Key && Phaser.Input.Keyboard.JustDown(this.num4Key)) { this.activeUltimate = 'NUCLEAR_BARRAGE'; this.emitStatsUpdate(); }
     if (this.num5Key && Phaser.Input.Keyboard.JustDown(this.num5Key)) { this.activeUltimate = 'AEGIS_OVERDRIVE'; this.emitStatsUpdate(); }
 
-    // 2c. Ultimate Skill trigger (Hotkeys 'R', 'Q', or mobileInput.ultimate - disabled during Phase Jitter)
+    // 2c. Ultimate Skill trigger (Hotkeys 'R', 'Q', or mobileInput.ultimate with 250ms input buffer)
     const ultPressed = Boolean(
       (this.rKey && Phaser.Input.Keyboard.JustDown(this.rKey)) ||
       (this.qKey && Phaser.Input.Keyboard.JustDown(this.qKey)) ||
@@ -1832,18 +2144,57 @@ export default class GameScene extends Phaser.Scene {
     );
     if (mInput.ultimate) mInput.ultimate = false; // consume mobile ultimate
 
-    if (ultPressed && this.phaseJitterRemaining <= 0 && !this.isGameOver) {
-      this.triggerUltimate(this.activeUltimate);
+    if (ultPressed) {
+      if (
+        this.phaseJitterRemaining <= 0 &&
+        !this.isGameOver &&
+        this.ultimateGauge >= this.ultimateMax &&
+        this.ultimateLockoutRemaining <= 0
+      ) {
+        this.ultBufferRemaining = 0;
+        this.triggerUltimate(this.activeUltimate);
+      } else if (
+        this.ultimateLockoutRemaining > 0 &&
+        this.ultimateLockoutRemaining <= 250 &&
+        this.ultimateGauge >= this.ultimateMax &&
+        !this.isGameOver
+      ) {
+        this.ultBufferRemaining = this.ultimateLockoutRemaining + 16;
+      }
+    } else if (this.ultBufferRemaining > 0) {
+      this.ultBufferRemaining -= delta;
+      if (
+        this.phaseJitterRemaining <= 0 &&
+        !this.isGameOver &&
+        this.ultimateGauge >= this.ultimateMax &&
+        this.ultimateLockoutRemaining <= 0
+      ) {
+        this.ultBufferRemaining = 0;
+        this.triggerUltimate(this.activeUltimate);
+      }
     }
 
     // 3. Movement & Juice
     this.updatePlayerMovement(delta);
     this.updatePlayerJuice(delta, _time);
 
-    // 4. Bomb placement
-    if (Phaser.Input.Keyboard.JustDown(this.spaceKey) || mInput.bomb) {
-      if (mInput.bomb) mInput.bomb = false; // consume mobile input
-      this.placeBomb();
+    // 4. Bomb placement (with 250ms input buffer)
+    const bombPressed = Boolean(Phaser.Input.Keyboard.JustDown(this.spaceKey) || mInput.bomb);
+    if (mInput.bomb) mInput.bomb = false; // consume mobile input
+
+    if (bombPressed) {
+      if (this.activeBombs < this.maxBombs && !this.isGameOver) {
+        this.bombBufferRemaining = 0;
+        this.placeBomb();
+      } else if (this.activeBombs >= this.maxBombs && !this.isGameOver) {
+        this.bombBufferRemaining = 250;
+      }
+    } else if (this.bombBufferRemaining > 0) {
+      this.bombBufferRemaining -= delta;
+      if (this.activeBombs < this.maxBombs && !this.isGameOver) {
+        this.bombBufferRemaining = 0;
+        this.placeBomb();
+      }
     }
 
     // 5. Conveyor belt push drift for player (PHYS-03: AABB bounds check)
@@ -1865,9 +2216,9 @@ export default class GameScene extends Phaser.Scene {
       const perpY = belt.dirX !== 0 ? 11 : 0;
       const canMove =
         leadRow >= 0 && leadRow < ROWS && leadCol >= 0 && leadCol < COLS &&
-        this.map[leadRow]?.[leadCol] === TILE_EMPTY &&
-        this.map[Math.floor((leadY + perpY) / TILE_SIZE)]?.[Math.floor((leadX + perpX) / TILE_SIZE)] === TILE_EMPTY &&
-        this.map[Math.floor((leadY - perpY) / TILE_SIZE)]?.[Math.floor((leadX - perpX) / TILE_SIZE)] === TILE_EMPTY;
+        this.isTilePassableForPlayer(leadRow, leadCol, pRow, pCol) &&
+        this.isTilePassableForPlayer(Math.floor((leadY + perpY) / TILE_SIZE), Math.floor((leadX + perpX) / TILE_SIZE), pRow, pCol) &&
+        this.isTilePassableForPlayer(Math.floor((leadY - perpY) / TILE_SIZE), Math.floor((leadX - perpX) / TILE_SIZE), pRow, pCol);
 
       if (canMove) {
         this.player.setPosition(nextX, nextY);
@@ -1922,18 +2273,48 @@ export default class GameScene extends Phaser.Scene {
         const targetRow = Math.floor(checkY / TILE_SIZE);
 
         let blocked = false;
-        if (targetRow < 0 || targetRow >= ROWS || targetCol < 0 || targetCol >= COLS) {
-          blocked = true;
-        } else if (this.map[targetRow][targetCol] !== TILE_EMPTY) {
-          blocked = true;
-        } else {
-          for (let oi = 0; oi < bombsList.length; oi++) {
-            const ob = bombsList[oi] as Phaser.Physics.Arcade.Sprite;
-            if (ob && ob.active && ob !== bomb) {
-              const obr = Math.floor(ob.y / TILE_SIZE);
-              const obc = Math.floor(ob.x / TILE_SIZE);
-              if (obr === targetRow && obc === targetCol) {
+        let stopCol = bCol;
+        let stopRow = bRow;
+
+        // Continuous swept-tile raymarch along movement trajectory:
+        // Evaluates every tile between current tile and target to guarantee zero tunneling
+        // even under extreme kick velocities (up to 460 px/s) and severe lag spikes (100ms+)
+        const dCol = Math.sign(dir.x);
+        const dRow = Math.sign(dir.y);
+        const numSteps = Math.max(Math.abs(targetCol - bCol), Math.abs(targetRow - bRow));
+
+        if (numSteps > 0) {
+          for (let s = 1; s <= numSteps; s++) {
+            const checkC = bCol + dCol * s;
+            const checkR = bRow + dRow * s;
+
+            if (checkR < 0 || checkR >= ROWS || checkC < 0 || checkC >= COLS) {
+              blocked = true;
+              stopCol = bCol + dCol * (s - 1);
+              stopRow = bRow + dRow * (s - 1);
+              break;
+            } else if (this.map[checkR][checkC] !== TILE_EMPTY) {
+              blocked = true;
+              stopCol = bCol + dCol * (s - 1);
+              stopRow = bRow + dRow * (s - 1);
+              break;
+            } else {
+              let bombHit = false;
+              for (let oi = 0; oi < bombsList.length; oi++) {
+                const ob = bombsList[oi] as Phaser.Physics.Arcade.Sprite;
+                if (ob && ob.active && ob !== bomb) {
+                  const obr = Math.floor(ob.y / TILE_SIZE);
+                  const obc = Math.floor(ob.x / TILE_SIZE);
+                  if (obr === checkR && obc === checkC) {
+                    bombHit = true;
+                    break;
+                  }
+                }
+              }
+              if (bombHit) {
                 blocked = true;
+                stopCol = bCol + dCol * (s - 1);
+                stopRow = bRow + dRow * (s - 1);
                 break;
               }
             }
@@ -1953,7 +2334,9 @@ export default class GameScene extends Phaser.Scene {
           bomb.setVelocity(0, 0);
           bomb.setData('isSliding', false);
           (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(true);
-          bomb.setPosition(bCol * TILE_SIZE + TILE_SIZE / 2, bRow * TILE_SIZE + TILE_SIZE / 2);
+          const safeCol = Math.max(0, Math.min(COLS - 1, stopCol));
+          const safeRow = Math.max(0, Math.min(ROWS - 1, stopRow));
+          bomb.setPosition(safeCol * TILE_SIZE + TILE_SIZE / 2, safeRow * TILE_SIZE + TILE_SIZE / 2);
         }
       } else {
         // Not sliding: check conveyor drift (PHYS-03: AABB bounds check)
@@ -2007,18 +2390,27 @@ export default class GameScene extends Phaser.Scene {
     // 8. Shield visual follow
     if (this.hasShield) {
       if (!this.shieldVisual) {
-        this.shieldVisual = this.add.graphics();
-        const pDepth =
-          RENDER_DEPTH.ENTITY_Y_BASE + this.player.y * RENDER_DEPTH.ENTITY_Y_SCALE;
-        this.shieldVisual.setDepth(pDepth + RENDER_DEPTH.OFFSET_SHIELD);
+        this.shieldVisual = this.graphicsPool ? this.graphicsPool.acquire() : null;
+        if (this.shieldVisual) {
+          this.shieldVisual.setActive(true).setVisible(true);
+          const pDepth =
+            RENDER_DEPTH.ENTITY_Y_BASE + this.player.y * RENDER_DEPTH.ENTITY_Y_SCALE;
+          this.shieldVisual.setDepth(pDepth + RENDER_DEPTH.OFFSET_SHIELD);
+        }
       }
-      this.shieldVisual.clear();
-      this.shieldVisual.lineStyle(2, 0x38bdf8, 0.85);
-      this.shieldVisual.fillStyle(0x0284c7, 0.25);
-      this.shieldVisual.strokeCircle(this.player.x, this.player.y, 18);
-      this.shieldVisual.fillCircle(this.player.x, this.player.y, 18);
+      if (this.shieldVisual) {
+        this.shieldVisual.clear();
+        this.shieldVisual.lineStyle(2, 0x38bdf8, 0.85);
+        this.shieldVisual.fillStyle(0x0284c7, 0.25);
+        this.shieldVisual.strokeCircle(this.player.x, this.player.y, 18);
+        this.shieldVisual.fillCircle(this.player.x, this.player.y, 18);
+      }
     } else if (this.shieldVisual) {
-      this.shieldVisual.destroy();
+      if (this.graphicsPool) {
+        this.graphicsPool.release(this.shieldVisual);
+      } else {
+        this.shieldVisual.destroy();
+      }
       this.shieldVisual = null;
     }
 
@@ -2336,20 +2728,41 @@ export default class GameScene extends Phaser.Scene {
         this.bossGraphics.clear();
         const radius = this.activeBoss.config.colliderRadius || 35;
 
+        const isFlora = this.activeBoss instanceof MutantFloraBoss || this.activeBoss.config.id === 'boss_mutant_flora';
+
         // Outer glow / aura
         const themeColor =
           this.activeBoss.bossState === BossState.ENRAGED
             ? 0xff0044
             : this.activeBoss.bossState === BossState.STUNNED
               ? 0xf59e0b
-              : 0x9333ea;
+              : isFlora
+                ? 0x10b981
+                : 0x9333ea;
 
         this.bossGraphics.fillStyle(themeColor, 0.3);
         this.bossGraphics.fillCircle(this.activeBoss.x, this.activeBoss.y, radius + 8);
 
+        // Mutant Flora Bloom Petals
+        if (isFlora) {
+          this.bossGraphics.fillStyle(0xf43f5e, 0.65);
+          for (let p = 0; p < 6; p++) {
+            const pAngle = (_time / 800) + (p * Math.PI / 3);
+            const px = this.activeBoss.x + Math.cos(pAngle) * (radius + 6);
+            const py = this.activeBoss.y + Math.sin(pAngle) * (radius + 6);
+            this.bossGraphics.fillCircle(px, py, 7);
+          }
+        }
+
         // Core body
         this.bossGraphics.fillStyle(themeColor, 0.9);
         this.bossGraphics.fillCircle(this.activeBoss.x, this.activeBoss.y, radius);
+
+        if (isFlora) {
+          // Emerald Core Center
+          this.bossGraphics.fillStyle(0x059669, 0.95);
+          this.bossGraphics.fillCircle(this.activeBoss.x, this.activeBoss.y, radius - 8);
+        }
 
         // Health ring / border
         this.bossGraphics.lineStyle(3, 0xffffff, 0.8);
@@ -2363,6 +2776,80 @@ export default class GameScene extends Phaser.Scene {
             const sx = this.activeBoss.x + Math.cos(starAngle) * (radius + 12);
             const sy = this.activeBoss.y - 10 + Math.sin(starAngle) * 8;
             this.bossGraphics.fillCircle(sx, sy, 4);
+          }
+        }
+      }
+
+      // Render Procedural Multi-Phase Boss Phase Bars with proper depth and zero visual occlusion
+      if (this.bossPhaseBarGraphics) {
+        this.bossPhaseBarGraphics.clear();
+        if (this.bossHUD && (this.activeBoss.bossState as unknown as string) !== 'DEFEATED') {
+          const hudState = this.bossHUD.getState();
+          const segments = hudState.phaseHpSegments;
+          if (segments && segments.length > 0) {
+            const barWidth = 64;
+            const barHeight = 6;
+            const radius = this.activeBoss.config.colliderRadius || 35;
+            const barX = this.activeBoss.x - barWidth / 2;
+            const barY = this.activeBoss.y - radius - 24;
+
+            // Container background
+            this.bossPhaseBarGraphics.fillStyle(0x0b1329, 0.90);
+            this.bossPhaseBarGraphics.fillRect(barX - 2, barY - 2, barWidth + 4, barHeight + 4);
+
+            // Container border (danger red if enraged, amber if stunned, slate otherwise)
+            const borderColor =
+              this.activeBoss.bossState === BossState.ENRAGED
+                ? 0xff0044
+                : this.activeBoss.bossState === BossState.STUNNED
+                  ? 0xf59e0b
+                  : 0x475569;
+            this.bossPhaseBarGraphics.lineStyle(1.5, borderColor, 0.95);
+            this.bossPhaseBarGraphics.strokeRect(barX - 2, barY - 2, barWidth + 4, barHeight + 4);
+
+            // Phase Segment Bars
+            const numSegments = segments.length;
+            const gap = 2;
+            const totalGaps = (numSegments - 1) * gap;
+            const segmentWidth = (barWidth - totalGaps) / numSegments;
+
+            let curX = barX;
+            for (let idx = 0; idx < numSegments; idx++) {
+              const segMax = Math.max(1, segments[idx]);
+              const isDepleted = idx > hudState.activeSegmentIndex;
+              const isCurrent = idx === hudState.activeSegmentIndex;
+              const segPct = isDepleted
+                ? 0
+                : isCurrent
+                  ? Math.max(0, Math.min(1, hudState.activeSegmentHp / segMax))
+                  : 1;
+
+              // Segment slot background
+              this.bossPhaseBarGraphics.fillStyle(0x1e293b, 0.85);
+              this.bossPhaseBarGraphics.fillRect(curX, barY, segmentWidth, barHeight);
+
+              // Segment fill
+              if (segPct > 0) {
+                const segFillColor = isCurrent
+                  ? (this.activeBoss.bossState === BossState.ENRAGED ? 0xff1144 : 0x10b981)
+                  : 0x3b82f6;
+                this.bossPhaseBarGraphics.fillStyle(segFillColor, 1.0);
+                this.bossPhaseBarGraphics.fillRect(curX, barY, segmentWidth * segPct, barHeight);
+              }
+
+              // Segment divider line if not last
+              if (idx < numSegments - 1) {
+                this.bossPhaseBarGraphics.lineStyle(1, 0x000000, 0.85);
+                this.bossPhaseBarGraphics.lineBetween(
+                  curX + segmentWidth + gap / 2,
+                  barY - 1,
+                  curX + segmentWidth + gap / 2,
+                  barY + barHeight + 1
+                );
+              }
+
+              curX += segmentWidth + gap;
+            }
           }
         }
       }
@@ -2386,6 +2873,19 @@ export default class GameScene extends Phaser.Scene {
         this.crisisManager.update(delta, this.scratchPlayerPos);
         if (this.situationLog) {
           this.situationLog.updateFromCrisisManager(this.crisisManager, Date.now());
+        }
+
+        // Edge-triggered reward when crisis resolves
+        if (activeCrisis.getStage() === CrisisStage.RESOLVED && !this.hasRewardedActiveCrisis) {
+          this.hasRewardedActiveCrisis = true;
+          this.score += 5000;
+          this.starCandies = (this.starCandies || 0) + 35;
+          this.cosmicEssence = (this.cosmicEssence || 0) + 15;
+          this.spawnFloatingText(this.player.x, this.player.y - 25, '🌟 CRISIS STABILIZED! +5000 SCORE +35 CANDY +15 ESSENCE', '#38bdf8');
+          if (this.game && this.game.events) {
+            this.game.events.emit('currency-reward', { starCandies: 35, cosmicEssence: 15 });
+          }
+          this.emitStatsUpdate();
         }
 
         // Render Crisis Hazard Graphics
@@ -2750,6 +3250,25 @@ export default class GameScene extends Phaser.Scene {
           this.crisisGraphics.fillPath();
           this.crisisGraphics.lineStyle(1.5, 0xffffff, 0.9);
           this.crisisGraphics.strokePath();
+          break;
+        }
+        case HazardType.PSIONIC_DISRUPTION: {
+          const pulse = 0.8 + 0.2 * Math.sin(time / 160 + hazard.idx);
+          this.crisisGraphics.fillStyle(0xec4899, 0.45 * pulse);
+          this.crisisGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          this.crisisGraphics.lineStyle(1.5, 0xf472b6, 0.85);
+          this.crisisGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          break;
+        }
+        case HazardType.PSIONIC_ILLUSION:
+        case HazardType.PSIONIC_MANIFESTATION: {
+          const pulse = 0.8 + 0.2 * Math.sin(time / 140 + hazard.idx);
+          this.crisisGraphics.fillStyle(0xdb2777, 0.5 * pulse);
+          this.crisisGraphics.fillCircle(x, y, 18 * pulse);
+          this.crisisGraphics.fillStyle(0xfbcfe8, 0.9);
+          this.crisisGraphics.fillCircle(x, y, 6);
+          this.crisisGraphics.lineStyle(2, 0xffffff, 0.9);
+          this.crisisGraphics.strokeCircle(x, y, 14 * pulse);
           break;
         }
         default: {
@@ -3348,6 +3867,49 @@ export default class GameScene extends Phaser.Scene {
     this.emitStatsUpdate();
   }
 
+  grantDistortionBarrier(durationMs: number = 2500): void {
+    if (this.isGameOver || !this.player || !this.player.active) return;
+    const now = this.time?.now ?? Date.now();
+    this.isInvulnerable = true;
+    this.shieldInvulnerableUntil = Math.max(this.shieldInvulnerableUntil, now + durationMs);
+
+    this.player.setTint(0xec4899);
+    this.player.setAlpha(0.85);
+
+    const existing = this.activeBuffs.find((b) => b.id === 'DISTORTION_BARRIER');
+    if (existing) {
+      existing.remainingMs = durationMs;
+      existing.totalMs = durationMs;
+    } else {
+      this.activeBuffs.push({
+        id: 'DISTORTION_BARRIER',
+        name: 'Distortion Barrier',
+        icon: '🔮',
+        color: '#ec4899',
+        remainingMs: durationMs,
+        totalMs: durationMs,
+      });
+    }
+
+    if (this.cameras?.main) {
+      this.cameras.main.flash(100, 236, 72, 153, false);
+    }
+
+    if (this.time && this.time.delayedCall) {
+      this.time.delayedCall(durationMs, () => {
+        if (this.player && this.player.active) {
+          this.player.setAlpha(1.0);
+          this.player.clearTint();
+          if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
+            this.isInvulnerable = false;
+          }
+        }
+      });
+    }
+
+    this.emitStatsUpdate();
+  }
+
   private renderDynamicHazardGraphics(time: number): void {
     if (!this.hazardGraphics) return;
     HazardRenderer.render(
@@ -3365,6 +3927,20 @@ export default class GameScene extends Phaser.Scene {
     return;
   }
 
+  /**
+   * Detects active mobile touch environment or screen layout.
+   */
+  public isMobileDevice(): boolean {
+    if (typeof window === 'undefined') return false;
+    const hasTouch = ('ontouchstart' in window) ||
+      (typeof navigator !== 'undefined' && (navigator.maxTouchPoints || 0) > 0);
+    const mInput = window.mobileInput;
+    const hasActiveTouchInput = Boolean(
+      mInput &&
+      (mInput.up || mInput.down || mInput.left || mInput.right || mInput.bomb || mInput.dash || mInput.ultimate)
+    );
+    return Boolean(window.innerWidth < 768 || hasTouch || hasActiveTouchInput);
+  }
 
   /**
    * Smooth Corridor Centering and Corner-Sliding Movement Controller
@@ -3377,28 +3953,7 @@ export default class GameScene extends Phaser.Scene {
     const right = Boolean(this.cursors?.right?.isDown || mInput.right);
     const up = Boolean(this.cursors?.up?.isDown || mInput.up);
     const down = Boolean(this.cursors?.down?.isDown || mInput.down);
-
-    if (!left && !right && !up && !down) {
-      this.player.setVelocity(0, 0);
-      this.player.anims.stop();
-      switch (this.playerFacing) {
-        case 'down':
-          this.player.setFrame(0);
-          break;
-        case 'up':
-          this.player.setFrame(3);
-          break;
-        case 'right':
-          this.player.setFlipX(false);
-          this.player.setFrame(6);
-          break;
-        case 'left':
-          this.player.setFlipX(true);
-          this.player.setFrame(6);
-          break;
-      }
-      return;
-    }
+    const isIdle = !left && !right && !up && !down;
 
     const px = this.player.x;
     const py = this.player.y;
@@ -3554,9 +4109,33 @@ export default class GameScene extends Phaser.Scene {
       chronoMultiplier *= (1.0 - TEMPORAL_DILATION_SLOW_RATIO);
     }
 
+    // Return here if we are just dashing (so we evaluated hazards, but dash controls velocity)
+    if (this.isDashing) {
+      return;
+    }
+
+    if (isIdle) {
+      this.player.setVelocity(0, 0);
+      this.player.anims.stop();
+      switch (this.playerFacing) {
+        case 'down': this.player.setFrame(0); break;
+        case 'up': this.player.setFrame(3); break;
+        case 'right': this.player.setFlipX(false); this.player.setFrame(6); break;
+        case 'left': this.player.setFlipX(true); this.player.setFrame(6); break;
+      }
+      return;
+    }
+
     const rawCompoundMultiplier = gravityMultiplier * frostMultiplier * voltMultiplier * magmaMultiplier * miasmaMultiplier * chronoMultiplier;
     const clampedHazardMultiplier = Math.min(1.85, Math.max(0.30, Number.isFinite(rawCompoundMultiplier) && rawCompoundMultiplier > 0 ? rawCompoundMultiplier : 1.0));
 
+    const hazardSlowdownReduction = this.appliedPerkBonuses?.groundSlowdownReduction || 0;
+    let effectiveHazardMultiplier = clampedHazardMultiplier;
+    if (clampedHazardMultiplier < 1.0 && hazardSlowdownReduction > 0) {
+      effectiveHazardMultiplier = 1.0 - (1.0 - clampedHazardMultiplier) * (1.0 - hazardSlowdownReduction);
+    }
+
+    const postDashMultiplier = this.dashSpeedBurstRemaining > 0 ? this.dashSpeedBurstMultiplier : 1.0;
     const speed = calculateClampedPlayerSpeed({
       baseSpeed: this.playerSpeed,
       perkSpeedBonus,
@@ -3564,11 +4143,13 @@ export default class GameScene extends Phaser.Scene {
       isDashing: this.isDashing,
       dashSpeed: DASH_SPEED,
       phaseJitterActive: isPhaseJittered,
-      speedMultiplier: clampedHazardMultiplier,
+      speedMultiplier: effectiveHazardMultiplier * postDashMultiplier,
     });
     const slideSpeed = speed;
     const snapThreshold = Math.max(2, speed * (delta / 1000));
-    const tol = this.cornerSlideTolerance || 8;
+    const isMobile = this.isMobileDevice();
+    const baseTol = this.cornerSlideTolerance || 8;
+    const tol = isMobile ? Math.max(baseTol + 4, 14) : baseTol;
 
     // Resolve dominant axis when multiple inputs are pressed
     let primaryAxis: 'x' | 'y' = 'x';
@@ -3604,7 +4185,6 @@ export default class GameScene extends Phaser.Scene {
       const directOpen = this.isTilePassableForPlayer(row, nextCol, row, col);
 
       if (directOpen) {
-        // Phase 1: Corridor Centering
         if (Math.abs(diffY) > snapThreshold) {
           vy = -Math.sign(diffY) * slideSpeed;
         } else {
@@ -3615,7 +4195,6 @@ export default class GameScene extends Phaser.Scene {
           vy = 0;
         }
       } else {
-        // Phase 2: Corner Rounding (PHYS-07: cornerSlideTolerance & zero dead zone)
         const canRoundUp = diffY <= 0 && Math.abs(diffY) <= tol && this.isTilePassableForPlayer(row - 1, col, row, col) && this.isTilePassableForPlayer(row - 1, nextCol, row, col);
         const canRoundDown = diffY >= 0 && Math.abs(diffY) <= tol && this.isTilePassableForPlayer(row + 1, col, row, col) && this.isTilePassableForPlayer(row + 1, nextCol, row, col);
 
@@ -3638,7 +4217,6 @@ export default class GameScene extends Phaser.Scene {
       const directOpen = this.isTilePassableForPlayer(nextRow, col, row, col);
 
       if (directOpen) {
-        // Phase 1: Corridor Centering
         if (Math.abs(diffX) > snapThreshold) {
           vx = -Math.sign(diffX) * slideSpeed;
         } else {
@@ -3649,7 +4227,6 @@ export default class GameScene extends Phaser.Scene {
           vx = 0;
         }
       } else {
-        // Phase 2: Corner Rounding (PHYS-07: cornerSlideTolerance & zero dead zone)
         const canRoundLeft = diffX <= 0 && Math.abs(diffX) <= tol && this.isTilePassableForPlayer(row, col - 1, row, col) && this.isTilePassableForPlayer(nextRow, col - 1, row, col);
         const canRoundRight = diffX >= 0 && Math.abs(diffX) <= tol && this.isTilePassableForPlayer(row, col + 1, row, col) && this.isTilePassableForPlayer(nextRow, col + 1, row, col);
 
@@ -3740,7 +4317,10 @@ export default class GameScene extends Phaser.Scene {
 
     if (hasBomb) return;
 
-    const bomb = this.bombs.create(centerX, centerY, 'bomb') as Phaser.Physics.Arcade.Sprite;
+    const bomb = this.bombs.get(centerX, centerY, 'bomb') as Phaser.Physics.Arcade.Sprite;
+    if (!bomb) return;
+    bomb.setActive(true).setVisible(true);
+    bomb.enableBody(true, centerX, centerY, true, true);
     bomb.setDepth(RENDER_DEPTH.BOMBS);
     (bomb.body as Phaser.Physics.Arcade.Body)?.setSize(32, 32).setOffset(4, 4);
     (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(true);
@@ -4251,7 +4831,7 @@ export default class GameScene extends Phaser.Scene {
     const actualRow = Number.isFinite(curRow) && curRow >= 0 && curRow < ROWS ? curRow : (row ?? 0);
     const actualCol = Number.isFinite(curCol) && curCol >= 0 && curCol < COLS ? curCol : (col ?? 0);
 
-    bomb.destroy();
+    if (bomb.active) { bomb.disableBody(true, true); }
 
     const isGhostBomb = Boolean(bomb.getData('isGhostBomb'));
 
@@ -4423,6 +5003,14 @@ export default class GameScene extends Phaser.Scene {
           }
         }
       }
+      if (this.crisisManager && this.crisisManager.dispelPsionicIllusionAt(r, c)) {
+        const px = c * TILE_SIZE + TILE_SIZE / 2;
+        const py = r * TILE_SIZE + TILE_SIZE / 2;
+        this.score += 150;
+        this.emitStatsUpdate();
+        this.spawnFloatingText(px, py - 20, '+150 DISPELLED!', '#ec4899');
+        this.grantDistortionBarrier();
+      }
       if (this.dynamicHazard) {
         const impact = this.dynamicHazard.onBombBlastImpact(r, c);
         if (impact.polarized) {
@@ -4446,9 +5034,38 @@ export default class GameScene extends Phaser.Scene {
 
     checkPolarizationStrike(actualRow, actualCol);
 
-    // Crisis blast interaction (clearing void creep, charging prisms)
+    // Crisis blast interaction (clearing void creep, charging prisms, psionic disruption)
     if (this.crisisManager && this.crisisManager.getActiveCrisis()) {
+      const activeCrisis = this.crisisManager.getActiveCrisis();
+      const isPsychic = activeCrisis && (activeCrisis.id === 'psychic_invasion' || (activeCrisis as unknown as { type?: CrisisType }).type === CrisisType.PSYCHIC_INVASION);
+      let psionicBefore = 0;
+      const psychicCrisis = activeCrisis as unknown as { manifestations?: Array<{ isDestroyed: boolean }> } | null;
+      if (isPsychic && psychicCrisis && Array.isArray(psychicCrisis.manifestations)) {
+        psionicBefore = psychicCrisis.manifestations.filter((m) => m.isDestroyed).length;
+      }
+
       this.crisisManager.handleBombBlast(actualRow, actualCol, effectivePower);
+
+      if (isPsychic && psychicCrisis && Array.isArray(psychicCrisis.manifestations)) {
+        const psionicAfter = psychicCrisis.manifestations.filter((m) => m.isDestroyed).length;
+        if (psionicAfter > psionicBefore) {
+          this.score += 500;
+          this.addUltimateCharge(10);
+          this.spawnFloatingText(actualCol * TILE_SIZE + 20, actualRow * TILE_SIZE + 20, '🧠 PSIONIC DISRUPTED! +500', '#ec4899');
+          this.emitStatsUpdate();
+        }
+      }
+    }
+
+    // Mutant Flora boss root overgrowth cleanse
+    const floraBoss = this.activeBoss as unknown as { cleanseRootsAt?: (r: number, c: number, p: number) => number } | null;
+    if (floraBoss && typeof floraBoss.cleanseRootsAt === 'function') {
+      const cleansed = floraBoss.cleanseRootsAt(actualRow, actualCol, effectivePower);
+      if (cleansed > 0) {
+        this.score += 150 * cleansed;
+        this.spawnFloatingText(actualCol * TILE_SIZE + 20, actualRow * TILE_SIZE + 20, `🌿 OVERGROWTH CLEARED! +${150 * cleansed}`, '#10b981');
+        this.emitStatsUpdate();
+      }
     }
 
     // Relic proc on bomb exploded: Pyroclastic Prism (ARCH-RELIC-01)
@@ -4485,23 +5102,26 @@ export default class GameScene extends Phaser.Scene {
     // 3. Dynamic Expanding Shockwave Ring
     const centerX = actualCol * TILE_SIZE + TILE_SIZE / 2;
     const centerY = actualRow * TILE_SIZE + TILE_SIZE / 2;
-    const shockwave = this.add.graphics();
-    shockwave.setDepth(RENDER_DEPTH.SHOCKWAVES);
-    this.tweens.addCounter({
-      from: 0,
-      to: 1,
-      duration: 220,
-      ease: 'Quad.easeOut',
-      onUpdate: (tween) => {
-        const t = tween.getValue() ?? 0;
-        shockwave.clear();
-        shockwave.lineStyle(3 * (1 - t) + 0.5, 0xffe066, 0.85 * (1 - t));
-        shockwave.strokeCircle(centerX, centerY, 8 + t * (TILE_SIZE * 1.3));
-      },
-      onComplete: () => {
-        shockwave.destroy();
-      },
-    });
+    const shockwave = this.graphicsPool ? this.graphicsPool.acquire() : null;
+    if (shockwave) {
+      shockwave.setActive(true).setVisible(true);
+      shockwave.setDepth(RENDER_DEPTH.SHOCKWAVES);
+      this.tweens.addCounter({
+        from: 0,
+        to: 1,
+        duration: 220,
+        ease: 'Quad.easeOut',
+        onUpdate: (tween) => {
+          const t = tween.getValue() ?? 0;
+          shockwave.clear();
+          shockwave.lineStyle(3 * (1 - t) + 0.5, 0xffe066, 0.85 * (1 - t));
+          shockwave.strokeCircle(centerX, centerY, 8 + t * (TILE_SIZE * 1.3));
+        },
+        onComplete: () => {
+          if (this.graphicsPool) this.graphicsPool.release(shockwave);
+        },
+      });
+    }
 
     // Spawn Epicenter Explosion (isCenter = true, passing bombId for PHYS-06)
     this.spawnExplosion(actualRow, actualCol, true, owner, bombId, isPiercing);
@@ -4629,7 +5249,7 @@ export default class GameScene extends Phaser.Scene {
       duration: 320,
       ease: 'Quad.easeOut',
       onComplete: () => {
-        exp.destroy();
+        if (exp.active) { exp.disableBody(true, true); }
       },
     });
 
@@ -4682,9 +5302,10 @@ export default class GameScene extends Phaser.Scene {
           isChest = true;
         }
         // Clean up ambient occlusion shadow
-        const ao = b.getData('aoShadow') as Phaser.GameObjects.GameObject | undefined;
+        const ao = b.getData('aoShadow') as Phaser.GameObjects.Rectangle | undefined;
         if (ao) {
-          ao.destroy();
+          if (this.rectPool) this.rectPool.release(ao);
+          b.setData('aoShadow', undefined);
         }
 
         // Zero-GC particle emitter
@@ -4699,7 +5320,10 @@ export default class GameScene extends Phaser.Scene {
             { dx: 6, dy: 6, vx: 25, vy: 25 },
           ];
           offsets.forEach((off) => {
-            const frag = this.add.rectangle(centerX + off.dx, centerY + off.dy, 8, 8, isChest ? 0xfbbf24 : 0xb87333);
+            const frag = this.rectPool ? this.rectPool.acquire() : null;
+            if (!frag) return;
+            frag.setActive(true).setVisible(true).setPosition(centerX + off.dx, centerY + off.dy)
+              .setSize(8, 8).setFillStyle(isChest ? 0xfbbf24 : 0xb87333).setAlpha(1).setAngle(0).setScale(1);
             frag.setDepth(RENDER_DEPTH.DEBRIS_PARTICLES);
             this.tweens.add({
               targets: frag,
@@ -4708,7 +5332,9 @@ export default class GameScene extends Phaser.Scene {
               alpha: 0,
               angle: 45,
               duration: 220,
-              onComplete: () => frag.destroy(),
+              onComplete: () => {
+                if (this.rectPool) this.rectPool.release(frag);
+              },
             });
           });
         }
@@ -4743,7 +5369,8 @@ export default class GameScene extends Phaser.Scene {
         this.hasShield = false;
       }
       this.isInvulnerable = true;
-      this.shieldInvulnerableUntil = updateInvulnerabilityExpiry(this.shieldInvulnerableUntil, 1500, this.time.now);
+      const shieldGrace = this.isMobileDevice() ? (SHIELD_INVULN_MS + 300) : SHIELD_INVULN_MS;
+      this.shieldInvulnerableUntil = updateInvulnerabilityExpiry(this.shieldInvulnerableUntil, shieldGrace, this.time.now);
       if (this.cameraTrauma) {
         this.cameraTrauma.addTrauma(0.40);
       }
@@ -4752,7 +5379,10 @@ export default class GameScene extends Phaser.Scene {
       // Spawn shield shatter burst
       for (let i = 0; i < 8; i++) {
         const angle = (i / 8) * Math.PI * 2;
-        const spark = this.add.circle(this.player.x, this.player.y, 4, 0x38bdf8, 0.9);
+        const spark = this.circlePool ? this.circlePool.acquire() : null;
+        if (!spark) continue;
+        spark.setActive(true).setVisible(true).setPosition(this.player.x, this.player.y)
+          .setRadius(4).setFillStyle(0x38bdf8, 0.9).setAlpha(0.9).setScale(1);
         spark.setDepth(RENDER_DEPTH.DEBRIS_PARTICLES);
         this.tweens.add({
           targets: spark,
@@ -4761,17 +5391,20 @@ export default class GameScene extends Phaser.Scene {
           alpha: 0,
           scale: 0.2,
           duration: 250,
-          onComplete: () => spark.destroy(),
+          onComplete: () => {
+            if (this.circlePool) this.circlePool.release(spark);
+          },
         });
       }
 
-      // 1.5s i-frame blink
+      // 1.5s i-frame blink (+300ms on mobile)
+      const shieldBlinkRepeats = this.isMobileDevice() ? 8 : 7;
       this.tweens.add({
         targets: this.player,
         alpha: 0.3,
         duration: 100,
         yoyo: true,
-        repeat: 7,
+        repeat: shieldBlinkRepeats,
         onComplete: () => {
           if (this.player && this.player.active) {
             this.player.alpha = 1;
@@ -4789,17 +5422,19 @@ export default class GameScene extends Phaser.Scene {
     if (this.extraLives > 0) {
       this.extraLives--;
       this.isInvulnerable = true;
-      this.shieldInvulnerableUntil = updateInvulnerabilityExpiry(this.shieldInvulnerableUntil, 3000, this.time.now);
+      const reviveGrace = this.isMobileDevice() ? 3300 : 3000;
+      this.shieldInvulnerableUntil = updateInvulnerabilityExpiry(this.shieldInvulnerableUntil, reviveGrace, this.time.now);
       this.spawnFloatingText(this.player.x, this.player.y - 12, '1-UP REVIVED!', '#fb7185');
       this.cameras.main.flash(300, 251, 113, 133);
 
-      // 3.0s i-frame blink and safe vulnerability restoration (PHYS-01)
+      // 3.0s i-frame blink and safe vulnerability restoration (PHYS-01, +300ms on mobile)
+      const reviveBlinkRepeats = this.isMobileDevice() ? 16 : 14;
       this.tweens.add({
         targets: this.player,
         alpha: 0.3,
         duration: 100,
         yoyo: true,
-        repeat: 14,
+        repeat: reviveBlinkRepeats,
         onComplete: () => {
           if (this.player && this.player.active) {
             this.player.alpha = 1;
@@ -4817,7 +5452,8 @@ export default class GameScene extends Phaser.Scene {
     // Check Second Wind perk (ARCH-PERK-01)
     if (this.perkManager?.triggerSecondWind()) {
       this.isInvulnerable = true;
-      this.shieldInvulnerableUntil = updateInvulnerabilityExpiry(this.shieldInvulnerableUntil, 3000, this.time.now);
+      const secondWindGrace = this.isMobileDevice() ? 3300 : 3000;
+      this.shieldInvulnerableUntil = updateInvulnerabilityExpiry(this.shieldInvulnerableUntil, secondWindGrace, this.time.now);
       this.hasShield = true;
       this.shieldCharges = 1;
       this.spawnFloatingText(this.player.x, this.player.y - 12, 'SECOND WIND!', '#fbbf24');
@@ -4826,7 +5462,10 @@ export default class GameScene extends Phaser.Scene {
       // Golden shield VFX burst
       for (let i = 0; i < 12; i++) {
         const angle = (i / 12) * Math.PI * 2;
-        const spark = this.add.circle(this.player.x, this.player.y, 5, 0xfbbf24, 0.95);
+        const spark = this.circlePool ? this.circlePool.acquire() : null;
+        if (!spark) continue;
+        spark.setActive(true).setVisible(true).setPosition(this.player.x, this.player.y)
+          .setRadius(5).setFillStyle(0xfbbf24, 0.95).setAlpha(0.95).setScale(1);
         spark.setDepth(RENDER_DEPTH.DEBRIS_PARTICLES);
         this.tweens.add({
           targets: spark,
@@ -4835,17 +5474,20 @@ export default class GameScene extends Phaser.Scene {
           alpha: 0,
           scale: 0.2,
           duration: 350,
-          onComplete: () => spark.destroy(),
+          onComplete: () => {
+            if (this.circlePool) this.circlePool.release(spark);
+          },
         });
       }
 
-      // 3.0s i-frame blink and safe vulnerability restoration
+      // 3.0s i-frame blink and safe vulnerability restoration (+300ms on mobile)
+      const secondWindBlinkRepeats = this.isMobileDevice() ? 16 : 14;
       this.tweens.add({
         targets: this.player,
         alpha: 0.3,
         duration: 100,
         yoyo: true,
-        repeat: 14,
+        repeat: secondWindBlinkRepeats,
         onComplete: () => {
           if (this.player && this.player.active) {
             this.player.alpha = 1;
@@ -5062,7 +5704,7 @@ export default class GameScene extends Phaser.Scene {
                         if (typeof targetEntity.takeDamage === 'function') {
                           targetEntity.takeDamage(100, 'player', this.time.now);
                         } else {
-                          e.destroy();
+                          if (e.active) { e['disableBody'](true, true); }
                           this.addUltimateCharge(CHARGE_VALUES.ENEMY_DEFEATED);
                         }
                       }
@@ -5132,7 +5774,7 @@ export default class GameScene extends Phaser.Scene {
                     if (typeof targetEntity.takeDamage === 'function') {
                       targetEntity.takeDamage(100, 'player', this.time.now);
                     } else {
-                      enemy.destroy();
+                      if (enemy.active) { enemy['disableBody'](true, true); }
                       this.addUltimateCharge(CHARGE_VALUES.ENEMY_DEFEATED);
                     }
                   }
@@ -5220,19 +5862,25 @@ export default class GameScene extends Phaser.Scene {
         const targetY = r * TILE_SIZE + TILE_SIZE / 2;
         const fuseTime = baseFuse + k * stepDelay;
 
-        const warhead = this.add.circle(targetX, targetY, 14, 0xd90429, 0.9);
-        warhead.setDepth(RENDER_DEPTH.BOMBS);
-        this.tweens.add({
-          targets: warhead,
-          scale: 1.25,
-          alpha: 0.6,
-          yoyo: true,
-          repeat: Math.floor(fuseTime / 200),
-          duration: 100,
-        });
+        const warhead = this.circlePool ? this.circlePool.acquire() : null;
+        if (warhead) {
+          warhead.setActive(true).setVisible(true).setPosition(targetX, targetY)
+            .setRadius(14).setFillStyle(0xd90429, 0.9).setAlpha(0.9).setScale(1);
+          warhead.setDepth(RENDER_DEPTH.BOMBS);
+          this.tweens.add({
+            targets: warhead,
+            scale: 1.25,
+            alpha: 0.6,
+            yoyo: true,
+            repeat: Math.floor(fuseTime / 200),
+            duration: 100,
+          });
+        }
 
         this.time.delayedCall(fuseTime, () => {
-          if (warhead && warhead.active) warhead.destroy();
+            if (warhead && warhead.active) {
+              if (this.circlePool) this.circlePool.release(warhead);
+            }
           webAudioSynth.playCarpetDetonation(k);
           this.cameraTrauma.addTrauma(skill.traumaPerStep ?? 0.15);
 
@@ -5250,7 +5898,7 @@ export default class GameScene extends Phaser.Scene {
                 if (typeof targetEntity.takeDamage === 'function') {
                   targetEntity.takeDamage(100, 'player', this.time.now);
                 } else {
-                  enemy.destroy();
+                  if (enemy.active) { enemy['disableBody'](true, true); }
                   this.addUltimateCharge(CHARGE_VALUES.ENEMY_DEFEATED);
                 }
               }
@@ -5259,7 +5907,7 @@ export default class GameScene extends Phaser.Scene {
 
           const exp = this.createExplosionSprite(targetX, targetY, 'player');
           this.time.delayedCall(280, () => {
-            if (exp.active) exp.destroy();
+            if (exp.active) { exp.disableBody(true, true); }
           });
         });
 
@@ -5286,7 +5934,8 @@ export default class GameScene extends Phaser.Scene {
     this.isDashing = true;
     this.isInvulnerable = true;
     this.dashStartTime = this.time?.now || Date.now();
-    this.dashCooldownRemaining = DASH_COOLDOWN_MS;
+    const perkReduction = this.appliedPerkBonuses?.dashCooldownReductionMs || 0;
+    this.dashCooldownRemaining = Math.max(1500, DASH_COOLDOWN_MS - perkReduction);
 
     // Creative Agent 5: Gravitational Escape when dashing inside pull field
     if (this.gravityHazard && this.gravityHazard.state !== GravityLifecycleState.DORMANT && this.gravityHazard.state !== GravityLifecycleState.COOLDOWN) {
@@ -5339,9 +5988,15 @@ export default class GameScene extends Phaser.Scene {
     for (let i = 0; i < 3; i++) {
       this.time.delayedCall(i * 40, () => {
         if (!this.player || !this.player.active) return;
-        const ghost = this.add.sprite(this.player.x, this.player.y, 'player', this.player.frame.name);
+        const ghost = this.spritePool ? this.spritePool.acquire() : null;
+        if (!ghost) return;
+        ghost.setActive(true).setVisible(true).setPosition(this.player.x, this.player.y);
+        if (typeof ghost.setTexture === 'function') {
+          ghost.setTexture('player', this.player.frame?.name);
+        }
         ghost.setFlipX(this.player.flipX);
         ghost.setAlpha(0.5);
+        ghost.setScale(1);
         ghost.setTint(0x38bdf8);
         const pDepth = RENDER_DEPTH.ENTITY_Y_BASE + this.player.y * RENDER_DEPTH.ENTITY_Y_SCALE;
         ghost.setDepth(pDepth + RENDER_DEPTH.OFFSET_SHADOW);
@@ -5350,7 +6005,9 @@ export default class GameScene extends Phaser.Scene {
           alpha: 0,
           scale: 0.8,
           duration: 200,
-          onComplete: () => ghost.destroy(),
+          onComplete: () => {
+            if (this.spritePool) this.spritePool.release(ghost);
+          },
         });
       });
     }
@@ -5362,6 +6019,10 @@ export default class GameScene extends Phaser.Scene {
       }
       if (this.player && this.player.active) {
         this.player.setVelocity(0, 0);
+      }
+      if (this.appliedPerkBonuses?.dashSpeedBurstRatio && this.appliedPerkBonuses.dashSpeedBurstRatio > 0) {
+        this.dashSpeedBurstRemaining = 1000;
+        this.dashSpeedBurstMultiplier = 1.0 + this.appliedPerkBonuses.dashSpeedBurstRatio;
       }
     });
 
@@ -5438,17 +6099,23 @@ export default class GameScene extends Phaser.Scene {
     item.setData('col', col);
 
     // 600ms grace period golden glow ring
-    const glow = this.add.circle(centerX, centerY, 18, 0xfbbf24, 0.45);
-    glow.setDepth(RENDER_DEPTH.ITEM_GLOW);
-    this.tweens.add({
-      targets: glow,
-      scaleX: 1.3,
-      scaleY: 1.3,
-      alpha: 0,
-      duration: ITEM_GRACE_PERIOD_MS,
-      ease: 'Sine.easeOut',
-      onComplete: () => glow.destroy(),
-    });
+    const glow = this.circlePool ? this.circlePool.acquire() : null;
+    if (glow) {
+      glow.setActive(true).setVisible(true).setPosition(centerX, centerY)
+        .setRadius(18).setFillStyle(0xfbbf24, 0.45).setAlpha(0.45).setScale(1);
+      glow.setDepth(RENDER_DEPTH.ITEM_GLOW);
+      this.tweens.add({
+        targets: glow,
+        scaleX: 1.3,
+        scaleY: 1.3,
+        alpha: 0,
+        duration: ITEM_GRACE_PERIOD_MS,
+        ease: 'Sine.easeOut',
+        onComplete: () => {
+          if (this.circlePool) this.circlePool.release(glow);
+        },
+      });
+    }
 
     // Floating bobbing animation & item hover shadow (Juice M3)
     this.tweens.add({
@@ -5461,28 +6128,34 @@ export default class GameScene extends Phaser.Scene {
     });
 
     if (this.textures && this.textures.exists('shadow_ellipse')) {
-      const itemShadow = this.add.sprite(centerX, centerY + 14, 'shadow_ellipse');
-      itemShadow.setDepth(3);
-      itemShadow.setAlpha(0.35);
-      itemShadow.setScale(0.75, 0.5);
-      item.setData('itemShadow', itemShadow);
+      const itemShadow = this.shadowPool ? this.shadowPool.acquire() : null;
+      if (itemShadow) {
+        itemShadow.setActive(true).setVisible(true).setPosition(centerX, centerY + 14);
+        itemShadow.setDepth(3);
+        itemShadow.setAlpha(0.35);
+        itemShadow.setScale(0.75, 0.5);
+        item.setData('itemShadow', itemShadow);
 
-      this.tweens.add({
-        targets: itemShadow,
-        scaleX: 0.60,
-        scaleY: 0.38,
-        alpha: 0.22,
-        duration: 450,
-        yoyo: true,
-        repeat: -1,
-        ease: 'Sine.easeInOut',
-      });
+        this.tweens.add({
+          targets: itemShadow,
+          scaleX: 0.60,
+          scaleY: 0.38,
+          alpha: 0.22,
+          duration: 450,
+          yoyo: true,
+          repeat: -1,
+          ease: 'Sine.easeInOut',
+        });
 
-      item.once(Phaser.GameObjects.Events.DESTROY, () => {
-        if (itemShadow && itemShadow.active) {
-          itemShadow.destroy();
-        }
-      });
+        item.once(Phaser.GameObjects.Events.DESTROY, () => {
+          const s = item.getData('itemShadow') as Phaser.GameObjects.Sprite | null;
+          if (s && s.active) {
+            if (this.tweens) this.tweens.killTweensOf(s);
+            if (this.shadowPool) this.shadowPool.release(s);
+          }
+          item.setData('itemShadow', null);
+        });
+      }
     }
   }
 
@@ -5617,15 +6290,20 @@ export default class GameScene extends Phaser.Scene {
     const startY = y - cascadeOffset;
     const targetY = startY - 22;
 
-    const floating = this.add.text(x, startY, text, {
-      fontSize: '12px',
-      fontStyle: 'bold',
-      fontFamily: 'monospace, "Press Start 2P", Arial, sans-serif',
-      color,
-      stroke: '#000000',
-      strokeThickness: 3,
-    });
-    floating.setOrigin(0.5, 0.5);
+    const floating = this.floatingTextPool
+      ? this.floatingTextPool.acquire()
+      : this.add.text(x, startY, text, {
+          fontSize: '12px',
+          fontStyle: 'bold',
+          fontFamily: 'monospace, "Press Start 2P", Arial, sans-serif',
+          color,
+          stroke: '#000000',
+          strokeThickness: 3,
+        }).setOrigin(0.5, 0.5);
+
+    if (!floating) return;
+
+    floating.setActive(true).setVisible(true).setPosition(x, startY).setText(text).setColor(color).setAlpha(1);
     floating.setDepth(RENDER_DEPTH.FLOATING_TEXT);
 
     this.tweens.add({
@@ -5634,7 +6312,13 @@ export default class GameScene extends Phaser.Scene {
       alpha: 0,
       duration: 650,
       ease: 'Quad.easeOut',
-      onComplete: () => floating.destroy(),
+      onComplete: () => {
+        if (this.floatingTextPool) {
+          this.floatingTextPool.release(floating);
+        } else {
+          floating.destroy();
+        }
+      },
     });
   }
 
@@ -5642,7 +6326,9 @@ export default class GameScene extends Phaser.Scene {
     const colorNum = parseInt(colorStr.replace('#', '0x'), 16) || 0xffffff;
     for (let i = 0; i < 6; i++) {
       const angle = (i / 6) * Math.PI * 2;
-      const spark = this.add.circle(x, y, 3, colorNum, 1);
+      const spark = this.circlePool ? this.circlePool.acquire() : null;
+      if (!spark) continue;
+      spark.setActive(true).setVisible(true).setPosition(x, y).setRadius(3).setFillStyle(colorNum, 1).setAlpha(1).setScale(1);
       spark.setDepth(RENDER_DEPTH.DEBRIS_PARTICLES);
       this.tweens.add({
         targets: spark,
@@ -5651,7 +6337,9 @@ export default class GameScene extends Phaser.Scene {
         alpha: 0,
         scale: 0.3,
         duration: 280,
-        onComplete: () => spark.destroy(),
+        onComplete: () => {
+          if (this.circlePool) this.circlePool.release(spark);
+        },
       });
     }
   }

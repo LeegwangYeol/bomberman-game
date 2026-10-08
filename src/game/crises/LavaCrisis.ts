@@ -177,7 +177,26 @@ export class LavaCrisis extends BaseCrisis {
     }
   }
 
-  protected onResolveObjective(): void {
-    // Handled in bomb blast
+  protected onResolveObjective(objectiveId: string, value?: number): void {
+    void value;
+    if (objectiveId === 'solidify_lava') {
+      this.adjustThreat(-3);
+      const obj = this.objectives.find((o) => o.id === 'solidify_lava');
+      if (obj && obj.isCompleted) {
+        this.triggerAlert(
+          'lava_cooled',
+          'OBSIDIAN BRIDGES FORMED',
+          'Advancing magma channels quenched into solid obsidian bedrock!',
+          'info',
+          '🪨',
+          3000
+        );
+      }
+    } else if (objectiveId === 'seal_caldera') {
+      this.adjustThreat(-25);
+      if (!this.isVictorious) {
+        this.resolveCrisis('Central Caldera Pressure Valve sealed! Magma chambers safely cooled into obsidian bedrock!');
+      }
+    }
   }
 }

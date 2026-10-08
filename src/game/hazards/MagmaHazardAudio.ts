@@ -174,10 +174,13 @@ export class MagmaHazardAudio {
 
   constructor(poolOrCtx?: AudioVoicePool | AudioContext | null) {
     if (poolOrCtx) {
-      if (poolOrCtx instanceof AudioVoicePool) {
-        this.bindPool(poolOrCtx);
-      } else if (typeof AudioContext !== 'undefined' && poolOrCtx instanceof AudioContext) {
-        this.init(poolOrCtx);
+      if (poolOrCtx instanceof AudioVoicePool || ('acquireVoice' in poolOrCtx && 'playTone' in poolOrCtx)) {
+        this.bindPool(poolOrCtx as AudioVoicePool);
+      } else if (
+        'createOscillator' in poolOrCtx &&
+        'currentTime' in poolOrCtx
+      ) {
+        this.init(poolOrCtx as AudioContext);
       }
     } else if (poolOrCtx === null) {
       this.ctx = null;
@@ -193,7 +196,7 @@ export class MagmaHazardAudio {
     } else if (poolOrCtx) {
       if (poolOrCtx instanceof AudioVoicePool) {
         MagmaHazardAudio.instance.bindPool(poolOrCtx);
-      } else if (typeof AudioContext !== 'undefined' && poolOrCtx instanceof AudioContext && !MagmaHazardAudio.instance.ctx) {
+      } else if (typeof AudioContext !== 'undefined' && (poolOrCtx as unknown) instanceof AudioContext && !MagmaHazardAudio.instance.ctx) {
         MagmaHazardAudio.instance.init(poolOrCtx);
       }
     }
@@ -211,6 +214,9 @@ export class MagmaHazardAudio {
     this.ctx = ctx;
     if (pool) {
       this.bindPool(pool);
+      if (!pool.getAudioContext()) {
+        pool.init(ctx);
+      }
       this.ownsPool = false;
     } else if (!this.pool) {
       this.pool = new AudioVoicePool(16);
@@ -225,7 +231,11 @@ export class MagmaHazardAudio {
   }
 
   public bindPool(pool: AudioVoicePool): void {
+    if (this.ownsPool && this.pool && this.pool !== pool) {
+      this.pool.destroy();
+    }
     this.pool = pool;
+    this.ownsPool = false;
   }
 
   public setVoicePool(pool: AudioVoicePool): void {
@@ -236,12 +246,13 @@ export class MagmaHazardAudio {
     return this.ctx || (this.pool ? this.pool.getAudioContext() : null);
   }
 
-  private safeTimeout(fn: () => void, delayMs: number): void {
+  private safeTimeout(fn: () => void, delayMs: number): ReturnType<typeof setTimeout> {
     const tid = setTimeout(() => {
       this.activeTimeouts.delete(tid);
       fn();
     }, delayMs);
     this.activeTimeouts.add(tid);
+    return tid;
   }
 
   public getContext(): AudioContext | null {
@@ -463,10 +474,15 @@ export class MagmaHazardAudio {
       this.activeTransientNodes.add(filter);
       this.activeTransientNodes.add(gain);
 
+      let tid: ReturnType<typeof setTimeout> | null = null;
       let cleanedUp = false;
       const cleanup = () => {
         if (cleanedUp) return;
         cleanedUp = true;
+        if (tid !== null) {
+          clearTimeout(tid);
+          this.activeTimeouts.delete(tid);
+        }
         try {
           source.onended = null;
           source.disconnect();
@@ -479,7 +495,7 @@ export class MagmaHazardAudio {
       };
 
       source.onended = cleanup;
-      this.safeTimeout(cleanup, Math.ceil((duration + 0.05) * 1000));
+      tid = this.safeTimeout(cleanup, Math.ceil((duration + 0.05) * 1000));
 
       try {
         source.start(now);
@@ -544,6 +560,10 @@ export class MagmaHazardAudio {
         this.pool.reset();
       }
       this.pool = null;
+    }
+    const closeable = this.ctx as unknown as { close?: () => Promise<void> } | null;
+    if (closeable && typeof closeable.close === 'function') {
+      try { void closeable.close().catch(() => {}); } catch {}
     }
     this.ctx = null;
     if (MagmaHazardAudio.instance === this) {

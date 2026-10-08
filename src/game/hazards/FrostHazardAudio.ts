@@ -141,10 +141,13 @@ export class FrostHazardAudio {
 
   constructor(poolOrCtx?: AudioVoicePool | AudioContext | null) {
     if (poolOrCtx) {
-      if (poolOrCtx instanceof AudioVoicePool) {
-        this.bindPool(poolOrCtx);
-      } else if (typeof AudioContext !== 'undefined' && poolOrCtx instanceof AudioContext) {
-        this.init(poolOrCtx);
+      if (poolOrCtx instanceof AudioVoicePool || ('acquireVoice' in poolOrCtx && 'playTone' in poolOrCtx)) {
+        this.bindPool(poolOrCtx as AudioVoicePool);
+      } else if (
+        'createOscillator' in poolOrCtx &&
+        'currentTime' in poolOrCtx
+      ) {
+        this.init(poolOrCtx as AudioContext);
       }
     } else if (poolOrCtx === null) {
       this.pool = null;
@@ -171,11 +174,14 @@ export class FrostHazardAudio {
     this.ctx = ctx;
     if (pool) {
       this.bindPool(pool);
+      if (!pool.getAudioContext()) {
+        pool.init(ctx);
+      }
       this.ownsPool = false;
     } else if (!this.pool) {
-      this.pool = AudioVoicePool.getInstance();
+      this.pool = new AudioVoicePool(16);
       this.pool.init(ctx);
-      this.ownsPool = false;
+      this.ownsPool = true;
     } else {
       this.pool.init(ctx);
     }
@@ -185,7 +191,11 @@ export class FrostHazardAudio {
   }
 
   public bindPool(pool: AudioVoicePool): void {
+    if (this.ownsPool && this.pool && this.pool !== pool) {
+      this.pool.destroy();
+    }
     this.pool = pool;
+    this.ownsPool = false;
   }
 
   public setVoicePool(pool: AudioVoicePool): void {
@@ -204,6 +214,10 @@ export class FrostHazardAudio {
     this.pool.playTone(FROST_AUDIO_PRESETS.CRYSTALLIZATION_CRACKLE);
   }
 
+  public playCrystallizationCrackle(currentTimeMs: number = 0): void {
+    this.playCrystallization(currentTimeMs);
+  }
+
   public playBlizzardWind(currentTimeMs: number = 0): void {
     if (!this.pool) return;
     if (currentTimeMs > 0 && currentTimeMs - this.lastBlizzardMs < 250) return;
@@ -220,6 +234,10 @@ export class FrostHazardAudio {
     this.pool.playTone(FROST_AUDIO_PRESETS.ABSOLUTE_ZERO_CHIME_F5);
     this.pool.playTone(FROST_AUDIO_PRESETS.ABSOLUTE_ZERO_CHIME_A5);
     this.pool.playTone(FROST_AUDIO_PRESETS.ABSOLUTE_ZERO_CHIME_D6);
+  }
+
+  public playAbsoluteZeroShatter(currentTimeMs: number = 0): void {
+    this.playAbsoluteZeroBurst(currentTimeMs);
   }
 
   public playThawMelt(currentTimeMs: number = 0): void {
@@ -284,6 +302,10 @@ export class FrostHazardAudio {
       this.pool.destroy();
     }
     this.pool = null;
+    const closeable = this.ctx as unknown as { close?: () => Promise<void> } | null;
+    if (closeable && typeof closeable.close === 'function') {
+      try { void closeable.close().catch(() => {}); } catch {}
+    }
     this.ctx = null;
     if (FrostHazardAudio.instance === this) {
       FrostHazardAudio.instance = null;

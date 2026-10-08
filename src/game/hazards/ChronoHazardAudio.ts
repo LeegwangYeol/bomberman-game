@@ -193,6 +193,8 @@ export const CHRONO_AUDIO_PRESETS = {
 export class ChronoHazardAudio {
   private static instance: ChronoHazardAudio | null = null;
   private voicePool: AudioVoicePool | null = null;
+  private ctx: AudioContext | null = null;
+  private ownsPool: boolean = false;
 
   private lastStatePlayed: ChronoLifecycleState | null = null;
   private lastTelegraphPhasePlayed: ChronoTelegraphPhase | null = null;
@@ -209,29 +211,107 @@ export class ChronoHazardAudio {
 
   private sharedNoiseBuffer: AudioBuffer | null = null;
 
-  private constructor() {
-    this.voicePool = AudioVoicePool.getInstance();
+  constructor(poolOrCtx?: AudioVoicePool | AudioContext | null) {
+    if (poolOrCtx) {
+      if (poolOrCtx instanceof AudioVoicePool || ('acquireVoice' in poolOrCtx && 'playTone' in poolOrCtx)) {
+        this.bindPool(poolOrCtx as AudioVoicePool);
+      } else if (
+        ('createOscillator' in poolOrCtx && 'currentTime' in poolOrCtx) ||
+        (typeof AudioContext !== 'undefined' && (poolOrCtx as unknown) instanceof AudioContext)
+      ) {
+        this.init(poolOrCtx as AudioContext);
+      }
+    } else if (poolOrCtx === null) {
+      this.voicePool = null;
+    } else {
+      this.voicePool = AudioVoicePool.getInstance();
+    }
   }
 
-  public static getInstance(): ChronoHazardAudio {
+  public static getInstance(poolOrCtx?: AudioVoicePool | AudioContext | null): ChronoHazardAudio {
     if (!ChronoHazardAudio.instance) {
-      ChronoHazardAudio.instance = new ChronoHazardAudio();
+      ChronoHazardAudio.instance = new ChronoHazardAudio(poolOrCtx);
+    } else if (poolOrCtx) {
+      if (poolOrCtx instanceof AudioVoicePool || ('acquireVoice' in poolOrCtx && 'playTone' in poolOrCtx)) {
+        ChronoHazardAudio.instance.bindPool(poolOrCtx as AudioVoicePool);
+      } else if (typeof AudioContext !== 'undefined' && (poolOrCtx as unknown) instanceof AudioContext && !ChronoHazardAudio.instance.ctx) {
+        ChronoHazardAudio.instance.init(poolOrCtx);
+      }
     }
     return ChronoHazardAudio.instance;
   }
 
-  public setVoicePool(pool: AudioVoicePool | null): void {
-    this.voicePool = pool;
+  public static resetInstance(): void {
+    if (ChronoHazardAudio.instance) {
+      ChronoHazardAudio.instance.destroy();
+      ChronoHazardAudio.instance = null;
+    }
   }
 
-  private getAudioContext(): AudioContext | null {
-    if (this.voicePool) {
-      const ctx = this.voicePool.getAudioContext();
-      if (ctx && ctx.state !== 'closed') return ctx;
+  public init(ctx: AudioContext, pool?: AudioVoicePool): void {
+    this.ctx = ctx;
+    if (pool) {
+      this.bindPool(pool);
+      if (!pool.getAudioContext()) {
+        pool.init(ctx);
+      }
+      this.ownsPool = false;
+    } else if (!this.voicePool) {
+      this.voicePool = new AudioVoicePool(16);
+      this.voicePool.init(ctx);
+      this.ownsPool = true;
+    } else {
+      this.voicePool.init(ctx);
     }
-    if (typeof window !== 'undefined' && (window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)) {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      return new AudioCtx();
+
+    if (ctx && ctx.state === 'suspended' && typeof ctx.resume === 'function') {
+      ctx.resume().catch(() => {});
+    }
+  }
+
+  public bindPool(pool: AudioVoicePool): void {
+    if (this.ownsPool && this.voicePool && this.voicePool !== pool) {
+      this.voicePool.destroy();
+    }
+    this.voicePool = pool;
+    if (!this.ctx) {
+      this.ctx = pool.getAudioContext();
+    }
+    this.ownsPool = false;
+  }
+
+  public setVoicePool(pool: AudioVoicePool | null): void {
+    if (pool) {
+      this.bindPool(pool);
+    } else {
+      this.voicePool = null;
+    }
+  }
+
+  public getAudioContext(): AudioContext | null {
+    if (this.ctx && this.ctx.state !== 'closed') return this.ctx;
+    if (this.voicePool) {
+      const poolCtx = this.voicePool.getAudioContext();
+      if (poolCtx && poolCtx.state !== 'closed') {
+        this.ctx = poolCtx;
+        return this.ctx;
+      }
+    }
+    if (typeof window !== 'undefined') {
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (AudioCtx) {
+        try {
+          this.ctx = new AudioCtx();
+          if (this.voicePool) {
+            this.voicePool.init(this.ctx);
+          }
+          return this.ctx;
+        } catch {
+          return null;
+        }
+      }
     }
     return null;
   }
@@ -279,6 +359,10 @@ export class ChronoHazardAudio {
     this.voicePool?.playTone(CHRONO_AUDIO_PRESETS.TIME_COLLAPSE_CRACK);
     this.voicePool?.playTone(CHRONO_AUDIO_PRESETS.TIME_COLLAPSE_SUB_THUD);
     this.playFilteredNoiseBurst(800, 180, 0.28, 0.25);
+  }
+
+  public playTimeCollapse(): void {
+    this.playTimeCollapseImpact();
   }
 
   public playChronoSurgeDash(): void {
@@ -401,9 +485,16 @@ export class ChronoHazardAudio {
       const nodeRecord = { source, filter, gain, timeoutId: undefined as ReturnType<typeof setTimeout> | undefined };
       this.pendingNodes.add(nodeRecord);
 
+      let cleanedUp = false;
       const cleanup = () => {
-        if (nodeRecord.timeoutId) clearTimeout(nodeRecord.timeoutId);
+        if (cleanedUp) return;
+        cleanedUp = true;
+        if (nodeRecord.timeoutId) {
+          clearTimeout(nodeRecord.timeoutId);
+          nodeRecord.timeoutId = undefined;
+        }
         try {
+          source.onended = null;
           source.disconnect();
           filter.disconnect();
           gain.disconnect();
@@ -416,8 +507,12 @@ export class ChronoHazardAudio {
       source.onended = cleanup;
       nodeRecord.timeoutId = setTimeout(cleanup, Math.ceil(durationSec * 1000) + 150);
 
-      source.start();
-      source.stop(ctx.currentTime + durationSec);
+      try {
+        source.start();
+        source.stop(ctx.currentTime + durationSec);
+      } catch {
+        cleanup();
+      }
     } catch {
       // Safe fallback on headless / SSR environments
     }
@@ -425,8 +520,17 @@ export class ChronoHazardAudio {
 
   public clearPendingNodes(): void {
     for (const record of this.pendingNodes) {
-      if (record.timeoutId) clearTimeout(record.timeoutId);
+      if (record.timeoutId) {
+        clearTimeout(record.timeoutId);
+        record.timeoutId = undefined;
+      }
       try {
+        record.source.onended = null;
+        if (typeof record.source.stop === 'function') {
+          try {
+            record.source.stop();
+          } catch {}
+        }
         record.source.disconnect();
         record.filter?.disconnect();
         record.gain?.disconnect();
@@ -438,6 +542,9 @@ export class ChronoHazardAudio {
   }
 
   public reset(): void {
+    if (this.voicePool) {
+      this.voicePool.reset();
+    }
     this.clearPendingNodes();
     this.lastStatePlayed = null;
     this.lastTelegraphPhasePlayed = null;
@@ -445,9 +552,28 @@ export class ChronoHazardAudio {
     this.lastTickTimestampMs = 0;
   }
 
+  public disconnect(): void {
+    this.destroy();
+  }
+
   public destroy(): void {
     this.reset();
+    if (this.voicePool) {
+      if (this.ownsPool) {
+        this.voicePool.destroy();
+      } else {
+        this.voicePool.reset();
+      }
+      this.voicePool = null;
+    }
     this.sharedNoiseBuffer = null;
-    this.voicePool = null;
+    const closeable = this.ctx as unknown as { close?: () => Promise<void> } | null;
+    if (closeable && typeof closeable.close === 'function') {
+      try { void closeable.close().catch(() => {}); } catch {}
+    }
+    this.ctx = null;
+    if (ChronoHazardAudio.instance === this) {
+      ChronoHazardAudio.instance = null;
+    }
   }
 }

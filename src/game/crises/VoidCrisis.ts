@@ -321,7 +321,21 @@ export class VoidCrisis extends BaseCrisis {
     return true;
   }
 
-  protected onResolveObjective(): void {
-    // Handled in bomb blast
+  protected onResolveObjective(objectiveId: string, value?: number): void {
+    void value;
+    if (objectiveId === 'charge_prisms') {
+      const chargedCount = this.prisms.filter((p) => p.isCharged).length;
+      this.adjustThreat(-10 * chargedCount);
+      const obj = this.objectives.find((o) => o.id === 'charge_prisms');
+      if (obj && obj.isCompleted && !this.supernovaCleansed) {
+        this.triggerSupernovaCleanse();
+      }
+    } else if (objectiveId === 'defeat_avatar') {
+      this.adjustThreat(-50);
+      const obj = this.objectives.find((o) => o.id === 'defeat_avatar');
+      if (obj && obj.isCompleted && !this.isVictorious) {
+        this.resolveCrisis('Supernova Cleanse shattered the Void Avatar and purified the cosmos!');
+      }
+    }
   }
 }

@@ -34,14 +34,26 @@ export class ObjectPool<T> {
     resetArg?: (item: T) => void,
     capacityArg?: number
   ) {
-    const options: ObjectPoolOptions<T> =
-      typeof optionsOrFactory === 'function'
-        ? {
-            factory: optionsOrFactory,
-            reset: resetArg,
-            capacity: capacityArg ?? 64,
-          }
-        : optionsOrFactory;
+    let options: ObjectPoolOptions<T>;
+    if (typeof optionsOrFactory === 'function') {
+      if (typeof resetArg === 'object' && resetArg !== null) {
+        const obj = resetArg as Record<string, unknown>;
+        options = {
+          factory: optionsOrFactory,
+          reset: typeof obj.reset === 'function' ? (obj.reset as (item: T) => void) : undefined,
+          onAcquire: typeof obj.onAcquire === 'function' ? (obj.onAcquire as (item: T) => void) : undefined,
+          capacity: typeof obj.capacity === 'number' ? obj.capacity : (typeof capacityArg === 'number' ? capacityArg : 64),
+        };
+      } else {
+        options = {
+          factory: optionsOrFactory,
+          reset: typeof resetArg === 'function' ? resetArg : undefined,
+          capacity: typeof capacityArg === 'number' ? capacityArg : 64,
+        };
+      }
+    } else {
+      options = optionsOrFactory;
+    }
 
     if (!options || typeof options.capacity !== 'number' || !Number.isFinite(options.capacity) || options.capacity <= 0 || !Number.isInteger(options.capacity)) {
       throw new Error(`ObjectPool capacity must be greater than 0, got ${options?.capacity}`);
@@ -289,6 +301,10 @@ export class ObjectPool<T> {
     this.acquireCallback = undefined;
   }
 
+  public clear(): void {
+    this.reset();
+  }
+
   public dispose(): void {
     this.destroy();
   }
@@ -305,4 +321,7 @@ export const POOL_PRESETS = {
   FLOATING_TEXT: 32,
   GHOST_BOMBS: 16,
   HAZARD_BEAM_TILES: 32,
+  GRAPHICS: 128,
+  SHADOWS: 128,
+  DEBRIS: 256,
 } as const;

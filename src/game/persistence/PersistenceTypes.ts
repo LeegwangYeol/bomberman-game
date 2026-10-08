@@ -5,10 +5,16 @@
 
 import type { PlayerStats } from '../gameplay_mechanics.ts';
 import { GameModeType } from '../progression/ProgressionTypes.ts';
+export { GameModeType };
 import type {
   MetaProfile,
   RunProgressionState,
 } from '../progression/ProgressionTypes.ts';
+import type {
+  SerializedCrisisState,
+  SituationLogState,
+} from '../crises/CrisisTypes.ts';
+export type { SerializedCrisisState, SituationLogState };
 
 export const STORAGE_KEY_ACTIVE_RUN = 'bomberman_save_active';
 export const STORAGE_KEY_META_PROFILE = 'bomberman_profile_v1';
@@ -97,6 +103,8 @@ export interface SerializedRunState {
   activeEntities: SerializedEntity[];
   activeItems: SerializedItem[];
   progression?: RunProgressionState;
+  crisis?: SerializedCrisisState | null;
+  situationLog?: SituationLogState | null;
   checksum: string;
 }
 

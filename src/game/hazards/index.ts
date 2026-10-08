@@ -74,6 +74,7 @@ export {
   BOSS_GLACIAL_DAMAGE_RATIO,
   BOSS_DEEP_FREEZE_STUN_MS,
   BOSS_GLACIAL_STASIS_STUN_MS,
+  BOMB_KICK_FROST_SPEED,
   TOTAL_TILES,
 } from './FrostHazard.ts';
 export type {

@@ -361,6 +361,7 @@ export const UltimateEngine = UltimateEngineSimulator;
 export class WebAudioSynth {
   private ctx: AudioContext | null = null;
   private timeouts: Set<ReturnType<typeof setTimeout>> = new Set();
+  private readonly activeNodes: Set<AudioNode> = new Set();
 
   private safeTimeout(fn: () => void, delayMs: number): void {
     const tid = setTimeout(() => {
@@ -370,14 +371,53 @@ export class WebAudioSynth {
     this.timeouts.add(tid);
   }
 
-  private wireAutoDisconnect(osc: OscillatorNode, gain: GainNode, filter?: BiquadFilterNode): void {
-    osc.onended = () => {
+  private wireAutoDisconnect(
+    osc: OscillatorNode,
+    gain: GainNode,
+    filter?: BiquadFilterNode,
+    durationSec?: number
+  ): void {
+    this.activeNodes.add(osc);
+    this.activeNodes.add(gain);
+    if (filter) this.activeNodes.add(filter);
+
+    let disconnected = false;
+    let tid: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = () => {
+      if (disconnected) return;
+      disconnected = true;
+
+      if (tid !== null) {
+        clearTimeout(tid);
+        this.timeouts.delete(tid);
+      }
+
+      try {
+        osc.onended = null;
+      } catch {}
       try {
         osc.disconnect();
-        if (filter) filter.disconnect();
+      } catch {}
+      if (filter) {
+        try {
+          filter.disconnect();
+        } catch {}
+      }
+      try {
         gain.disconnect();
       } catch {}
+
+      this.activeNodes.delete(osc);
+      this.activeNodes.delete(gain);
+      if (filter) this.activeNodes.delete(filter);
     };
+
+    osc.onended = cleanup;
+    if (durationSec !== undefined && Number.isFinite(durationSec) && durationSec > 0) {
+      tid = setTimeout(cleanup, Math.ceil((durationSec + 0.1) * 1000));
+      this.timeouts.add(tid);
+    }
   }
 
   private getContext(): AudioContext | null {
@@ -416,7 +456,7 @@ export class WebAudioSynth {
       gain.gain.linearRampToValueAtTime(0.01, now + 0.45);
       osc.connect(gain);
       gain.connect(ctx.destination);
-      this.wireAutoDisconnect(osc, gain);
+      this.wireAutoDisconnect(osc, gain, undefined, 0.45);
       osc.start(now);
       osc.stop(now + 0.45);
 
@@ -444,7 +484,7 @@ export class WebAudioSynth {
       gain.gain.linearRampToValueAtTime(0.35, now + 0.28);
       osc.connect(gain);
       gain.connect(ctx.destination);
-      this.wireAutoDisconnect(osc, gain);
+      this.wireAutoDisconnect(osc, gain, undefined, 0.28);
       osc.start(now);
       osc.stop(now + 0.28);
 
@@ -471,7 +511,7 @@ export class WebAudioSynth {
 
       osc.connect(gain);
       gain.connect(ctx.destination);
-      this.wireAutoDisconnect(osc, gain);
+      this.wireAutoDisconnect(osc, gain, undefined, duration);
       osc.start(now);
       osc.stop(now + duration);
     } catch {}
@@ -501,7 +541,7 @@ export class WebAudioSynth {
       osc.connect(filter);
       filter.connect(gain);
       gain.connect(ctx.destination);
-      this.wireAutoDisconnect(osc, gain, filter);
+      this.wireAutoDisconnect(osc, gain, filter, 0.35);
 
       osc.start(now);
       osc.stop(now + 0.35);
@@ -522,7 +562,7 @@ export class WebAudioSynth {
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
       osc.connect(gain);
       gain.connect(ctx.destination);
-      this.wireAutoDisconnect(osc, gain);
+      this.wireAutoDisconnect(osc, gain, undefined, 0.04);
       osc.start(now);
       osc.stop(now + 0.04);
     } catch {}
@@ -549,7 +589,7 @@ export class WebAudioSynth {
         gain.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
         osc.connect(gain);
         gain.connect(ctx.destination);
-        this.wireAutoDisconnect(osc, gain);
+        this.wireAutoDisconnect(osc, gain, undefined, 0.07 + idx * 0.04);
         osc.start(now);
         osc.stop(now + 0.07);
       });
@@ -577,7 +617,7 @@ export class WebAudioSynth {
         gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
         osc.connect(gain);
         gain.connect(ctx.destination);
-        this.wireAutoDisconnect(osc, gain);
+        this.wireAutoDisconnect(osc, gain, undefined, 0.35 + idx * 0.06);
         osc.start(now);
         osc.stop(now + 0.35);
       });
@@ -599,7 +639,7 @@ export class WebAudioSynth {
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
       osc.connect(gain);
       gain.connect(ctx.destination);
-      this.wireAutoDisconnect(osc, gain);
+      this.wireAutoDisconnect(osc, gain, undefined, 0.15);
       osc.start(now);
       osc.stop(now + 0.15);
     } catch {}
@@ -621,18 +661,43 @@ export class WebAudioSynth {
         gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
         osc.connect(gain);
         gain.connect(ctx.destination);
-        this.wireAutoDisconnect(osc, gain);
+        this.wireAutoDisconnect(osc, gain, undefined, 0.25 + idx * 0.08);
         osc.start(now);
         osc.stop(now + 0.25);
       });
     } catch {}
   }
 
-  public destroy(): void {
+  public clearPendingNodes(): void {
     for (const tid of this.timeouts) {
       clearTimeout(tid);
     }
     this.timeouts.clear();
+
+    for (const node of this.activeNodes) {
+      try {
+        const endedNode = node as unknown as { onended?: (() => void) | null };
+        if ('onended' in node) {
+          endedNode.onended = null;
+        }
+        const stoppableNode = node as unknown as { stop?: () => void };
+        if ('stop' in node && typeof stoppableNode.stop === 'function') {
+          try {
+            stoppableNode.stop();
+          } catch {}
+        }
+        node.disconnect();
+      } catch {}
+    }
+    this.activeNodes.clear();
+  }
+
+  public stop(): void {
+    this.clearPendingNodes();
+  }
+
+  public destroy(): void {
+    this.clearPendingNodes();
     if (this.ctx) {
       try {
         this.ctx.close().catch(() => {});
@@ -652,6 +717,21 @@ export const webAudioSynth = new WebAudioSynth();
  * PROCEDURAL VFX & GRAPHICS GENERATION HELPERS
  * ============================================================================== */
 
+interface ISceneVfxPools {
+  graphicsPool?: {
+    acquire: () => Phaser.GameObjects.Graphics;
+    release: (g: Phaser.GameObjects.Graphics) => void;
+  };
+  circlePool?: {
+    acquire: () => Phaser.GameObjects.Arc;
+    release: (c: Phaser.GameObjects.Arc) => void;
+  };
+  rectPool?: {
+    acquire: () => Phaser.GameObjects.Rectangle;
+    release: (r: Phaser.GameObjects.Rectangle) => void;
+  };
+}
+
 export interface PlayerLike {
   x: number;
   y: number;
@@ -669,7 +749,11 @@ export function renderMeteorReticle(
   onImpact?: () => void
 ): Phaser.GameObjects.Graphics | null {
   if (!scene || !scene.add || !scene.time) return null;
-  const g = scene.add.graphics();
+  const pool = (scene as unknown as ISceneVfxPools).graphicsPool;
+  const g: Phaser.GameObjects.Graphics | null = pool ? pool.acquire() : scene.add.graphics();
+  if (!g) return null;
+  if (typeof g.setActive === 'function') g.setActive(true);
+  if (typeof g.setVisible === 'function') g.setVisible(true);
   g.setDepth(20);
 
   let elapsed = 0;
@@ -709,7 +793,8 @@ export function renderMeteorReticle(
       g.fillCircle(targetX, targetY, 3);
 
       if (progress >= 1.0) {
-        g.destroy();
+        if (pool) pool.release(g);
+        else g.destroy();
         timer.remove();
         if (onImpact) onImpact();
       }
@@ -732,43 +817,72 @@ export function renderMeteorStreak(
 
   const startX = targetX - 80;
   const startY = targetY - 260;
+  const cPool = (scene as unknown as ISceneVfxPools).circlePool;
 
-  const meteor = scene.add.circle(startX, startY, 9, 0xffedd5, 1.0);
-  meteor.setDepth(RENDER_DEPTH.EXPLOSIONS + 5);
+  const meteor = cPool ? cPool.acquire() : scene.add.circle(startX, startY, 9, 0xffedd5, 1.0);
+  if (meteor) {
+    if (typeof meteor.setActive === 'function') meteor.setActive(true);
+    if (typeof meteor.setVisible === 'function') meteor.setVisible(true);
+    if (typeof meteor.setPosition === 'function') meteor.setPosition(startX, startY);
+    if (typeof meteor.setRadius === 'function') meteor.setRadius(9);
+    if (typeof meteor.setFillStyle === 'function') meteor.setFillStyle(0xffedd5, 1.0);
+    if (typeof meteor.setAlpha === 'function') meteor.setAlpha(1);
+    if (typeof meteor.setScale === 'function') meteor.setScale(1);
+    if (typeof meteor.setDepth === 'function') meteor.setDepth(RENDER_DEPTH.EXPLOSIONS + 5);
+  }
 
   // Flaming corona
-  const corona = scene.add.circle(startX, startY, 16, 0xf97316, 0.6);
-  corona.setDepth(RENDER_DEPTH.EXPLOSIONS + 5);
+  const corona = cPool ? cPool.acquire() : scene.add.circle(startX, startY, 16, 0xf97316, 0.6);
+  if (corona) {
+    if (typeof corona.setActive === 'function') corona.setActive(true);
+    if (typeof corona.setVisible === 'function') corona.setVisible(true);
+    if (typeof corona.setPosition === 'function') corona.setPosition(startX, startY);
+    if (typeof corona.setRadius === 'function') corona.setRadius(16);
+    if (typeof corona.setFillStyle === 'function') corona.setFillStyle(0xf97316, 0.6);
+    if (typeof corona.setAlpha === 'function') corona.setAlpha(0.6);
+    if (typeof corona.setScale === 'function') corona.setScale(1);
+    if (typeof corona.setDepth === 'function') corona.setDepth(RENDER_DEPTH.EXPLOSIONS + 5);
+  }
 
+  const targets = [meteor, corona].filter(Boolean);
   scene.tweens.add({
-    targets: [meteor, corona],
+    targets,
     x: targetX,
     y: targetY,
     duration: 280,
     ease: 'Quad.easeIn',
     onUpdate: () => {
       // Spawn trail ember
-      if (scene.add && scene.tweens && Math.random() < 0.7) {
-        const ember = scene.add.circle(
-          meteor.x + (Math.random() - 0.5) * 8,
-          meteor.y + (Math.random() - 0.5) * 8,
-          Math.floor(Math.random() * 4) + 2,
-          0xfbbf24,
-          0.8
-        );
-        ember.setDepth(RENDER_DEPTH.EXPLOSIONS + 5);
-        scene.tweens.add({
-          targets: ember,
-          alpha: 0,
-          scale: 0.1,
-          duration: 200,
-          onComplete: () => ember.destroy(),
-        });
+      if (scene.tweens && Math.random() < 0.7 && meteor) {
+        const ember = cPool ? cPool.acquire() : null;
+        if (ember) {
+          const r = Math.floor(Math.random() * 4) + 2;
+          ember.setActive(true).setVisible(true)
+            .setPosition(meteor.x + (Math.random() - 0.5) * 8, meteor.y + (Math.random() - 0.5) * 8)
+            .setRadius(r).setFillStyle(0xfbbf24, 0.8).setAlpha(0.8).setScale(1);
+          ember.setDepth(RENDER_DEPTH.EXPLOSIONS + 5);
+          scene.tweens.add({
+            targets: ember,
+            alpha: 0,
+            scale: 0.1,
+            duration: 200,
+            onComplete: () => {
+              if (cPool) cPool.release(ember);
+              else ember.destroy();
+            },
+          });
+        }
       }
     },
     onComplete: () => {
-      meteor.destroy();
-      corona.destroy();
+      if (meteor) {
+        if (cPool) cPool.release(meteor);
+        else meteor.destroy();
+      }
+      if (corona) {
+        if (cPool) cPool.release(corona);
+        else corona.destroy();
+      }
       if (onTouchdown) onTouchdown();
     },
   });
@@ -785,7 +899,11 @@ export function renderSuperNovaWave(
   durationMs: number = 320
 ): void {
   if (!scene || !scene.add || !scene.tweens) return;
-  const g = scene.add.graphics();
+  const pool = (scene as unknown as ISceneVfxPools).graphicsPool;
+  const g = pool ? pool.acquire() : scene.add.graphics();
+  if (!g) return;
+  if (typeof g.setActive === 'function') g.setActive(true);
+  if (typeof g.setVisible === 'function') g.setVisible(true);
   g.setDepth(RENDER_DEPTH.SHOCKWAVES);
 
   const colors = [0xffffff, 0xfbbf24, 0xf43f5e];
@@ -815,7 +933,10 @@ export function renderSuperNovaWave(
       g.strokeCircle(centerX, centerY, pOuter * (maxRadius * 0.7));
     },
     onComplete: () => {
-      if (g && g.active) g.destroy();
+      if (g && g.active) {
+        if (pool) pool.release(g);
+        else g.destroy();
+      }
     },
   });
 }
@@ -826,7 +947,10 @@ export function renderSuperNovaWave(
 export function renderChronoStasisVFX(scene: Phaser.Scene, durationMs: number = 5000): { destroy: () => void } {
   if (!scene || !scene.add || !scene.time || !scene.scale) return { destroy: () => {} };
 
-  const overlay = scene.add.rectangle(
+  const rPool = (scene as unknown as ISceneVfxPools).rectPool;
+  const gPool = (scene as unknown as ISceneVfxPools).graphicsPool;
+
+  const overlay = rPool ? rPool.acquire() : scene.add.rectangle(
     scene.scale.width / 2,
     scene.scale.height / 2,
     scene.scale.width * 2,
@@ -834,17 +958,36 @@ export function renderChronoStasisVFX(scene: Phaser.Scene, durationMs: number = 
     0x0284c7,
     0.28
   );
-  overlay.setDepth(RENDER_DEPTH.SCREEN_OVERLAY);
+  if (overlay) {
+    if (typeof overlay.setActive === 'function') overlay.setActive(true);
+    if (typeof overlay.setVisible === 'function') overlay.setVisible(true);
+    if (typeof overlay.setPosition === 'function') overlay.setPosition(scene.scale.width / 2, scene.scale.height / 2);
+    if (typeof overlay.setSize === 'function') overlay.setSize(scene.scale.width * 2, scene.scale.height * 2);
+    if (typeof overlay.setFillStyle === 'function') overlay.setFillStyle(0x0284c7, 0.28);
+    if (typeof overlay.setAlpha === 'function') overlay.setAlpha(0.28);
+    if (typeof overlay.setDepth === 'function') overlay.setDepth(RENDER_DEPTH.SCREEN_OVERLAY);
+  }
 
   // Vignette border
-  const border = scene.add.graphics();
-  border.setDepth(RENDER_DEPTH.SCREEN_OVERLAY);
-  border.lineStyle(6, 0x38bdf8, 0.75);
-  border.strokeRect(4, 4, scene.scale.width - 8, scene.scale.height - 8);
+  const border = gPool ? gPool.acquire() : scene.add.graphics();
+  if (border) {
+    if (typeof border.setActive === 'function') border.setActive(true);
+    if (typeof border.setVisible === 'function') border.setVisible(true);
+    if (typeof border.setDepth === 'function') border.setDepth(RENDER_DEPTH.SCREEN_OVERLAY);
+    if (typeof border.clear === 'function') border.clear();
+    if (typeof border.lineStyle === 'function') border.lineStyle(6, 0x38bdf8, 0.75);
+    if (typeof border.strokeRect === 'function') border.strokeRect(4, 4, scene.scale.width - 8, scene.scale.height - 8);
+  }
 
   const cleanup = () => {
-    if (overlay && overlay.active) overlay.destroy();
-    if (border && border.active) border.destroy();
+    if (overlay && overlay.active) {
+      if (rPool) rPool.release(overlay);
+      else overlay.destroy();
+    }
+    if (border && border.active) {
+      if (gPool) gPool.release(border);
+      else border.destroy();
+    }
   };
 
   scene.time.delayedCall(durationMs, cleanup);
@@ -862,8 +1005,14 @@ export function renderScorchDecal(
   durationMs: number = 2000
 ): void {
   if (!scene || !scene.add || !scene.tweens) return;
-  const decal = scene.add.graphics();
+  const pool = (scene as unknown as ISceneVfxPools).graphicsPool;
+  const decal = pool ? pool.acquire() : scene.add.graphics();
+  if (!decal) return;
+  if (typeof decal.setActive === 'function') decal.setActive(true);
+  if (typeof decal.setVisible === 'function') decal.setVisible(true);
   decal.setDepth(2); // Just above floor tiles
+  decal.clear();
+  decal.setAlpha(1);
   decal.fillStyle(0x18181b, 0.75);
   decal.fillCircle(x, y, 16);
 
@@ -876,7 +1025,12 @@ export function renderScorchDecal(
     alpha: 0,
     duration: durationMs,
     ease: 'Quad.easeOut',
-    onComplete: () => decal.destroy(),
+    onComplete: () => {
+      if (decal && decal.active) {
+        if (pool) pool.release(decal);
+        else decal.destroy();
+      }
+    },
   });
 }
 
@@ -889,17 +1043,28 @@ export function createAegisDomeVisual(
 ): { update: (remainingMs: number) => void; destroy: () => void } {
   if (!scene || !scene.add) return { update: () => {}, destroy: () => {} };
 
-  const g = scene.add.graphics();
+  const pool = (scene as unknown as ISceneVfxPools).graphicsPool;
+  const g = pool ? pool.acquire() : scene.add.graphics();
+  if (!g) return { update: () => {}, destroy: () => {} };
+  if (typeof g.setActive === 'function') g.setActive(true);
+  if (typeof g.setVisible === 'function') g.setVisible(true);
   g.setDepth(15);
 
   let angle = 0;
+
+  const destroy = () => {
+    if (g && g.active) {
+      if (pool) pool.release(g);
+      else g.destroy();
+    }
+  };
 
   const update = (remainingMs: number) => {
     if (!g || !g.active || !player || !player.active) return;
     g.clear();
 
     if (remainingMs <= 0) {
-      g.destroy();
+      destroy();
       return;
     }
 
@@ -933,10 +1098,6 @@ export function createAegisDomeVisual(
       g.fillStyle(0xffffff, 0.9);
       g.fillCircle(mx, my, 2.5);
     }
-  };
-
-  const destroy = () => {
-    if (g && g.active) g.destroy();
   };
 
   return { update, destroy };

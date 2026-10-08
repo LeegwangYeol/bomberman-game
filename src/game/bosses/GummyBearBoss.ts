@@ -175,8 +175,10 @@ export class GummyBearBoss extends BaseBoss {
   }
 
   protected override onHitReceived(damage: number, isChained: boolean): void {
-    void damage;
-    void isChained;
+    if (isChained) {
+      this.isSquashedPancake = true;
+    }
+    this.currentSpeed = Math.max(30, this.currentSpeed - damage * 2);
   }
 
   protected override onDamageBlocked(): void {

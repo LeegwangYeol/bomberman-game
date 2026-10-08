@@ -12,6 +12,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+if (!globalThis.window) globalThis.window = globalThis;
+
 import {
   SpatialSeparationGrid,
   resolveEntitySeparation,

@@ -851,4 +851,8 @@ export class VoltHazard {
   public getSafeAreaRatio(): number {
     return this.calculateSafeAreaRatio();
   }
+
+  public getDangerMask(): Uint8Array {
+    return this.dangerMask;
+  }
 }

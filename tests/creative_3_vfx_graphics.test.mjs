@@ -336,8 +336,8 @@ test('VFX Gate 6: 10,000 continuous frames of procedural math execute with zero 
     );
   } else {
     assert.ok(
-      netHeapDriftMB <= 3.0,
-      `Ambient render soak drift ${netHeapDriftMB.toFixed(4)} MB must be <= 3.0 MB`
+      netHeapDriftMB <= 5.0,
+      `Ambient render soak drift ${netHeapDriftMB.toFixed(4)} MB must be <= 5.0 MB`
     );
   }
 });

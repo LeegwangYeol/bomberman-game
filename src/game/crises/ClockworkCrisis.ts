@@ -278,7 +278,17 @@ export class ClockworkCrisis extends BaseCrisis {
     );
   }
 
-  protected onResolveObjective(): void {
-    // Handled in bomb blast / emp
+  protected onResolveObjective(objectiveId: string, value?: number): void {
+    void value;
+    if (objectiveId === 'dynamo_overload') {
+      const activeHits = this.conduits.filter((c) => c.isHit).length;
+      this.adjustThreat(-5 * activeHits);
+      const obj = this.objectives.find((o) => o.id === 'dynamo_overload');
+      if (obj && obj.isCompleted && !this.isVictorious) {
+        this.resolveCrisis('Dynamo Overload short-circuited the Steam Toy Titan and dismantled the mechanical rebellion!');
+      }
+    } else if (objectiveId === 'survive_emp') {
+      this.adjustThreat(-5);
+    }
   }
 }

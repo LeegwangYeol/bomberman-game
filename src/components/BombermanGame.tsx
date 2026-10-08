@@ -264,8 +264,8 @@ export default function BombermanGame() {
       navigator.clipboard.writeText(exportJsonString).then(() => {
         setCopiedExport(true);
         setTimeout(() => setCopiedExport(false), 2000);
-      }).catch(() => {
-        // Clipboard access rejected or headless environment
+      }).catch((err) => {
+        console.warn('Clipboard write access rejected or unavailable:', err);
       });
     }
   }, [exportJsonString]);
@@ -1249,7 +1249,7 @@ export default function BombermanGame() {
           <div className="absolute bottom-2 right-2 w-2.5 h-2.5 rounded-full bg-slate-600 border border-slate-400/40 shadow-inner" />
           {/* Dynamic Boss HUD Overlay */}
           {bossHudState && bossHudState.isActive && (
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 w-[92%] max-w-md z-30 bg-slate-950/90 backdrop-blur-md rounded-xl border border-rose-500/50 p-2.5 shadow-2xl shadow-rose-950/50 pointer-events-none">
+            <div className="absolute top-3 sm:top-4 left-1/2 -translate-x-1/2 w-[92%] max-w-md z-35 bg-slate-950/90 backdrop-blur-md rounded-xl border border-rose-500/50 p-2.5 shadow-2xl shadow-rose-950/50 pointer-events-none transition-all duration-300">
               {/* Nameplate & State Badges */}
               <div className="flex items-center justify-between gap-2 mb-1.5">
                 <div className="flex items-center gap-2">
@@ -1273,21 +1273,30 @@ export default function BombermanGame() {
                 </div>
               </div>
 
-              {/* Segmented HP Bars */}
-              <div className="flex gap-1 h-3.5 bg-slate-900 rounded-full p-0.5 border border-slate-700 overflow-hidden mb-1.5">
+              {/* Segmented Phase Health Bars */}
+              <div className="flex gap-1.5 h-4 bg-slate-900 rounded-full p-0.5 border border-slate-700 overflow-hidden mb-1.5 shadow-inner">
                 {bossHudState.phaseHpSegments.map((segMax, idx) => {
-                  const isPassed = idx < bossHudState.activeSegmentIndex;
+                  const safeMax = Math.max(1, segMax);
+                  const isDepleted = idx > bossHudState.activeSegmentIndex;
                   const isCurrent = idx === bossHudState.activeSegmentIndex;
-                  const pct = isPassed ? 0 : isCurrent ? (bossHudState.activeSegmentHp / segMax) * 100 : 100;
+                  const pct = isDepleted ? 0 : isCurrent ? Math.max(0, Math.min(100, (bossHudState.activeSegmentHp / safeMax) * 100)) : 100;
                   return (
-                    <div key={idx} className="flex-1 bg-slate-800 rounded-full overflow-hidden relative">
+                    <div
+                      key={idx}
+                      className={`flex-1 bg-slate-800 rounded-full overflow-hidden relative ${
+                        isCurrent ? 'ring-1 ring-white/50 shadow-[0_0_8px_rgba(239,68,68,0.5)]' : ''
+                      }`}
+                    >
                       <div
                         className="h-full transition-all duration-200"
                         style={{
                           width: `${pct}%`,
-                          backgroundColor: bossHudState.themeColor || '#ef4444',
+                          backgroundColor: isCurrent ? (bossHudState.themeColor || '#ef4444') : isDepleted ? '#1e293b' : '#3b82f6',
                         }}
                       />
+                      <span className="absolute inset-0 flex items-center justify-center text-[8px] font-mono font-bold text-white/70 select-none pointer-events-none">
+                        P{idx + 1}
+                      </span>
                     </div>
                   );
                 })}
@@ -1307,9 +1316,13 @@ export default function BombermanGame() {
             </div>
           )}
 
-          {/* Dynamic Stellaris Situation Log HUD Overlay */}
+          {/* Dynamic Stellaris Situation Log HUD Overlay (staggered below Boss HUD if both active for zero occlusion) */}
           {situationLogState && situationLogState.isActive && (
-            <div className="absolute top-3 left-1/2 -translate-x-1/2 w-[94%] max-w-lg z-30 bg-slate-950/95 backdrop-blur-md rounded-xl border border-purple-500/60 p-3 shadow-2xl shadow-purple-950/70 pointer-events-none ring-1 ring-purple-400/30">
+            <div
+              className={`absolute left-1/2 -translate-x-1/2 w-[94%] max-w-lg z-30 bg-slate-950/95 backdrop-blur-md rounded-xl border border-purple-500/60 p-3 shadow-2xl shadow-purple-950/70 pointer-events-none ring-1 ring-purple-400/30 transition-all duration-300 ${
+                bossHudState && bossHudState.isActive ? 'top-28 sm:top-32' : 'top-3 sm:top-4'
+              }`}
+            >
               {/* Header: Crisis Name, Stage Badge, Countdown & Threat Level */}
               <div className="flex items-center justify-between gap-2 mb-2">
                 <div className="flex items-center gap-2">
