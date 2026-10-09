@@ -329,6 +329,9 @@ export class CrisisManager {
       this.activeCrisis.reset();
       this.activeCrisis = null;
     }
+    for (const crisis of this.crisesRegistry.values()) {
+      crisis.reset();
+    }
     this.totalCrisesResolved = 0;
     this.hasCountedResolution = false;
     this.previousStage = CrisisStage.INACTIVE;

@@ -1086,15 +1086,22 @@ function populateMaskFromSetOrArray(
   source: Set<string> | Uint8Array | FlatHazardMask | null | undefined,
   outMask: Uint8Array
 ): void {
-  outMask.fill(0);
-  if (!source) return;
+  if (source === outMask) return;
+  if (!source) {
+    outMask.fill(0);
+    return;
+  }
   if (source instanceof FlatHazardMask) {
+    if (source.mask === outMask) return;
+    outMask.fill(0);
     const copyLen = Math.min(outMask.length, source.length);
     outMask.set(source.mask.subarray(0, copyLen));
   } else if (source instanceof Uint8Array) {
+    outMask.fill(0);
     const copyLen = Math.min(outMask.length, source.length);
     outMask.set(source.subarray(0, copyLen));
   } else if (source instanceof Set) {
+    outMask.fill(0);
     for (const key of source) {
       const comma = key.indexOf(',');
       if (comma !== -1) {

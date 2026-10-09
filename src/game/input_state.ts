@@ -137,17 +137,23 @@ export function resolveJoystickVector(
     result.distance = 0;
     return result;
   }
+
+  const distance = Math.sqrt(distSq);
+  result.distance = distance;
+
+  // Sub-deadzone check with float tolerance to ensure exact boundary radius (e.g. 5.0px) is active
   const deadzoneSq = effectiveDeadzone * effectiveDeadzone;
-  if (distSq < deadzoneSq) {
+  if (effectiveDeadzone > 0 ? distSq < deadzoneSq - 1e-7 : distSq <= 1e-12) {
     result.up = false;
     result.down = false;
     result.left = false;
     result.right = false;
     result.angle = 0;
-    result.distance = Math.sqrt(distSq);
+    if (distSq <= 1e-12) {
+      result.distance = 0;
+    }
     return result;
   }
-  const distance = Math.sqrt(distSq);
 
   // Math.atan2(dy, dx) returns radians. In standard screen coordinates, dy points downwards.
   // Converting screen dy (inverted y) to standard mathematical angle (0=Right, 90=Up, 180=Left, 270=Down):

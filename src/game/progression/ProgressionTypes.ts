@@ -130,6 +130,8 @@ export interface WaveMutator {
     bombDriftPxPerSec?: number;
     coronalPulseIntervalMs?: number;
     bombKickRebounds?: number;
+    solarFlareIntensityMultiplier?: number;
+    photonSlipstreamMultiplier?: number;
   };
 }
 

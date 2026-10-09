@@ -48,6 +48,18 @@ import {
   ChronoTelegraphPhase,
   ChronoDangerValue,
 } from './ChronoHazard.ts';
+import {
+  GravityHazard,
+  GravityLifecycleState,
+  AccretionPhase,
+  GravityDangerValue,
+} from './GravityHazard.ts';
+import {
+  SolarHazard,
+  SolarLifecycleState,
+  SolarTelegraphPhase,
+  SolarDangerValue,
+} from './SolarHazard.ts';
 
 export interface HazardRendererContext {
   dynamicHazard?: DynamicHazard | null;
@@ -56,6 +68,8 @@ export interface HazardRendererContext {
   magmaHazard?: MagmaHazard | null;
   miasmaHazard?: MiasmaHazard | null;
   chronoHazard?: ChronoHazard | null;
+  gravityHazard?: GravityHazard | null;
+  solarHazard?: SolarHazard | null;
 }
 
 export class HazardRenderer {
@@ -73,6 +87,8 @@ export class HazardRenderer {
     const mState = context.magmaHazard?.getState();
     const miState = context.miasmaHazard?.getState();
     const cState = context.chronoHazard?.getState();
+    const gState = context.gravityHazard?.getState();
+    const sState = context.solarHazard?.getState();
 
     const hasDynamic = context.dynamicHazard && dState !== HazardLifecycleState.INACTIVE;
     const hasFrost = context.frostHazard && fState !== FrostLifecycleState.DORMANT && fState !== FrostLifecycleState.THAW_COOLDOWN;
@@ -80,8 +96,10 @@ export class HazardRenderer {
     const hasMagma = context.magmaHazard && mState !== MagmaLifecycleState.DORMANT && mState !== MagmaLifecycleState.OBSIDIAN_COOLDOWN;
     const hasMiasma = context.miasmaHazard && miState !== MiasmaLifecycleState.DORMANT && miState !== MiasmaLifecycleState.SPORE_DISSIPATION;
     const hasChrono = context.chronoHazard && cState !== ChronoLifecycleState.DORMANT && cState !== ChronoLifecycleState.TACHYON_RECOVERY;
+    const hasGravity = context.gravityHazard && gState !== GravityLifecycleState.DORMANT && gState !== GravityLifecycleState.COOLDOWN;
+    const hasSolar = context.solarHazard && sState !== SolarLifecycleState.DORMANT && sState !== SolarLifecycleState.CORONA_RECOVERY;
 
-    if (!hasDynamic && !hasFrost && !hasVolt && !hasMagma && !hasMiasma && !hasChrono) return;
+    if (!hasDynamic && !hasFrost && !hasVolt && !hasMagma && !hasMiasma && !hasChrono && !hasGravity && !hasSolar) return;
 
     // 1. Dynamic Hazard (Quantum Spires & Beams)
     if (hasDynamic && context.dynamicHazard) {
@@ -368,6 +386,53 @@ export class HazardRenderer {
           graphics.fillStyle(0x6366f1, alpha);
           graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
           graphics.lineStyle(1.5, 0xa5b4fc, 0.75);
+          graphics.strokeCircle(cx, cy, 7);
+        }
+      }
+    }
+
+    // 7. Solar Hazard (Solar Corona & Coronal Flare)
+    if (hasSolar && context.solarHazard) {
+      const activeIndices = context.solarHazard.getActiveSolarIndices();
+      const activeCount = context.solarHazard.getActiveSolarCount();
+      const dangerMask = context.solarHazard.getDangerMask();
+      const phase = context.solarHazard.getTelegraphPhase();
+      const isBurst = context.solarHazard.getState() === SolarLifecycleState.SUPERHEAT_FLARE;
+
+      for (let i = 0; i < activeCount; i++) {
+        const idx = activeIndices[i];
+        const r = (idx / COLS) | 0;
+        const c = idx % COLS;
+        const left = c * TILE_SIZE;
+        const top = r * TILE_SIZE;
+        const cx = left + TILE_SIZE / 2;
+        const cy = top + TILE_SIZE / 2;
+        const maskVal = dangerMask[idx];
+
+        if (maskVal === SolarDangerValue.ANCHOR) {
+          // Stabilized solar calm: serene golden-amber harmonic field
+          graphics.fillStyle(0xfbbf24, 0.30);
+          graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          graphics.lineStyle(1.5, 0xfde047, 0.75);
+          graphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        } else if (isBurst || maskVal === SolarDangerValue.FLARE) {
+          // Lethal Superheat Flare: blinding white-gold core with radiant sunburst outer stroke
+          const pulse = 0.8 + 0.2 * Math.sin(time / 20);
+          graphics.fillStyle(0xffffff, 0.95);
+          graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          graphics.lineStyle(2.5, 0xf97316, 0.95 * pulse);
+          graphics.strokeRect(left + 1, top + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+        } else {
+          // Telegraph phases: progressive golden/orange corona with sunburst pip
+          const alpha =
+            phase === SolarTelegraphPhase.SOLAR_WHISPER
+              ? 0.18
+              : phase === SolarTelegraphPhase.CORONA_SURGE
+              ? 0.36
+              : 0.40; // SUPERHEAT_DISCHARGE strictly clamped to 0.40 to prevent UI occlusion!
+          graphics.fillStyle(0xf59e0b, alpha);
+          graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          graphics.lineStyle(1.5, 0xfbbf24, 0.75);
           graphics.strokeCircle(cx, cy, 7);
         }
       }

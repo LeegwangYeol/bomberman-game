@@ -469,7 +469,10 @@ export class SpatialSeparationGrid {
         } else {
           const MAX_SPEED = 400;
           const speed = Math.hypot(vx, vy);
-          if (speed > MAX_SPEED) {
+          if (speed < 1e-8) {
+            vx = 0;
+            vy = 0;
+          } else if (speed > MAX_SPEED) {
             const scale = MAX_SPEED / speed;
             vx *= scale;
             vy *= scale;
@@ -574,8 +577,8 @@ export class SpatialSeparationGrid {
     const invA = this.invMass[i];
     const invB = this.invMass[j];
     const totalInv = invA + invB;
-    const ratioA = invA / totalInv;
-    const ratioB = invB / totalInv;
+    const ratioA = totalInv > 1e-12 ? invA / totalInv : 0.5;
+    const ratioB = totalInv > 1e-12 ? invB / totalInv : 0.5;
 
     const push = overlap * separationFactor;
     this.posX[i] -= nx * push * ratioA;
@@ -598,7 +601,8 @@ export class SpatialSeparationGrid {
       // 1. Restitution impulse (for closing entities: vRelNorm < 0)
       if (vRelNorm < -1e-4 && this.curRestitution >= 0) {
         stats.restitutionImpulsesApplied++;
-        const impulseMag = -(1.0 + this.curRestitution) * vRelNorm;
+        const rawImpulse = -(1.0 + this.curRestitution) * vRelNorm;
+        const impulseMag = Math.min(rawImpulse, this.curMaxVelocityNudge * 2);
 
         if (Number.isFinite(impulseMag)) {
           if (this.hasVel[i]) {
@@ -721,18 +725,41 @@ export class SpatialSeparationGrid {
             const minX = Math.min(overlapR, overlapL);
             const minY = Math.min(overlapB, overlapT);
 
+            let pushedX = false;
+            let pushedY = false;
             if (c === 0) {
               this.posX[i] = Math.max(this.posX[i], wRight + radius);
+              pushedX = true;
             } else if (c === cols - 1) {
               this.posX[i] = Math.min(this.posX[i], wLeft - radius);
-            } else if (r === 0) {
+              pushedX = true;
+            }
+            if (r === 0) {
               this.posY[i] = Math.max(this.posY[i], wBottom + radius);
+              pushedY = true;
             } else if (r === rows - 1) {
               this.posY[i] = Math.min(this.posY[i], wTop - radius);
-            } else if (minX < minY) {
-              this.posX[i] += overlapR < overlapL ? -overlapR : overlapL;
-            } else {
-              this.posY[i] += overlapB < overlapT ? -overlapB : overlapT;
+              pushedY = true;
+            }
+
+            if (!pushedX && !pushedY) {
+              if (minX < minY) {
+                if (this.initX[i] <= wLeft + 1) {
+                  this.posX[i] -= overlapR;
+                } else if (this.initX[i] >= wRight - 1) {
+                  this.posX[i] += overlapL;
+                } else {
+                  this.posX[i] += overlapR < overlapL ? -overlapR : overlapL;
+                }
+              } else {
+                if (this.initY[i] <= wTop + 1) {
+                  this.posY[i] -= overlapB;
+                } else if (this.initY[i] >= wBottom - 1) {
+                  this.posY[i] += overlapT;
+                } else {
+                  this.posY[i] += overlapB < overlapT ? -overlapB : overlapT;
+                }
+              }
             }
           }
         }

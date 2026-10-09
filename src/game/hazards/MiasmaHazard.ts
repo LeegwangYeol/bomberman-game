@@ -660,8 +660,9 @@ export class MiasmaHazard {
           const c = idx % COLS;
           const dr = r - this.centerRow;
           const dc = c - this.centerCol;
+          const safeRadius = Math.max(1, this.radiusTiles);
           const dist = Math.hypot(dr, dc);
-          const falloff = Math.max(0.2, (this.radiusTiles - dist) / this.radiusTiles);
+          const falloff = Math.max(0.2, (safeRadius - dist) / safeRadius);
 
           this.dangerMask[idx] = MiasmaDangerValue.INCUBATING;
           this.sporeGrid[idx] = progress * falloff;

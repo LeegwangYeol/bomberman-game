@@ -398,6 +398,7 @@ export class ChronoHazard {
   }
 
   public update(deltaMs: number): void {
+    if (typeof deltaMs !== 'number' || !Number.isFinite(deltaMs) || deltaMs <= 0) return;
     if (this.state === ChronoLifecycleState.DORMANT) return;
 
     // Decay stabilized timeline tiles

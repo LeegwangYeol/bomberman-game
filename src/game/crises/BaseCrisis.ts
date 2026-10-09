@@ -224,22 +224,34 @@ export abstract class BaseCrisis implements ICrisis {
     this.stageElapsedMs = 0;
     this.cachedSummary = `${this.name} (${this.stage})`;
 
-    if (newStage === CrisisStage.OUTBREAK) {
+    if (newStage === CrisisStage.WHISPERS) {
+      this.stageDurationMs = this.definition.stageDurations[CrisisStage.WHISPERS];
+      this.isVictorious = false;
+      this.isDefeated = false;
+    } else if (newStage === CrisisStage.OUTBREAK) {
       this.stageDurationMs = this.definition.stageDurations[CrisisStage.OUTBREAK];
       this.setThreat(Math.max(35, this.threatMeter));
+      this.isVictorious = false;
+      this.isDefeated = false;
     } else if (newStage === CrisisStage.CLIMAX) {
       this.stageDurationMs = this.definition.stageDurations[CrisisStage.CLIMAX];
       this.setThreat(Math.max(70, this.threatMeter));
+      this.isVictorious = false;
+      this.isDefeated = false;
     } else if (newStage === CrisisStage.RESOLVED) {
       this.stageDurationMs = 0;
       this.isVictorious = true;
+      this.isDefeated = false;
       this.setThreat(0);
       this.threatTrend = 'declining';
+      this.clearAllHazards();
     } else if (newStage === CrisisStage.FAILED) {
       this.stageDurationMs = 0;
       this.isDefeated = true;
+      this.isVictorious = false;
       this.setThreat(100);
       this.threatTrend = 'critical';
+      this.clearAllHazards();
     }
 
     this.onStageEnter(newStage);

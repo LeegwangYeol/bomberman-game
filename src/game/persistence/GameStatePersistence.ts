@@ -169,6 +169,9 @@ export function compressGrid(grid: number[][]): string {
  * Decompresses an RLE string back into a 2D integer matrix of dimensions rows x cols.
  */
 export function decompressGrid(rle: string, rows: number, cols: number): number[][] {
+  if (!Number.isInteger(rows) || !Number.isInteger(cols) || rows <= 0 || cols <= 0) {
+    return [];
+  }
   const result: number[][] = [];
   for (let r = 0; r < rows; r++) {
     result.push(new Array(cols).fill(0));
@@ -334,6 +337,7 @@ export class GameStatePersistence {
 
   public destroy(): void {
     this.circuitBreaker.reset();
+    this.cachedActiveRun = null;
   }
 
   public dispose(): void {

@@ -1004,10 +1004,15 @@ export function simulateBombKickSlide(
   let currentRow = startRow;
   let steps = 0;
 
+  if (!map || map.length === 0 || !map[0] || (dirX === 0 && dirY === 0)) {
+    return { endCol: startCol, endRow: startRow, steps: 0 };
+  }
+
   const rows = map.length;
   const cols = map[0].length;
+  const maxSteps = Math.max(rows, cols);
 
-  while (true) {
+  while (steps < maxSteps) {
     const nextCol = currentCol + dirX;
     const nextRow = currentRow + dirY;
 

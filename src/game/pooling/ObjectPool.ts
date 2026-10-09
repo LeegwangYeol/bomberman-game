@@ -220,6 +220,17 @@ export class ObjectPool<T> {
   }
 
   /**
+   * Retrieves active item at dense slot index without closure allocation.
+   * Enables standard indexed loops in 60 FPS update path.
+   */
+  public getActive(slot: number): T | null {
+    if (slot < 0 || slot >= this._activeCount || slot >= this.capacity) return null;
+    const itemIndex = this.activeIndices[slot];
+    if (itemIndex < 0 || itemIndex >= this.capacity) return null;
+    return this.storage[itemIndex];
+  }
+
+  /**
    * Checks whether a specific item is currently active in O(1).
    */
   public isActive(item: T): boolean {

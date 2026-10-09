@@ -95,6 +95,7 @@ export class PsychicCrisis extends BaseCrisis {
   protected override onReset(): void {
     this.phantomTimerMs = 0;
     this.pulseTimerMs = 0;
+    PsychicCrisisAudio.getInstance().reset();
     this.manifestations = PsychicCrisis.MANIFESTATION_POSITIONS.map((pos, index) => ({
       id: index + 1,
       r: pos.r,

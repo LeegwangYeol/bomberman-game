@@ -224,6 +224,26 @@ import {
   BOMB_KICK_CHRONO_SPEED,
   FLOATING_TEXT_CHRONO_SLIPSTREAM,
   FLOATING_TEXT_TIMELINE_STABILIZED,
+  SolarHazard,
+  SolarLifecycleState,
+  SolarTelegraphPhase,
+  SOLAR_SURF_INVULN_MS,
+  SOLAR_SURF_SPEED_BURST_RATIO,
+  FLOATING_TEXT_SOLAR_SURF,
+  SUNSTROKE_DURATION_MS,
+  SUNSTROKE_SLOW_RATIO,
+  FLOATING_TEXT_SUNSTROKE,
+  BOSS_SOLAR_DAMAGE_RATIO,
+  BOSS_SOLAR_STASIS_STUN_MS,
+  SolarHazardAudio,
+  SOLAR_SUPER_BOMB_TINT,
+  FLOATING_TEXT_SOLAR_FUSED,
+  FLOATING_TEXT_SUPERNOVA,
+  BOMB_KICK_SOLAR_SPEED,
+  FLOATING_TEXT_SOLAR_SLIPSTREAM,
+  FLOATING_TEXT_SOLAR_CALM,
+  FLOATING_TEXT_PLASMA_VAPORIZED,
+  FLOATING_TEXT_SOLAR_BLINDNESS,
   HazardRenderer,
 } from './hazards/index.ts';
 import { PerkTreeManager, RelicManager, type RelicId, type AppliedPerkBonuses } from './progression/index.ts';
@@ -455,17 +475,20 @@ export default class GameScene extends Phaser.Scene {
   public magmaHazard: MagmaHazard = new MagmaHazard();
   public miasmaHazard: MiasmaHazard = new MiasmaHazard();
   public chronoHazard: ChronoHazard = new ChronoHazard();
+  public solarHazard: SolarHazard = new SolarHazard();
   public lastGravitationalEscapeTimestampMs: number = 0;
   public lastFrostChillFloatingTextMs: number = -9999;
   public lastStaticShockFloatingTextMs: number = -9999;
   public lastThermalSingeFloatingTextMs: number = -9999;
   public lastNeurotoxinFloatingTextMs: number = -9999;
   public lastTemporalDilationFloatingTextMs: number = -9999;
+  public lastSunstrokeFloatingTextMs: number = -9999;
   public frostHazardAudio: FrostHazardAudio = FrostHazardAudio.getInstance();
   public voltHazardAudio: VoltHazardAudio = VoltHazardAudio.getInstance();
   public magmaHazardAudio: MagmaHazardAudio = MagmaHazardAudio.getInstance();
   public miasmaHazardAudio: MiasmaHazardAudio = MiasmaHazardAudio.getInstance();
   public chronoHazardAudio: ChronoHazardAudio = ChronoHazardAudio.getInstance();
+  public solarHazardAudio: SolarHazardAudio = SolarHazardAudio.getInstance();
   public hazardGraphics: Phaser.GameObjects.Graphics | null = null;
 
 
@@ -640,6 +663,9 @@ export default class GameScene extends Phaser.Scene {
     if (this.chronoHazard) {
       this.chronoHazard.stop();
     }
+    if (this.solarHazard) {
+      this.solarHazard.stop();
+    }
     if (this.hazardGraphics) {
       this.hazardGraphics.clear();
     }
@@ -648,6 +674,7 @@ export default class GameScene extends Phaser.Scene {
     this.magmaHazardAudio?.stop();
     this.miasmaHazardAudio?.stop();
     this.chronoHazardAudio?.stop();
+    this.solarHazardAudio?.stop();
   }
 
 
@@ -927,6 +954,39 @@ export default class GameScene extends Phaser.Scene {
     };
   }
 
+  public init(data?: unknown): void {
+    void data;
+    this.isGameOver = false;
+    this.activeBombs = 0;
+    this.playerFacing = 'down';
+    this.isHitStopActive = false;
+    this.lastHitStopMs = 0;
+    if (this.hitStopTimeout) {
+      clearTimeout(this.hitStopTimeout);
+      this.hitStopTimeout = null;
+    }
+    this.playerStepCycle = 0;
+    this.playerBobOffset = 0;
+    this.conveyors = [...DEFAULT_CONVEYORS];
+    this.persistentHazardMask.clear();
+    this.lastGravitationalEscapeTimestampMs = 0;
+    this.lastFrostChillFloatingTextMs = -9999;
+    this.lastStaticShockFloatingTextMs = -9999;
+    this.lastThermalSingeFloatingTextMs = -9999;
+    this.lastNeurotoxinFloatingTextMs = -9999;
+    this.lastTemporalDilationFloatingTextMs = -9999;
+    this.lastSunstrokeFloatingTextMs = -9999;
+    this.destroyedBlocksThisTick.clear();
+    this.bossHitBombIds.clear();
+    this.scratchActiveEntities.length = 0;
+    this.scratchActiveEnemies.length = 0;
+    this.scratchActiveItems.length = 0;
+  }
+
+  public destroy(): void {
+    this.shutdown();
+  }
+
   public shutdown(): void {
     if (this.events) {
       this.events.off(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
@@ -945,6 +1005,7 @@ export default class GameScene extends Phaser.Scene {
       this.tweens.killAll();
     }
     this.isHitStopActive = false;
+    this.lastHitStopMs = 0;
     if (this.hitStopTimeout) {
       clearTimeout(this.hitStopTimeout);
       this.hitStopTimeout = null;
@@ -952,16 +1013,33 @@ export default class GameScene extends Phaser.Scene {
     if (this.physics && this.physics.world && this.physics.world.isPaused) {
       this.physics.world.resume();
     }
+    if (this.input?.keyboard && typeof this.input.keyboard.resetKeys === 'function') {
+      this.input.keyboard.resetKeys();
+    }
+
     this.dismissBoss();
     this.stopCrisisMode();
+    this.crisisManager?.reset();
     this.bossHitBombIds.clear();
     this.destroyedBlocksThisTick.clear();
     this.scratchActiveEntities.length = 0;
     this.scratchActiveEnemies.length = 0;
     this.scratchActiveItems.length = 0;
     this.activeBuffs = [];
+    this.persistentHazardMask.clear();
     this.floatingTextManager?.reset();
     this.overheadUIManager?.reset();
+
+    // Clear entity physics groups BEFORE destroying object pools so drop shadows release cleanly
+    this.enemies?.clear(true, true);
+    this.neutrals?.clear(true, true);
+    this.allies?.clear(true, true);
+    this.bombs?.clear(true, true);
+    this.items?.clear(true, true);
+    this.explosions?.clear(true, true);
+    this.blocks?.clear(true, true);
+    this.walls?.clear(true, true);
+
     if (this.aegisDomeVisual) {
       this.aegisDomeVisual.destroy();
       this.aegisDomeVisual = null;
@@ -1008,6 +1086,9 @@ export default class GameScene extends Phaser.Scene {
     }
     if (this.chronoHazardAudio) {
       this.chronoHazardAudio.destroy();
+    }
+    if (this.solarHazardAudio) {
+      this.solarHazardAudio.destroy();
     }
     webAudioSynth.destroy();
 
@@ -1873,6 +1954,7 @@ export default class GameScene extends Phaser.Scene {
     this.magmaHazardAudio = MagmaHazardAudio.getInstance();
     this.miasmaHazardAudio = MiasmaHazardAudio.getInstance();
     this.chronoHazardAudio = ChronoHazardAudio.getInstance();
+    this.solarHazardAudio = SolarHazardAudio.getInstance();
 
     this.dynamicHazard.init(this.map);
     this.gravityHazard.init(6, 7);
@@ -1881,6 +1963,7 @@ export default class GameScene extends Phaser.Scene {
     this.magmaHazard.init(6, 7);
     this.miasmaHazard.init(6, 7);
     this.chronoHazard.init(6, 7);
+    this.solarHazard.init(6, 7);
     this.hazardGraphics = this.add.graphics();
     this.hazardGraphics.setDepth(RENDER_DEPTH.CRISIS_HAZARDS);
 
@@ -1946,6 +2029,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number) {
+    if (typeof delta !== 'number' || !Number.isFinite(delta) || delta <= 0) return;
     this.destroyedBlocksThisTick.clear();
 
     // Fail-safe reset for extra-life/shield invulnerability
@@ -2258,6 +2342,14 @@ export default class GameScene extends Phaser.Scene {
         }
         if (this.chronoHazard && this.chronoHazard.state !== ChronoLifecycleState.DORMANT) {
           const slideRes = this.chronoHazard.evaluateBombSlide(bRow, bCol, currentSpeed);
+          if (slideRes.speed !== currentSpeed) {
+            currentSpeed = slideRes.speed;
+            bomb.setData('slideSpeed', currentSpeed);
+            bomb.setVelocity(dir.x * currentSpeed, dir.y * currentSpeed);
+          }
+        }
+        if (this.solarHazard && this.solarHazard.state !== SolarLifecycleState.DORMANT) {
+          const slideRes = this.solarHazard.evaluateBombSlide(bRow, bCol, currentSpeed);
           if (slideRes.speed !== currentSpeed) {
             currentSpeed = slideRes.speed;
             bomb.setData('slideSpeed', currentSpeed);
@@ -3141,6 +3233,44 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    // 13h. Update Solar Hazard System (Solar Corona & Superheat Flare)
+    if (this.solarHazard && this.solarHazard.state !== SolarLifecycleState.DORMANT) {
+      this.solarHazard.update(delta);
+      if (this.solarHazardAudio) {
+        this.solarHazardAudio.playSolarHazardState(this.solarHazard.state, this.solarHazard.getTelegraphPhase(), undefined, this.time?.now ?? Date.now());
+      }
+
+      if (this.solarHazard.state === SolarLifecycleState.SUPERHEAT_FLARE && !this.isGameOver) {
+        // Enemy Collision Check against superheat flare
+        const enemiesList = this.enemies.getChildren();
+        for (let i = 0; i < enemiesList.length; i++) {
+          const enemy = enemiesList[i] as BaseEntity;
+          if (enemy && enemy.active && !enemy.isDead) {
+            const er = Math.floor(enemy.y / TILE_SIZE);
+            const ec = Math.floor(enemy.x / TILE_SIZE);
+            const isBoss = enemy === (this.activeBoss as unknown as BaseEntity);
+            const enemyHit = this.solarHazard.checkEnemyCollision(er, ec, isBoss, this.time.now);
+            if (enemyHit.hit) {
+              if (enemyHit.isDissolved || enemyHit.isDecomposed) {
+                if (typeof enemy.takeDamage === 'function') {
+                  enemy.takeDamage(enemyHit.damage, 'hazard', this.time.now);
+                }
+                this.score += enemyHit.scoreBonus;
+                this.addUltimateCharge(enemyHit.ultimateChargeBonus);
+                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#f59e0b');
+              } else if (enemyHit.isStunned && isBoss && this.activeBoss) {
+                this.activeBoss.takeBombDamage(Math.floor(this.activeBoss.maxHp * BOSS_SOLAR_DAMAGE_RATIO));
+                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#f59e0b');
+                if (this.bossHUD) {
+                  this.bossHUD.triggerStun(enemyHit.stunDurationMs / 1000, 'Solar Corona Stasis!');
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
     // Single unified hazard rendering pass per tick
     this.renderDynamicHazardGraphics(_time);
   }
@@ -3833,6 +3963,91 @@ export default class GameScene extends Phaser.Scene {
     this.emitStatsUpdate();
   }
 
+  grantSolarSurf(): void {
+    if (this.isGameOver || !this.player || !this.player.active) return;
+    this.isInvulnerable = true;
+    const originalSpeed = this.playerSpeed;
+    this.playerSpeed = Math.floor(originalSpeed * (1.0 + SOLAR_SURF_SPEED_BURST_RATIO));
+
+    this.player.setTint(0xfbbf24);
+    this.player.setAlpha(0.90);
+
+    const existing = this.activeBuffs.find((b) => b.id === 'SOLAR_SURF');
+    if (existing) {
+      existing.remainingMs = SOLAR_SURF_INVULN_MS;
+      existing.totalMs = SOLAR_SURF_INVULN_MS;
+    } else {
+      this.activeBuffs.push({
+        id: 'SOLAR_SURF',
+        name: 'Solar Surf',
+        icon: '☀️',
+        color: '#f59e0b',
+        remainingMs: SOLAR_SURF_INVULN_MS,
+        totalMs: SOLAR_SURF_INVULN_MS,
+      });
+    }
+
+    this.spawnFloatingText(this.player.x, this.player.y - 25, FLOATING_TEXT_SOLAR_SURF, '#fbbf24');
+    if (this.cameras?.main) {
+      this.cameras.main.flash(100, 251, 191, 36);
+    }
+    if (this.solarHazardAudio) {
+      this.solarHazardAudio.playSolarSurfChimes();
+    }
+
+    this.time.delayedCall(SOLAR_SURF_INVULN_MS, () => {
+      if (this.player && this.player.active) {
+        this.player.setAlpha(1.0);
+        this.player.clearTint();
+        if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
+          this.isInvulnerable = false;
+        }
+      }
+      this.playerSpeed = originalSpeed;
+    });
+
+    this.emitStatsUpdate();
+  }
+
+  applySunstroke(): void {
+    if (this.isGameOver || !this.player || !this.player.active) return;
+    const now = this.time?.now ?? Date.now();
+    if (this.isInvulnerable || this.isDashing) return;
+
+    const existing = this.activeBuffs.find((b) => b.id === 'SUNSTROKE');
+    if (existing) {
+      existing.remainingMs = SUNSTROKE_DURATION_MS;
+      existing.totalMs = SUNSTROKE_DURATION_MS;
+    } else {
+      this.activeBuffs.push({
+        id: 'SUNSTROKE',
+        name: 'Sunstroke',
+        icon: '🥵',
+        color: '#f97316',
+        remainingMs: SUNSTROKE_DURATION_MS,
+        totalMs: SUNSTROKE_DURATION_MS,
+      });
+    }
+
+    if (now - this.lastSunstrokeFloatingTextMs >= 2000) {
+      this.lastSunstrokeFloatingTextMs = now;
+      this.spawnFloatingText(this.player.x, this.player.y - 25, FLOATING_TEXT_SUNSTROKE, '#f97316');
+      if (this.solarHazardAudio) {
+        this.solarHazardAudio.playCoronaArcSweep();
+      }
+    }
+
+    if (this.player && this.player.active && !this.isInvulnerable) {
+      this.player.setTint(0xfdba74);
+      this.time.delayedCall(SUNSTROKE_DURATION_MS, () => {
+        if (this.player && this.player.active && !this.activeBuffs.some((b) => b.id === 'SUNSTROKE')) {
+          this.player.clearTint();
+        }
+      });
+    }
+    this.emitStatsUpdate();
+  }
+
   applyPhaseJitter(durationMs: number = PHASE_JITTER_DURATION_MS): void {
     if (this.isGameOver) return;
     const now = this.time?.now ?? Date.now();
@@ -3916,11 +4131,13 @@ export default class GameScene extends Phaser.Scene {
       this.hazardGraphics,
       {
         dynamicHazard: this.dynamicHazard,
+        gravityHazard: this.gravityHazard,
         frostHazard: this.frostHazard,
         voltHazard: this.voltHazard,
         magmaHazard: this.magmaHazard,
         miasmaHazard: this.miasmaHazard,
         chronoHazard: this.chronoHazard,
+        solarHazard: this.solarHazard,
       },
       time
     );
@@ -4109,6 +4326,31 @@ export default class GameScene extends Phaser.Scene {
       chronoMultiplier *= (1.0 - TEMPORAL_DILATION_SLOW_RATIO);
     }
 
+    let solarMultiplier = 1.0;
+    const isSolarSurfActive = this.activeBuffs.some((b) => b.id === 'SOLAR_SURF');
+    const isSunstrokeActive = this.activeBuffs.some((b) => b.id === 'SUNSTROKE');
+    if (this.solarHazard && this.solarHazard.state !== SolarLifecycleState.DORMANT && this.solarHazard.state !== SolarLifecycleState.CORONA_RECOVERY) {
+      const sRes = this.solarHazard.evaluatePlayer(px, py, this.isDashing, this.time?.now ?? Date.now(), wantX, wantY);
+      if (sRes.solarSurfGranted) {
+        this.grantSolarSurf();
+      } else if (sRes.hit && sRes.damage > 0 && !this.isInvulnerable && !this.isDashing) {
+        this.spawnFloatingText(this.player.x, this.player.y - 14, `-${sRes.damage} SUPERHEAT FLARE`, '#f59e0b');
+        if (this.cameraTrauma) {
+          this.cameraTrauma.addTrauma(0.40);
+        }
+        this.playerDie();
+      } else if (sRes.sunstrokeInflicted && !this.isDashing && !this.isInvulnerable) {
+        this.applySunstroke();
+      }
+      solarMultiplier = sRes.slowFactor;
+    }
+    if (isSolarSurfActive) {
+      solarMultiplier *= (1.0 + SOLAR_SURF_SPEED_BURST_RATIO);
+    }
+    if (isSunstrokeActive) {
+      solarMultiplier *= (1.0 - SUNSTROKE_SLOW_RATIO);
+    }
+
     // Return here if we are just dashing (so we evaluated hazards, but dash controls velocity)
     if (this.isDashing) {
       return;
@@ -4126,7 +4368,7 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
 
-    const rawCompoundMultiplier = gravityMultiplier * frostMultiplier * voltMultiplier * magmaMultiplier * miasmaMultiplier * chronoMultiplier;
+    const rawCompoundMultiplier = gravityMultiplier * frostMultiplier * voltMultiplier * magmaMultiplier * miasmaMultiplier * chronoMultiplier * solarMultiplier;
     const clampedHazardMultiplier = Math.min(1.85, Math.max(0.30, Number.isFinite(rawCompoundMultiplier) && rawCompoundMultiplier > 0 ? rawCompoundMultiplier : 1.0));
 
     const hazardSlowdownReduction = this.appliedPerkBonuses?.groundSlowdownReduction || 0;
@@ -4433,6 +4675,15 @@ export default class GameScene extends Phaser.Scene {
         fuseDuration = chronoInteraction.modifiedFuseMs;
         bomb.setTint(chronoInteraction.tint ?? CHRONO_SUPER_BOMB_TINT);
         this.spawnFloatingText(centerX, centerY - 25, chronoInteraction.floatingText ?? FLOATING_TEXT_CHRONO_SHIFTED, '#818cf8');
+      }
+    }
+
+    if (this.solarHazard && this.solarHazard.state !== SolarLifecycleState.DORMANT && this.solarHazard.state !== SolarLifecycleState.CORONA_RECOVERY) {
+      const solarInteraction = this.solarHazard.onBombPlaced(bombId, row, col, this.bombPower, fuseDuration);
+      if (solarInteraction.isSolarFused) {
+        fuseDuration = solarInteraction.modifiedFuseMs;
+        bomb.setTint(solarInteraction.tint ?? SOLAR_SUPER_BOMB_TINT);
+        this.spawnFloatingText(centerX, centerY - 25, solarInteraction.floatingText ?? FLOATING_TEXT_SOLAR_FUSED, '#f59e0b');
       }
     }
 
@@ -4962,6 +5213,19 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    if (this.solarHazard && this.solarHazard.state !== SolarLifecycleState.DORMANT && this.solarHazard.state !== SolarLifecycleState.CORONA_RECOVERY) {
+      const solDet = this.solarHazard.onBombDetonated(bombId, actualRow, actualCol, effectivePower);
+      if (solDet.isSupernova) {
+        effectivePower = solDet.modifiedPower;
+        isPiercing = isPiercing || solDet.piercing;
+        const cX = actualCol * TILE_SIZE + TILE_SIZE / 2;
+        const cY = actualRow * TILE_SIZE + TILE_SIZE / 2;
+        this.spawnFloatingText(cX, cY - 25, solDet.floatingText || FLOATING_TEXT_SUPERNOVA, '#f59e0b');
+        this.score += solDet.bonusScore;
+        this.emitStatsUpdate();
+      }
+    }
+
     // 3. Polarization Strike helper (blast cleanses spire into golden channel for 8.0s)
     const checkPolarizationStrike = (r: number, c: number) => {
       if (this.frostHazard) {
@@ -5000,6 +5264,17 @@ export default class GameScene extends Phaser.Scene {
           this.spawnFloatingText(px, py - 20, stabRes.floatingText, '#818cf8');
           if (this.chronoHazardAudio) {
             this.chronoHazardAudio.playTimelineStabilizeSnap();
+          }
+        }
+      }
+      if (this.solarHazard) {
+        const calmRes = this.solarHazard.onBombBlastImpact(r, c);
+        if (calmRes.quenched) {
+          const px = c * TILE_SIZE + TILE_SIZE / 2;
+          const py = r * TILE_SIZE + TILE_SIZE / 2;
+          this.spawnFloatingText(px, py - 20, calmRes.floatingText, '#fbbf24');
+          if (this.solarHazardAudio) {
+            this.solarHazardAudio.playSolarCalmResolution();
           }
         }
       }
@@ -6268,6 +6543,17 @@ export default class GameScene extends Phaser.Scene {
         }
       }
     }
+    if (this.solarHazard && this.solarHazard.state !== SolarLifecycleState.DORMANT) {
+      const kickRes = this.solarHazard.onBombKicked(bomb.getData('id') || 'bomb', bRow, bCol, BOMB_KICK_SPEED);
+      if (kickRes.isSlipstream) {
+        kickSpeed = kickRes.modifiedSpeed || BOMB_KICK_SOLAR_SPEED;
+        const txt = kickRes.floatingText || FLOATING_TEXT_SOLAR_SLIPSTREAM;
+        this.spawnFloatingText(bomb.x, bomb.y - 20, txt, '#f59e0b');
+        if (this.solarHazardAudio) {
+          this.solarHazardAudio.playCoronaArcSweep();
+        }
+      }
+    }
     bomb.setData('isSliding', true);
     bomb.setData('slideSpeed', kickSpeed);
     let slideDir = bomb.getData('slideDir') as { x: number; y: number } | undefined;
@@ -6285,7 +6571,7 @@ export default class GameScene extends Phaser.Scene {
   private spawnFloatingText(x: number, y: number, text: string, color: string) {
     const currentTime = this.time?.now || Date.now();
     const cascadeOffset = this.floatingTextManager
-      ? this.floatingTextManager.getCascadeOffset(x, y, currentTime)
+      ? Math.min(80, this.floatingTextManager.getCascadeOffset(x, y, currentTime))
       : 0;
     const startY = y - cascadeOffset;
     const targetY = startY - 22;
