@@ -860,7 +860,7 @@ export function clampVelocity(
   const safeVy = Number.isFinite(vy) ? vy : 0;
   const rawSpeed = Math.hypot(safeVx, safeVy);
 
-  if (rawSpeed === 0) {
+  if (rawSpeed < 1e-8) {
     return { vx: 0, vy: 0, speed: 0 };
   }
 

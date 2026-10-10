@@ -59,7 +59,7 @@ test('Tier 1: GameModeType catalog defines all 4 distinct game modes with comple
   }
 });
 
-test('Tier 1: WaveMutatorCatalog defines 10 distinct wave room mutators', () => {
+test('Tier 1: WaveMutatorCatalog defines 11 distinct wave room mutators', () => {
   const mutatorIds = [
     WaveMutatorId.SPEED_DEMON,
     WaveMutatorId.VOLATILE_CONDUITS,
@@ -71,9 +71,10 @@ test('Tier 1: WaveMutatorCatalog defines 10 distinct wave room mutators', () => 
     WaveMutatorId.CHRONO_ANOMALY,
     WaveMutatorId.PSIONIC_HAZE,
     WaveMutatorId.VERDANT_OVERGROWTH,
+    WaveMutatorId.ASTRAL_NEBULA,
   ];
 
-  assert.equal(Object.keys(WAVE_MUTATOR_CATALOG).length, 10);
+  assert.equal(Object.keys(WAVE_MUTATOR_CATALOG).length, 11);
   for (const id of mutatorIds) {
     const m = WAVE_MUTATOR_CATALOG[id];
     assert.ok(m, `Missing mutator ${id}`);

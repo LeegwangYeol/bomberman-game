@@ -60,6 +60,12 @@ import {
   SolarTelegraphPhase,
   SolarDangerValue,
 } from './SolarHazard.ts';
+import {
+  NebulaHazard,
+  NebulaLifecycleState,
+  NebulaTelegraphPhase,
+  NebulaDangerValue,
+} from './NebulaHazard.ts';
 
 export interface HazardRendererContext {
   dynamicHazard?: DynamicHazard | null;
@@ -70,6 +76,7 @@ export interface HazardRendererContext {
   chronoHazard?: ChronoHazard | null;
   gravityHazard?: GravityHazard | null;
   solarHazard?: SolarHazard | null;
+  nebulaHazard?: NebulaHazard | null;
 }
 
 export class HazardRenderer {
@@ -89,6 +96,7 @@ export class HazardRenderer {
     const cState = context.chronoHazard?.getState();
     const gState = context.gravityHazard?.getState();
     const sState = context.solarHazard?.getState();
+    const nState = context.nebulaHazard?.getState();
 
     const hasDynamic = context.dynamicHazard && dState !== HazardLifecycleState.INACTIVE;
     const hasFrost = context.frostHazard && fState !== FrostLifecycleState.DORMANT && fState !== FrostLifecycleState.THAW_COOLDOWN;
@@ -98,8 +106,9 @@ export class HazardRenderer {
     const hasChrono = context.chronoHazard && cState !== ChronoLifecycleState.DORMANT && cState !== ChronoLifecycleState.TACHYON_RECOVERY;
     const hasGravity = context.gravityHazard && gState !== GravityLifecycleState.DORMANT && gState !== GravityLifecycleState.COOLDOWN;
     const hasSolar = context.solarHazard && sState !== SolarLifecycleState.DORMANT && sState !== SolarLifecycleState.CORONA_RECOVERY;
+    const hasNebula = context.nebulaHazard && nState !== NebulaLifecycleState.DORMANT && nState !== NebulaLifecycleState.STELLAR_DAWN;
 
-    if (!hasDynamic && !hasFrost && !hasVolt && !hasMagma && !hasMiasma && !hasChrono && !hasGravity && !hasSolar) return;
+    if (!hasDynamic && !hasFrost && !hasVolt && !hasMagma && !hasMiasma && !hasChrono && !hasGravity && !hasSolar && !hasNebula) return;
 
     // 1. Dynamic Hazard (Quantum Spires & Beams)
     if (hasDynamic && context.dynamicHazard) {
@@ -433,6 +442,53 @@ export class HazardRenderer {
           graphics.fillStyle(0xf59e0b, alpha);
           graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
           graphics.lineStyle(1.5, 0xfbbf24, 0.75);
+          graphics.strokeCircle(cx, cy, 7);
+        }
+      }
+    }
+
+    // 8. Nebula Hazard (Astral Nebula & Solar Eclipse)
+    if (hasNebula && context.nebulaHazard) {
+      const activeIndices = context.nebulaHazard.getActiveNebulaIndices();
+      const activeCount = context.nebulaHazard.getActiveNebulaCount();
+      const dangerMask = context.nebulaHazard.getDangerMask();
+      const phase = context.nebulaHazard.getTelegraphPhase();
+      const isBurst = context.nebulaHazard.getState() === NebulaLifecycleState.ECLIPSE_COLLAPSE;
+
+      for (let i = 0; i < activeCount; i++) {
+        const idx = activeIndices[i];
+        const r = (idx / COLS) | 0;
+        const c = idx % COLS;
+        const left = c * TILE_SIZE;
+        const top = r * TILE_SIZE;
+        const cx = left + TILE_SIZE / 2;
+        const cy = top + TILE_SIZE / 2;
+        const maskVal = dangerMask[idx];
+
+        if (maskVal === NebulaDangerValue.ANCHOR) {
+          // Stabilized stardust calm sanctuary: serene starlight cyan field
+          graphics.fillStyle(0x06b6d4, 0.30);
+          graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          graphics.lineStyle(1.5, 0x67e8f9, 0.75);
+          graphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        } else if (isBurst || maskVal === NebulaDangerValue.COLLAPSE) {
+          // Lethal Eclipse Collapse: deep abyssal black-violet core with pulsing diamond white corona rim
+          const pulse = 0.8 + 0.2 * Math.sin(time / 20);
+          graphics.fillStyle(0x4c1d95, 0.95);
+          graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          graphics.lineStyle(2.5, 0xffffff, 0.95 * pulse);
+          graphics.strokeRect(left + 1, top + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+        } else {
+          // Telegraph phases: progressive astral violet/cosmic indigo with starlight cyan pip
+          const alpha =
+            phase === NebulaTelegraphPhase.ASTRAL_WHISPER
+              ? 0.18
+              : phase === NebulaTelegraphPhase.COSMIC_CONVERGENCE
+              ? 0.36
+              : 0.40; // ECLIPSE_IMMINENT strictly clamped to 0.40 to prevent UI occlusion!
+          graphics.fillStyle(0x8b5cf6, alpha);
+          graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          graphics.lineStyle(1.5, 0x06b6d4, 0.75);
           graphics.strokeCircle(cx, cy, 7);
         }
       }

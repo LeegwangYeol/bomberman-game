@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import * as Pooling from './pooling/ObjectPool.ts';
+import { AudioVoicePool } from './pooling/AudioVoicePool.ts';
 import {
   TILE_SIZE as PATH_TILE_SIZE,
   ROWS as PATH_ROWS,
@@ -244,6 +245,26 @@ import {
   FLOATING_TEXT_SOLAR_CALM,
   FLOATING_TEXT_PLASMA_VAPORIZED,
   FLOATING_TEXT_SOLAR_BLINDNESS,
+  NebulaHazard,
+  NebulaLifecycleState,
+  NebulaTelegraphPhase,
+  ASTRAL_GLIDE_INVULN_MS,
+  ASTRAL_GLIDE_SPEED_BURST_RATIO,
+  FLOATING_TEXT_ASTRAL_GLIDE,
+  COSMIC_DAZE_DURATION_MS,
+  COSMIC_DAZE_SLOW_RATIO,
+  FLOATING_TEXT_COSMIC_DAZE,
+  BOSS_NEBULA_DAMAGE_RATIO,
+  BOSS_NEBULA_STASIS_STUN_MS,
+  NebulaHazardAudio,
+  NEBULA_SUPER_BOMB_TINT,
+  FLOATING_TEXT_NEBULA_FUSED,
+  FLOATING_TEXT_SINGULARITY_BURST,
+  BOMB_KICK_NEBULA_SPEED,
+  FLOATING_TEXT_ASTRAL_SLIPSTREAM,
+  FLOATING_TEXT_STARDUST_CALM,
+  FLOATING_TEXT_COSMIC_VAPORIZED,
+  FLOATING_TEXT_ECLIPSE_STASIS,
   HazardRenderer,
 } from './hazards/index.ts';
 import { PerkTreeManager, RelicManager, type RelicId, type AppliedPerkBonuses } from './progression/index.ts';
@@ -476,6 +497,7 @@ export default class GameScene extends Phaser.Scene {
   public miasmaHazard: MiasmaHazard = new MiasmaHazard();
   public chronoHazard: ChronoHazard = new ChronoHazard();
   public solarHazard: SolarHazard = new SolarHazard();
+  public nebulaHazard: NebulaHazard = new NebulaHazard();
   public lastGravitationalEscapeTimestampMs: number = 0;
   public lastFrostChillFloatingTextMs: number = -9999;
   public lastStaticShockFloatingTextMs: number = -9999;
@@ -483,12 +505,14 @@ export default class GameScene extends Phaser.Scene {
   public lastNeurotoxinFloatingTextMs: number = -9999;
   public lastTemporalDilationFloatingTextMs: number = -9999;
   public lastSunstrokeFloatingTextMs: number = -9999;
+  public lastCosmicDazeFloatingTextMs: number = -9999;
   public frostHazardAudio: FrostHazardAudio = FrostHazardAudio.getInstance();
   public voltHazardAudio: VoltHazardAudio = VoltHazardAudio.getInstance();
   public magmaHazardAudio: MagmaHazardAudio = MagmaHazardAudio.getInstance();
   public miasmaHazardAudio: MiasmaHazardAudio = MiasmaHazardAudio.getInstance();
   public chronoHazardAudio: ChronoHazardAudio = ChronoHazardAudio.getInstance();
   public solarHazardAudio: SolarHazardAudio = SolarHazardAudio.getInstance();
+  public nebulaHazardAudio: NebulaHazardAudio = NebulaHazardAudio.getInstance();
   public hazardGraphics: Phaser.GameObjects.Graphics | null = null;
 
 
@@ -648,6 +672,9 @@ export default class GameScene extends Phaser.Scene {
     if (this.dynamicHazard) {
       this.dynamicHazard.stop();
     }
+    if (this.gravityHazard) {
+      this.gravityHazard.stop();
+    }
     if (this.frostHazard) {
       this.frostHazard.stop();
     }
@@ -666,6 +693,9 @@ export default class GameScene extends Phaser.Scene {
     if (this.solarHazard) {
       this.solarHazard.stop();
     }
+    if (this.nebulaHazard) {
+      this.nebulaHazard.stop();
+    }
     if (this.hazardGraphics) {
       this.hazardGraphics.clear();
     }
@@ -675,6 +705,7 @@ export default class GameScene extends Phaser.Scene {
     this.miasmaHazardAudio?.stop();
     this.chronoHazardAudio?.stop();
     this.solarHazardAudio?.stop();
+    this.nebulaHazardAudio?.stop();
   }
 
 
@@ -1090,7 +1121,32 @@ export default class GameScene extends Phaser.Scene {
     if (this.solarHazardAudio) {
       this.solarHazardAudio.destroy();
     }
+    if (this.nebulaHazardAudio) {
+      this.nebulaHazardAudio.destroy();
+    }
     webAudioSynth.destroy();
+    AudioVoicePool.resetInstance();
+
+    if (this.telegraphGraphics) {
+      this.telegraphGraphics.destroy();
+      this.telegraphGraphics = null;
+    }
+    if (this.bossGraphics) {
+      this.bossGraphics.destroy();
+      this.bossGraphics = null;
+    }
+    if (this.bossPhaseBarGraphics) {
+      this.bossPhaseBarGraphics.destroy();
+      this.bossPhaseBarGraphics = null;
+    }
+    if (this.crisisGraphics) {
+      this.crisisGraphics.destroy();
+      this.crisisGraphics = null;
+    }
+    if (this.hazardGraphics) {
+      this.hazardGraphics.destroy();
+      this.hazardGraphics = null;
+    }
 
     this.circlePool?.destroy();
     this.rectPool?.destroy();
@@ -1955,6 +2011,7 @@ export default class GameScene extends Phaser.Scene {
     this.miasmaHazardAudio = MiasmaHazardAudio.getInstance();
     this.chronoHazardAudio = ChronoHazardAudio.getInstance();
     this.solarHazardAudio = SolarHazardAudio.getInstance();
+    this.nebulaHazardAudio = NebulaHazardAudio.getInstance();
 
     this.dynamicHazard.init(this.map);
     this.gravityHazard.init(6, 7);
@@ -1964,6 +2021,7 @@ export default class GameScene extends Phaser.Scene {
     this.miasmaHazard.init(6, 7);
     this.chronoHazard.init(6, 7);
     this.solarHazard.init(6, 7);
+    this.nebulaHazard.init(6, 7);
     this.hazardGraphics = this.add.graphics();
     this.hazardGraphics.setDepth(RENDER_DEPTH.CRISIS_HAZARDS);
 
@@ -2025,7 +2083,12 @@ export default class GameScene extends Phaser.Scene {
       this.bossHUD.dismissBoss();
     }
     this.bossHitBombIds.clear();
-    this.activeBoss = null;
+    if (this.activeBoss) {
+      if (typeof (this.activeBoss as unknown as { destroy?: () => void }).destroy === 'function') {
+        (this.activeBoss as unknown as { destroy: () => void }).destroy();
+      }
+      this.activeBoss = null;
+    }
   }
 
   update(_time: number, delta: number) {
@@ -2352,6 +2415,14 @@ export default class GameScene extends Phaser.Scene {
           const slideRes = this.solarHazard.evaluateBombSlide(bRow, bCol, currentSpeed);
           if (slideRes.speed !== currentSpeed) {
             currentSpeed = slideRes.speed;
+            bomb.setData('slideSpeed', currentSpeed);
+            bomb.setVelocity(dir.x * currentSpeed, dir.y * currentSpeed);
+          }
+        }
+        if (this.nebulaHazard && this.nebulaHazard.state !== NebulaLifecycleState.DORMANT) {
+          const slideRes = this.nebulaHazard.evaluateBombSlide(bRow, bCol, currentSpeed);
+          if (slideRes.isSlipstreamKick && slideRes.kickSpeed !== currentSpeed) {
+            currentSpeed = slideRes.kickSpeed;
             bomb.setData('slideSpeed', currentSpeed);
             bomb.setVelocity(dir.x * currentSpeed, dir.y * currentSpeed);
           }
@@ -3271,6 +3342,58 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    // 13i. Update Nebula Hazard System (Astral Nebula & Solar Eclipse)
+    if (this.nebulaHazard && this.nebulaHazard.state !== NebulaLifecycleState.DORMANT) {
+      this.nebulaHazard.update(delta);
+      if (this.nebulaHazardAudio) {
+        NebulaHazardAudio.playNebulaHazardState(this.nebulaHazard.state, this.nebulaHazard.getTelegraphPhase(), undefined, this.time?.now ?? Date.now());
+      }
+
+      if (this.nebulaHazard.state === NebulaLifecycleState.ECLIPSE_COLLAPSE && !this.isGameOver) {
+        // Enemy Collision Check against eclipse collapse
+        const enemiesList = this.enemies.getChildren();
+        for (let i = 0; i < enemiesList.length; i++) {
+          const enemy = enemiesList[i] as BaseEntity;
+          if (enemy && enemy.active && !enemy.isDead) {
+            const er = Math.floor(enemy.y / TILE_SIZE);
+            const ec = Math.floor(enemy.x / TILE_SIZE);
+            const isBoss = enemy === (this.activeBoss as unknown as BaseEntity);
+            const enemyHit = this.nebulaHazard.checkEnemyCollision(er, ec, isBoss, this.time.now);
+            if (enemyHit.hit) {
+              if (enemyHit.isDissolved || enemyHit.isDecomposed) {
+                if (typeof enemy.takeDamage === 'function') {
+                  enemy.takeDamage(enemyHit.damage, 'hazard', this.time.now);
+                }
+                this.score += enemyHit.scoreBonus;
+                this.addUltimateCharge(enemyHit.ultimateChargeBonus);
+                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#a855f7');
+              } else if (enemyHit.isStunned && isBoss && this.activeBoss) {
+                this.activeBoss.takeBombDamage(Math.floor(this.activeBoss.maxHp * BOSS_NEBULA_DAMAGE_RATIO));
+                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#a855f7');
+                if (this.bossHUD) {
+                  this.bossHUD.triggerStun(enemyHit.stunDurationMs / 1000, 'Astral Stasis!');
+                }
+              }
+            }
+          }
+        }
+
+        // Dedicated active boss check
+        if (this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED && this.activeBoss.currentHp > 0) {
+          const br = Math.floor(this.activeBoss.y / TILE_SIZE);
+          const bc = Math.floor(this.activeBoss.x / TILE_SIZE);
+          const bossHit = this.nebulaHazard.checkEnemyCollision(br, bc, true, this.time.now);
+          if (bossHit.hit && bossHit.isStunned) {
+            this.activeBoss.takeBombDamage(Math.floor(this.activeBoss.maxHp * BOSS_NEBULA_DAMAGE_RATIO));
+            this.spawnFloatingText(this.activeBoss.x, this.activeBoss.y - 14, bossHit.floatingText, '#a855f7');
+            if (this.bossHUD) {
+              this.bossHUD.triggerStun(bossHit.stunDurationMs / 1000, 'Astral Stasis!');
+            }
+          }
+        }
+      }
+    }
+
     // Single unified hazard rendering pass per tick
     this.renderDynamicHazardGraphics(_time);
   }
@@ -4048,6 +4171,91 @@ export default class GameScene extends Phaser.Scene {
     this.emitStatsUpdate();
   }
 
+  grantAstralGlide(): void {
+    if (this.isGameOver || !this.player || !this.player.active) return;
+    this.isInvulnerable = true;
+    const originalSpeed = this.playerSpeed;
+    this.playerSpeed = Math.floor(originalSpeed * (1.0 + ASTRAL_GLIDE_SPEED_BURST_RATIO));
+
+    this.player.setTint(0xc084fc);
+    this.player.setAlpha(0.85);
+
+    const existing = this.activeBuffs.find((b) => b.id === 'ASTRAL_GLIDE');
+    if (existing) {
+      existing.remainingMs = ASTRAL_GLIDE_INVULN_MS;
+      existing.totalMs = ASTRAL_GLIDE_INVULN_MS;
+    } else {
+      this.activeBuffs.push({
+        id: 'ASTRAL_GLIDE',
+        name: 'Astral Glide',
+        icon: '🌌',
+        color: '#a855f7',
+        remainingMs: ASTRAL_GLIDE_INVULN_MS,
+        totalMs: ASTRAL_GLIDE_INVULN_MS,
+      });
+    }
+
+    this.spawnFloatingText(this.player.x, this.player.y - 25, FLOATING_TEXT_ASTRAL_GLIDE, '#c084fc');
+    if (this.cameras?.main) {
+      this.cameras.main.flash(100, 168, 85, 247);
+    }
+    if (this.nebulaHazardAudio) {
+      this.nebulaHazardAudio.playAstralGlideChimes();
+    }
+
+    this.time.delayedCall(ASTRAL_GLIDE_INVULN_MS, () => {
+      if (this.player && this.player.active) {
+        this.player.setAlpha(1.0);
+        this.player.clearTint();
+        if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
+          this.isInvulnerable = false;
+        }
+      }
+      this.playerSpeed = originalSpeed;
+    });
+
+    this.emitStatsUpdate();
+  }
+
+  applyCosmicDaze(): void {
+    if (this.isGameOver || !this.player || !this.player.active) return;
+    const now = this.time?.now ?? Date.now();
+    if (this.isInvulnerable || this.isDashing) return;
+
+    const existing = this.activeBuffs.find((b) => b.id === 'COSMIC_DAZE');
+    if (existing) {
+      existing.remainingMs = COSMIC_DAZE_DURATION_MS;
+      existing.totalMs = COSMIC_DAZE_DURATION_MS;
+    } else {
+      this.activeBuffs.push({
+        id: 'COSMIC_DAZE',
+        name: 'Cosmic Daze',
+        icon: '💫',
+        color: '#8b5cf6',
+        remainingMs: COSMIC_DAZE_DURATION_MS,
+        totalMs: COSMIC_DAZE_DURATION_MS,
+      });
+    }
+
+    if (now - this.lastCosmicDazeFloatingTextMs >= 2000) {
+      this.lastCosmicDazeFloatingTextMs = now;
+      this.spawnFloatingText(this.player.x, this.player.y - 25, FLOATING_TEXT_COSMIC_DAZE, '#8b5cf6');
+      if (this.nebulaHazardAudio) {
+        this.nebulaHazardAudio.playCosmicDazeWarning();
+      }
+    }
+
+    if (this.player && this.player.active && !this.isInvulnerable) {
+      this.player.setTint(0xddd6fe);
+      this.time.delayedCall(COSMIC_DAZE_DURATION_MS, () => {
+        if (this.player && this.player.active && !this.activeBuffs.some((b) => b.id === 'COSMIC_DAZE')) {
+          this.player.clearTint();
+        }
+      });
+    }
+    this.emitStatsUpdate();
+  }
+
   applyPhaseJitter(durationMs: number = PHASE_JITTER_DURATION_MS): void {
     if (this.isGameOver) return;
     const now = this.time?.now ?? Date.now();
@@ -4138,6 +4346,7 @@ export default class GameScene extends Phaser.Scene {
         miasmaHazard: this.miasmaHazard,
         chronoHazard: this.chronoHazard,
         solarHazard: this.solarHazard,
+        nebulaHazard: this.nebulaHazard,
       },
       time
     );
@@ -4351,6 +4560,31 @@ export default class GameScene extends Phaser.Scene {
       solarMultiplier *= (1.0 - SUNSTROKE_SLOW_RATIO);
     }
 
+    let nebulaMultiplier = 1.0;
+    const isAstralGlideActive = this.activeBuffs.some((b) => b.id === 'ASTRAL_GLIDE');
+    const isCosmicDazeActive = this.activeBuffs.some((b) => b.id === 'COSMIC_DAZE');
+    if (this.nebulaHazard && this.nebulaHazard.state !== NebulaLifecycleState.DORMANT && this.nebulaHazard.state !== NebulaLifecycleState.STELLAR_DAWN) {
+      const nRes = this.nebulaHazard.evaluatePlayer(px, py, this.isDashing, this.time?.now ?? Date.now(), wantX, wantY);
+      if (nRes.astralGlideGranted) {
+        this.grantAstralGlide();
+      } else if (nRes.hit && nRes.damage > 0 && !this.isInvulnerable && !this.isDashing) {
+        this.spawnFloatingText(this.player.x, this.player.y - 14, `-${nRes.damage} ECLIPSE COLLAPSE`, '#a855f7');
+        if (this.cameraTrauma) {
+          this.cameraTrauma.addTrauma(0.40);
+        }
+        this.playerDie();
+      } else if (nRes.dazeInflicted && !this.isDashing && !this.isInvulnerable) {
+        this.applyCosmicDaze();
+      }
+      nebulaMultiplier = nRes.slowFactor;
+    }
+    if (isAstralGlideActive) {
+      nebulaMultiplier *= (1.0 + ASTRAL_GLIDE_SPEED_BURST_RATIO);
+    }
+    if (isCosmicDazeActive) {
+      nebulaMultiplier *= (1.0 - COSMIC_DAZE_SLOW_RATIO);
+    }
+
     // Return here if we are just dashing (so we evaluated hazards, but dash controls velocity)
     if (this.isDashing) {
       return;
@@ -4368,7 +4602,7 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
 
-    const rawCompoundMultiplier = gravityMultiplier * frostMultiplier * voltMultiplier * magmaMultiplier * miasmaMultiplier * chronoMultiplier * solarMultiplier;
+    const rawCompoundMultiplier = gravityMultiplier * frostMultiplier * voltMultiplier * magmaMultiplier * miasmaMultiplier * chronoMultiplier * solarMultiplier * nebulaMultiplier;
     const clampedHazardMultiplier = Math.min(1.85, Math.max(0.30, Number.isFinite(rawCompoundMultiplier) && rawCompoundMultiplier > 0 ? rawCompoundMultiplier : 1.0));
 
     const hazardSlowdownReduction = this.appliedPerkBonuses?.groundSlowdownReduction || 0;
@@ -4684,6 +4918,15 @@ export default class GameScene extends Phaser.Scene {
         fuseDuration = solarInteraction.modifiedFuseMs;
         bomb.setTint(solarInteraction.tint ?? SOLAR_SUPER_BOMB_TINT);
         this.spawnFloatingText(centerX, centerY - 25, solarInteraction.floatingText ?? FLOATING_TEXT_SOLAR_FUSED, '#f59e0b');
+      }
+    }
+
+    if (this.nebulaHazard && this.nebulaHazard.state !== NebulaLifecycleState.DORMANT && this.nebulaHazard.state !== NebulaLifecycleState.STELLAR_DAWN) {
+      const nebulaInteraction = this.nebulaHazard.onBombPlaced(bombId, row, col, this.bombPower, fuseDuration);
+      if (nebulaInteraction.isAccelerated) {
+        fuseDuration = Math.max(800, fuseDuration - nebulaInteraction.fuseAccelerationMs);
+        bomb.setTint(nebulaInteraction.bombTint ?? NEBULA_SUPER_BOMB_TINT);
+        this.spawnFloatingText(centerX, centerY - 25, nebulaInteraction.floatingText ?? FLOATING_TEXT_NEBULA_FUSED, '#a855f7');
       }
     }
 
@@ -5226,6 +5469,19 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    if (this.nebulaHazard && this.nebulaHazard.state !== NebulaLifecycleState.DORMANT && this.nebulaHazard.state !== NebulaLifecycleState.STELLAR_DAWN) {
+      const nebDet = this.nebulaHazard.onBombDetonated(bombId, actualRow, actualCol, effectivePower);
+      if (nebDet.isSingularity) {
+        effectivePower += nebDet.extraPower;
+        isPiercing = true;
+        const cX = actualCol * TILE_SIZE + TILE_SIZE / 2;
+        const cY = actualRow * TILE_SIZE + TILE_SIZE / 2;
+        this.spawnFloatingText(cX, cY - 25, nebDet.floatingText || FLOATING_TEXT_SINGULARITY_BURST, '#a855f7');
+        this.score += nebDet.bonusScore;
+        this.emitStatsUpdate();
+      }
+    }
+
     // 3. Polarization Strike helper (blast cleanses spire into golden channel for 8.0s)
     const checkPolarizationStrike = (r: number, c: number) => {
       if (this.frostHazard) {
@@ -5275,6 +5531,17 @@ export default class GameScene extends Phaser.Scene {
           this.spawnFloatingText(px, py - 20, calmRes.floatingText, '#fbbf24');
           if (this.solarHazardAudio) {
             this.solarHazardAudio.playSolarCalmResolution();
+          }
+        }
+      }
+      if (this.nebulaHazard) {
+        const calmRes = this.nebulaHazard.onBombBlastImpact(r, c);
+        if (calmRes.cleanedTilesCount > 0) {
+          const px = c * TILE_SIZE + TILE_SIZE / 2;
+          const py = r * TILE_SIZE + TILE_SIZE / 2;
+          this.spawnFloatingText(px, py - 20, calmRes.floatingText, '#c084fc');
+          if (this.nebulaHazardAudio) {
+            this.nebulaHazardAudio.playStardustCalmSnap();
           }
         }
       }
@@ -6551,6 +6818,17 @@ export default class GameScene extends Phaser.Scene {
         this.spawnFloatingText(bomb.x, bomb.y - 20, txt, '#f59e0b');
         if (this.solarHazardAudio) {
           this.solarHazardAudio.playCoronaArcSweep();
+        }
+      }
+    }
+    if (this.nebulaHazard && this.nebulaHazard.state !== NebulaLifecycleState.DORMANT) {
+      const kickRes = this.nebulaHazard.onBombKicked(bomb.getData('id') || 'bomb', bRow, bCol, BOMB_KICK_SPEED);
+      if (kickRes.isSlipstreamKick) {
+        kickSpeed = kickRes.kickSpeed || BOMB_KICK_NEBULA_SPEED;
+        const txt = kickRes.floatingText || FLOATING_TEXT_ASTRAL_SLIPSTREAM;
+        this.spawnFloatingText(bomb.x, bomb.y - 20, txt, '#a855f7');
+        if (this.nebulaHazardAudio) {
+          this.nebulaHazardAudio.playOpticalLensKick();
         }
       }
     }

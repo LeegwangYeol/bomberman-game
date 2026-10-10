@@ -677,7 +677,7 @@ export class MultiTouchPointerTracker {
         const dx = coords.x - ox;
         const dy = coords.y - oy;
         const distSq = dx * dx + dy * dy;
-        if (!Number.isFinite(distSq) || distSq < 25) {
+        if (!Number.isFinite(distSq) || distSq < 25 - 1e-7) {
           state.up = false;
           state.down = false;
           state.left = false;

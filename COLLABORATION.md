@@ -1456,3 +1456,49 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
      - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
      - ESLint 분석: `npm run lint` **0 에러 (Clean exit 0)**.
      - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+### 12) 일일 진화 및 복원력 패치: 제9원소 성운/일식 위험 요소(Nebula / Eclipse Hazard) 자율 진화 및 시스템 강건화 (Daily Evolution & Cosmic Expansion — 2026-10-11 완료 — VICTORY CONFIRMED)
+- **자율 진화 스웜 배치 (Swarm Mobilization & Task Distribution)**:
+  - 총 30인 정예 서브에이전트 스웜을 5대 분과(Scout 1-5, Architect & Zero-GC 1-5, Chaos QA 1-10, Creative Expansion 1-7, Victory Auditors 1-3)로 동시 가동.
+  - 절대 자율성 권한("알아서 해" / "절대 허용") 및 `/teamwork-preview` + `/goal` 지침에 따라 동적 아키텍처 탐색, 무할당(Zero-GC) 메모리 검증, 극한 카오스 퍼징, 신규 성운 위험 요소 구현, 프로덕션 빌드 및 깃허브 배포를 자율 수행.
+- **작업 개요 및 아키텍처 구현**:
+  1. **제9원소 아스트랄 성운 & 일식 동적 위험 요소 (`NebulaHazard.ts`)**:
+     - 9번째 우주/원소 판테온(성운/일식) 완성: 195타일 1D TypedArray 단일 평면 버퍼(`Uint8Array dangerMask`, `Float32Array densityGrid`, `Float32Array cleanseGrid`, `Int16Array activeNebulaIndices`) 기반 제로 GC 구조.
+     - 4단계 생명주기 FSM: `DORMANT` -> `NEBULA_DRIFT` (2000ms) -> `ECLIPSE_COLLAPSE` (350ms) -> `STELLAR_DAWN` (5800ms).
+     - 3단계 텔레그래프 서브 페이즈: `ASTRAL_WHISPER` (1000ms, 미세 성운 진동) -> `COSMIC_CONVERGENCE` (600ms, 우주 필라멘트 수렴) -> `ECLIPSE_IMMINENT` (400ms, 일식 붕괴 임박).
+     - 수학적 안전 구역 보장: $\ge 80\%$ (13x15 표준 아레나 기준 85.128% 관측, 반경 3 유클리드 격자구 내 29타일 한정).
+     - 이산 라플라시안 성운광 확산 알고리즘: 힙 할당 없는 인플레이스 스텝 확산 연산.
+  2. **절차적 웹 오디오 합성기 (`NebulaHazardAudio.ts`)**:
+     - 55Hz 서브 베이스 우주 에테르 드론, 432Hz -> 864Hz 자연 조율 화성 스윕, 720Hz -> 65Hz 공진 저역통과 필터 일식 붕괴음, 528Hz 솔페지오(Solfeggio) 기적의 3화음(528, 660, 792, 1056Hz), 백색 소음 자동 disconnect 펄스.
+     - Web Audio 노드 누수 방지 자동 disconnect 보장 및 Node.js / SSR 무중단 폴백.
+  3. **무차폐 단일 패스 렌더링 파이프라인 (`HazardRenderer.ts`)**:
+     - `renderNebulaEclipse(graphics, nebulaHazard)`: 코스믹 바이올렛(`0x8b5cf6`), 스타라이트 시안(`0x06b6d4`), 일식 다크 바이올렛(`0x4c1d95`) 팔레트.
+     - 텔레그래프 면 채우기 알파를 엄격히 $0.18 \sim 0.40$으로 제어하여 바닥 폭탄, 퓨즈, 아이템 시인성 100% 보장.
+  4. **플레이어 숙련도 및 전술 폭탄 상호작용 체계**:
+     - **아스트랄 글라이드 (Astral Glide)**: 성운 구역 대시 통과 시 1,200ms 무적(I-Frames) 및 +40% 속도 버스트(1500ms 쿨다운).
+     - **코스믹 데이즈 (Cosmic Daze)**: 미대시 보행 시 2,000ms간 30% 감속 디버프.
+     - **성운 융합 폭탄 (Nebula-Fused Bomb)**: 성운 타일 위 폭탄 설치 시 퓨즈 1.2초 단축(-1.2s), 아스트랄 틴트(`0xa855f7`).
+     - **특이점 기폭 (Singularity Burst)**: 일식 붕괴 구역 내 기폭 시 +2 화력 반경 관통, +250 스코어 보너스.
+     - **아스트랄 슬립스트림 킥 (Astral Slipstream Kick)**: 폭탄 킥 및 슬라이딩 시 460 px/s 초고속 슬립스트림 추진.
+     - **스타더스트 안식처 (Stardust Calm)**: 폭탄 폭발 반경 내 성운 정화 및 4.0초간 안전 지대 형성.
+     - **미니언 기화 & 보스 아스트랄 정지**: 일반 적 120 환경 피해, 보스 15% Max HP 피해 및 1.5초 스턴(2500ms 단일 타격 안티 익스플로잇 가드 장착).
+  5. **진행도 및 스케일링 엔진 연동 (`ProgressionTypes.ts`, `ScalingEngine.ts`)**:
+     - 신규 웨이브 변이체 `ASTRAL_NEBULA` (11번째 웨이브 변이체: 🌌 성운의 조율, 폭발 반경 +1, 플레이어 피해 배율 1.15x, 25초 주기 성운 맥동) 카탈로그 등록.
+  6. **물리 및 입력 에지케이스 정밀 방어**:
+     - `input_state.ts`: 5.0px 조이스틱 데드존 경계에서 IEEE-754 부동소수점 오차 허용치(`distSq < 25 - 1e-7`)를 일치시켜 서브픽셀 씹힘 100% 제거.
+     - `SpatialSeparation.ts`: `clampVelocity()`에서 비정상 실수(subnormal float, `1e-323`) 나눗셈 0 방어(`rawSpeed < 1e-8`)를 추가하여 `NaN`/`Infinity` 발생 원천 차단.
+     - `GameScene.ts` 및 `SolarHazardAudio.ts` 수명주기 누수 방어: `AudioVoicePool.resetInstance()`, `SolarHazardAudio.instance = null`, 그래픽스 오브젝트 파괴 및 보스 풀 정리.
+  7. **통합 루트 배럴 파일 신설 (`src/game/index.ts`)**:
+     - 누락되었던 루트 배럴을 신설하여 서브시스템 간 명확한 내보내기 인터페이스 정립.
+  8. **전수 검증 지표 및 프로덕션 빌드 (Final Victory Metrics)**:
+     - 신규 전용 검증 스위트 5종:
+       - `tests/nebula_hazard.test.mjs` (6/6 passed)
+       - `tests/nebula_hazard_player_mastery.test.mjs` (4/4 passed)
+       - `tests/nebula_hazard_tactical_bomb.test.mjs` (6/6 passed)
+       - `tests/nebula_hazard_audio.test.mjs` (4/4 passed)
+       - `tests/unit/nebula_hazard_mathematics.test.mjs` (6/6 passed)
+     - 전체 회귀 테스트 배터리: **1,706 / 1,706 PASS** (100% 무결점 통과, 0 실패, 0 스킵).
+     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+     - ESLint 분석: `npm run lint` **0 에러 (Clean exit 0)**.
+     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+

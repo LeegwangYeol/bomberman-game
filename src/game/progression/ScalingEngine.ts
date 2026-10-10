@@ -113,6 +113,18 @@ export const WAVE_MUTATOR_CATALOG: Record<WaveMutatorId, WaveMutator> = {
       blastRadiusDelta: 1,
     },
   },
+  [WaveMutatorId.ASTRAL_NEBULA]: {
+    id: WaveMutatorId.ASTRAL_NEBULA,
+    name: 'Astral Nebula',
+    icon: '🌌',
+    description: 'Ethereal celestial nebula shrouds the arena; bomb blasts gain optical stellar propulsion (+1 radius) while cosmic pulses cycle every 25 seconds.',
+    statModifiers: {
+      blastRadiusDelta: 1,
+      playerDamageMultiplier: 1.15,
+      nebulaPulseIntervalMs: 25000,
+      astralSlipstreamMultiplier: 1.2,
+    },
+  },
 };
 
 /* ==============================================================================

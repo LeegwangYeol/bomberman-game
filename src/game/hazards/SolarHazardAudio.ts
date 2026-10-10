@@ -361,6 +361,7 @@ export class SolarHazardAudio {
     this.lastState = SolarLifecycleState.DORMANT;
     this.lastTelegraph = SolarTelegraphPhase.NONE;
     this.lastDroneTimestampMs = 0;
+    SolarHazardAudio.instance = null;
   }
 
   public playSolarHazardState(

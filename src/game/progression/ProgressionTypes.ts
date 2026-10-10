@@ -109,6 +109,7 @@ export const WaveMutatorId = {
   CHRONO_ANOMALY: 'CHRONO_ANOMALY',
   PSIONIC_HAZE: 'PSIONIC_HAZE',
   VERDANT_OVERGROWTH: 'VERDANT_OVERGROWTH',
+  ASTRAL_NEBULA: 'ASTRAL_NEBULA',
 } as const;
 
 export type WaveMutatorId = typeof WaveMutatorId[keyof typeof WaveMutatorId];
@@ -132,6 +133,8 @@ export interface WaveMutator {
     bombKickRebounds?: number;
     solarFlareIntensityMultiplier?: number;
     photonSlipstreamMultiplier?: number;
+    nebulaPulseIntervalMs?: number;
+    astralSlipstreamMultiplier?: number;
   };
 }
 
