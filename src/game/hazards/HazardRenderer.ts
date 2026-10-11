@@ -1,13 +1,17 @@
 /**
  * HazardRenderer.ts — High-Performance Zero-GC 2D Procedural Renderer for Dynamic Hazards
  *
- * Modularly encapsulates rendering of the Heptagonal Elemental Pantheon:
+ * Modularly encapsulates rendering of the Decagon Elemental Pantheon:
  *     1. Aether / Light: Quantum Spire Beams & Polarized Spires (DynamicHazard)
  *     2. Frost / Ice: Cryo Glaciation, Permafrost Creep & Absolute Zero (FrostHazard)
  *     3. Volt / Lightning: Tesla Ionization Arcs & Lightning Discharge (VoltHazard)
  *     4. Magma / Fire: Pyroclastic Bursts & Solidified Obsidian Crust (MagmaHazard)
  *     5. Nature / Decay: Toxic Spores, Corrosive Bloom & Fertile Cleansed Soil (MiasmaHazard)
  *     6. Time / Spacetime: Chrono Dilation, Time Collapse & Stabilized Timeline Anchors (ChronoHazard)
+ *     7. Void / Gravity: Gravitational Singularity & Event Horizon (GravityHazard)
+ *     8. Sun / Plasma: Solar Corona & Coronal Mass Ejection (SolarHazard)
+ *     9. Astral / Eclipse: Astral Nebula & Solar Eclipse Singularity (NebulaHazard)
+ *    10. Abyss / Deep Sea: Abyssal Rift & Ocean Maelstrom Surge (AbyssalHazard)
  *
  * Architectural Invariants:
  * - Single-pass vector batching on a persistent Graphics instance
@@ -66,6 +70,12 @@ import {
   NebulaTelegraphPhase,
   NebulaDangerValue,
 } from './NebulaHazard.ts';
+import {
+  AbyssalHazard,
+  AbyssalLifecycleState,
+  AbyssalTelegraphPhase,
+  AbyssalDangerValue,
+} from './AbyssalHazard.ts';
 
 export interface HazardRendererContext {
   dynamicHazard?: DynamicHazard | null;
@@ -77,6 +87,7 @@ export interface HazardRendererContext {
   gravityHazard?: GravityHazard | null;
   solarHazard?: SolarHazard | null;
   nebulaHazard?: NebulaHazard | null;
+  abyssalHazard?: AbyssalHazard | null;
 }
 
 export class HazardRenderer {
@@ -97,6 +108,7 @@ export class HazardRenderer {
     const gState = context.gravityHazard?.getState();
     const sState = context.solarHazard?.getState();
     const nState = context.nebulaHazard?.getState();
+    const aState = context.abyssalHazard?.getState();
 
     const hasDynamic = context.dynamicHazard && dState !== HazardLifecycleState.INACTIVE;
     const hasFrost = context.frostHazard && fState !== FrostLifecycleState.DORMANT && fState !== FrostLifecycleState.THAW_COOLDOWN;
@@ -107,8 +119,9 @@ export class HazardRenderer {
     const hasGravity = context.gravityHazard && gState !== GravityLifecycleState.DORMANT && gState !== GravityLifecycleState.COOLDOWN;
     const hasSolar = context.solarHazard && sState !== SolarLifecycleState.DORMANT && sState !== SolarLifecycleState.CORONA_RECOVERY;
     const hasNebula = context.nebulaHazard && nState !== NebulaLifecycleState.DORMANT && nState !== NebulaLifecycleState.STELLAR_DAWN;
+    const hasAbyssal = context.abyssalHazard && aState !== AbyssalLifecycleState.DORMANT && aState !== AbyssalLifecycleState.OCEANIC_CALM;
 
-    if (!hasDynamic && !hasFrost && !hasVolt && !hasMagma && !hasMiasma && !hasChrono && !hasGravity && !hasSolar && !hasNebula) return;
+    if (!hasDynamic && !hasFrost && !hasVolt && !hasMagma && !hasMiasma && !hasChrono && !hasGravity && !hasSolar && !hasNebula && !hasAbyssal) return;
 
     // 1. Dynamic Hazard (Quantum Spires & Beams)
     if (hasDynamic && context.dynamicHazard) {
@@ -129,18 +142,18 @@ export class HazardRenderer {
           if (phase === TelegraphPhase.YELLOW) {
             graphics.lineStyle(2, 0x00e5ff, 0.45);
             graphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-            graphics.fillStyle(0x00e5ff, 0.15);
+            graphics.fillStyle(0x00e5ff, 0.18);
             graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
           } else if (phase === TelegraphPhase.AMBER) {
             graphics.lineStyle(2, 0xa855f7, 0.7);
             graphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-            graphics.fillStyle(0xa855f7, 0.35);
+            graphics.fillStyle(0xa855f7, 0.36);
             graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
           } else if (phase === TelegraphPhase.RED) {
             const pulse = 0.7 + 0.3 * Math.sin(time / 40);
             graphics.lineStyle(2.5, 0xef4444, 0.9 * pulse);
             graphics.strokeRect(left + 1, top + 1, TILE_SIZE - 2, TILE_SIZE - 2);
-            graphics.fillStyle(0xd946ef, 0.55 * pulse);
+            graphics.fillStyle(0xd946ef, 0.40); // strictly clamped to 0.40 to prevent UI/bomb occlusion
             graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
           }
         } else if (code === 2) {
@@ -216,10 +229,10 @@ export class HazardRenderer {
         } else {
           const alpha =
             phase === HoarfrostPhase.CRYSTALLIZATION
-              ? 0.15
+              ? 0.18
               : phase === HoarfrostPhase.PERMAFROST_CREEP
-              ? 0.30
-              : 0.45;
+              ? 0.36
+              : 0.40; // strictly clamped to 0.40 to prevent UI/bomb occlusion
           graphics.fillStyle(0x38bdf8, alpha);
           graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
           graphics.lineStyle(1.5, 0x93c5fd, 0.5);
@@ -253,10 +266,10 @@ export class HazardRenderer {
         } else {
           const alpha =
             phase === VoltTelegraphPhase.STATIC_CHARGE
-              ? 0.15
+              ? 0.18
               : phase === VoltTelegraphPhase.ARC_BUILDUP
-              ? 0.30
-              : 0.50;
+              ? 0.36
+              : 0.40; // strictly clamped to 0.40 to prevent UI/bomb occlusion
           graphics.fillStyle(0xfacc15, alpha);
           graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
           graphics.lineStyle(1.5, 0x38bdf8, 0.6);
@@ -297,10 +310,10 @@ export class HazardRenderer {
         } else {
           const alpha =
             phase === MagmaTelegraphPhase.CRUST_HEATING
-              ? 0.20
+              ? 0.18
               : phase === MagmaTelegraphPhase.MAGMA_UPWELLING
-              ? 0.40
-              : 0.65;
+              ? 0.36
+              : 0.40; // strictly clamped to 0.40 to prevent UI/bomb occlusion
           graphics.fillStyle(0xea580c, alpha);
           graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
           graphics.lineStyle(1.5, 0xf97316, 0.7);
@@ -341,10 +354,10 @@ export class HazardRenderer {
         } else {
           const alpha =
             phase === MiasmaTelegraphPhase.POD_SWELLING
-              ? 0.20
+              ? 0.18
               : phase === MiasmaTelegraphPhase.SPORE_EXHALATION
-              ? 0.40
-              : 0.65;
+              ? 0.36
+              : 0.40; // strictly clamped to 0.40 to prevent UI/bomb occlusion
           graphics.fillStyle(0x059669, alpha);
           graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
           graphics.lineStyle(1.5, 0x10b981, 0.7);
@@ -388,10 +401,10 @@ export class HazardRenderer {
           // Telegraph phases: progressive violet/indigo dilation field with gear tick glyph
           const alpha =
             phase === ChronoTelegraphPhase.TEMPORAL_RIPPLE
-              ? 0.20
+              ? 0.18
               : phase === ChronoTelegraphPhase.TACHYON_WARP
-              ? 0.40
-              : 0.65; // EVENT_HORIZON_IMMINENT
+              ? 0.36
+              : 0.40; // EVENT_HORIZON_IMMINENT strictly clamped to 0.40 to prevent UI/bomb occlusion
           graphics.fillStyle(0x6366f1, alpha);
           graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
           graphics.lineStyle(1.5, 0xa5b4fc, 0.75);
@@ -491,6 +504,89 @@ export class HazardRenderer {
           graphics.lineStyle(1.5, 0x06b6d4, 0.75);
           graphics.strokeCircle(cx, cy, 7);
         }
+      }
+    }
+
+    // 9. Abyssal Hazard (Abyssal Rift & Ocean Maelstrom)
+    if (hasAbyssal && context.abyssalHazard) {
+      HazardRenderer.renderAbyssalTide(graphics, context.abyssalHazard, time);
+    }
+  }
+
+  /**
+   * Procedural vector renderer for the 10th Mythic Dimension: Abyssal Rift & Ocean Maelstrom.
+   * Utilizes deep azure (0x0284c7), ocean cyan (0x0ea5e9), and abyssal navy (0x082f49) palette.
+   * Strictly clamps telegraph alpha between 0.18 and 0.40 to guarantee zero UI occlusion.
+   */
+  public static renderAbyssalTide(
+    graphics: Phaser.GameObjects.Graphics | null | undefined,
+    hazard: AbyssalHazard | null | undefined,
+    time: number
+  ): void {
+    if (!graphics || !hazard) return;
+
+    const state = hazard.getState();
+    if (state === AbyssalLifecycleState.DORMANT || state === AbyssalLifecycleState.OCEANIC_CALM) {
+      return;
+    }
+
+    const activeIndices = hazard.getActiveAbyssalIndices();
+    const activeCount = hazard.getActiveAbyssalCount();
+    const dangerMask = hazard.getDangerMask();
+    const phase = hazard.getTelegraphPhase();
+    const isBurst = state === AbyssalLifecycleState.ABYSSAL_MAELSTROM;
+
+    for (let i = 0; i < activeCount; i++) {
+      const idx = activeIndices[i];
+      const r = (idx / COLS) | 0;
+      const c = idx % COLS;
+      const left = c * TILE_SIZE;
+      const top = r * TILE_SIZE;
+      const cx = left + TILE_SIZE / 2;
+      const cy = top + TILE_SIZE / 2;
+      const maskVal = dangerMask[idx];
+
+      if (maskVal === AbyssalDangerValue.ANCHOR) {
+        // Stabilized hydro calm sanctuary: serene ocean cyan field (0x0ea5e9) with deep azure border (0x0284c7)
+        graphics.fillStyle(0x0ea5e9, 0.30);
+        graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        graphics.lineStyle(1.5, 0x0284c7, 0.75);
+        graphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+      } else if (isBurst || maskVal === AbyssalDangerValue.MAELSTROM) {
+        // Lethal Maelstrom Collapse: deep abyssal navy core (0x082f49) with pulsing ocean cyan rim (0x0ea5e9)
+        const pulse = 0.8 + 0.2 * Math.sin(time / 20);
+        graphics.fillStyle(0x082f49, 0.95);
+        graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        graphics.lineStyle(2.5, 0x0ea5e9, 0.95 * pulse);
+        graphics.strokeRect(left + 1, top + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+        // Swirling whirlpool foam eye
+        graphics.lineStyle(1.5, 0xffffff, 0.85 * pulse);
+        graphics.strokeCircle(cx, cy, 6);
+      } else {
+        // Telegraph phases: progressive deep azure / tidal water with ocean cyan vortex swirl
+        // Enforce strict telegraph alpha clamping (0.18 - 0.40) to prevent UI occlusion
+        let rawAlpha: number;
+        if (phase === AbyssalTelegraphPhase.TIDAL_UNDERTOW) {
+          rawAlpha = 0.18;
+        } else if (phase === AbyssalTelegraphPhase.TRENCH_CONVERGENCE) {
+          rawAlpha = 0.32;
+        } else {
+          // MAELSTROM_IMMINENT
+          rawAlpha = 0.40;
+        }
+        const alpha = Math.max(0.18, Math.min(0.40, rawAlpha));
+
+        // Deep azure base fill (0x0284c7)
+        graphics.fillStyle(0x0284c7, alpha);
+        graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+
+        // Abyssal navy perimeter outline (0x082f49)
+        graphics.lineStyle(1.0, 0x082f49, 0.5);
+        graphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+
+        // Ocean cyan concentric vortex center pip (0x0ea5e9)
+        graphics.lineStyle(1.5, 0x0ea5e9, 0.75);
+        graphics.strokeCircle(cx, cy, 7);
       }
     }
   }

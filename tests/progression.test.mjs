@@ -59,7 +59,7 @@ test('Tier 1: GameModeType catalog defines all 4 distinct game modes with comple
   }
 });
 
-test('Tier 1: WaveMutatorCatalog defines 11 distinct wave room mutators', () => {
+test('Tier 1: WaveMutatorCatalog defines 12 distinct wave room mutators', () => {
   const mutatorIds = [
     WaveMutatorId.SPEED_DEMON,
     WaveMutatorId.VOLATILE_CONDUITS,
@@ -72,9 +72,10 @@ test('Tier 1: WaveMutatorCatalog defines 11 distinct wave room mutators', () => 
     WaveMutatorId.PSIONIC_HAZE,
     WaveMutatorId.VERDANT_OVERGROWTH,
     WaveMutatorId.ASTRAL_NEBULA,
+    WaveMutatorId.ABYSSAL_TIDE,
   ];
 
-  assert.equal(Object.keys(WAVE_MUTATOR_CATALOG).length, 11);
+  assert.equal(Object.keys(WAVE_MUTATOR_CATALOG).length, 12);
   for (const id of mutatorIds) {
     const m = WAVE_MUTATOR_CATALOG[id];
     assert.ok(m, `Missing mutator ${id}`);
@@ -84,6 +85,16 @@ test('Tier 1: WaveMutatorCatalog defines 11 distinct wave room mutators', () => 
     assert.ok(m.description.length > 0);
     assert.ok(typeof m.statModifiers === 'object');
   }
+
+  // Explicit verification for ABYSSAL_TIDE stat modifiers
+  const abyssal = WAVE_MUTATOR_CATALOG[WaveMutatorId.ABYSSAL_TIDE];
+  assert.equal(abyssal.statModifiers.blastRadiusDelta, 1);
+  assert.equal(abyssal.statModifiers.playerDamageMultiplier, 1.15);
+  assert.equal(abyssal.statModifiers.tidalPulseIntervalMs, 25000);
+  assert.ok(
+    abyssal.statModifiers.abyssalSlipstreamMultiplier !== undefined ||
+    abyssal.statModifiers.slipstreamVelocityMultiplier !== undefined
+  );
 });
 
 test('Tier 1: Confectionery Perk Tree defines 16 perks across 4 distinct branches', () => {

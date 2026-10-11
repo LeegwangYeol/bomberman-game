@@ -197,7 +197,9 @@ export class AudioVoice {
     } else {
       this.detachAllModulators();
       this.isBusy = false;
+      this.startTime = 0;
       this.endTime = 0;
+      this.allocSeq = 0;
     }
   }
 
@@ -223,6 +225,9 @@ export class AudioVoice {
       // Safe teardown
     }
     this.isBusy = false;
+    this.startTime = 0;
+    this.endTime = 0;
+    this.allocSeq = 0;
   }
 }
 
@@ -291,6 +296,10 @@ export class AudioVoicePool {
     for (let i = 0; i < this.capacity; i++) {
       this.voices.push(new AudioVoice(i, ctx, this.masterBus));
     }
+  }
+
+  public initialize(ctx: AudioContext): void {
+    this.init(ctx);
   }
 
   public acquireVoice(): AudioVoice | null {
@@ -382,10 +391,14 @@ export class AudioVoicePool {
   }
 
   public reset(): void {
-    if (!this.ctx) return;
     for (let i = 0; i < this.voices.length; i++) {
-      this.voices[i].forceSilence(this.ctx);
+      if (this.ctx) {
+        this.voices[i].forceSilence(this.ctx);
+      } else {
+        this.voices[i].stop();
+      }
     }
+    this.sequence = 0;
   }
 
   public stop(): void {
@@ -404,6 +417,7 @@ export class AudioVoicePool {
       this.masterBus = null;
     }
     this.ctx = null;
+    this.sequence = 0;
     if (AudioVoicePool.instance === this) {
       AudioVoicePool.instance = null;
     }

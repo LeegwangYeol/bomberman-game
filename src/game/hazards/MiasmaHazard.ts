@@ -326,6 +326,8 @@ export class MiasmaHazard {
     floatingText: FLOATING_TEXT_FLORAL_CLEANSED,
   };
 
+  private scratchCenter: { r: number; c: number } = { r: 6, c: 7 };
+
   constructor(centerRow: number = 6, centerCol: number = 7) {
     this.init(centerRow, centerCol);
   }
@@ -353,6 +355,12 @@ export class MiasmaHazard {
 
   public setCenter(r: number, c: number): void {
     this.init(r, c);
+  }
+
+  public getCenter(): { r: number; c: number } {
+    this.scratchCenter.r = this.centerRow;
+    this.scratchCenter.c = this.centerCol;
+    return this.scratchCenter;
   }
 
   public get epicenterR(): number {
@@ -493,7 +501,7 @@ export class MiasmaHazard {
         if (c < 0 || c >= COLS) continue;
 
         if (dr * dr + dc * dc <= rSqMax) {
-          const idx = r * COLS + c;
+          const idx = ((r * COLS + c) | 0);
           if (this.activeSporeCount < MAX_MIASMA_TILES) {
             this.activeSporeIndices[this.activeSporeCount++] = idx;
           }
@@ -528,11 +536,11 @@ export class MiasmaHazard {
 
     for (let r = 1; r < ROWS - 1; r++) {
       for (let c = 1; c < COLS - 1; c++) {
-        const idx = r * COLS + c;
-        const up = (r - 1) * COLS + c;
-        const down = (r + 1) * COLS + c;
-        const left = r * COLS + (c - 1);
-        const right = r * COLS + (c + 1);
+        const idx = ((r * COLS + c) | 0);
+        const up = (((r - 1) * COLS + c) | 0);
+        const down = (((r + 1) * COLS + c) | 0);
+        const left = ((r * COLS + (c - 1)) | 0);
+        const right = ((r * COLS + (c + 1)) | 0);
 
         const current = this.propagationBuffer[idx];
         const laplacian =
@@ -543,8 +551,10 @@ export class MiasmaHazard {
           4.0 * current;
 
         const updated = current + (safeRate * laplacian - safeGamma * current) * safeDt;
-        this.sporeGrid[idx] = Number.isFinite(updated) ? Math.max(0.0, Math.min(1.0, updated)) : 0.0;
-        this.intensityGrid[idx] = this.sporeGrid[idx];
+        let val = Number.isFinite(updated) ? Math.max(0.0, Math.min(1.0, updated)) : 0.0;
+        if (val < 1e-15) val = 0.0;
+        this.sporeGrid[idx] = val;
+        this.intensityGrid[idx] = val;
       }
     }
   }
@@ -690,7 +700,7 @@ export class MiasmaHazard {
     const r = row | 0;
     const c = col | 0;
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
-    const idx = r * COLS + c;
+    const idx = ((r * COLS + c) | 0);
     return this.dangerMask[idx] === MiasmaDangerValue.INCUBATING || this.dangerMask[idx] === MiasmaDangerValue.BURST;
   }
 
@@ -722,7 +732,7 @@ export class MiasmaHazard {
     const r = row | 0;
     const c = col | 0;
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return 0;
-    return this.sporeGrid[r * COLS + c];
+    return this.sporeGrid[((r * COLS + c) | 0)];
   }
 
   public getTileSporeDensity(row: number, col: number): number {
@@ -734,7 +744,7 @@ export class MiasmaHazard {
     const r = row | 0;
     const c = col | 0;
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return 0;
-    return this.intensityGrid[r * COLS + c];
+    return this.intensityGrid[((r * COLS + c) | 0)];
   }
 
   public getTileDangerCode(row: number, col: number): number {
@@ -742,7 +752,7 @@ export class MiasmaHazard {
     const r = row | 0;
     const c = col | 0;
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return MiasmaDangerValue.SAFE;
-    return this.dangerMask[r * COLS + c];
+    return this.dangerMask[((r * COLS + c) | 0)];
   }
 
   public isTileLethal(row: number, col: number): boolean {
@@ -750,7 +760,7 @@ export class MiasmaHazard {
     const r = row | 0;
     const c = col | 0;
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
-    return this.state === MiasmaLifecycleState.CORROSIVE_BURST && this.dangerMask[r * COLS + c] === MiasmaDangerValue.BURST;
+    return this.state === MiasmaLifecycleState.CORROSIVE_BURST && this.dangerMask[((r * COLS + c) | 0)] === MiasmaDangerValue.BURST;
   }
 
   public isPointLethal(worldX: number, worldY: number): boolean {
@@ -797,7 +807,7 @@ export class MiasmaHazard {
     const c = (px / TILE_SIZE) | 0;
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return res;
 
-    const idx = r * COLS + c;
+    const idx = ((r * COLS + c) | 0);
     if (idx < 0 || idx >= TOTAL_TILES) return res;
     const maskVal = this.dangerMask[idx];
 
@@ -845,6 +855,20 @@ export class MiasmaHazard {
   }
 
   /**
+   * Harmonization alias for evaluating enemy collision from world coordinates
+   */
+  public evaluateEnemy(
+    x: number,
+    y: number,
+    isBoss: boolean = false,
+    nowMs: number = Date.now()
+  ): MiasmaEnemyResult {
+    const er = (y / TILE_SIZE) | 0;
+    const ec = (x / TILE_SIZE) | 0;
+    return this.checkEnemyCollision(er, ec, isBoss, nowMs);
+  }
+
+  /**
    * Minion & Boss Environmental Combat
    */
   public checkEnemyCollision(
@@ -863,7 +887,7 @@ export class MiasmaHazard {
     res.ultimateChargeBonus = 0;
 
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return res;
-    const idx = (r | 0) * COLS + (c | 0);
+    const idx = ((((r | 0) * COLS) + (c | 0)) | 0);
 
     // Only burst state deals lethal environmental damage
     if (this.dangerMask[idx] !== MiasmaDangerValue.BURST) {
@@ -922,7 +946,7 @@ export class MiasmaHazard {
     const ir = r | 0;
     const ic = c | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return res;
-    const idx = ir * COLS + ic;
+    const idx = ((ir * COLS + ic) | 0);
 
     if (this.dangerMask[idx] === MiasmaDangerValue.INCUBATING || this.dangerMask[idx] === MiasmaDangerValue.BURST) {
       res.isBioFused = true;
@@ -957,7 +981,7 @@ export class MiasmaHazard {
     const ir = r | 0;
     const ic = c | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return res;
-    const idx = ir * COLS + ic;
+    const idx = ((ir * COLS + ic) | 0);
 
     if (this.dangerMask[idx] === MiasmaDangerValue.INCUBATING || this.dangerMask[idx] === MiasmaDangerValue.BURST) {
       res.isBioSlick = true;
@@ -988,7 +1012,7 @@ export class MiasmaHazard {
     const ir = r | 0;
     const ic = c | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return res;
-    const idx = ir * COLS + ic;
+    const idx = ((ir * COLS + ic) | 0);
 
     const mask = this.dangerMask[idx];
     if (mask === MiasmaDangerValue.FERTILE_SOIL) {
@@ -1012,7 +1036,7 @@ export class MiasmaHazard {
     const ir = r | 0;
     const ic = c | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return false;
-    const idx = ir * COLS + ic;
+    const idx = ((ir * COLS + ic) | 0);
     return this.dangerMask[idx] === MiasmaDangerValue.INCUBATING || this.dangerMask[idx] === MiasmaDangerValue.BURST;
   }
 
@@ -1043,7 +1067,7 @@ export class MiasmaHazard {
     const ir = r | 0;
     const ic = c | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return res;
-    const idx = ir * COLS + ic;
+    const idx = ((ir * COLS + ic) | 0);
 
     if (this.dangerMask[idx] === MiasmaDangerValue.INCUBATING || this.dangerMask[idx] === MiasmaDangerValue.BURST) {
       res.isCatalytic = true;
@@ -1071,7 +1095,7 @@ export class MiasmaHazard {
     const ir = r | 0;
     const ic = c | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return res;
-    const idx = ir * COLS + ic;
+    const idx = ((ir * COLS + ic) | 0);
 
     if (this.dangerMask[idx] === MiasmaDangerValue.INCUBATING || this.dangerMask[idx] === MiasmaDangerValue.BURST) {
       this.cleanseTimerGrid[idx] = FLORAL_CLEANSE_DURATION_MS;
@@ -1088,7 +1112,7 @@ export class MiasmaHazard {
     const ir = r | 0;
     const ic = c | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return false;
-    const idx = ir * COLS + ic;
+    const idx = ((ir * COLS + ic) | 0);
     return this.dangerMask[idx] === MiasmaDangerValue.FERTILE_SOIL;
   }
 
@@ -1097,7 +1121,7 @@ export class MiasmaHazard {
     const ir = r | 0;
     const ic = c | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return true;
-    const idx = ir * COLS + ic;
+    const idx = ((ir * COLS + ic) | 0);
     return this.dangerMask[idx] === MiasmaDangerValue.SAFE || this.dangerMask[idx] === MiasmaDangerValue.FERTILE_SOIL;
   }
 }

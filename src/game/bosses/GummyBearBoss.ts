@@ -101,12 +101,19 @@ export class GummyBearBoss extends BaseBoss {
       // Ponderous march toward player quadrant
       const dx = playerX - this.x;
       const dy = playerY - this.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
+      const dist = Math.hypot(dx, dy);
       if (dist > 10) {
-        this.vx = (dx / dist) * this.currentSpeed;
-        this.vy = (dy / dist) * this.currentSpeed;
+        let vx = (dx / dist) * this.currentSpeed;
+        let vy = (dy / dist) * this.currentSpeed;
+        if (Math.abs(vx) < 1e-15) vx = 0;
+        if (Math.abs(vy) < 1e-15) vy = 0;
+        this.vx = vx;
+        this.vy = vy;
         this.x += this.vx * (dt / 1000);
         this.y += this.vy * (dt / 1000);
+      } else {
+        this.vx = 0;
+        this.vy = 0;
       }
     }
   }

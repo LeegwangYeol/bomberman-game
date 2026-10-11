@@ -592,8 +592,8 @@ export class TelegraphEngine {
 
       switch (stage) {
         case TelegraphTier.YELLOW: {
-          // Tier 1: Soft dashed yellow border + soft yellow wash
-          g.fillStyle(COLOR_YELLOW, 0.12);
+          // Tier 1: Soft dashed yellow border + soft yellow wash (calibrated to 0.18 alpha)
+          g.fillStyle(COLOR_YELLOW, 0.18);
           g.fillRect(x + 2, y + 2, 36, 36);
 
           g.lineStyle(2, COLOR_YELLOW, 0.65);
@@ -632,9 +632,9 @@ export class TelegraphEngine {
         }
 
         case TelegraphTier.AMBER: {
-          // Tier 2: 4 Hz Pulsing diagonal hatching + solid border (LOCKED)
+          // Tier 2: 4 Hz Pulsing diagonal hatching + solid border (LOCKED, calibrated to 0.18..0.40 alpha)
           const pulseSin = Math.sin(timeMs * 0.0251327); // 2 * PI * 4Hz / 1000
-          const fillAlpha = 0.25 + 0.15 * pulseSin; // Range: 0.10 .. 0.40
+          const fillAlpha = 0.29 + 0.11 * pulseSin; // Range: 0.18 .. 0.40
           const lineAlpha = 0.55 + 0.25 * pulseSin; // Range: 0.30 .. 0.80
 
           g.fillStyle(COLOR_AMBER, fillAlpha);
@@ -706,6 +706,11 @@ export class TelegraphEngine {
     if (this.renderer) {
       this.renderer.clear();
     }
+  }
+
+  public destroy(): void {
+    this.reset();
+    this.renderer = null;
   }
 
   // Public Query APIs

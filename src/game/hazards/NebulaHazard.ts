@@ -283,6 +283,8 @@ export class NebulaHazard {
     floatingText: '',
   };
 
+  private scratchCenter: { r: number; c: number } = { r: 6, c: 7 };
+
   constructor(centerRow: number = 6, centerCol: number = 7) {
     this.init(centerRow, centerCol);
   }
@@ -308,6 +310,12 @@ export class NebulaHazard {
 
     this.reset();
     this.computeNebulaFootprint();
+  }
+
+  public getCenter(): { r: number; c: number } {
+    this.scratchCenter.r = this.centerRow;
+    this.scratchCenter.c = this.centerCol;
+    return this.scratchCenter;
   }
 
   public start(mode: 'WHISPERS' | 'NORMAL' | 'CLIMAX' = 'NORMAL', centerR: number = 6, centerC: number = 7): void {
@@ -348,7 +356,7 @@ export class NebulaHazard {
 
         const distSq = dr * dr + dc * dc;
         if (distSq <= rMaxSq) {
-          const idx = r * COLS + c;
+          const idx = ((r * COLS + c) | 0);
           if (this.activeNebulaCount < MAX_NEBULA_TILES) {
             this.activeNebulaIndices[this.activeNebulaCount++] = idx;
           }
@@ -361,7 +369,7 @@ export class NebulaHazard {
    * In-place discrete Laplacian diffusion step for cosmic starlight density
    */
   public stepDiscreteDiffusion(diffusionRate: number = 0.15): void {
-    if (!Number.isFinite(diffusionRate) || diffusionRate <= 0) return;
+    if (typeof diffusionRate !== 'number' || !Number.isFinite(diffusionRate) || diffusionRate < 1e-8) return;
     const rate = Math.min(0.25, diffusionRate);
 
     for (let i = 0; i < this.activeNebulaCount; i++) {
@@ -373,14 +381,16 @@ export class NebulaHazard {
       let neighborSum = 0;
       let neighborCount = 0;
 
-      if (r > 0) { neighborSum += this.densityGrid[(r - 1) * COLS + c]; neighborCount++; }
-      if (r < ROWS - 1) { neighborSum += this.densityGrid[(r + 1) * COLS + c]; neighborCount++; }
-      if (c > 0) { neighborSum += this.densityGrid[r * COLS + (c - 1)]; neighborCount++; }
-      if (c < COLS - 1) { neighborSum += this.densityGrid[r * COLS + (c + 1)]; neighborCount++; }
+      if (r > 0) { neighborSum += this.densityGrid[(((r - 1) * COLS + c) | 0)]; neighborCount++; }
+      if (r < ROWS - 1) { neighborSum += this.densityGrid[(((r + 1) * COLS + c) | 0)]; neighborCount++; }
+      if (c > 0) { neighborSum += this.densityGrid[((r * COLS + (c - 1)) | 0)]; neighborCount++; }
+      if (c < COLS - 1) { neighborSum += this.densityGrid[((r * COLS + (c + 1)) | 0)]; neighborCount++; }
 
       if (neighborCount > 0) {
         const laplacian = neighborSum / neighborCount - currentVal;
-        this.densityGrid[idx] = Math.max(0, Math.min(1.0, currentVal + laplacian * rate));
+        let val = Math.max(0, Math.min(1.0, currentVal + laplacian * rate));
+        if (val < 1e-15) val = 0.0;
+        this.densityGrid[idx] = val;
       }
     }
   }
@@ -583,6 +593,20 @@ export class NebulaHazard {
     }
 
     return res;
+  }
+
+  /**
+   * Harmonization alias for evaluating enemy collision from world coordinates
+   */
+  public evaluateEnemy(
+    x: number,
+    y: number,
+    isBoss: boolean = false,
+    nowMs: number = Date.now()
+  ): NebulaEnemyResult {
+    const er = (y / TILE_SIZE) | 0;
+    const ec = (x / TILE_SIZE) | 0;
+    return this.checkEnemyCollision(er, ec, isBoss, nowMs);
   }
 
   /**
@@ -862,6 +886,7 @@ export class NebulaHazard {
   public getTelegraphPhase(): NebulaTelegraphPhase { return this.telegraphPhase; }
   public getCenterRow(): number { return this.centerRow; }
   public getCenterCol(): number { return this.centerCol; }
+  public setCenter(centerR: number, centerC: number): void { this.init(centerR, centerC); }
 
   public getSafeAreaRatio(): number {
     let hazardousCount = 0;

@@ -29,6 +29,16 @@ export * from './EnemyEntities.ts';
 export * from './NeutralEntities.ts';
 export * from './AllyEntities.ts';
 export * from './SpatialSeparation.ts';
+export {
+  resolveJoystickDeadzone,
+  resolvePlayerCornerSlide,
+  clampPlayerVelocity,
+  FLOAT_EPSILON,
+  DEADZONE_EPSILON,
+  type JoystickDeadzoneResult,
+  type CornerSlideParams,
+  type CornerSlideResult,
+} from './PlayerMovementPhysics.ts';
 
 /**
  * Factory helper for spawning enemies by archetype.

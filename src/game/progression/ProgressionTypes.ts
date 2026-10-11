@@ -110,6 +110,7 @@ export const WaveMutatorId = {
   PSIONIC_HAZE: 'PSIONIC_HAZE',
   VERDANT_OVERGROWTH: 'VERDANT_OVERGROWTH',
   ASTRAL_NEBULA: 'ASTRAL_NEBULA',
+  ABYSSAL_TIDE: 'ABYSSAL_TIDE',
 } as const;
 
 export type WaveMutatorId = typeof WaveMutatorId[keyof typeof WaveMutatorId];
@@ -135,6 +136,9 @@ export interface WaveMutator {
     photonSlipstreamMultiplier?: number;
     nebulaPulseIntervalMs?: number;
     astralSlipstreamMultiplier?: number;
+    tidalPulseIntervalMs?: number;
+    abyssalSlipstreamMultiplier?: number;
+    slipstreamVelocityMultiplier?: number;
   };
 }
 

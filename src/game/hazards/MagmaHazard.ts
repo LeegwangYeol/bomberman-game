@@ -355,7 +355,7 @@ export class MagmaHazard {
         const distSq = dr * dr + dc * dc;
         if (distSq <= rSqMax) {
           if (count < MAX_MAGMA_TILES) {
-            this.activeMagmaIndices[count++] = nr * COLS + nc;
+            this.activeMagmaIndices[count++] = ((nr * COLS + nc) | 0);
           }
         }
       }
@@ -528,11 +528,11 @@ export class MagmaHazard {
 
     for (let r = 1; r < ROWS - 1; r++) {
       for (let c = 1; c < COLS - 1; c++) {
-        const idx = r * COLS + c;
-        const up = (r - 1) * COLS + c;
-        const down = (r + 1) * COLS + c;
-        const left = r * COLS + (c - 1);
-        const right = r * COLS + (c + 1);
+        const idx = ((r * COLS + c) | 0);
+        const up = (((r - 1) * COLS + c) | 0);
+        const down = (((r + 1) * COLS + c) | 0);
+        const left = ((r * COLS + (c - 1)) | 0);
+        const right = ((r * COLS + (c + 1)) | 0);
 
         const laplacian =
           this.propagationBuffer[up] +
@@ -542,7 +542,9 @@ export class MagmaHazard {
           4.0 * this.propagationBuffer[idx];
 
         const raw = this.propagationBuffer[idx] + laplacian * safeRate * safeDt;
-        this.heatGrid[idx] = Number.isFinite(raw) ? Math.max(0.0, Math.min(1.0, raw)) : 0.0;
+        let val = Number.isFinite(raw) ? Math.max(0.0, Math.min(1.0, raw)) : 0.0;
+        if (val < 1e-15) val = 0.0;
+        this.heatGrid[idx] = val;
       }
     }
   }
@@ -558,7 +560,7 @@ export class MagmaHazard {
     const r = Math.floor(y / TILE_SIZE);
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
 
-    const idx = r * COLS + c;
+    const idx = ((r * COLS + c) | 0);
     return this.dangerMask[idx] === MagmaDangerValue.HEATING || this.dangerMask[idx] === MagmaDangerValue.BURST;
   }
 
@@ -571,7 +573,7 @@ export class MagmaHazard {
     const ir = r | 0;
     const ic = c | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return false;
-    const idx = ir * COLS + ic;
+    const idx = ((ir * COLS + ic) | 0);
     return this.dangerMask[idx] === MagmaDangerValue.HEATING || this.dangerMask[idx] === MagmaDangerValue.BURST;
   }
 
@@ -581,7 +583,7 @@ export class MagmaHazard {
     const ir = r | 0;
     const ic = c | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return false;
-    const idx = ir * COLS + ic;
+    const idx = ((ir * COLS + ic) | 0);
     return this.dangerMask[idx] === MagmaDangerValue.BURST;
   }
 
@@ -620,7 +622,7 @@ export class MagmaHazard {
     const r = Math.floor(py / TILE_SIZE);
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return res;
 
-    const idx = r * COLS + c;
+    const idx = ((r * COLS + c) | 0);
     const danger = this.dangerMask[idx];
     if (danger === MagmaDangerValue.SAFE || danger === MagmaDangerValue.OBSIDIAN_CRUST) {
       return res;
@@ -667,6 +669,21 @@ export class MagmaHazard {
   }
 
   /**
+   * Harmonization alias for evaluating enemy collision from world coordinates
+   */
+  public evaluateEnemy(
+    x: number,
+    y: number,
+    isBoss: boolean = false,
+    nowMs: number = Date.now(),
+    bossMaxHp: number = 1000
+  ): MagmaEnemyResult {
+    const er = (y / TILE_SIZE) | 0;
+    const ec = (x / TILE_SIZE) | 0;
+    return this.checkEnemyCollision(er, ec, isBoss, nowMs, bossMaxHp);
+  }
+
+  /**
    * Checks collision against an enemy or boss during lethal burst
    */
   public checkEnemyCollision(
@@ -693,7 +710,7 @@ export class MagmaHazard {
     const iec = ec | 0;
     if (ier < 0 || ier >= ROWS || iec < 0 || iec >= COLS) return res;
 
-    const idx = ier * COLS + iec;
+    const idx = ((ier * COLS + iec) | 0);
     if (this.dangerMask[idx] !== MagmaDangerValue.BURST) return res;
 
     const safeNowMs = typeof nowMs === 'number' && Number.isFinite(nowMs) ? nowMs : Date.now();
@@ -748,7 +765,7 @@ export class MagmaHazard {
     const ic = col | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return res;
 
-    const idx = ir * COLS + ic;
+    const idx = ((ir * COLS + ic) | 0);
     if (this.dangerMask[idx] === MagmaDangerValue.HEATING || this.dangerMask[idx] === MagmaDangerValue.BURST) {
       res.isPyroFused = true;
       res.modifiedFuseMs = Math.max(1000, fuseDurationMs - MAGMA_FUSE_ACCELERATION_MS);
@@ -784,7 +801,7 @@ export class MagmaHazard {
     const ic = col | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return res;
 
-    const idx = ir * COLS + ic;
+    const idx = ((ir * COLS + ic) | 0);
     if (this.dangerMask[idx] === MagmaDangerValue.HEATING || this.dangerMask[idx] === MagmaDangerValue.BURST) {
       res.isPyroclastic = true;
       res.modifiedPower = power + PYROCLASTIC_EXTRA_POWER;
@@ -811,7 +828,7 @@ export class MagmaHazard {
     const ic = col | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return res;
 
-    const idx = ir * COLS + ic;
+    const idx = ((ir * COLS + ic) | 0);
     if (this.dangerMask[idx] === MagmaDangerValue.HEATING || this.dangerMask[idx] === MagmaDangerValue.BURST) {
       this.dangerMask[idx] = MagmaDangerValue.OBSIDIAN_CRUST;
       this.obsidianTimerGrid[idx] = OBSIDIAN_QUENCH_DURATION_MS;
@@ -839,7 +856,7 @@ export class MagmaHazard {
     const ic = col | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return res;
 
-    const idx = ir * COLS + ic;
+    const idx = ((ir * COLS + ic) | 0);
     res.heat = this.heatGrid[idx];
     res.isMolten = this.dangerMask[idx] === MagmaDangerValue.HEATING || this.dangerMask[idx] === MagmaDangerValue.BURST;
     res.isObsidianCrust = this.dangerMask[idx] === MagmaDangerValue.OBSIDIAN_CRUST;
@@ -888,7 +905,7 @@ export class MagmaHazard {
     const ir = r | 0;
     const ic = c | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return MagmaDangerValue.SAFE;
-    return this.dangerMask[ir * COLS + ic] as MagmaDangerValue;
+    return this.dangerMask[((ir * COLS + ic) | 0)] as MagmaDangerValue;
   }
 
   public getTileHeat(r: number, c: number): number {
@@ -896,7 +913,7 @@ export class MagmaHazard {
     const ir = r | 0;
     const ic = c | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return 0;
-    return this.heatGrid[ir * COLS + ic];
+    return this.heatGrid[((ir * COLS + ic) | 0)];
   }
 
   public isTileWalkable(r: number, c: number): boolean {

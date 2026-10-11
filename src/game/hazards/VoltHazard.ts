@@ -353,7 +353,7 @@ export class VoltHazard {
         const distSq = dr * dr + dc * dc;
         if (distSq <= rSqMax) {
           if (count < MAX_VOLT_TILES) {
-            this.activeVoltIndices[count++] = nr * COLS + nc;
+            this.activeVoltIndices[count++] = ((nr * COLS + nc) | 0);
           }
         }
       }
@@ -504,11 +504,11 @@ export class VoltHazard {
 
     for (let r = 1; r < ROWS - 1; r++) {
       for (let c = 1; c < COLS - 1; c++) {
-        const idx = r * COLS + c;
-        const up = (r - 1) * COLS + c;
-        const down = (r + 1) * COLS + c;
-        const left = r * COLS + (c - 1);
-        const right = r * COLS + (c + 1);
+        const idx = ((r * COLS + c) | 0);
+        const up = (((r - 1) * COLS + c) | 0);
+        const down = (((r + 1) * COLS + c) | 0);
+        const left = ((r * COLS + (c - 1)) | 0);
+        const right = ((r * COLS + (c + 1)) | 0);
 
         const laplacian =
           this.propagationBuffer[up] +
@@ -518,7 +518,9 @@ export class VoltHazard {
           4.0 * this.propagationBuffer[idx];
 
         const raw = this.propagationBuffer[idx] + laplacian * safeRate * safeDt;
-        this.voltageGrid[idx] = Number.isFinite(raw) ? Math.max(0.0, Math.min(1.0, raw)) : 0.0;
+        let val = Number.isFinite(raw) ? Math.max(0.0, Math.min(1.0, raw)) : 0.0;
+        if (val < 1e-15) val = 0.0;
+        this.voltageGrid[idx] = val;
       }
     }
   }
@@ -534,7 +536,7 @@ export class VoltHazard {
     const r = (y / TILE_SIZE) | 0;
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
 
-    const idx = r * COLS + c;
+    const idx = ((r * COLS + c) | 0);
     if (idx < 0 || idx >= TOTAL_TILES) return false;
     return this.dangerMask[idx] !== VoltDangerValue.SAFE;
   }
@@ -548,7 +550,7 @@ export class VoltHazard {
     const ir = r | 0;
     const ic = c | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return false;
-    const idx = ir * COLS + ic;
+    const idx = ((ir * COLS + ic) | 0);
     if (idx < 0 || idx >= TOTAL_TILES) return false;
     return this.dangerMask[idx] !== VoltDangerValue.SAFE;
   }
@@ -562,7 +564,7 @@ export class VoltHazard {
     const ir = r | 0;
     const ic = c | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return false;
-    const idx = ir * COLS + ic;
+    const idx = ((ir * COLS + ic) | 0);
     if (idx < 0 || idx >= TOTAL_TILES) return false;
     return this.dangerMask[idx] === VoltDangerValue.LIGHTNING_DISCHARGE;
   }
@@ -602,7 +604,7 @@ export class VoltHazard {
     const r = Math.floor(py / TILE_SIZE);
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return res;
 
-    const idx = r * COLS + c;
+    const idx = ((r * COLS + c) | 0);
     const danger = this.dangerMask[idx];
     if (danger === VoltDangerValue.SAFE) return res;
 
@@ -647,6 +649,20 @@ export class VoltHazard {
   }
 
   /**
+   * Harmonization alias for evaluating enemy collision from world coordinates
+   */
+  public evaluateEnemy(
+    x: number,
+    y: number,
+    isBoss: boolean = false,
+    nowMs: number = Date.now()
+  ): VoltEnemyResult {
+    const er = (y / TILE_SIZE) | 0;
+    const ec = (x / TILE_SIZE) | 0;
+    return this.checkEnemyCollision(er, ec, isBoss, nowMs);
+  }
+
+  /**
    * Checks collision against an enemy or boss during lethal burst
    */
   public checkEnemyCollision(
@@ -672,7 +688,7 @@ export class VoltHazard {
     const iec = ec | 0;
     if (ier < 0 || ier >= ROWS || iec < 0 || iec >= COLS) return res;
 
-    const idx = ier * COLS + iec;
+    const idx = ((ier * COLS + iec) | 0);
     if (this.dangerMask[idx] !== VoltDangerValue.LIGHTNING_BURST) return res;
 
     const safeNowMs = typeof nowMs === 'number' && Number.isFinite(nowMs) ? nowMs : Date.now();
@@ -727,7 +743,7 @@ export class VoltHazard {
     const ic = col | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return res;
 
-    const idx = ir * COLS + ic;
+    const idx = ((ir * COLS + ic) | 0);
     if (this.dangerMask[idx] !== VoltDangerValue.SAFE) {
       res.isVoltCharged = true;
       res.modifiedFuseMs = Math.max(1000, fuseDurationMs - VOLT_FUSE_ACCELERATION_MS);
@@ -763,7 +779,7 @@ export class VoltHazard {
     const ic = col | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return res;
 
-    const idx = ir * COLS + ic;
+    const idx = ((ir * COLS + ic) | 0);
     if (this.dangerMask[idx] !== VoltDangerValue.SAFE) {
       res.isChainLightning = true;
       res.modifiedPower = power + CHAIN_LIGHTNING_EXTRA_POWER;
@@ -789,7 +805,7 @@ export class VoltHazard {
     const ic = col | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return res;
 
-    const idx = ir * COLS + ic;
+    const idx = ((ir * COLS + ic) | 0);
     // Grounding: Discharges the tile
     if (this.dangerMask[idx] === VoltDangerValue.IONIZING) {
       const prev = this.voltageGrid[idx];
@@ -815,7 +831,7 @@ export class VoltHazard {
     const ic = col | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return res;
 
-    const idx = ir * COLS + ic;
+    const idx = ((ir * COLS + ic) | 0);
     res.voltage = this.voltageGrid[idx];
     res.conductance = this.conductanceGrid[idx];
     res.isElectrified = this.dangerMask[idx] !== VoltDangerValue.SAFE;

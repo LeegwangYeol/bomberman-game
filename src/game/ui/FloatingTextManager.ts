@@ -141,4 +141,8 @@ export class FloatingTextManager {
     this.saturationOffset = 0;
     this.poolTime.fill(-1);
   }
+
+  public destroy(): void {
+    this.reset();
+  }
 }

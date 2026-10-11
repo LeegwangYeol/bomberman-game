@@ -180,6 +180,8 @@ export class MutantFloraBoss extends BaseBoss {
     if (dist > 1e-4) {
       pVx = (dx / dist) * speed;
       pVy = (dy / dist) * speed;
+      if (Math.abs(pVx) < 1e-15) pVx = 0;
+      if (Math.abs(pVy) < 1e-15) pVy = 0;
     }
 
     if (!Number.isFinite(pVx)) pVx = 0;
@@ -245,8 +247,12 @@ export class MutantFloraBoss extends BaseBoss {
 
     // Keep distance: slow approach if beyond 40px, halt when close to avoid overlap jitter
     if (dist > 40) {
-      this.vx = (dx / dist) * this.currentSpeed;
-      this.vy = (dy / dist) * this.currentSpeed;
+      let vx = (dx / dist) * this.currentSpeed;
+      let vy = (dy / dist) * this.currentSpeed;
+      if (Math.abs(vx) < 1e-15) vx = 0;
+      if (Math.abs(vy) < 1e-15) vy = 0;
+      this.vx = vx;
+      this.vy = vy;
     } else {
       this.vx = 0;
       this.vy = 0;

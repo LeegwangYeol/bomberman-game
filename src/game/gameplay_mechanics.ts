@@ -989,8 +989,24 @@ export function isItemProtectedFromExplosion(spawnTime: number, explosionTime: n
   return (explosionTime - spawnTime) <= ITEM_GRACE_PERIOD_MS;
 }
 
+export interface BombKickSlideOptions {
+  bombTiles?: Set<string>;
+  enemyTiles?: Set<string>;
+  maxRebounds?: number;
+}
+
+export interface BombKickSlideResult {
+  endCol: number;
+  endRow: number;
+  steps: number;
+  rebounds: number;
+  detonatedOnEnemy: boolean;
+  trajectory: { col: number; row: number }[];
+}
+
 /**
  * Simulate Bomb Kick Slide Trajectory
+ * Supports wall rebounds, continuous swept path, clean tile snapping, and immediate detonation on enemy impact.
  */
 export function simulateBombKickSlide(
   startCol: number,
@@ -998,43 +1014,100 @@ export function simulateBombKickSlide(
   dirX: number,
   dirY: number,
   map: number[][],
-  bombTiles: Set<string> = new Set()
-): { endCol: number; endRow: number; steps: number } {
+  bombTilesOrOptions?: Set<string> | BombKickSlideOptions,
+  maxReboundsParam: number = 0,
+  enemyTilesParam: Set<string> = new Set()
+): BombKickSlideResult {
+  let bombTiles: Set<string>;
+  let enemyTiles: Set<string>;
+  let maxRebounds: number;
+
+  if (bombTilesOrOptions instanceof Set) {
+    bombTiles = bombTilesOrOptions;
+    maxRebounds = maxReboundsParam;
+    enemyTiles = enemyTilesParam;
+  } else if (bombTilesOrOptions && typeof bombTilesOrOptions === 'object') {
+    bombTiles = bombTilesOrOptions.bombTiles || new Set();
+    enemyTiles = bombTilesOrOptions.enemyTiles || new Set();
+    maxRebounds = bombTilesOrOptions.maxRebounds || 0;
+  } else {
+    bombTiles = new Set();
+    enemyTiles = new Set();
+    maxRebounds = 0;
+  }
+
   let currentCol = startCol;
   let currentRow = startRow;
+  let currentDirX = dirX;
+  let currentDirY = dirY;
   let steps = 0;
+  let rebounds = 0;
+  let remainingRebounds = Math.max(0, maxRebounds);
+  let detonatedOnEnemy = false;
+  const trajectory: { col: number; row: number }[] = [{ col: currentCol, row: currentRow }];
 
   if (!map || map.length === 0 || !map[0] || (dirX === 0 && dirY === 0)) {
-    return { endCol: startCol, endRow: startRow, steps: 0 };
+    return { endCol: startCol, endRow: startRow, steps: 0, rebounds: 0, detonatedOnEnemy: false, trajectory };
   }
 
   const rows = map.length;
   const cols = map[0].length;
-  const maxSteps = Math.max(rows, cols);
+  const maxSteps = Math.max(rows, cols) * (remainingRebounds + 1) * 2;
 
   while (steps < maxSteps) {
-    const nextCol = currentCol + dirX;
-    const nextRow = currentRow + dirY;
+    const nextCol = currentCol + currentDirX;
+    const nextRow = currentRow + currentDirY;
 
     // Check bounds
-    if (nextRow < 0 || nextRow >= rows || nextCol < 0 || nextCol >= cols) {
-      break;
-    }
-
+    const outOfBounds = nextRow < 0 || nextRow >= rows || nextCol < 0 || nextCol >= cols;
     // Check impassable wall or block (non-zero)
-    if (map[nextRow][nextCol] !== 0) {
+    const isObstacle = outOfBounds || map[nextRow][nextCol] !== 0;
+
+    if (isObstacle) {
+      if (remainingRebounds > 0) {
+        remainingRebounds--;
+        rebounds++;
+        currentDirX = -currentDirX;
+        currentDirY = -currentDirY;
+        // Check if rebound path is also immediately blocked to avoid infinite oscillation in 1x1 trapped cell
+        const testCol = currentCol + currentDirX;
+        const testRow = currentRow + currentDirY;
+        if (testRow < 0 || testRow >= rows || testCol < 0 || testCol >= cols || map[testRow][testCol] !== 0) {
+          break; // Trapped cell, snap and stop cleanly
+        }
+        continue;
+      } else {
+        break; // No rebounds remaining, snap to current tile
+      }
+    }
+
+    // Check if another bomb occupies next tile (stop right before it with zero overlap)
+    if (bombTiles.has(`${nextRow},${nextCol}`)) {
       break;
     }
 
-    // Check if another bomb occupies next tile
-    if (bombTiles.has(`${nextRow},${nextCol}`)) {
+    // Check if an enemy occupies next tile: immediate impact & detonation!
+    if (enemyTiles.has(`${nextRow},${nextCol}`)) {
+      currentCol = nextCol;
+      currentRow = nextRow;
+      steps++;
+      detonatedOnEnemy = true;
+      trajectory.push({ col: currentCol, row: currentRow });
       break;
     }
 
     currentCol = nextCol;
     currentRow = nextRow;
     steps++;
+    trajectory.push({ col: currentCol, row: currentRow });
   }
 
-  return { endCol: currentCol, endRow: currentRow, steps };
+  return {
+    endCol: currentCol,
+    endRow: currentRow,
+    steps,
+    rebounds,
+    detonatedOnEnemy,
+    trajectory,
+  };
 }

@@ -255,7 +255,7 @@ export class BossAttackManager {
       s.currentRadius += s.expansionSpeed * (dt / 1000);
       const dx = playerX - s.originX;
       const dy = playerY - s.originY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
+      const dist = Math.hypot(dx, dy);
 
       if (Math.abs(dist - s.currentRadius) < 14) {
         onPlayerHit(s.damage);

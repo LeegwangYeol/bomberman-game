@@ -448,3 +448,111 @@ test('Lifecycle Audit: 100 rapid mode changes (Boss Rush -> Crisis Survival -> N
   assert.equal(scene.bossHitBombIds.size, 0);
   assert.equal(scene.destroyedBlocksThisTick.size, 0);
 });
+
+/* ==============================================================================
+ * TEST 5: COMPLETE SUBSYSTEM DESTROY & NULLIFICATION AUDIT ON SHUTDOWN
+ * ============================================================================== */
+
+test('Lifecycle Audit: Graphics objects, hazards, audio managers, pools, and player are cleanly destroyed and nullified on shutdown()', () => {
+  const { scene } = createMockGameScene();
+  scene.create();
+
+  // Verify created state
+  assert.ok(scene.telegraphGraphics, 'telegraphGraphics must exist after create');
+  assert.ok(scene.bossGraphics, 'bossGraphics must exist after create');
+  assert.ok(scene.bossPhaseBarGraphics, 'bossPhaseBarGraphics must exist after create');
+  assert.ok(scene.crisisGraphics, 'crisisGraphics must exist after create');
+  assert.ok(scene.hazardGraphics, 'hazardGraphics must exist after create');
+  assert.ok(scene.circlePool, 'circlePool must exist after create');
+  assert.ok(scene.rectPool, 'rectPool must exist after create');
+  assert.ok(scene.graphicsPool, 'graphicsPool must exist after create');
+  assert.ok(scene.spritePool, 'spritePool must exist after create');
+  assert.ok(scene.shadowPool, 'shadowPool must exist after create');
+  assert.ok(scene.floatingTextPool, 'floatingTextPool must exist after create');
+  assert.ok(scene.player, 'player must exist after create');
+  assert.ok(scene.enemies, 'enemies group must exist after create');
+  assert.ok(scene.bombs, 'bombs group must exist after create');
+
+  // Trigger shutdown
+  scene.shutdown();
+
+  // Verify complete nullification of graphics objects
+  assert.equal(scene.telegraphGraphics, null, 'telegraphGraphics must be null after shutdown');
+  assert.equal(scene.bossGraphics, null, 'bossGraphics must be null after shutdown');
+  assert.equal(scene.bossPhaseBarGraphics, null, 'bossPhaseBarGraphics must be null after shutdown');
+  assert.equal(scene.crisisGraphics, null, 'crisisGraphics must be null after shutdown');
+  assert.equal(scene.hazardGraphics, null, 'hazardGraphics must be null after shutdown');
+
+  // Verify complete nullification of hazard audio managers
+  assert.equal(scene.frostHazardAudio, null, 'frostHazardAudio must be null after shutdown');
+  assert.equal(scene.voltHazardAudio, null, 'voltHazardAudio must be null after shutdown');
+  assert.equal(scene.magmaHazardAudio, null, 'magmaHazardAudio must be null after shutdown');
+  assert.equal(scene.miasmaHazardAudio, null, 'miasmaHazardAudio must be null after shutdown');
+  assert.equal(scene.chronoHazardAudio, null, 'chronoHazardAudio must be null after shutdown');
+  assert.equal(scene.solarHazardAudio, null, 'solarHazardAudio must be null after shutdown');
+  assert.equal(scene.nebulaHazardAudio, null, 'nebulaHazardAudio must be null after shutdown');
+  assert.equal(scene.abyssalHazardAudio, null, 'abyssalHazardAudio must be null after shutdown');
+
+  // Verify complete nullification of pools
+  assert.equal(scene.circlePool, null, 'circlePool must be null after shutdown');
+  assert.equal(scene.rectPool, null, 'rectPool must be null after shutdown');
+  assert.equal(scene.graphicsPool, null, 'graphicsPool must be null after shutdown');
+  assert.equal(scene.spritePool, null, 'spritePool must be null after shutdown');
+  assert.equal(scene.shadowPool, null, 'shadowPool must be null after shutdown');
+  assert.equal(scene.floatingTextPool, null, 'floatingTextPool must be null after shutdown');
+
+  // Verify complete nullification of entities & player
+  assert.equal(scene.player, null, 'player must be null after shutdown');
+  assert.equal(scene.enemies, null, 'enemies group must be null after shutdown');
+  assert.equal(scene.neutrals, null, 'neutrals group must be null after shutdown');
+  assert.equal(scene.allies, null, 'allies group must be null after shutdown');
+  assert.equal(scene.bombs, null, 'bombs group must be null after shutdown');
+  assert.equal(scene.items, null, 'items group must be null after shutdown');
+  assert.equal(scene.explosions, null, 'explosions group must be null after shutdown');
+  assert.equal(scene.blocks, null, 'blocks group must be null after shutdown');
+  assert.equal(scene.walls, null, 'walls group must be null after shutdown');
+
+  // Verify managers & subsystems nullification
+  assert.equal(scene.telegraphEngine, null, 'telegraphEngine must be null after shutdown');
+  assert.equal(scene.bossHUD, null, 'bossHUD must be null after shutdown');
+  assert.equal(scene.situationLog, null, 'situationLog must be null after shutdown');
+  assert.equal(scene.floatingTextManager, null, 'floatingTextManager must be null after shutdown');
+  assert.equal(scene.overheadUIManager, null, 'overheadUIManager must be null after shutdown');
+  assert.equal(scene.relicManager, null, 'relicManager must be null after shutdown');
+  assert.equal(scene.perkManager, undefined, 'perkManager must be undefined after shutdown');
+  assert.equal(scene.currentWaveMutator, null, 'currentWaveMutator must be null after shutdown');
+  assert.equal(scene.playerDropShadow, undefined, 'playerDropShadow must be undefined after shutdown');
+  assert.equal(scene.dustEmitter, undefined, 'dustEmitter must be undefined after shutdown');
+  assert.equal(scene.bombSparkEmitter, undefined, 'bombSparkEmitter must be undefined after shutdown');
+  assert.equal(scene.blockDebrisEmitter, undefined, 'blockDebrisEmitter must be undefined after shutdown');
+
+  // Verify keyboard keys nullified
+  assert.equal(scene.cursors, null, 'cursors must be null after shutdown');
+  assert.equal(scene.spaceKey, null, 'spaceKey must be null after shutdown');
+  assert.equal(scene.shiftKey, null, 'shiftKey must be null after shutdown');
+  assert.equal(scene.eKey, null, 'eKey must be null after shutdown');
+});
+
+/* ==============================================================================
+ * TEST 6: RESILIENCE UNDER RAPID CREATE() CALLS WITHOUT SHUTDOWN (DEFENSIVE REINIT)
+ * ============================================================================== */
+
+test('Lifecycle Audit: Successive create() calls without prior shutdown() cleanly recycle state without leaks', () => {
+  const { scene } = createMockGameScene();
+
+  // Call create() 5 times consecutively without calling shutdown()
+  for (let i = 0; i < 5; i++) {
+    scene.create();
+    assert.ok(scene.player, `Iteration ${i}: player must be re-initialized`);
+    assert.ok(scene.circlePool, `Iteration ${i}: circlePool must be re-initialized`);
+    assert.ok(scene.hazardGraphics, `Iteration ${i}: hazardGraphics must be re-initialized`);
+    assert.ok(scene.frostHazardAudio, `Iteration ${i}: frostHazardAudio must be re-initialized`);
+  }
+
+  // Final shutdown cleanly tears everything down
+  scene.shutdown();
+  assert.equal(scene.player, null);
+  assert.equal(scene.circlePool, null);
+  assert.equal(scene.hazardGraphics, null);
+  assert.equal(scene.frostHazardAudio, null);
+});

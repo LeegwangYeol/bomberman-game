@@ -279,6 +279,31 @@ export class SolarHazard {
     floatingText: '',
   };
 
+  private scratchCenter: { r: number; c: number } = { r: 6, c: 7 };
+  private scratchBombSlideResult: { speed: number; floatingText?: string } = { speed: 300 };
+  private scratchBombPlacedResult: { isSolarFused: boolean; modifiedFuseMs: number; tint: number; floatingText: string } = {
+    isSolarFused: false,
+    modifiedFuseMs: 2500,
+    tint: 0xffffff,
+    floatingText: '',
+  };
+  private scratchBombDetonatedResult: { isSupernova: boolean; modifiedPower: number; piercing: boolean; bonusScore: number; floatingText: string } = {
+    isSupernova: false,
+    modifiedPower: 1,
+    piercing: false,
+    bonusScore: 0,
+    floatingText: '',
+  };
+  private scratchBombBlastImpactResult: { quenched: boolean; floatingText: string } = {
+    quenched: false,
+    floatingText: '',
+  };
+  private scratchBombKickedResult: { isSlipstream: boolean; modifiedSpeed: number; floatingText: string } = {
+    isSlipstream: false,
+    modifiedSpeed: 300,
+    floatingText: '',
+  };
+
   constructor() {
     this.reset();
   }
@@ -348,7 +373,9 @@ export class SolarHazard {
   }
 
   public getCenter(): { r: number; c: number } {
-    return { r: this.centerRow, c: this.centerCol };
+    this.scratchCenter.r = this.centerRow;
+    this.scratchCenter.c = this.centerCol;
+    return this.scratchCenter;
   }
 
   public setCenter(centerR: number, centerC: number, anchor: boolean = true): void {
@@ -394,7 +421,7 @@ export class SolarHazard {
         if (c < 0 || c >= COLS) continue;
 
         if (dr * dr + dc * dc <= r2) {
-          const idx = r * COLS + c;
+          const idx = ((r * COLS + c) | 0);
           if (this.activeSolarCount < MAX_SOLAR_TILES) {
             this.activeSolarIndices[this.activeSolarCount++] = idx;
           }
@@ -408,12 +435,17 @@ export class SolarHazard {
    */
   public stepDiscreteDiffusion(decayFactor: number = 0.95): void {
     if (this.state === SolarLifecycleState.DORMANT) return;
+    if (typeof decayFactor !== 'number' || !Number.isFinite(decayFactor) || decayFactor < 1e-15) {
+      decayFactor = 0.0;
+    }
     const clampedDecay = Math.max(0.0, Math.min(1.0, decayFactor));
 
     for (let i = 0; i < this.activeSolarCount; i++) {
       const idx = this.activeSolarIndices[i];
       if (idx < 0 || idx >= TOTAL_TILES) continue;
-      this.heatGrid[idx] = Math.max(0, this.heatGrid[idx] * clampedDecay);
+      let val = Math.max(0, this.heatGrid[idx] * clampedDecay);
+      if (val < 1e-15) val = 0.0;
+      this.heatGrid[idx] = val;
     }
   }
 
@@ -518,7 +550,7 @@ export class SolarHazard {
     const r = (y / TILE_SIZE) | 0;
     const c = (x / TILE_SIZE) | 0;
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
-    const idx = r * COLS + c;
+    const idx = ((r * COLS + c) | 0);
     if (idx < 0 || idx >= TOTAL_TILES) return false;
     return this.dangerMask[idx] === SolarDangerValue.CORONA;
   }
@@ -528,7 +560,7 @@ export class SolarHazard {
     const r = (y / TILE_SIZE) | 0;
     const c = (x / TILE_SIZE) | 0;
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
-    const idx = r * COLS + c;
+    const idx = ((r * COLS + c) | 0);
     if (idx < 0 || idx >= TOTAL_TILES) return false;
     return this.dangerMask[idx] === SolarDangerValue.FLARE;
   }
@@ -538,7 +570,7 @@ export class SolarHazard {
     const ir = r | 0;
     const ic = c | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return false;
-    const idx = ir * COLS + ic;
+    const idx = ((ir * COLS + ic) | 0);
     if (idx < 0 || idx >= TOTAL_TILES) return false;
     return this.dangerMask[idx] === SolarDangerValue.ANCHOR;
   }
@@ -582,7 +614,7 @@ export class SolarHazard {
     const c = (px / TILE_SIZE) | 0;
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return res;
 
-    const idx = r * COLS + c;
+    const idx = ((r * COLS + c) | 0);
     if (idx < 0 || idx >= TOTAL_TILES) return res;
 
     const maskVal = this.dangerMask[idx];
@@ -638,6 +670,20 @@ export class SolarHazard {
     return res;
   }
 
+  /**
+   * Harmonization alias for evaluating enemy collision from world coordinates
+   */
+  public evaluateEnemy(
+    x: number,
+    y: number,
+    isBoss: boolean = false,
+    nowMs: number = Date.now()
+  ): SolarEnemyResult {
+    const er = (y / TILE_SIZE) | 0;
+    const ec = (x / TILE_SIZE) | 0;
+    return this.checkEnemyCollision(er, ec, isBoss, nowMs);
+  }
+
   public checkEnemyCollision(
     er: number,
     ec: number,
@@ -661,7 +707,7 @@ export class SolarHazard {
     const c = ec | 0;
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return res;
 
-    const idx = r * COLS + c;
+    const idx = ((r * COLS + c) | 0);
     if (idx < 0 || idx >= TOTAL_TILES) return res;
 
     if (this.dangerMask[idx] === SolarDangerValue.FLARE) {
@@ -710,7 +756,7 @@ export class SolarHazard {
     const c = bc | 0;
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return res;
 
-    const idx = r * COLS + c;
+    const idx = ((r * COLS + c) | 0);
     if (idx < 0 || idx >= TOTAL_TILES) return res;
 
     const maskVal = this.dangerMask[idx];
@@ -750,7 +796,7 @@ export class SolarHazard {
       const c = tile.c | 0;
       if (r < 0 || r >= ROWS || c < 0 || c >= COLS) continue;
 
-      const idx = r * COLS + c;
+      const idx = ((r * COLS + c) | 0);
       if (idx < 0 || idx >= TOTAL_TILES) continue;
 
       if (this.dangerMask[idx] === SolarDangerValue.CORONA || this.dangerMask[idx] === SolarDangerValue.FLARE) {
@@ -774,21 +820,20 @@ export class SolarHazard {
     _power: number,
     fuseMs: number
   ): { isSolarFused: boolean; modifiedFuseMs: number; tint: number; floatingText: string } {
-    const res = this.evaluateBomb(row, col);
-    if (res.isAccelerated) {
-      return {
-        isSolarFused: true,
-        modifiedFuseMs: Math.max(800, fuseMs - res.fuseAccelerationMs),
-        tint: res.bombTint,
-        floatingText: res.floatingText,
-      };
+    const bombRes = this.evaluateBomb(row, col);
+    const res = this.scratchBombPlacedResult;
+    if (bombRes.isAccelerated) {
+      res.isSolarFused = true;
+      res.modifiedFuseMs = Math.max(800, fuseMs - bombRes.fuseAccelerationMs);
+      res.tint = bombRes.bombTint;
+      res.floatingText = bombRes.floatingText;
+    } else {
+      res.isSolarFused = false;
+      res.modifiedFuseMs = fuseMs;
+      res.tint = 0xffffff;
+      res.floatingText = '';
     }
-    return {
-      isSolarFused: false,
-      modifiedFuseMs: fuseMs,
-      tint: 0xffffff,
-      floatingText: '',
-    };
+    return res;
   }
 
   public onBombDetonated(
@@ -797,39 +842,44 @@ export class SolarHazard {
     col: number,
     power: number
   ): { isSupernova: boolean; modifiedPower: number; piercing: boolean; bonusScore: number; floatingText: string } {
-    const res = this.evaluateBomb(row, col);
-    if (res.isSupernova) {
-      return {
-        isSupernova: true,
-        modifiedPower: power + res.extraPower,
-        piercing: true,
-        bonusScore: res.bonusScore,
-        floatingText: res.floatingText,
-      };
+    const bombRes = this.evaluateBomb(row, col);
+    const res = this.scratchBombDetonatedResult;
+    if (bombRes.isSupernova) {
+      res.isSupernova = true;
+      res.modifiedPower = power + bombRes.extraPower;
+      res.piercing = true;
+      res.bonusScore = bombRes.bonusScore;
+      res.floatingText = bombRes.floatingText;
+    } else {
+      res.isSupernova = false;
+      res.modifiedPower = power;
+      res.piercing = false;
+      res.bonusScore = 0;
+      res.floatingText = '';
     }
-    return {
-      isSupernova: false,
-      modifiedPower: power,
-      piercing: false,
-      bonusScore: 0,
-      floatingText: '',
-    };
+    return res;
   }
 
   public onBombBlastImpact(r: number, c: number): { quenched: boolean; floatingText: string } {
-    if (!Number.isFinite(r) || !Number.isFinite(c)) return { quenched: false, floatingText: '' };
+    const res = this.scratchBombBlastImpactResult;
+    res.quenched = false;
+    res.floatingText = '';
+
+    if (!Number.isFinite(r) || !Number.isFinite(c)) return res;
     const ir = r | 0;
     const ic = c | 0;
-    if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return { quenched: false, floatingText: '' };
-    const idx = ir * COLS + ic;
-    if (idx < 0 || idx >= TOTAL_TILES) return { quenched: false, floatingText: '' };
+    if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return res;
+    const idx = ((ir * COLS + ic) | 0);
+    if (idx < 0 || idx >= TOTAL_TILES) return res;
 
     if (this.dangerMask[idx] === SolarDangerValue.CORONA || this.dangerMask[idx] === SolarDangerValue.FLARE) {
       this.cleanseGrid[idx] = SOLAR_CALM_DURATION_MS;
       this.dangerMask[idx] = SolarDangerValue.ANCHOR;
-      return { quenched: true, floatingText: FLOATING_TEXT_SOLAR_CALM };
+      res.quenched = true;
+      res.floatingText = FLOATING_TEXT_SOLAR_CALM;
+      return res;
     }
-    return { quenched: false, floatingText: '' };
+    return res;
   }
 
   public onBombKicked(
@@ -838,19 +888,18 @@ export class SolarHazard {
     col: number,
     _currentSpeed: number
   ): { isSlipstream: boolean; modifiedSpeed: number; floatingText: string } {
-    const res = this.evaluateBomb(row, col);
-    if (res.isSlipstreamKick) {
-      return {
-        isSlipstream: true,
-        modifiedSpeed: res.kickSpeed,
-        floatingText: FLOATING_TEXT_SOLAR_SLIPSTREAM,
-      };
+    const bombRes = this.evaluateBomb(row, col);
+    const res = this.scratchBombKickedResult;
+    if (bombRes.isSlipstreamKick) {
+      res.isSlipstream = true;
+      res.modifiedSpeed = bombRes.kickSpeed;
+      res.floatingText = FLOATING_TEXT_SOLAR_SLIPSTREAM;
+    } else {
+      res.isSlipstream = false;
+      res.modifiedSpeed = _currentSpeed;
+      res.floatingText = '';
     }
-    return {
-      isSlipstream: false,
-      modifiedSpeed: _currentSpeed,
-      floatingText: '',
-    };
+    return res;
   }
 
   public evaluateBombSlide(
@@ -858,11 +907,16 @@ export class SolarHazard {
     col: number,
     currentSpeed: number
   ): { speed: number; floatingText?: string } {
-    const res = this.evaluateBomb(row, col);
-    if (res.isSlipstreamKick) {
-      return { speed: res.kickSpeed, floatingText: FLOATING_TEXT_SOLAR_SLIPSTREAM };
+    const bombRes = this.evaluateBomb(row, col);
+    const res = this.scratchBombSlideResult;
+    if (bombRes.isSlipstreamKick) {
+      res.speed = bombRes.kickSpeed;
+      res.floatingText = FLOATING_TEXT_SOLAR_SLIPSTREAM;
+    } else {
+      res.speed = currentSpeed;
+      res.floatingText = undefined;
     }
-    return { speed: currentSpeed };
+    return res;
   }
 
   public init(centerR: number = 6, centerC: number = 7): void {

@@ -14,6 +14,7 @@ export interface ObjectPoolOptions<T> {
   factory: (index: number) => T;
   reset?: (item: T) => void;
   onAcquire?: (item: T) => void;
+  onDestroy?: (item: T) => void;
 }
 
 export class ObjectPool<T> {
@@ -28,6 +29,7 @@ export class ObjectPool<T> {
   private _activeCount: number = 0;
   private resetCallback?: (item: T) => void;
   private acquireCallback?: (item: T) => void;
+  private destroyCallback?: (item: T) => void;
 
   constructor(
     optionsOrFactory: ObjectPoolOptions<T> | ((index: number) => T),
@@ -42,6 +44,7 @@ export class ObjectPool<T> {
           factory: optionsOrFactory,
           reset: typeof obj.reset === 'function' ? (obj.reset as (item: T) => void) : undefined,
           onAcquire: typeof obj.onAcquire === 'function' ? (obj.onAcquire as (item: T) => void) : undefined,
+          onDestroy: typeof obj.onDestroy === 'function' ? (obj.onDestroy as (item: T) => void) : undefined,
           capacity: typeof obj.capacity === 'number' ? obj.capacity : (typeof capacityArg === 'number' ? capacityArg : 64),
         };
       } else {
@@ -68,6 +71,7 @@ export class ObjectPool<T> {
     this.itemToIndexMap = new Map<T, number>();
     this.resetCallback = options.reset;
     this.acquireCallback = options.onAcquire;
+    this.destroyCallback = options.onDestroy;
 
     this.freeHead = this.capacity;
     this._activeCount = 0;
@@ -292,6 +296,9 @@ export class ObjectPool<T> {
       }
     }
 
+    this.activeFlags.fill(0);
+    this.itemToActiveSlot.fill(-1);
+    this.activeIndices.fill(-1);
     this._activeCount = 0;
     this.freeHead = this.capacity;
     for (let i = 0; i < this.capacity; i++) {
@@ -304,12 +311,32 @@ export class ObjectPool<T> {
    */
   public destroy(): void {
     this.reset();
+    for (let i = 0; i < this.storage.length; i++) {
+      const item = this.storage[i];
+      if (item) {
+        if (this.destroyCallback) {
+          try {
+            this.destroyCallback(item);
+          } catch {}
+        }
+        if (typeof (item as unknown as { destroy?: () => void }).destroy === 'function') {
+          try {
+            (item as unknown as { destroy: () => void }).destroy();
+          } catch {}
+        }
+      }
+    }
     this.storage.length = 0;
     this.freeHead = 0;
     this._activeCount = 0;
+    this.freeIndices.fill(-1);
+    this.activeIndices.fill(-1);
+    this.itemToActiveSlot.fill(-1);
+    this.activeFlags.fill(0);
     this.itemToIndexMap.clear();
     this.resetCallback = undefined;
     this.acquireCallback = undefined;
+    this.destroyCallback = undefined;
   }
 
   public clear(): void {

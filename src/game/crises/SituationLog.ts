@@ -7,7 +7,7 @@
 
 import { CrisisStage } from './CrisisTypes.ts';
 import type { SituationLogState } from './CrisisTypes.ts';
-import { CrisisManager } from './CrisisManager.ts';
+import type { CrisisManager } from './CrisisManager.ts';
 
 export interface IGameEventEmitter {
   events?: {
@@ -243,5 +243,10 @@ export class SituationLog {
   public reset(): void {
     this.state = this.createDefaultState();
     this.emitUpdate();
+  }
+
+  public destroy(): void {
+    this.reset();
+    this.game = null;
   }
 }

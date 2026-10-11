@@ -38,6 +38,7 @@ import {
   type ActiveBuff,
   createInitialPlayerStats,
   calculateClampedPlayerSpeed,
+  type SpeedCalculationOptions,
   updateInvulnerabilityExpiry,
   ITEM_GRACE_PERIOD_MS,
   SHIELD_INVULN_MS,
@@ -143,6 +144,7 @@ import {
   CrisisStage,
   HazardType,
   SituationLog,
+  PsychicCrisisAudio,
 } from './crises/index.ts';
 import {
   DynamicHazard,
@@ -265,9 +267,47 @@ import {
   FLOATING_TEXT_STARDUST_CALM,
   FLOATING_TEXT_COSMIC_VAPORIZED,
   FLOATING_TEXT_ECLIPSE_STASIS,
+  AbyssalHazard,
+  AbyssalLifecycleState,
+  AbyssalTelegraphPhase,
+  ABYSSAL_GLIDE_INVULN_MS,
+  ABYSSAL_GLIDE_SPEED_BURST_RATIO,
+  AQUA_GLIDE_INVULN_MS,
+  AQUA_GLIDE_SPEED_BURST_RATIO,
+  FLOATING_TEXT_ABYSSAL_GLIDE,
+  FLOATING_TEXT_AQUA_GLIDE,
+  FLOATING_TEXT_HYDRO_DASH,
+  HYDROSTATIC_DRAG_DURATION_MS,
+  HYDROSTATIC_DRAG_SLOW_RATIO,
+  ABYSSAL_UNDERTOW_DURATION_MS,
+  ABYSSAL_UNDERTOW_SLOW_RATIO,
+  FLOATING_TEXT_HYDROSTATIC_DRAG,
+  FLOATING_TEXT_ABYSSAL_UNDERTOW,
+  BOSS_ABYSSAL_DAMAGE_RATIO,
+  BOSS_ABYSSAL_STASIS_STUN_MS,
+  AbyssalHazardAudio,
+  ABYSSAL_SUPER_BOMB_TINT,
+  HYDRO_FUSED_BOMB_TINT,
+  FLOATING_TEXT_ABYSSAL_FUSED,
+  FLOATING_TEXT_HYDRO_FUSED,
+  MAELSTROM_EXTRA_POWER,
+  MAELSTROM_BONUS_SCORE,
+  MAELSTROM_ULT_CHARGE,
+  FLOATING_TEXT_MAELSTROM_BURST,
+  FLOATING_TEXT_MAELSTROM_DETONATION,
+  BOMB_KICK_ABYSSAL_SPEED,
+  FLOATING_TEXT_HYDRO_SLIPSTREAM,
+  FLOATING_TEXT_ABYSSAL_SLIPSTREAM,
+  OCEANIC_CALM_DURATION_MS,
+  HYDRO_BARRIER_ANCHOR_DURATION_MS,
+  FLOATING_TEXT_OCEANIC_CALM,
+  FLOATING_TEXT_HYDRO_BARRIER_ANCHOR,
+  FLOATING_TEXT_ABYSS_CRUSHED,
+  FLOATING_TEXT_MAELSTROM_STASIS,
   HazardRenderer,
+  type HazardRendererContext,
 } from './hazards/index.ts';
-import { PerkTreeManager, RelicManager, type RelicId, type AppliedPerkBonuses } from './progression/index.ts';
+import { PerkTreeManager, RelicManager, type RelicId, type AppliedPerkBonuses, type WaveMutator } from './progression/index.ts';
 
 import { decompressGrid, compressGrid } from './persistence/GameStatePersistence.ts';
 import type {
@@ -410,6 +450,8 @@ export default class GameScene extends Phaser.Scene {
 
   private shieldVisual: Phaser.GameObjects.Graphics | null = null;
   public conveyors: ConveyorConfig[] = [...DEFAULT_CONVEYORS];
+  private mapDecorations: Phaser.GameObjects.GameObject[] = [];
+  private bgImage?: Phaser.GameObjects.Image | null = null;
 
   private map: number[][] = [];
   private isGameOver: boolean = false;
@@ -425,6 +467,7 @@ export default class GameScene extends Phaser.Scene {
   public currentBossIndex: number = 0;
 
   // Progression & Physics Resilience (PHYS-05, PHYS-06, PHYS-07, UI-01, UI-06)
+  public currentWaveMutator?: WaveMutator | null = null;
   public cornerSlideTolerance: number = 8;
   public baseSpeedBonus: number = 0;
   public destroyedBlocksThisTick: Set<string> = new Set();
@@ -498,6 +541,7 @@ export default class GameScene extends Phaser.Scene {
   public chronoHazard: ChronoHazard = new ChronoHazard();
   public solarHazard: SolarHazard = new SolarHazard();
   public nebulaHazard: NebulaHazard = new NebulaHazard();
+  public abyssalHazard: AbyssalHazard = new AbyssalHazard();
   public lastGravitationalEscapeTimestampMs: number = 0;
   public lastFrostChillFloatingTextMs: number = -9999;
   public lastStaticShockFloatingTextMs: number = -9999;
@@ -506,6 +550,7 @@ export default class GameScene extends Phaser.Scene {
   public lastTemporalDilationFloatingTextMs: number = -9999;
   public lastSunstrokeFloatingTextMs: number = -9999;
   public lastCosmicDazeFloatingTextMs: number = -9999;
+  public lastHydrostaticDragFloatingTextMs: number = -9999;
   public frostHazardAudio: FrostHazardAudio = FrostHazardAudio.getInstance();
   public voltHazardAudio: VoltHazardAudio = VoltHazardAudio.getInstance();
   public magmaHazardAudio: MagmaHazardAudio = MagmaHazardAudio.getInstance();
@@ -513,7 +558,45 @@ export default class GameScene extends Phaser.Scene {
   public chronoHazardAudio: ChronoHazardAudio = ChronoHazardAudio.getInstance();
   public solarHazardAudio: SolarHazardAudio = SolarHazardAudio.getInstance();
   public nebulaHazardAudio: NebulaHazardAudio = NebulaHazardAudio.getInstance();
+  public abyssalHazardAudio: AbyssalHazardAudio = AbyssalHazardAudio.getInstance();
   public hazardGraphics: Phaser.GameObjects.Graphics | null = null;
+  private readonly hazardRendererContext: HazardRendererContext = {
+    dynamicHazard: this.dynamicHazard,
+    gravityHazard: this.gravityHazard,
+    frostHazard: this.frostHazard,
+    voltHazard: this.voltHazard,
+    magmaHazard: this.magmaHazard,
+    miasmaHazard: this.miasmaHazard,
+    chronoHazard: this.chronoHazard,
+    solarHazard: this.solarHazard,
+    nebulaHazard: this.nebulaHazard,
+    abyssalHazard: this.abyssalHazard,
+  };
+  private readonly speedCalcOptions: SpeedCalculationOptions = {
+    baseSpeed: 150,
+    perkSpeedBonus: 0,
+    surgeBonus: 0,
+    isDashing: false,
+    dashSpeed: 280,
+    phaseJitterActive: false,
+    speedMultiplier: 1.0,
+  };
+
+  public hasBuff(id: string): boolean {
+    if (!this.activeBuffs) return false;
+    for (let i = 0; i < this.activeBuffs.length; i++) {
+      if (this.activeBuffs[i].id === id) return true;
+    }
+    return false;
+  }
+
+  public findBuff(id: string): ActiveBuff | undefined {
+    if (!this.activeBuffs) return undefined;
+    for (let i = 0; i < this.activeBuffs.length; i++) {
+      if (this.activeBuffs[i].id === id) return this.activeBuffs[i];
+    }
+    return undefined;
+  }
 
 
   // Juice & Polish Engine
@@ -696,6 +779,9 @@ export default class GameScene extends Phaser.Scene {
     if (this.nebulaHazard) {
       this.nebulaHazard.stop();
     }
+    if (this.abyssalHazard) {
+      this.abyssalHazard.stop();
+    }
     if (this.hazardGraphics) {
       this.hazardGraphics.clear();
     }
@@ -706,6 +792,7 @@ export default class GameScene extends Phaser.Scene {
     this.chronoHazardAudio?.stop();
     this.solarHazardAudio?.stop();
     this.nebulaHazardAudio?.stop();
+    this.abyssalHazardAudio?.stop();
   }
 
 
@@ -1044,13 +1131,165 @@ export default class GameScene extends Phaser.Scene {
     if (this.physics && this.physics.world && this.physics.world.isPaused) {
       this.physics.world.resume();
     }
-    if (this.input?.keyboard && typeof this.input.keyboard.resetKeys === 'function') {
-      this.input.keyboard.resetKeys();
+    if (this.input?.keyboard) {
+      if (typeof this.input.keyboard.resetKeys === 'function') {
+        this.input.keyboard.resetKeys();
+      }
+      if (typeof (this.input.keyboard as unknown as { removeAllKeys?: () => void }).removeAllKeys === 'function') {
+        (this.input.keyboard as unknown as { removeAllKeys: () => void }).removeAllKeys();
+      }
     }
+    this.cursors = null as unknown as Phaser.Types.Input.Keyboard.CursorKeys;
+    this.spaceKey = null as unknown as Phaser.Input.Keyboard.Key;
+    this.shiftKey = null as unknown as Phaser.Input.Keyboard.Key;
+    this.eKey = null as unknown as Phaser.Input.Keyboard.Key;
+    this.rKey = undefined;
+    this.qKey = undefined;
+    this.num1Key = undefined;
+    this.num2Key = undefined;
+    this.num3Key = undefined;
+    this.num4Key = undefined;
+    this.num5Key = undefined;
 
     this.dismissBoss();
+    if (this.telegraphEngine) {
+      if (typeof this.telegraphEngine.destroy === 'function') {
+        this.telegraphEngine.destroy();
+      } else {
+        this.telegraphEngine.reset();
+      }
+      this.telegraphEngine = null;
+    }
+    if (this.bossHUD) {
+      if (typeof this.bossHUD.destroy === 'function') {
+        this.bossHUD.destroy();
+      } else {
+        this.bossHUD.dismissBoss();
+      }
+      this.bossHUD = null;
+    }
+    if (this.telegraphGraphics) {
+      this.telegraphGraphics.destroy();
+      this.telegraphGraphics = null;
+    }
+    if (this.bossGraphics) {
+      this.bossGraphics.destroy();
+      this.bossGraphics = null;
+    }
+    if (this.bossPhaseBarGraphics) {
+      this.bossPhaseBarGraphics.destroy();
+      this.bossPhaseBarGraphics = null;
+    }
+
     this.stopCrisisMode();
-    this.crisisManager?.reset();
+    if (this.situationLog) {
+      if (typeof this.situationLog.destroy === 'function') {
+        this.situationLog.destroy();
+      } else {
+        this.situationLog.reset();
+      }
+      this.situationLog = null;
+    }
+    if (this.crisisManager) {
+      if (typeof this.crisisManager.destroy === 'function') {
+        this.crisisManager.destroy();
+      } else {
+        this.crisisManager.stopCrisis('reset');
+        this.crisisManager.reset();
+      }
+    }
+    if (this.crisisGraphics) {
+      this.crisisGraphics.destroy();
+      this.crisisGraphics = null;
+    }
+
+    // Teardown all 10 hazard instances
+    if (this.dynamicHazard) {
+      if (typeof this.dynamicHazard.destroy === 'function') this.dynamicHazard.destroy();
+      else this.dynamicHazard.stop();
+    }
+    if (this.gravityHazard) {
+      if (typeof this.gravityHazard.reset === 'function') this.gravityHazard.reset();
+      else this.gravityHazard.stop();
+    }
+    if (this.frostHazard) {
+      if (typeof this.frostHazard.reset === 'function') this.frostHazard.reset();
+      else this.frostHazard.stop();
+    }
+    if (this.voltHazard) {
+      if (typeof (this.voltHazard as unknown as { reset?: () => void }).reset === 'function') {
+        (this.voltHazard as unknown as { reset: () => void }).reset();
+      } else {
+        this.voltHazard.stop();
+      }
+    }
+    if (this.magmaHazard) {
+      if (typeof this.magmaHazard.reset === 'function') this.magmaHazard.reset();
+      else this.magmaHazard.stop();
+    }
+    if (this.miasmaHazard) {
+      if (typeof this.miasmaHazard.reset === 'function') this.miasmaHazard.reset();
+      else this.miasmaHazard.stop();
+    }
+    if (this.chronoHazard) {
+      if (typeof this.chronoHazard.reset === 'function') this.chronoHazard.reset();
+      else this.chronoHazard.stop();
+    }
+    if (this.solarHazard) {
+      if (typeof this.solarHazard.reset === 'function') this.solarHazard.reset();
+      else this.solarHazard.stop();
+    }
+    if (this.nebulaHazard) {
+      if (typeof this.nebulaHazard.destroy === 'function') this.nebulaHazard.destroy();
+      else this.nebulaHazard.stop();
+    }
+    if (this.abyssalHazard) {
+      if (typeof this.abyssalHazard.destroy === 'function') this.abyssalHazard.destroy();
+      else this.abyssalHazard.stop();
+    }
+    if (this.hazardGraphics) {
+      this.hazardGraphics.destroy();
+      this.hazardGraphics = null;
+    }
+
+    // Teardown sound managers and hazard audio instances
+    if (this.frostHazardAudio) {
+      this.frostHazardAudio.destroy();
+      this.frostHazardAudio = null as unknown as FrostHazardAudio;
+    }
+    if (this.voltHazardAudio) {
+      this.voltHazardAudio.destroy();
+      this.voltHazardAudio = null as unknown as VoltHazardAudio;
+    }
+    if (this.magmaHazardAudio) {
+      this.magmaHazardAudio.destroy();
+      this.magmaHazardAudio = null as unknown as MagmaHazardAudio;
+    }
+    if (this.miasmaHazardAudio) {
+      this.miasmaHazardAudio.destroy();
+      this.miasmaHazardAudio = null as unknown as MiasmaHazardAudio;
+    }
+    if (this.chronoHazardAudio) {
+      this.chronoHazardAudio.destroy();
+      this.chronoHazardAudio = null as unknown as ChronoHazardAudio;
+    }
+    if (this.solarHazardAudio) {
+      this.solarHazardAudio.destroy();
+      this.solarHazardAudio = null as unknown as SolarHazardAudio;
+    }
+    if (this.nebulaHazardAudio) {
+      this.nebulaHazardAudio.destroy();
+      this.nebulaHazardAudio = null as unknown as NebulaHazardAudio;
+    }
+    if (this.abyssalHazardAudio) {
+      this.abyssalHazardAudio.destroy();
+      this.abyssalHazardAudio = null as unknown as AbyssalHazardAudio;
+    }
+    PsychicCrisisAudio.resetInstance();
+    webAudioSynth.destroy();
+    AudioVoicePool.resetInstance();
+
+    // Reset scratch containers and transient state
     this.bossHitBombIds.clear();
     this.destroyedBlocksThisTick.clear();
     this.scratchActiveEntities.length = 0;
@@ -1058,8 +1297,30 @@ export default class GameScene extends Phaser.Scene {
     this.scratchActiveItems.length = 0;
     this.activeBuffs = [];
     this.persistentHazardMask.clear();
-    this.floatingTextManager?.reset();
-    this.overheadUIManager?.reset();
+    this.statsTimerAccumulator = 0;
+    this.currentWaveMutator = null;
+    this.cameraTrauma.trauma = 0;
+    if (this.cameras?.main) {
+      this.cameras.main.setScroll(this.baseScrollX, this.baseScrollY);
+      this.cameras.main.setRotation(0);
+    }
+
+    if (this.floatingTextManager) {
+      if (typeof this.floatingTextManager.destroy === 'function') {
+        this.floatingTextManager.destroy();
+      } else {
+        this.floatingTextManager.reset();
+      }
+      this.floatingTextManager = null as unknown as FloatingTextManager;
+    }
+    if (this.overheadUIManager) {
+      if (typeof this.overheadUIManager.destroy === 'function') {
+        this.overheadUIManager.destroy();
+      } else {
+        this.overheadUIManager.reset();
+      }
+      this.overheadUIManager = null as unknown as OverheadUIManager;
+    }
 
     // Clear entity physics groups BEFORE destroying object pools so drop shadows release cleanly
     this.enemies?.clear(true, true);
@@ -1070,6 +1331,29 @@ export default class GameScene extends Phaser.Scene {
     this.explosions?.clear(true, true);
     this.blocks?.clear(true, true);
     this.walls?.clear(true, true);
+
+    if (typeof this.enemies?.destroy === 'function') this.enemies.destroy(true);
+    if (typeof this.neutrals?.destroy === 'function') this.neutrals.destroy(true);
+    if (typeof this.allies?.destroy === 'function') this.allies.destroy(true);
+    if (typeof this.bombs?.destroy === 'function') this.bombs.destroy(true);
+    if (typeof this.items?.destroy === 'function') this.items.destroy(true);
+    if (typeof this.explosions?.destroy === 'function') this.explosions.destroy(true);
+    if (typeof this.blocks?.destroy === 'function') this.blocks.destroy(true);
+    if (typeof this.walls?.destroy === 'function') this.walls.destroy(true);
+
+    this.enemies = null as unknown as Phaser.Physics.Arcade.Group;
+    this.neutrals = null as unknown as Phaser.Physics.Arcade.Group;
+    this.allies = null as unknown as Phaser.Physics.Arcade.Group;
+    this.bombs = null as unknown as Phaser.Physics.Arcade.Group;
+    this.items = null as unknown as Phaser.Physics.Arcade.Group;
+    this.explosions = null as unknown as Phaser.Physics.Arcade.Group;
+    this.blocks = null as unknown as Phaser.Physics.Arcade.StaticGroup;
+    this.walls = null as unknown as Phaser.Physics.Arcade.StaticGroup;
+
+    if (this.player) {
+      this.player.destroy();
+      this.player = null as unknown as Phaser.Physics.Arcade.Sprite;
+    }
 
     if (this.aegisDomeVisual) {
       this.aegisDomeVisual.destroy();
@@ -1091,6 +1375,19 @@ export default class GameScene extends Phaser.Scene {
       }
       this.playerDropShadow = undefined;
     }
+
+    // Clear standalone map decorations (conveyor markers, portal visual runes, background)
+    if (this.bgImage) {
+      this.bgImage.destroy();
+      this.bgImage = null;
+    }
+    for (let i = 0; i < this.mapDecorations.length; i++) {
+      try {
+        this.mapDecorations[i]?.destroy();
+      } catch {}
+    }
+    this.mapDecorations.length = 0;
+
     if (this.dustEmitter) {
       this.dustEmitter.destroy();
       this.dustEmitter = undefined;
@@ -1103,50 +1400,9 @@ export default class GameScene extends Phaser.Scene {
       this.blockDebrisEmitter.destroy();
       this.blockDebrisEmitter = undefined;
     }
-    if (this.frostHazardAudio) {
-      this.frostHazardAudio.destroy();
-    }
-    if (this.voltHazardAudio) {
-      this.voltHazardAudio.destroy();
-    }
-    if (this.magmaHazardAudio) {
-      this.magmaHazardAudio.destroy();
-    }
-    if (this.miasmaHazardAudio) {
-      this.miasmaHazardAudio.destroy();
-    }
-    if (this.chronoHazardAudio) {
-      this.chronoHazardAudio.destroy();
-    }
-    if (this.solarHazardAudio) {
-      this.solarHazardAudio.destroy();
-    }
-    if (this.nebulaHazardAudio) {
-      this.nebulaHazardAudio.destroy();
-    }
-    webAudioSynth.destroy();
-    AudioVoicePool.resetInstance();
 
-    if (this.telegraphGraphics) {
-      this.telegraphGraphics.destroy();
-      this.telegraphGraphics = null;
-    }
-    if (this.bossGraphics) {
-      this.bossGraphics.destroy();
-      this.bossGraphics = null;
-    }
-    if (this.bossPhaseBarGraphics) {
-      this.bossPhaseBarGraphics.destroy();
-      this.bossPhaseBarGraphics = null;
-    }
-    if (this.crisisGraphics) {
-      this.crisisGraphics.destroy();
-      this.crisisGraphics = null;
-    }
-    if (this.hazardGraphics) {
-      this.hazardGraphics.destroy();
-      this.hazardGraphics = null;
-    }
+    this.relicManager = null as unknown as RelicManager;
+    this.perkManager = undefined;
 
     this.circlePool?.destroy();
     this.rectPool?.destroy();
@@ -1154,6 +1410,13 @@ export default class GameScene extends Phaser.Scene {
     this.spritePool?.destroy();
     this.shadowPool?.destroy();
     this.floatingTextPool?.destroy();
+
+    this.circlePool = null as unknown as Pooling.ObjectPool<Phaser.GameObjects.Arc>;
+    this.rectPool = null as unknown as Pooling.ObjectPool<Phaser.GameObjects.Rectangle>;
+    this.graphicsPool = null as unknown as Pooling.ObjectPool<Phaser.GameObjects.Graphics>;
+    this.spritePool = null as unknown as Pooling.ObjectPool<Phaser.GameObjects.Sprite>;
+    this.shadowPool = null as unknown as Pooling.ObjectPool<Phaser.GameObjects.Sprite>;
+    this.floatingTextPool = null as unknown as Pooling.ObjectPool<Phaser.GameObjects.Text>;
   }
 
   constructor() {
@@ -1184,6 +1447,64 @@ export default class GameScene extends Phaser.Scene {
   }
 
   create() {
+    // If re-created without prior shutdown, ensure previous pools and visual objects are cleaned up
+    this.circlePool?.destroy();
+    this.rectPool?.destroy();
+    this.graphicsPool?.destroy();
+    this.spritePool?.destroy();
+    this.shadowPool?.destroy();
+    this.floatingTextPool?.destroy();
+
+    if (this.dustEmitter) {
+      this.dustEmitter.destroy();
+      this.dustEmitter = undefined;
+    }
+    if (this.bombSparkEmitter) {
+      this.bombSparkEmitter.destroy();
+      this.bombSparkEmitter = undefined;
+    }
+    if (this.blockDebrisEmitter) {
+      this.blockDebrisEmitter.destroy();
+      this.blockDebrisEmitter = undefined;
+    }
+
+    if (this.telegraphGraphics) {
+      this.telegraphGraphics.destroy();
+      this.telegraphGraphics = null;
+    }
+    if (this.bossGraphics) {
+      this.bossGraphics.destroy();
+      this.bossGraphics = null;
+    }
+    if (this.bossPhaseBarGraphics) {
+      this.bossPhaseBarGraphics.destroy();
+      this.bossPhaseBarGraphics = null;
+    }
+    if (this.crisisGraphics) {
+      this.crisisGraphics.destroy();
+      this.crisisGraphics = null;
+    }
+    if (this.hazardGraphics) {
+      this.hazardGraphics.destroy();
+      this.hazardGraphics = null;
+    }
+
+    if (this.player) {
+      this.player.destroy();
+      this.player = null as unknown as Phaser.Physics.Arcade.Sprite;
+    }
+
+    if (this.bgImage) {
+      this.bgImage.destroy();
+      this.bgImage = null;
+    }
+    for (let i = 0; i < this.mapDecorations.length; i++) {
+      try {
+        this.mapDecorations[i]?.destroy();
+      } catch {}
+    }
+    this.mapDecorations.length = 0;
+
     // Generate procedural textures for items, drop shadows, and VFX particles first
     this.generateItemTextures();
     this.ensureJuiceTextures();
@@ -1396,9 +1717,14 @@ export default class GameScene extends Phaser.Scene {
 
     // Background image at (400, 300) with setScrollFactor(0) and setDepth(RENDER_DEPTH.BACKGROUND)
     if (typeof this.add?.image === 'function') {
-      const bg = this.add.image(400, 300, 'background');
-      bg?.setScrollFactor?.(0);
-      bg?.setDepth?.(RENDER_DEPTH.BACKGROUND);
+      const existingBg = this.bgImage as Phaser.GameObjects.Image | null | undefined;
+      if (existingBg) {
+        existingBg.destroy();
+        this.bgImage = null;
+      }
+      this.bgImage = this.add.image(400, 300, 'background');
+      this.bgImage?.setScrollFactor?.(0);
+      this.bgImage?.setDepth?.(RENDER_DEPTH.BACKGROUND);
     }
 
     // Physics Groups
@@ -1954,6 +2280,14 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    // Clear old map decorations before adding new ones
+    for (let i = 0; i < this.mapDecorations.length; i++) {
+      try {
+        this.mapDecorations[i]?.destroy();
+      } catch {}
+    }
+    this.mapDecorations.length = 0;
+
     // Conveyor belt overlays
     this.conveyors.forEach((cv) => {
       const cx = cv.col * TILE_SIZE + TILE_SIZE / 2;
@@ -1965,6 +2299,7 @@ export default class GameScene extends Phaser.Scene {
       marker.setOrigin(0.5, 0.5);
       marker.setDepth(RENDER_DEPTH.WALLS);
       marker.setAlpha(0.65);
+      this.mapDecorations.push(marker);
     });
 
     // Portal visual runes
@@ -1975,12 +2310,14 @@ export default class GameScene extends Phaser.Scene {
     });
     portalA.setOrigin(0.5, 0.5);
     portalA.setDepth(RENDER_DEPTH.PORTALS);
+    this.mapDecorations.push(portalA);
 
     const portalB = this.add.text(pB.col * TILE_SIZE + TILE_SIZE / 2, pB.row * TILE_SIZE + TILE_SIZE / 2, '🌀', {
       fontSize: '20px',
     });
     portalB.setOrigin(0.5, 0.5);
     portalB.setDepth(RENDER_DEPTH.PORTALS);
+    this.mapDecorations.push(portalB);
 
     this.tweens.add({
       targets: [portalA, portalB],
@@ -2012,6 +2349,7 @@ export default class GameScene extends Phaser.Scene {
     this.chronoHazardAudio = ChronoHazardAudio.getInstance();
     this.solarHazardAudio = SolarHazardAudio.getInstance();
     this.nebulaHazardAudio = NebulaHazardAudio.getInstance();
+    this.abyssalHazardAudio = AbyssalHazardAudio.getInstance();
 
     this.dynamicHazard.init(this.map);
     this.gravityHazard.init(6, 7);
@@ -2022,8 +2360,19 @@ export default class GameScene extends Phaser.Scene {
     this.chronoHazard.init(6, 7);
     this.solarHazard.init(6, 7);
     this.nebulaHazard.init(6, 7);
+    this.abyssalHazard.init(6, 7);
     this.hazardGraphics = this.add.graphics();
     this.hazardGraphics.setDepth(RENDER_DEPTH.CRISIS_HAZARDS);
+    this.hazardRendererContext.dynamicHazard = this.dynamicHazard;
+    this.hazardRendererContext.gravityHazard = this.gravityHazard;
+    this.hazardRendererContext.frostHazard = this.frostHazard;
+    this.hazardRendererContext.voltHazard = this.voltHazard;
+    this.hazardRendererContext.magmaHazard = this.magmaHazard;
+    this.hazardRendererContext.miasmaHazard = this.miasmaHazard;
+    this.hazardRendererContext.chronoHazard = this.chronoHazard;
+    this.hazardRendererContext.solarHazard = this.solarHazard;
+    this.hazardRendererContext.nebulaHazard = this.nebulaHazard;
+    this.hazardRendererContext.abyssalHazard = this.abyssalHazard;
 
     // Wire Game Mode Changes & Meta-Progression Events (UI-06, MEM-01)
     if (this.events) {
@@ -2427,6 +2776,14 @@ export default class GameScene extends Phaser.Scene {
             bomb.setVelocity(dir.x * currentSpeed, dir.y * currentSpeed);
           }
         }
+        if (this.abyssalHazard && this.abyssalHazard.state !== AbyssalLifecycleState.DORMANT) {
+          const slideRes = this.abyssalHazard.evaluateBombSlide(bRow, bCol, currentSpeed);
+          if (slideRes.isSlipstreamKick && slideRes.kickSpeed !== currentSpeed) {
+            currentSpeed = slideRes.kickSpeed;
+            bomb.setData('slideSpeed', currentSpeed);
+            bomb.setVelocity(dir.x * currentSpeed, dir.y * currentSpeed);
+          }
+        }
 
         const stepDistance = currentSpeed * (delta / 1000);
         const lookahead = Math.max(16, 16 + stepDistance + 2);
@@ -2480,9 +2837,51 @@ export default class GameScene extends Phaser.Scene {
                 stopRow = bRow + dRow * (s - 1);
                 break;
               }
+
+              // Check collision with active enemies on swept tile (immediate detonation on enemy impact)
+              let enemyHitTile = false;
+              if (this.enemies) {
+                const enemiesList = this.enemies.getChildren();
+                for (let ei = 0; ei < enemiesList.length; ei++) {
+                  const enemy = enemiesList[ei] as BaseEntity;
+                  if (enemy && enemy.active && !enemy.isDead) {
+                    const er = Math.floor(enemy.y / TILE_SIZE);
+                    const ec = Math.floor(enemy.x / TILE_SIZE);
+                    if (er === checkR && ec === checkC) {
+                      enemyHitTile = true;
+                      break;
+                    }
+                  }
+                }
+              }
+              if (enemyHitTile) {
+                this.explodeBomb(bomb, checkR, checkC);
+                break;
+              }
             }
           }
         }
+
+        if (!bomb.active) continue;
+
+        // Proximity enemy check (continuous sub-tile collision radius)
+        let hitEnemyProximity = false;
+        if (this.enemies) {
+          const enemiesList = this.enemies.getChildren();
+          for (let ei = 0; ei < enemiesList.length; ei++) {
+            const enemy = enemiesList[ei] as BaseEntity;
+            if (enemy && enemy.active && !enemy.isDead) {
+              const eDist = Phaser.Math.Distance.Between(bomb.x, bomb.y, enemy.x, enemy.y);
+              const eRadius = enemy.collisionRadius || 16;
+              if (eDist < eRadius + 16) {
+                hitEnemyProximity = true;
+                this.explodeBomb(bomb, bRow, bCol);
+                break;
+              }
+            }
+          }
+        }
+        if (hitEnemyProximity || !bomb.active) continue;
 
         // Check collision with active boss
         if (this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED) {
@@ -2494,12 +2893,38 @@ export default class GameScene extends Phaser.Scene {
         }
 
         if (blocked) {
-          bomb.setVelocity(0, 0);
-          bomb.setData('isSliding', false);
-          (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(true);
-          const safeCol = Math.max(0, Math.min(COLS - 1, stopCol));
-          const safeRow = Math.max(0, Math.min(ROWS - 1, stopRow));
-          bomb.setPosition(safeCol * TILE_SIZE + TILE_SIZE / 2, safeRow * TILE_SIZE + TILE_SIZE / 2);
+          const reboundsLeft = (bomb.getData('reboundsLeft') as number) || 0;
+          if (reboundsLeft > 0) {
+            bomb.setData('reboundsLeft', reboundsLeft - 1);
+            // Reverse velocity and direction for clean specular wall rebound
+            dir.x = -dCol;
+            dir.y = -dRow;
+            bomb.setData('slideDir', { x: dir.x, y: dir.y });
+
+            // Clean tile snapping to safe boundary tile before reflection
+            const safeCol = Math.max(0, Math.min(COLS - 1, stopCol));
+            const safeRow = Math.max(0, Math.min(ROWS - 1, stopRow));
+            bomb.setPosition(safeCol * TILE_SIZE + TILE_SIZE / 2, safeRow * TILE_SIZE + TILE_SIZE / 2);
+            bomb.setVelocity(dir.x * currentSpeed, dir.y * currentSpeed);
+
+            this.spawnFloatingText(bomb.x, bomb.y - 18, '🔄 RICOCHET', '#22c55e');
+
+            // If the reflected reverse path is also blocked (trapped in 1x1 trapped cell), stop cleanly
+            const revC = safeCol + dir.x;
+            const revR = safeRow + dir.y;
+            if (revR < 0 || revR >= ROWS || revC < 0 || revC >= COLS || this.map[revR][revC] !== TILE_EMPTY) {
+              bomb.setVelocity(0, 0);
+              bomb.setData('isSliding', false);
+              (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(true);
+            }
+          } else {
+            bomb.setVelocity(0, 0);
+            bomb.setData('isSliding', false);
+            (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(true);
+            const safeCol = Math.max(0, Math.min(COLS - 1, stopCol));
+            const safeRow = Math.max(0, Math.min(ROWS - 1, stopRow));
+            bomb.setPosition(safeCol * TILE_SIZE + TILE_SIZE / 2, safeRow * TILE_SIZE + TILE_SIZE / 2);
+          }
         }
       } else {
         // Not sliding: check conveyor drift (PHYS-03: AABB bounds check)
@@ -2577,7 +3002,7 @@ export default class GameScene extends Phaser.Scene {
       this.shieldVisual = null;
     }
 
-    // 9. Collect active bomb tiles for AI path avoidance (Zero-GC persistent FlatHazardMask)
+    // 9. Collect active bomb tiles and multi-hazard danger masks for AI path avoidance (Zero-GC persistent FlatHazardMask)
     this.persistentHazardMask.clear();
     const bombTiles = this.persistentHazardMask as unknown as Set<string>;
     for (let bi = 0; bi < bombsList.length; bi++) {
@@ -2588,6 +3013,18 @@ export default class GameScene extends Phaser.Scene {
         this.persistentHazardMask.setCoord(row, col, 1);
       }
     }
+
+    // Merge active multi-hazard danger masks into persistentHazardMask (Zero-GC)
+    if (this.dynamicHazard) this.persistentHazardMask.mergeHazardMask(this.dynamicHazard.getDangerMask());
+    if (this.gravityHazard) this.persistentHazardMask.mergeHazardMask(this.gravityHazard.getDangerMask());
+    if (this.frostHazard) this.persistentHazardMask.mergeHazardMask(this.frostHazard.getDangerMask());
+    if (this.voltHazard) this.persistentHazardMask.mergeHazardMask(this.voltHazard.getDangerMask());
+    if (this.magmaHazard) this.persistentHazardMask.mergeHazardMask(this.magmaHazard.getDangerMask());
+    if (this.miasmaHazard) this.persistentHazardMask.mergeHazardMask(this.miasmaHazard.getDangerMask());
+    if (this.chronoHazard) this.persistentHazardMask.mergeHazardMask(this.chronoHazard.getDangerMask());
+    if (this.solarHazard) this.persistentHazardMask.mergeHazardMask(this.solarHazard.getDangerMask());
+    if (this.nebulaHazard) this.persistentHazardMask.mergeHazardMask(this.nebulaHazard.getDangerMask());
+    if (this.abyssalHazard) this.persistentHazardMask.mergeHazardMask(this.abyssalHazard.getDangerMask());
 
     // 10. Update enemies, neutrals, and allies with advanced AI
     const enemiesList = this.enemies.getChildren();
@@ -2752,8 +3189,9 @@ export default class GameScene extends Phaser.Scene {
     // 10c. Dynamic Hazard Environmental Vaporization for Enemies
     if (this.dynamicHazard && this.dynamicHazard.getState() === HazardLifecycleState.ACTIVE) {
       if (this.enemies) {
-        this.enemies.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
-          const enemy = child as BaseEntity;
+        const eChildren = this.enemies.getChildren();
+        for (let ei = 0; ei < eChildren.length; ei++) {
+          const enemy = eChildren[ei] as BaseEntity;
           if (enemy && enemy.active && !enemy.isDead) {
             const enemyTileR = Math.floor(enemy.y / TILE_SIZE);
             const enemyTileC = Math.floor(enemy.x / TILE_SIZE);
@@ -2772,7 +3210,7 @@ export default class GameScene extends Phaser.Scene {
               }
             }
           }
-        });
+        }
       }
     }
 
@@ -2808,9 +3246,10 @@ export default class GameScene extends Phaser.Scene {
       }
 
       // Boss crater / bomb collision stun check (AI-BOSS-01)
-      this.bombs.getChildren().forEach((child) => {
-        const bomb = child as Phaser.Physics.Arcade.Sprite;
-        if (bomb.active && this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED) {
+      const bombsList = this.bombs.getChildren();
+      for (let bi = 0; bi < bombsList.length; bi++) {
+        const bomb = bombsList[bi] as Phaser.Physics.Arcade.Sprite;
+        if (bomb.active && this.activeBoss) {
           const bDist = Phaser.Math.Distance.Between(bomb.x, bomb.y, this.activeBoss.x, this.activeBoss.y);
           if (bDist < bossRadius + 16) {
             this.activeBoss.takeBombDamage(1, 'bomb');
@@ -2823,7 +3262,7 @@ export default class GameScene extends Phaser.Scene {
             this.explodeBomb(bomb, bRow, bCol);
           }
         }
-      });
+      }
 
       // Boss Dynamic Hazard Beam Collision (Environmental Overcharge)
       if (this.dynamicHazard && this.dynamicHazard.getState() === HazardLifecycleState.ACTIVE) {
@@ -2855,7 +3294,25 @@ export default class GameScene extends Phaser.Scene {
         }
 
         if (bossHit && colResult && colResult.isStunned) {
-          if (this.activeBoss.bossState !== BossState.STUNNED) {
+          const dmgPct = colResult.damage || 15;
+          const stunSec = colResult.stunDurationMs ? colResult.stunDurationMs / 1000 : 1.5;
+          const nowMs = this.time?.now ?? Date.now();
+          if (typeof this.activeBoss.takeHazardDamage === 'function') {
+            const hRes = this.activeBoss.takeHazardDamage(dmgPct, stunSec, nowMs);
+            if (hRes.damage > 0) {
+              if (this.bossHUD) {
+                this.bossHUD.triggerStun(stunSec, '⚡ Overcharge Beam Stun!');
+              }
+              this.spawnFloatingText(this.activeBoss.x, this.activeBoss.y - 20, colResult.floatingText || '⚡ STUNNED (1.5s)!', '#FBBF24');
+              if (this.cameraTrauma) {
+                this.cameraTrauma.addTrauma(0.35);
+              }
+              if (hRes.defeated) {
+                this.score += 5000;
+                this.dismissBoss();
+              }
+            }
+          } else if (this.activeBoss.bossState !== BossState.STUNNED) {
             const dmg = (this.activeBoss.maxHp * colResult.damage) / 100;
             this.activeBoss.currentHp = Math.max(0, this.activeBoss.currentHp - dmg);
             this.activeBoss.applyStun(colResult.stunDurationMs / 1000);
@@ -3101,10 +3558,7 @@ export default class GameScene extends Phaser.Scene {
                 this.score += enemyHit.scoreBonus;
                 this.addUltimateCharge(5);
               } else if (enemyHit.isStunned && isBoss && this.activeBoss) {
-                this.activeBoss.takeBombDamage(enemyHit.damage);
-                if (this.bossHUD) {
-                  this.bossHUD.triggerStun(enemyHit.stunDurationMs / 1000, 'Tachyon Stasis!');
-                }
+                this.handleBossHazardHit(enemy.x, enemy.y, 0.15, enemyHit.stunDurationMs, enemyHit.floatingText || '⚡ STUNNED (1.5s)!', '#FBBF24', 'Tachyon Stasis!');
               }
             }
           }
@@ -3135,11 +3589,7 @@ export default class GameScene extends Phaser.Scene {
                 this.addUltimateCharge(enemyHit.ultimateChargeBonus);
                 this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#38bdf8');
               } else if (enemyHit.isFrozenStunned && isBoss && this.activeBoss) {
-                this.activeBoss.takeBombDamage(Math.floor(this.activeBoss.maxHp * BOSS_FROST_DAMAGE_RATIO));
-                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#38bdf8');
-                if (this.bossHUD) {
-                  this.bossHUD.triggerStun(enemyHit.stunDurationMs / 1000, 'Deep Freeze Stasis!');
-                }
+                this.handleBossHazardHit(enemy.x, enemy.y, BOSS_FROST_DAMAGE_RATIO, enemyHit.stunDurationMs, enemyHit.floatingText, '#38bdf8', 'Deep Freeze Stasis!');
               }
             }
           }
@@ -3178,11 +3628,7 @@ export default class GameScene extends Phaser.Scene {
                 this.addUltimateCharge(enemyHit.ultimateChargeBonus);
                 this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#facc15');
               } else if (enemyHit.isEmpStunned && isBoss && this.activeBoss) {
-                this.activeBoss.takeBombDamage(Math.floor(this.activeBoss.maxHp * BOSS_VOLT_DAMAGE_RATIO));
-                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#facc15');
-                if (this.bossHUD) {
-                  this.bossHUD.triggerStun(enemyHit.stunDurationMs / 1000, 'EMP Overload Stasis!');
-                }
+                this.handleBossHazardHit(enemy.x, enemy.y, BOSS_VOLT_DAMAGE_RATIO, enemyHit.stunDurationMs, enemyHit.floatingText, '#facc15', 'EMP Overload Stasis!');
               }
             }
           }
@@ -3216,11 +3662,7 @@ export default class GameScene extends Phaser.Scene {
                 this.addUltimateCharge(enemyHit.ultimateChargeBonus);
                 this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#f97316');
               } else if (enemyHit.isMeltdownStunned && isBoss && this.activeBoss) {
-                this.activeBoss.takeBombDamage(Math.floor(this.activeBoss.maxHp * BOSS_MAGMA_DAMAGE_RATIO));
-                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#f97316');
-                if (this.bossHUD) {
-                  this.bossHUD.triggerStun(enemyHit.stunDurationMs / 1000, 'Magma Meltdown Stasis!');
-                }
+                this.handleBossHazardHit(enemy.x, enemy.y, BOSS_MAGMA_DAMAGE_RATIO, enemyHit.stunDurationMs, enemyHit.floatingText, '#f97316', 'Magma Meltdown Stasis!');
               }
             }
           }
@@ -3254,11 +3696,7 @@ export default class GameScene extends Phaser.Scene {
                 this.addUltimateCharge(enemyHit.ultimateChargeBonus);
                 this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#10b981');
               } else if ((enemyHit.isStunned || enemyHit.isSporeStunned) && isBoss && this.activeBoss) {
-                this.activeBoss.takeBombDamage(Math.floor(this.activeBoss.maxHp * BOSS_MIASMA_DAMAGE_RATIO));
-                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#10b981');
-                if (this.bossHUD) {
-                  this.bossHUD.triggerStun(enemyHit.stunDurationMs / 1000, 'Spore Overgrowth Stasis!');
-                }
+                this.handleBossHazardHit(enemy.x, enemy.y, BOSS_MIASMA_DAMAGE_RATIO, enemyHit.stunDurationMs, enemyHit.floatingText, '#10b981', 'Spore Overgrowth Stasis!');
               }
             }
           }
@@ -3292,11 +3730,7 @@ export default class GameScene extends Phaser.Scene {
                 this.addUltimateCharge(enemyHit.ultimateChargeBonus);
                 this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#818cf8');
               } else if (enemyHit.isStunned && isBoss && this.activeBoss) {
-                this.activeBoss.takeBombDamage(Math.floor(this.activeBoss.maxHp * BOSS_CHRONO_DAMAGE_RATIO));
-                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#818cf8');
-                if (this.bossHUD) {
-                  this.bossHUD.triggerStun(enemyHit.stunDurationMs / 1000, 'Temporal Stasis Distortion!');
-                }
+                this.handleBossHazardHit(enemy.x, enemy.y, BOSS_CHRONO_DAMAGE_RATIO, enemyHit.stunDurationMs, enemyHit.floatingText, '#818cf8', 'Temporal Stasis Distortion!');
               }
             }
           }
@@ -3330,11 +3764,7 @@ export default class GameScene extends Phaser.Scene {
                 this.addUltimateCharge(enemyHit.ultimateChargeBonus);
                 this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#f59e0b');
               } else if (enemyHit.isStunned && isBoss && this.activeBoss) {
-                this.activeBoss.takeBombDamage(Math.floor(this.activeBoss.maxHp * BOSS_SOLAR_DAMAGE_RATIO));
-                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#f59e0b');
-                if (this.bossHUD) {
-                  this.bossHUD.triggerStun(enemyHit.stunDurationMs / 1000, 'Solar Corona Stasis!');
-                }
+                this.handleBossHazardHit(enemy.x, enemy.y, BOSS_SOLAR_DAMAGE_RATIO, enemyHit.stunDurationMs, enemyHit.floatingText, '#f59e0b', 'Solar Corona Stasis!');
               }
             }
           }
@@ -3368,11 +3798,7 @@ export default class GameScene extends Phaser.Scene {
                 this.addUltimateCharge(enemyHit.ultimateChargeBonus);
                 this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#a855f7');
               } else if (enemyHit.isStunned && isBoss && this.activeBoss) {
-                this.activeBoss.takeBombDamage(Math.floor(this.activeBoss.maxHp * BOSS_NEBULA_DAMAGE_RATIO));
-                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#a855f7');
-                if (this.bossHUD) {
-                  this.bossHUD.triggerStun(enemyHit.stunDurationMs / 1000, 'Astral Stasis!');
-                }
+                this.handleBossHazardHit(enemy.x, enemy.y, BOSS_NEBULA_DAMAGE_RATIO, enemyHit.stunDurationMs, enemyHit.floatingText, '#a855f7', 'Astral Stasis!');
               }
             }
           }
@@ -3384,11 +3810,51 @@ export default class GameScene extends Phaser.Scene {
           const bc = Math.floor(this.activeBoss.x / TILE_SIZE);
           const bossHit = this.nebulaHazard.checkEnemyCollision(br, bc, true, this.time.now);
           if (bossHit.hit && bossHit.isStunned) {
-            this.activeBoss.takeBombDamage(Math.floor(this.activeBoss.maxHp * BOSS_NEBULA_DAMAGE_RATIO));
-            this.spawnFloatingText(this.activeBoss.x, this.activeBoss.y - 14, bossHit.floatingText, '#a855f7');
-            if (this.bossHUD) {
-              this.bossHUD.triggerStun(bossHit.stunDurationMs / 1000, 'Astral Stasis!');
+            this.handleBossHazardHit(this.activeBoss.x, this.activeBoss.y, BOSS_NEBULA_DAMAGE_RATIO, bossHit.stunDurationMs, bossHit.floatingText, '#a855f7', 'Astral Stasis!');
+          }
+        }
+      }
+    }
+
+    // 13j. Update Abyssal Hazard System (Abyssal Rift & Ocean Trench Maelstrom)
+    if (this.abyssalHazard && this.abyssalHazard.state !== AbyssalLifecycleState.DORMANT) {
+      this.abyssalHazard.update(delta);
+      if (this.abyssalHazardAudio) {
+        AbyssalHazardAudio.playAbyssalHazardState(this.abyssalHazard.state, this.abyssalHazard.getTelegraphPhase(), undefined, this.time?.now ?? Date.now());
+      }
+
+      if (this.abyssalHazard.state === AbyssalLifecycleState.ABYSSAL_MAELSTROM && !this.isGameOver) {
+        // Enemy Collision Check against abyssal maelstrom
+        const enemiesList = this.enemies.getChildren();
+        for (let i = 0; i < enemiesList.length; i++) {
+          const enemy = enemiesList[i] as BaseEntity;
+          if (enemy && enemy.active && !enemy.isDead) {
+            const er = Math.floor(enemy.y / TILE_SIZE);
+            const ec = Math.floor(enemy.x / TILE_SIZE);
+            const isBoss = enemy === (this.activeBoss as unknown as BaseEntity);
+            const enemyHit = this.abyssalHazard.checkEnemyCollision(er, ec, isBoss, this.time.now);
+            if (enemyHit.hit) {
+              if (enemyHit.isCrushed || enemyHit.isVaporized || enemyHit.isDissolved || enemyHit.isDecomposed) {
+                if (typeof enemy.takeDamage === 'function') {
+                  enemy.takeDamage(enemyHit.damage, 'hazard', this.time.now);
+                }
+                this.score += enemyHit.scoreBonus;
+                this.addUltimateCharge(enemyHit.ultimateChargeBonus);
+                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#0ea5e9');
+              } else if (enemyHit.isStunned && isBoss && this.activeBoss) {
+                this.handleBossHazardHit(enemy.x, enemy.y, BOSS_ABYSSAL_DAMAGE_RATIO, enemyHit.stunDurationMs, enemyHit.floatingText, '#0ea5e9', 'Trench Stasis!');
+              }
             }
+          }
+        }
+
+        // Dedicated active boss check
+        if (this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED && this.activeBoss.currentHp > 0) {
+          const br = Math.floor(this.activeBoss.y / TILE_SIZE);
+          const bc = Math.floor(this.activeBoss.x / TILE_SIZE);
+          const bossHit = this.abyssalHazard.checkEnemyCollision(br, bc, true, this.time.now);
+          if (bossHit.hit && bossHit.isStunned) {
+            this.handleBossHazardHit(this.activeBoss.x, this.activeBoss.y, BOSS_ABYSSAL_DAMAGE_RATIO, bossHit.stunDurationMs, bossHit.floatingText, '#0ea5e9', 'Trench Stasis!');
           }
         }
       }
@@ -4256,6 +4722,103 @@ export default class GameScene extends Phaser.Scene {
     this.emitStatsUpdate();
   }
 
+  grantAbyssalGlide(): void {
+    if (this.isGameOver || !this.player || !this.player.active) return;
+    this.isInvulnerable = true;
+    const originalSpeed = this.playerSpeed;
+    this.playerSpeed = Math.floor(originalSpeed * (1.0 + AQUA_GLIDE_SPEED_BURST_RATIO));
+
+    this.player.setTint(0x06b6d4);
+    this.player.setAlpha(0.85);
+
+    const existing = this.activeBuffs.find((b) => b.id === 'ABYSSAL_GLIDE' || b.id === 'AQUA_GLIDE');
+    if (existing) {
+      existing.remainingMs = AQUA_GLIDE_INVULN_MS;
+      existing.totalMs = AQUA_GLIDE_INVULN_MS;
+    } else {
+      this.activeBuffs.push({
+        id: 'AQUA_GLIDE',
+        name: 'Aqua Glide',
+        icon: '🌊',
+        color: '#06b6d4',
+        remainingMs: AQUA_GLIDE_INVULN_MS,
+        totalMs: AQUA_GLIDE_INVULN_MS,
+      });
+    }
+
+    this.spawnFloatingText(this.player.x, this.player.y - 25, FLOATING_TEXT_AQUA_GLIDE, '#06b6d4');
+    if (this.cameras?.main) {
+      this.cameras.main.flash(100, 6, 182, 212);
+    }
+    if (this.abyssalHazardAudio) {
+      this.abyssalHazardAudio.playAbyssalGlideChimes();
+    }
+
+    this.time.delayedCall(AQUA_GLIDE_INVULN_MS, () => {
+      if (this.player && this.player.active) {
+        this.player.setAlpha(1.0);
+        this.player.clearTint();
+        if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
+          this.isInvulnerable = false;
+        }
+      }
+      this.playerSpeed = originalSpeed;
+    });
+
+    this.emitStatsUpdate();
+  }
+
+  grantAquaGlide(): void {
+    this.grantAbyssalGlide();
+  }
+
+  grantHydroDash(): void {
+    this.grantAbyssalGlide();
+  }
+
+  applyHydrostaticDrag(): void {
+    if (this.isGameOver || !this.player || !this.player.active) return;
+    const now = this.time?.now ?? Date.now();
+    if (this.isInvulnerable || this.isDashing) return;
+
+    const existing = this.activeBuffs.find((b) => b.id === 'HYDROSTATIC_DRAG' || b.id === 'ABYSSAL_UNDERTOW');
+    if (existing) {
+      existing.remainingMs = ABYSSAL_UNDERTOW_DURATION_MS;
+      existing.totalMs = ABYSSAL_UNDERTOW_DURATION_MS;
+    } else {
+      this.activeBuffs.push({
+        id: 'ABYSSAL_UNDERTOW',
+        name: 'Abyssal Undertow',
+        icon: '🌊',
+        color: '#0284c7',
+        remainingMs: ABYSSAL_UNDERTOW_DURATION_MS,
+        totalMs: ABYSSAL_UNDERTOW_DURATION_MS,
+      });
+    }
+
+    if (now - this.lastHydrostaticDragFloatingTextMs >= 2000) {
+      this.lastHydrostaticDragFloatingTextMs = now;
+      this.spawnFloatingText(this.player.x, this.player.y - 25, FLOATING_TEXT_ABYSSAL_UNDERTOW, '#0284c7');
+      if (this.abyssalHazardAudio) {
+        this.abyssalHazardAudio.playHydrostaticDragWarning();
+      }
+    }
+
+    if (this.player && this.player.active && !this.isInvulnerable) {
+      this.player.setTint(0x7dd3fc);
+      this.time.delayedCall(ABYSSAL_UNDERTOW_DURATION_MS, () => {
+        if (this.player && this.player.active && !this.activeBuffs.some((b) => b.id === 'HYDROSTATIC_DRAG' || b.id === 'ABYSSAL_UNDERTOW')) {
+          this.player.clearTint();
+        }
+      });
+    }
+    this.emitStatsUpdate();
+  }
+
+  applyAbyssalUndertow(): void {
+    this.applyHydrostaticDrag();
+  }
+
   applyPhaseJitter(durationMs: number = PHASE_JITTER_DURATION_MS): void {
     if (this.isGameOver) return;
     const now = this.time?.now ?? Date.now();
@@ -4337,17 +4900,7 @@ export default class GameScene extends Phaser.Scene {
     if (!this.hazardGraphics) return;
     HazardRenderer.render(
       this.hazardGraphics,
-      {
-        dynamicHazard: this.dynamicHazard,
-        gravityHazard: this.gravityHazard,
-        frostHazard: this.frostHazard,
-        voltHazard: this.voltHazard,
-        magmaHazard: this.magmaHazard,
-        miasmaHazard: this.miasmaHazard,
-        chronoHazard: this.chronoHazard,
-        solarHazard: this.solarHazard,
-        nebulaHazard: this.nebulaHazard,
-      },
+      this.hazardRendererContext,
       time
     );
     return;
@@ -4402,18 +4955,97 @@ export default class GameScene extends Phaser.Scene {
     if (up && !down) wantY = -1;
     else if (down && !up) wantY = 1;
 
-    const surgeBonus = this.activeBuffs?.some((b) => b.id === 'SPEED_SURGE') ? 75 : 0;
+    let hasSpeedSurge = false;
+    let hasPhaseJitter = false;
+    let isGravitationalEscapeActive = false;
+    let isThermalBreakActive = false;
+    let isFrostChillActive = false;
+    let isSuperconductorDashActive = false;
+    let isStaticShockActive = false;
+    let isMagmaSurfActive = false;
+    let isThermalSingeActive = false;
+    let isSporeSurgeActive = false;
+    let isNeurotoxinActive = false;
+    let isChronoSurgeActive = false;
+    let isTemporalDilationActive = false;
+    let isSolarSurfActive = false;
+    let isSunstrokeActive = false;
+    let isAstralGlideActive = false;
+    let isCosmicDazeActive = false;
+    let isAbyssalGlideActive = false;
+    let isHydrostaticDragActive = false;
+
+    if (this.activeBuffs) {
+      for (let i = 0; i < this.activeBuffs.length; i++) {
+        const bId = this.activeBuffs[i].id;
+        switch (bId) {
+          case 'SPEED_SURGE':
+            hasSpeedSurge = true;
+            break;
+          case 'PHASE_JITTER':
+            hasPhaseJitter = true;
+            break;
+          case 'GRAVITATIONAL_ESCAPE':
+            isGravitationalEscapeActive = true;
+            break;
+          case 'THERMAL_BREAK':
+            isThermalBreakActive = true;
+            break;
+          case 'FROST_CHILL':
+            isFrostChillActive = true;
+            break;
+          case 'SUPERCONDUCTOR_DASH':
+            isSuperconductorDashActive = true;
+            break;
+          case 'STATIC_SHOCK':
+            isStaticShockActive = true;
+            break;
+          case 'MAGMA_SURF':
+            isMagmaSurfActive = true;
+            break;
+          case 'THERMAL_SINGE':
+            isThermalSingeActive = true;
+            break;
+          case 'SPORE_SURGE':
+            isSporeSurgeActive = true;
+            break;
+          case 'NEUROTOXIN':
+            isNeurotoxinActive = true;
+            break;
+          case 'CHRONO_SURGE':
+            isChronoSurgeActive = true;
+            break;
+          case 'TEMPORAL_DILATION':
+            isTemporalDilationActive = true;
+            break;
+          case 'SOLAR_SURF':
+            isSolarSurfActive = true;
+            break;
+          case 'SUNSTROKE':
+            isSunstrokeActive = true;
+            break;
+          case 'ASTRAL_GLIDE':
+            isAstralGlideActive = true;
+            break;
+          case 'COSMIC_DAZE':
+            isCosmicDazeActive = true;
+            break;
+          case 'ABYSSAL_GLIDE':
+          case 'AQUA_GLIDE':
+          case 'HYDRO_DASH':
+            isAbyssalGlideActive = true;
+            break;
+          case 'HYDROSTATIC_DRAG':
+          case 'ABYSSAL_UNDERTOW':
+            isHydrostaticDragActive = true;
+            break;
+        }
+      }
+    }
+
+    const surgeBonus = hasSpeedSurge ? 75 : 0;
     const perkSpeedBonus = this.baseSpeedBonus || 0;
-    const isPhaseJittered = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'PHASE_JITTER')) || this.phaseJitterRemaining > 0;
-    const isGravitationalEscapeActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'GRAVITATIONAL_ESCAPE')) || false;
-    const isThermalBreakActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'THERMAL_BREAK')) || false;
-    const isFrostChillActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'FROST_CHILL')) || false;
-    const isSuperconductorDashActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'SUPERCONDUCTOR_DASH')) || false;
-    const isStaticShockActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'STATIC_SHOCK')) || false;
-    const isMagmaSurfActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'MAGMA_SURF')) || false;
-    const isThermalSingeActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'THERMAL_SINGE')) || false;
-    const isSporeSurgeActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'SPORE_SURGE')) || false;
-    const isNeurotoxinActive = (this.activeBuffs && this.activeBuffs.some((b) => b.id === 'NEUROTOXIN')) || false;
+    const isPhaseJittered = hasPhaseJitter || this.phaseJitterRemaining > 0;
 
     let gravityMultiplier = 1.0;
     if (this.gravityHazard && this.gravityHazard.state !== GravityLifecycleState.DORMANT && this.gravityHazard.state !== GravityLifecycleState.COOLDOWN) {
@@ -4511,8 +5143,6 @@ export default class GameScene extends Phaser.Scene {
     }
 
     let chronoMultiplier = 1.0;
-    const isChronoSurgeActive = this.activeBuffs.some((b) => b.id === 'CHRONO_SURGE');
-    const isTemporalDilationActive = this.activeBuffs.some((b) => b.id === 'TEMPORAL_DILATION');
     if (this.chronoHazard && this.chronoHazard.state !== ChronoLifecycleState.DORMANT && this.chronoHazard.state !== ChronoLifecycleState.TACHYON_RECOVERY) {
       const chRes = this.chronoHazard.evaluatePlayer(px, py, this.isDashing, this.time?.now ?? Date.now(), wantX, wantY);
       if (chRes.chronoSurgeGranted) {
@@ -4536,8 +5166,6 @@ export default class GameScene extends Phaser.Scene {
     }
 
     let solarMultiplier = 1.0;
-    const isSolarSurfActive = this.activeBuffs.some((b) => b.id === 'SOLAR_SURF');
-    const isSunstrokeActive = this.activeBuffs.some((b) => b.id === 'SUNSTROKE');
     if (this.solarHazard && this.solarHazard.state !== SolarLifecycleState.DORMANT && this.solarHazard.state !== SolarLifecycleState.CORONA_RECOVERY) {
       const sRes = this.solarHazard.evaluatePlayer(px, py, this.isDashing, this.time?.now ?? Date.now(), wantX, wantY);
       if (sRes.solarSurfGranted) {
@@ -4561,8 +5189,6 @@ export default class GameScene extends Phaser.Scene {
     }
 
     let nebulaMultiplier = 1.0;
-    const isAstralGlideActive = this.activeBuffs.some((b) => b.id === 'ASTRAL_GLIDE');
-    const isCosmicDazeActive = this.activeBuffs.some((b) => b.id === 'COSMIC_DAZE');
     if (this.nebulaHazard && this.nebulaHazard.state !== NebulaLifecycleState.DORMANT && this.nebulaHazard.state !== NebulaLifecycleState.STELLAR_DAWN) {
       const nRes = this.nebulaHazard.evaluatePlayer(px, py, this.isDashing, this.time?.now ?? Date.now(), wantX, wantY);
       if (nRes.astralGlideGranted) {
@@ -4585,6 +5211,29 @@ export default class GameScene extends Phaser.Scene {
       nebulaMultiplier *= (1.0 - COSMIC_DAZE_SLOW_RATIO);
     }
 
+    let abyssalMultiplier = 1.0;
+    if (this.abyssalHazard && this.abyssalHazard.state !== AbyssalLifecycleState.DORMANT && this.abyssalHazard.state !== AbyssalLifecycleState.OCEANIC_CALM) {
+      const aRes = this.abyssalHazard.evaluatePlayer(px, py, this.isDashing, this.time?.now ?? Date.now(), wantX, wantY);
+      if (aRes.abyssalGlideGranted || aRes.aquaGlideGranted || aRes.hydroDashGranted || aRes.isGlideActivated) {
+        this.grantAquaGlide();
+      } else if (aRes.hit && aRes.damage > 0 && !this.isInvulnerable && !this.isDashing) {
+        this.spawnFloatingText(this.player.x, this.player.y - 14, `-${aRes.damage} ABYSSAL MAELSTROM`, '#06b6d4');
+        if (this.cameraTrauma) {
+          this.cameraTrauma.addTrauma(0.40);
+        }
+        this.playerDie();
+      } else if ((aRes.dazeInflicted || aRes.undertowInflicted || aRes.isUndertow) && !this.isDashing && !this.isInvulnerable) {
+        this.applyAbyssalUndertow();
+      }
+      abyssalMultiplier = aRes.slowFactor;
+    }
+    if (isAbyssalGlideActive) {
+      abyssalMultiplier *= (1.0 + AQUA_GLIDE_SPEED_BURST_RATIO);
+    }
+    if (isHydrostaticDragActive) {
+      abyssalMultiplier *= (1.0 - ABYSSAL_UNDERTOW_SLOW_RATIO);
+    }
+
     // Return here if we are just dashing (so we evaluated hazards, but dash controls velocity)
     if (this.isDashing) {
       return;
@@ -4602,7 +5251,7 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
 
-    const rawCompoundMultiplier = gravityMultiplier * frostMultiplier * voltMultiplier * magmaMultiplier * miasmaMultiplier * chronoMultiplier * solarMultiplier * nebulaMultiplier;
+    const rawCompoundMultiplier = gravityMultiplier * frostMultiplier * voltMultiplier * magmaMultiplier * miasmaMultiplier * chronoMultiplier * solarMultiplier * nebulaMultiplier * abyssalMultiplier;
     const clampedHazardMultiplier = Math.min(1.85, Math.max(0.30, Number.isFinite(rawCompoundMultiplier) && rawCompoundMultiplier > 0 ? rawCompoundMultiplier : 1.0));
 
     const hazardSlowdownReduction = this.appliedPerkBonuses?.groundSlowdownReduction || 0;
@@ -4612,15 +5261,14 @@ export default class GameScene extends Phaser.Scene {
     }
 
     const postDashMultiplier = this.dashSpeedBurstRemaining > 0 ? this.dashSpeedBurstMultiplier : 1.0;
-    const speed = calculateClampedPlayerSpeed({
-      baseSpeed: this.playerSpeed,
-      perkSpeedBonus,
-      surgeBonus,
-      isDashing: this.isDashing,
-      dashSpeed: DASH_SPEED,
-      phaseJitterActive: isPhaseJittered,
-      speedMultiplier: effectiveHazardMultiplier * postDashMultiplier,
-    });
+    this.speedCalcOptions.baseSpeed = this.playerSpeed;
+    this.speedCalcOptions.perkSpeedBonus = perkSpeedBonus;
+    this.speedCalcOptions.surgeBonus = surgeBonus;
+    this.speedCalcOptions.isDashing = this.isDashing;
+    this.speedCalcOptions.dashSpeed = DASH_SPEED;
+    this.speedCalcOptions.phaseJitterActive = isPhaseJittered;
+    this.speedCalcOptions.speedMultiplier = effectiveHazardMultiplier * postDashMultiplier;
+    const speed = calculateClampedPlayerSpeed(this.speedCalcOptions);
     const slideSpeed = speed;
     const snapThreshold = Math.max(2, speed * (delta / 1000));
     const isMobile = this.isMobileDevice();
@@ -4824,9 +5472,15 @@ export default class GameScene extends Phaser.Scene {
           if (pullResult.pulledEnemyIds.includes(eId) && e.body) {
             const dirX = centerX - e.x;
             const dirY = centerY - e.y;
-            const len = Math.sqrt(dirX * dirX + dirY * dirY);
-            if (len > 0) {
-              e.setVelocity((dirX / len) * 80, (dirY / len) * 80);
+            const len = Math.hypot(dirX, dirY);
+            if (len > 1e-6) {
+              let vx = (dirX / len) * 80;
+              let vy = (dirY / len) * 80;
+              if (Math.abs(vx) < 1e-15) vx = 0;
+              if (Math.abs(vy) < 1e-15) vy = 0;
+              e.setVelocity(vx, vy);
+            } else {
+              e.setVelocity(0, 0);
             }
           }
         });
@@ -4837,6 +5491,7 @@ export default class GameScene extends Phaser.Scene {
     bomb.setData('id', bombId);
     bomb.setData('owner', 'player');
     bomb.setData('power', this.bombPower);
+    bomb.setData('type', this.activeBombType);
 
     let fuseDuration = 2000;
     if (this.dynamicHazard) {
@@ -4927,6 +5582,15 @@ export default class GameScene extends Phaser.Scene {
         fuseDuration = Math.max(800, fuseDuration - nebulaInteraction.fuseAccelerationMs);
         bomb.setTint(nebulaInteraction.bombTint ?? NEBULA_SUPER_BOMB_TINT);
         this.spawnFloatingText(centerX, centerY - 25, nebulaInteraction.floatingText ?? FLOATING_TEXT_NEBULA_FUSED, '#a855f7');
+      }
+    }
+
+    if (this.abyssalHazard && this.abyssalHazard.state !== AbyssalLifecycleState.DORMANT && this.abyssalHazard.state !== AbyssalLifecycleState.OCEANIC_CALM) {
+      const abyssalInteraction = this.abyssalHazard.onBombPlaced(bombId, row, col, this.bombPower, fuseDuration);
+      if (abyssalInteraction.isAccelerated) {
+        fuseDuration = Math.max(800, fuseDuration - abyssalInteraction.fuseAccelerationMs);
+        bomb.setTint(abyssalInteraction.bombTint ?? ABYSSAL_SUPER_BOMB_TINT);
+        this.spawnFloatingText(centerX, centerY - 25, abyssalInteraction.floatingText ?? FLOATING_TEXT_ABYSSAL_FUSED, '#0ea5e9');
       }
     }
 
@@ -5482,6 +6146,20 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    if (this.abyssalHazard && this.abyssalHazard.state !== AbyssalLifecycleState.DORMANT && this.abyssalHazard.state !== AbyssalLifecycleState.OCEANIC_CALM) {
+      const abysDet = this.abyssalHazard.onBombDetonated(bombId, actualRow, actualCol, effectivePower);
+      if (abysDet.isMaelstrom) {
+        effectivePower += abysDet.extraPower;
+        isPiercing = true;
+        const cX = actualCol * TILE_SIZE + TILE_SIZE / 2;
+        const cY = actualRow * TILE_SIZE + TILE_SIZE / 2;
+        this.spawnFloatingText(cX, cY - 25, abysDet.floatingText || FLOATING_TEXT_MAELSTROM_BURST, '#0ea5e9');
+        this.score += abysDet.bonusScore;
+        this.addUltimateCharge(abysDet.ultimateChargeBonus || 10);
+        this.emitStatsUpdate();
+      }
+    }
+
     // 3. Polarization Strike helper (blast cleanses spire into golden channel for 8.0s)
     const checkPolarizationStrike = (r: number, c: number) => {
       if (this.frostHazard) {
@@ -5542,6 +6220,17 @@ export default class GameScene extends Phaser.Scene {
           this.spawnFloatingText(px, py - 20, calmRes.floatingText, '#c084fc');
           if (this.nebulaHazardAudio) {
             this.nebulaHazardAudio.playStardustCalmSnap();
+          }
+        }
+      }
+      if (this.abyssalHazard) {
+        const calmRes = this.abyssalHazard.onBombBlastImpact(r, c);
+        if (calmRes.cleanedTilesCount > 0) {
+          const px = c * TILE_SIZE + TILE_SIZE / 2;
+          const py = r * TILE_SIZE + TILE_SIZE / 2;
+          this.spawnFloatingText(px, py - 20, calmRes.floatingText, '#38bdf8');
+          if (this.abyssalHazardAudio) {
+            this.abyssalHazardAudio.playOceanicCalmSnap();
           }
         }
       }
@@ -6832,6 +7521,28 @@ export default class GameScene extends Phaser.Scene {
         }
       }
     }
+    if (this.abyssalHazard && this.abyssalHazard.state !== AbyssalLifecycleState.DORMANT) {
+      const kickRes = this.abyssalHazard.onBombKicked(bomb.getData('id') || 'bomb', bRow, bCol, BOMB_KICK_SPEED);
+      if (kickRes.isSlipstreamKick) {
+        kickSpeed = kickRes.kickSpeed || BOMB_KICK_ABYSSAL_SPEED;
+        const txt = kickRes.floatingText || FLOATING_TEXT_HYDRO_SLIPSTREAM;
+        this.spawnFloatingText(bomb.x, bomb.y - 20, txt, '#0ea5e9');
+        if (this.abyssalHazardAudio) {
+          this.abyssalHazardAudio.playHydroSlipstreamKick();
+        }
+      }
+    }
+    let rebounds = bomb.getData('reboundsLeft') as number | undefined;
+    if (rebounds === undefined) {
+      const bombType = bomb.getData('type') || this.activeBombType;
+      if (bombType === 'RICOCHET_BOMB') {
+        rebounds = 3;
+      } else {
+        rebounds = 0;
+      }
+      bomb.setData('reboundsLeft', rebounds);
+    }
+
     bomb.setData('isSliding', true);
     bomb.setData('slideSpeed', kickSpeed);
     let slideDir = bomb.getData('slideDir') as { x: number; y: number } | undefined;
@@ -6844,6 +7555,26 @@ export default class GameScene extends Phaser.Scene {
     }
     (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(false);
     bomb.setVelocity(dirX * kickSpeed, dirY * kickSpeed);
+  }
+
+  private handleBossHazardHit(
+    x: number,
+    y: number,
+    damageRatio: number,
+    stunDurationMs: number,
+    floatingText: string,
+    color: string,
+    banner: string
+  ): void {
+    if (!this.activeBoss) return;
+    const damage = Math.max(1, Math.floor(this.activeBoss.maxHp * damageRatio));
+    this.activeBoss.takeBombDamage(damage);
+    if (floatingText) {
+      this.spawnFloatingText(x, y - 14, floatingText, color);
+    }
+    if (this.bossHUD) {
+      this.bossHUD.triggerStun(stunDurationMs / 1000, banner);
+    }
   }
 
   private spawnFloatingText(x: number, y: number, text: string, color: string) {

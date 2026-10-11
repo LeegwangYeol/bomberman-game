@@ -56,10 +56,10 @@ export function resolveJoystickDirection(
     return DIR_NONE;
   }
 
-  // Guard against invalid, NaN, non-finite, or sub-deadzone distance (< 5px)
+  // Guard against invalid, NaN, non-finite, or sub-deadzone distance (< 5px with float tolerance)
   if (
     distance !== undefined &&
-    (typeof distance !== 'number' || !Number.isFinite(distance) || Number.isNaN(distance) || distance < 5)
+    (typeof distance !== 'number' || !Number.isFinite(distance) || Number.isNaN(distance) || distance < 5 - 1e-7)
   ) {
     return DIR_NONE;
   }
@@ -138,8 +138,8 @@ export function resolveJoystickVector(
     return result;
   }
 
-  const distance = Math.sqrt(distSq);
-  result.distance = distance;
+  const distance = Math.hypot(dx, dy);
+  result.distance = distance < 1e-6 ? 0 : distance;
 
   // Sub-deadzone check with float tolerance to ensure exact boundary radius (e.g. 5.0px) is active
   const deadzoneSq = effectiveDeadzone * effectiveDeadzone;
@@ -304,17 +304,21 @@ export function cancelMobileAction(state: MobileInputState, action: 'bomb' | 'da
 
 /**
  * Release handler for pointer up/leave.
+ * Accepts optional shouldKeepActive check to prevent race conditions during rapid re-presses.
  */
 export function releaseMobileAction(
   state: MobileInputState,
   action: 'bomb' | 'dash' | 'ultimate',
-  scheduler?: (cb: () => void) => void
+  scheduler?: (cb: () => void) => void,
+  shouldKeepActive?: () => boolean
 ): void {
   if (!state || (action !== 'bomb' && action !== 'dash' && action !== 'ultimate')) return;
   const schedule = scheduler ?? (typeof requestAnimationFrame === 'function' ? requestAnimationFrame : defaultFallbackScheduler);
 
   schedule(() => {
-    state[action] = false;
+    if (!shouldKeepActive || !shouldKeepActive()) {
+      state[action] = false;
+    }
   });
 }
 
@@ -443,6 +447,7 @@ export interface ActivePointerRecord {
 export interface MultiTouchPointerTrackerOptions {
   debounceMs?: number;
   actionDebounceMs?: Partial<Record<TouchControlTarget, number>>;
+  deadzone?: number;
 }
 
 /**
@@ -460,10 +465,15 @@ export class MultiTouchPointerTracker {
     ['ultimate', new Set<number>()],
   ]);
   private debouncer: ButtonDebouncer;
+  private deadzone: number = 5;
   private recordPool: ActivePointerRecord[] = [];
 
   constructor(options?: MultiTouchPointerTrackerOptions) {
     this.debouncer = new ButtonDebouncer(options?.debounceMs ?? 0);
+    this.deadzone =
+      typeof options?.deadzone === 'number' && Number.isFinite(options.deadzone) && options.deadzone >= 0
+        ? options.deadzone
+        : 5;
     if (options?.actionDebounceMs) {
       for (const [target, ms] of Object.entries(options.actionDebounceMs)) {
         if (typeof ms === 'number') {
@@ -531,6 +541,16 @@ export class MultiTouchPointerTracker {
 
   public getDebouncer(): ButtonDebouncer {
     return this.debouncer;
+  }
+
+  public setDeadzone(deadzone: number): void {
+    if (typeof deadzone === 'number' && Number.isFinite(deadzone) && deadzone >= 0) {
+      this.deadzone = deadzone;
+    }
+  }
+
+  public getDeadzone(): number {
+    return this.deadzone;
   }
 
   /**
@@ -677,7 +697,13 @@ export class MultiTouchPointerTracker {
         const dx = coords.x - ox;
         const dy = coords.y - oy;
         const distSq = dx * dx + dy * dy;
-        if (!Number.isFinite(distSq) || distSq < 25 - 1e-7) {
+        const effectiveDeadzone =
+          typeof this.deadzone === 'number' && Number.isFinite(this.deadzone) && this.deadzone >= 0
+            ? this.deadzone
+            : 5;
+        const deadzoneSq = effectiveDeadzone * effectiveDeadzone;
+        const threshold = effectiveDeadzone > 0 ? deadzoneSq - 1e-7 : 1e-12;
+        if (!Number.isFinite(distSq) || distSq < threshold) {
           state.up = false;
           state.down = false;
           state.left = false;
@@ -685,6 +711,7 @@ export class MultiTouchPointerTracker {
         } else {
           let deg = (Math.atan2(-dy, dx) * 180) / Math.PI;
           if (deg < 0) deg += 360;
+          if (Object.is(deg, -0) || deg === 0) deg = 0;
           const norm = ((deg % 360) + 360) % 360;
           state.up = norm >= 22.5 && norm <= 157.5;
           state.down = norm >= 202.5 && norm <= 337.5;
@@ -722,7 +749,19 @@ export class MultiTouchPointerTracker {
         if (record.target === 'joystick') {
           resetJoystickDirection(state);
         } else {
-          releaseMobileAction(state, record.target, scheduler);
+          releaseMobileAction(
+            state,
+            record.target,
+            scheduler,
+            () => (this.controlActivePointers.get(record.target)?.size ?? 0) > 0
+          );
+        }
+      } else if (record.target === 'joystick') {
+        const remainingPointers = Array.from(targetSet);
+        const lastActiveId = remainingPointers[remainingPointers.length - 1];
+        const lastRecord = this.activePointers.get(lastActiveId);
+        if (lastRecord && lastRecord.currentX !== undefined && lastRecord.currentY !== undefined) {
+          this.onPointerMove(lastActiveId, { x: lastRecord.currentX, y: lastRecord.currentY }, state);
         }
       }
     }
@@ -748,6 +787,13 @@ export class MultiTouchPointerTracker {
           resetJoystickDirection(state);
         } else {
           cancelMobileAction(state, record.target);
+        }
+      } else if (record.target === 'joystick') {
+        const remainingPointers = Array.from(targetSet);
+        const lastActiveId = remainingPointers[remainingPointers.length - 1];
+        const lastRecord = this.activePointers.get(lastActiveId);
+        if (lastRecord && lastRecord.currentX !== undefined && lastRecord.currentY !== undefined) {
+          this.onPointerMove(lastActiveId, { x: lastRecord.currentX, y: lastRecord.currentY }, state);
         }
       }
     }
@@ -804,6 +850,13 @@ export class MultiTouchPointerTracker {
             } else {
               cancelMobileAction(state, record.target);
             }
+          } else if (record.target === 'joystick') {
+            const remainingPointers = Array.from(targetSet);
+            const lastActiveId = remainingPointers[remainingPointers.length - 1];
+            const lastRecord = this.activePointers.get(lastActiveId);
+            if (lastRecord && lastRecord.currentX !== undefined && lastRecord.currentY !== undefined) {
+              this.onPointerMove(lastActiveId, { x: lastRecord.currentX, y: lastRecord.currentY }, state);
+            }
           }
         }
         recoveredCount++;
@@ -859,6 +912,13 @@ export class MultiTouchPointerTracker {
           resetJoystickDirection(state);
         } else {
           cancelMobileAction(state, target);
+        }
+      } else if (target === 'joystick') {
+        const remainingPointers = Array.from(targetSet);
+        const lastActiveId = remainingPointers[remainingPointers.length - 1];
+        const lastRecord = this.activePointers.get(lastActiveId);
+        if (lastRecord && lastRecord.currentX !== undefined && lastRecord.currentY !== undefined) {
+          this.onPointerMove(lastActiveId, { x: lastRecord.currentX, y: lastRecord.currentY }, state);
         }
       }
     }

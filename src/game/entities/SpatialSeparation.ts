@@ -83,7 +83,7 @@ export class SpatialSeparationGrid {
   private numCells: number = 400;
 
   // Linked list heads per cell: -1 indicates empty cell
-  private cellHead: Int32Array = new Int32Array(1024);
+  private cellHead: Int32Array = new Int32Array(1024).fill(-1);
   // Next pointer per entity index: -1 indicates end of chain
   private entityNext: Int32Array = new Int32Array(2048);
 
@@ -129,8 +129,9 @@ export class SpatialSeparationGrid {
     this.numCells = this.cols * this.rows;
 
     if (this.cellHead.length < this.numCells) {
-      this.cellHead = new Int32Array(Math.max(this.numCells, this.cellHead.length * 2, 1024));
+      this.cellHead = new Int32Array(Math.max(this.numCells, this.cellHead.length * 2, 1024)).fill(-1);
     }
+    this.clear();
   }
 
   private ensureEntityCapacity(count: number): void {
@@ -189,17 +190,23 @@ export class SpatialSeparationGrid {
   ): SpatialSeparationStats {
     const startTs = Date.now();
 
-    const iterations = Math.max(1, options.iterations ?? 2);
-    const separationFactor = Math.min(1.0, Math.max(0.05, options.separationFactor ?? 0.5));
-    const defaultRadius = options.defaultRadius ?? 12;
-    const defaultMass = options.defaultMass ?? 1.0;
+    const safeIterations = typeof options.iterations === 'number' && Number.isFinite(options.iterations) ? Math.floor(options.iterations) : 2;
+    const iterations = Math.max(1, safeIterations);
+    const rawSep = typeof options.separationFactor === 'number' && Number.isFinite(options.separationFactor) ? options.separationFactor : 0.5;
+    const separationFactor = Math.min(1.0, Math.max(0.05, rawSep));
+    const defaultRadius = typeof options.defaultRadius === 'number' && Number.isFinite(options.defaultRadius) && options.defaultRadius > 0 ? options.defaultRadius : 12;
+    const defaultMass = typeof options.defaultMass === 'number' && Number.isFinite(options.defaultMass) && options.defaultMass > 0 ? options.defaultMass : 1.0;
     const bounds = options.bounds;
     const walls = options.walls;
     const map = options.map;
-    const tileSize = options.tileSize ?? 40;
-    const restitution = Math.max(0.0, Math.min(1.0, options.restitution ?? 0.0));
-    const velocityNudgeFactor = Math.max(0.0, Math.min(10.0, options.velocityNudgeFactor ?? (options.applyVelocityNudges ? 0.2 : 0.0)));
-    const maxVelocityNudge = Math.max(10.0, options.maxVelocityNudge ?? 250.0);
+    const tileSize = Math.max(1, (typeof options.tileSize === 'number' && Number.isFinite(options.tileSize)) ? options.tileSize : 40);
+    const rawRestitution = typeof options.restitution === 'number' && Number.isFinite(options.restitution) ? options.restitution : 0.0;
+    const restitution = Math.max(0.0, Math.min(1.0, rawRestitution));
+    const defaultNudgeFactor = options.applyVelocityNudges ? 0.2 : 0.0;
+    const rawNudgeFactor = typeof options.velocityNudgeFactor === 'number' && Number.isFinite(options.velocityNudgeFactor) ? options.velocityNudgeFactor : defaultNudgeFactor;
+    const velocityNudgeFactor = Math.max(0.0, Math.min(10.0, rawNudgeFactor));
+    const rawMaxNudge = typeof options.maxVelocityNudge === 'number' && Number.isFinite(options.maxVelocityNudge) ? options.maxVelocityNudge : 250.0;
+    const maxVelocityNudge = Math.max(10.0, rawMaxNudge);
     const applyVelocityNudges = options.applyVelocityNudges ?? (restitution > 0 || velocityNudgeFactor > 0);
 
     this.curRestitution = restitution;
@@ -275,7 +282,7 @@ export class SpatialSeparationGrid {
       posY[i] = e.y;
       initX[i] = e.x;
       initY[i] = e.y;
-      radius[i] = (typeof e.collisionRadius === 'number' && Number.isFinite(e.collisionRadius)) ? e.collisionRadius : defaultRadius;
+      radius[i] = Math.max(1.0, (typeof e.collisionRadius === 'number' && Number.isFinite(e.collisionRadius)) ? e.collisionRadius : defaultRadius);
       const m = Math.max(0.01, (typeof e.mass === 'number' && Number.isFinite(e.mass)) ? e.mass : defaultMass);
       invMass[i] = 1.0 / m;
       isPhasing[i] = e.isPhasing ? 1 : 0;
@@ -467,15 +474,22 @@ export class SpatialSeparationGrid {
           vx = 0;
           vy = 0;
         } else {
+          const safeVx = Math.abs(vx) < 1e-15 ? 0 : vx;
+          const safeVy = Math.abs(vy) < 1e-15 ? 0 : vy;
           const MAX_SPEED = 400;
-          const speed = Math.hypot(vx, vy);
+          const speed = Math.hypot(safeVx, safeVy);
           if (speed < 1e-8) {
             vx = 0;
             vy = 0;
           } else if (speed > MAX_SPEED) {
             const scale = MAX_SPEED / speed;
-            vx *= scale;
-            vy *= scale;
+            const nVx = safeVx * scale;
+            const nVy = safeVy * scale;
+            vx = Math.abs(nVx) < 1e-15 ? 0 : nVx;
+            vy = Math.abs(nVy) < 1e-15 ? 0 : nVy;
+          } else {
+            vx = safeVx;
+            vy = safeVy;
           }
         }
         e.body.velocity.x = vx;
@@ -785,12 +799,22 @@ export class SpatialSeparationGrid {
           e.body.velocity.x = 0;
           e.body.velocity.y = 0;
         } else {
+          const safeVx = Math.abs(vx) < 1e-15 ? 0 : vx;
+          const safeVy = Math.abs(vy) < 1e-15 ? 0 : vy;
           const MAX_VELOCITY = 400;
-          const speed = Math.hypot(vx, vy);
-          if (speed > MAX_VELOCITY) {
+          const speed = Math.hypot(safeVx, safeVy);
+          if (speed < 1e-8) {
+            e.body.velocity.x = 0;
+            e.body.velocity.y = 0;
+          } else if (speed > MAX_VELOCITY) {
             const scale = MAX_VELOCITY / speed;
-            e.body.velocity.x = vx * scale;
-            e.body.velocity.y = vy * scale;
+            const nVx = safeVx * scale;
+            const nVy = safeVy * scale;
+            e.body.velocity.x = Math.abs(nVx) < 1e-15 ? 0 : nVx;
+            e.body.velocity.y = Math.abs(nVy) < 1e-15 ? 0 : nVy;
+          } else {
+            e.body.velocity.x = safeVx;
+            e.body.velocity.y = safeVy;
           }
         }
       }
@@ -829,13 +853,18 @@ export function resolveEntitySeparation(
  * Rejects and sanitizes NaN, -Infinity, +Infinity, and invalid types.
  */
 export function clamp(val: number, min: number = 50, max: number = 400): number {
+  const safeMin = typeof min === 'number' && Number.isFinite(min) ? min : 50;
+  const safeMax = typeof max === 'number' && Number.isFinite(max) ? max : 400;
+  const lower = Math.min(safeMin, safeMax);
+  const upper = Math.max(safeMin, safeMax);
+
   if (typeof val !== 'number' || Number.isNaN(val) || val === -Infinity) {
-    return min;
+    return lower;
   }
   if (val === Infinity) {
-    return max;
+    return upper;
   }
-  return Math.min(max, Math.max(min, val));
+  return Math.min(upper, Math.max(lower, val));
 }
 
 /**
@@ -856,20 +885,61 @@ export function clampVelocity(
   minSpeed: number = 50,
   maxSpeed: number = 400
 ): { vx: number; vy: number; speed: number } {
-  const safeVx = Number.isFinite(vx) ? vx : 0;
-  const safeVy = Number.isFinite(vy) ? vy : 0;
+  let safeVx = typeof vx === 'number' && Number.isFinite(vx) ? vx : 0;
+  let safeVy = typeof vy === 'number' && Number.isFinite(vy) ? vy : 0;
+
+  // Mathematical defense against subnormal floats (e.g. 1e-323)
+  if (Math.abs(safeVx) < 1e-15) safeVx = 0;
+  if (Math.abs(safeVy) < 1e-15) safeVy = 0;
+
   const rawSpeed = Math.hypot(safeVx, safeVy);
 
-  if (rawSpeed < 1e-8) {
+  if (rawSpeed < 1e-8 || !Number.isFinite(rawSpeed)) {
     return { vx: 0, vy: 0, speed: 0 };
   }
 
   const clamped = clamp(rawSpeed, minSpeed, maxSpeed);
-  const scale = clamped / rawSpeed;
+  const scale = Number.isFinite(clamped) && rawSpeed >= 1e-8 ? clamped / rawSpeed : 0;
+
+  let resVx = safeVx * scale;
+  let resVy = safeVy * scale;
+
+  if (!Number.isFinite(resVx) || Math.abs(resVx) < 1e-15) resVx = 0;
+  if (!Number.isFinite(resVy) || Math.abs(resVy) < 1e-15) resVy = 0;
+
   return {
-    vx: safeVx * scale,
-    vy: safeVy * scale,
+    vx: resVx,
+    vy: resVy,
     speed: clamped,
   };
+}
+
+/**
+ * Normalizes a 2D vector (x, y) to unit length.
+ * Zero-length vectors, subnormal floats (< 1e-15, e.g. 1e-323), NaN, and Infinite components
+ * produce a stable zero vector { x: 0, y: 0, length: 0 }.
+ */
+export function normalizeVector(
+  x: number,
+  y: number
+): { x: number; y: number; length: number } {
+  let safeX = typeof x === 'number' && Number.isFinite(x) ? x : 0;
+  let safeY = typeof y === 'number' && Number.isFinite(y) ? y : 0;
+
+  if (Math.abs(safeX) < 1e-15) safeX = 0;
+  if (Math.abs(safeY) < 1e-15) safeY = 0;
+
+  const length = Math.hypot(safeX, safeY);
+  if (length < 1e-8 || !Number.isFinite(length)) {
+    return { x: 0, y: 0, length: 0 };
+  }
+
+  let nx = safeX / length;
+  let ny = safeY / length;
+
+  if (!Number.isFinite(nx) || Math.abs(nx) < 1e-15) nx = 0;
+  if (!Number.isFinite(ny) || Math.abs(ny) < 1e-15) ny = 0;
+
+  return { x: nx, y: ny, length };
 }
 

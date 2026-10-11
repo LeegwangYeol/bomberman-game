@@ -617,7 +617,7 @@ export class FrostHazard {
    * Uses double-buffered propagationBuffer for strict zero-GC execution.
    */
   public stepDiscreteDiffusion(dtSeconds: number = 0.016): void {
-    if (dtSeconds <= 0 || !Number.isFinite(dtSeconds)) {
+    if (typeof dtSeconds !== 'number' || !Number.isFinite(dtSeconds) || dtSeconds < 1e-8) {
       return;
     }
 
@@ -627,7 +627,7 @@ export class FrostHazard {
 
     for (let r = 1; r < ROWS - 1; r++) {
       for (let c = 1; c < COLS - 1; c++) {
-        const idx = r * COLS + c;
+        const idx = ((r * COLS + c) | 0);
         const currentVal = this.propagationBuffer[idx];
         const laplacian =
           this.propagationBuffer[idx - 1] +
@@ -637,7 +637,9 @@ export class FrostHazard {
           4 * currentVal;
 
         const updated = currentVal + (D * laplacian - gamma * currentVal) * dtSeconds;
-        this.intensityGrid[idx] = Number.isFinite(updated) ? Math.max(0, Math.min(1.0, updated)) : 0;
+        let val = Number.isFinite(updated) ? Math.max(0, Math.min(1.0, updated)) : 0;
+        if (val < 1e-15) val = 0;
+        this.intensityGrid[idx] = val;
       }
     }
   }
@@ -661,7 +663,7 @@ export class FrostHazard {
 
   public isTileLethal(row: number, col: number): boolean {
     if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= ROWS || col < 0 || col >= COLS) return false;
-    const idx = row * COLS + col;
+    const idx = ((row * COLS + col) | 0);
     return this.state === FrostLifecycleState.ABSOLUTE_ZERO_BURST && this.dangerMask[idx] >= FrostDangerValue.ABSOLUTE_ZERO;
   }
 
@@ -791,7 +793,7 @@ export class FrostHazard {
         const dr = r - this.centerRow;
         const dc = c - this.centerCol;
         if (dr * dr + dc * dc <= FROST_RADIUS_TILES * FROST_RADIUS_TILES) {
-          const idx = r * COLS + c;
+          const idx = ((r * COLS + c) | 0);
           if (this.activeFrostCount < MAX_FROST_TILES) {
             this.activeFrostIndices[this.activeFrostCount++] = idx;
           }
@@ -1064,7 +1066,7 @@ export class FrostHazard {
       !Number.isFinite(worldX) ||
       !Number.isFinite(worldY)
     ) {
-      if (r >= 0 && r < ROWS && c >= 0 && c < COLS && this.cryoShockwaveMask[r * COLS + c] > 0) {
+      if (r >= 0 && r < ROWS && c >= 0 && c < COLS && this.cryoShockwaveMask[((r * COLS + c) | 0)] > 0) {
         // Shockwave hit proceeds below
       } else {
         return res;
@@ -1075,7 +1077,7 @@ export class FrostHazard {
     const dy = this.centerWorldY - worldY;
     const dist = Math.hypot(dx, dy);
     const inFrostCircle = dist <= FROST_RADIUS_PX;
-    const inShockwave = r >= 0 && r < ROWS && c >= 0 && c < COLS && this.cryoShockwaveMask[r * COLS + c] > 0;
+    const inShockwave = r >= 0 && r < ROWS && c >= 0 && c < COLS && this.cryoShockwaveMask[((r * COLS + c) | 0)] > 0;
 
     if (inFrostCircle || inShockwave) {
       res.hit = true;
@@ -1259,7 +1261,7 @@ export class FrostHazard {
     // Populate cryo shockwave mask
     for (let i = 0; i < this.activeShockwaveTileCount; i++) {
       const tile = this.shockwaveTileBuffer[i];
-      const idx = tile.r * COLS + tile.c;
+      const idx = ((tile.r * COLS + tile.c) | 0);
       this.cryoShockwaveMask[idx] = 1;
     }
 

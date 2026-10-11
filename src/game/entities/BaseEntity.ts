@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
 import { type EntityFaction, FACTIONS } from './types.ts';
 import { OverheadUI } from './OverheadUI.ts';
-import { clamp, clampSpeed, clampVelocity } from './SpatialSeparation.ts';
-export { clamp, clampSpeed, clampVelocity };
+import { clamp, clampSpeed, clampVelocity, normalizeVector } from './SpatialSeparation.ts';
+export { clamp, clampSpeed, clampVelocity, normalizeVector };
 
 /**
  * Physics Body Invariant Guard:
@@ -304,11 +304,21 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
         body.velocity.x = 0;
         body.velocity.y = 0;
       } else {
-        const speed = Math.hypot(body.velocity.x, body.velocity.y);
-        if (speed > 400) {
+        const safeVx = Math.abs(body.velocity.x) < 1e-15 ? 0 : body.velocity.x;
+        const safeVy = Math.abs(body.velocity.y) < 1e-15 ? 0 : body.velocity.y;
+        const speed = Math.hypot(safeVx, safeVy);
+        if (speed < 1e-8) {
+          body.velocity.x = 0;
+          body.velocity.y = 0;
+        } else if (speed > 400) {
           const scale = 400 / speed;
-          body.velocity.x *= scale;
-          body.velocity.y *= scale;
+          const nVx = safeVx * scale;
+          const nVy = safeVy * scale;
+          body.velocity.x = Math.abs(nVx) < 1e-15 ? 0 : nVx;
+          body.velocity.y = Math.abs(nVy) < 1e-15 ? 0 : nVy;
+        } else {
+          body.velocity.x = safeVx;
+          body.velocity.y = safeVy;
         }
       }
     }

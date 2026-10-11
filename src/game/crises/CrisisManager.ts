@@ -338,6 +338,12 @@ export class CrisisManager {
     this.emit('crisis-reset', null);
   }
 
+  public destroy(): void {
+    this.reset();
+    this.listeners.clear();
+    this.eventEmitter = null;
+  }
+
   public serialize(): SerializedCrisisState | null {
     if (!this.activeCrisis || this.activeCrisis.getStage() === CrisisStage.INACTIVE) {
       if (this.totalCrisesResolved > 0) {

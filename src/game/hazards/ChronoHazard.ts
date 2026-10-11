@@ -273,6 +273,31 @@ export class ChronoHazard {
     floatingText: '',
   };
 
+  private scratchCenter: { r: number; c: number } = { r: 6, c: 7 };
+  private scratchBombSlideResult: { speed: number } = { speed: 300 };
+  private scratchBombPlacedResult: { isChronoShifted: boolean; modifiedFuseMs: number; tint: number; floatingText: string } = {
+    isChronoShifted: false,
+    modifiedFuseMs: 2500,
+    tint: 0xffffff,
+    floatingText: '',
+  };
+  private scratchBombDetonatedResult: { isTemporalImplosion: boolean; modifiedPower: number; piercing: boolean; bonusScore: number; floatingText: string } = {
+    isTemporalImplosion: false,
+    modifiedPower: 1,
+    piercing: false,
+    bonusScore: 0,
+    floatingText: '',
+  };
+  private scratchBombBlastImpactResult: { stabilized: boolean; floatingText: string } = {
+    stabilized: false,
+    floatingText: '',
+  };
+  private scratchBombKickedResult: { isSlipstream: boolean; modifiedSpeed: number; floatingText: string } = {
+    isSlipstream: false,
+    modifiedSpeed: 300,
+    floatingText: '',
+  };
+
   constructor() {
     this.reset();
   }
@@ -342,7 +367,9 @@ export class ChronoHazard {
   }
 
   public getCenter(): { r: number; c: number } {
-    return { r: this.centerRow, c: this.centerCol };
+    this.scratchCenter.r = this.centerRow;
+    this.scratchCenter.c = this.centerCol;
+    return this.scratchCenter;
   }
 
   public setCenter(centerR: number, centerC: number, anchor: boolean = true): void {
@@ -388,7 +415,7 @@ export class ChronoHazard {
         if (c < 0 || c >= COLS) continue;
 
         if (dr * dr + dc * dc <= r2) {
-          const idx = r * COLS + c;
+          const idx = ((r * COLS + c) | 0);
           if (this.activeChronoCount < MAX_CHRONO_TILES) {
             this.activeChronoIndices[this.activeChronoCount++] = idx;
           }
@@ -500,7 +527,7 @@ export class ChronoHazard {
     const r = (y / TILE_SIZE) | 0;
     const c = (x / TILE_SIZE) | 0;
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
-    const idx = r * COLS + c;
+    const idx = ((r * COLS + c) | 0);
     if (idx < 0 || idx >= TOTAL_TILES) return false;
     return this.dangerMask[idx] === ChronoDangerValue.DILATION;
   }
@@ -510,7 +537,7 @@ export class ChronoHazard {
     const r = (y / TILE_SIZE) | 0;
     const c = (x / TILE_SIZE) | 0;
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
-    const idx = r * COLS + c;
+    const idx = ((r * COLS + c) | 0);
     if (idx < 0 || idx >= TOTAL_TILES) return false;
     return this.dangerMask[idx] === ChronoDangerValue.COLLAPSE;
   }
@@ -520,7 +547,7 @@ export class ChronoHazard {
     const ir = r | 0;
     const ic = c | 0;
     if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return false;
-    const idx = ir * COLS + ic;
+    const idx = ((ir * COLS + ic) | 0);
     if (idx < 0 || idx >= TOTAL_TILES) return false;
     return this.dangerMask[idx] === ChronoDangerValue.ANCHOR;
   }
@@ -564,7 +591,7 @@ export class ChronoHazard {
     const c = (px / TILE_SIZE) | 0;
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return res;
 
-    const idx = r * COLS + c;
+    const idx = ((r * COLS + c) | 0);
     if (idx < 0 || idx >= TOTAL_TILES) return res;
 
     const maskVal = this.dangerMask[idx];
@@ -620,6 +647,20 @@ export class ChronoHazard {
     return res;
   }
 
+  /**
+   * Harmonization alias for evaluating enemy collision from world coordinates
+   */
+  public evaluateEnemy(
+    x: number,
+    y: number,
+    isBoss: boolean = false,
+    nowMs: number = Date.now()
+  ): ChronoEnemyResult {
+    const er = (y / TILE_SIZE) | 0;
+    const ec = (x / TILE_SIZE) | 0;
+    return this.checkEnemyCollision(er, ec, isBoss, nowMs);
+  }
+
   public checkEnemyCollision(
     er: number,
     ec: number,
@@ -643,7 +684,7 @@ export class ChronoHazard {
     const c = ec | 0;
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return res;
 
-    const idx = r * COLS + c;
+    const idx = ((r * COLS + c) | 0);
     if (idx < 0 || idx >= TOTAL_TILES) return res;
 
     if (this.dangerMask[idx] === ChronoDangerValue.COLLAPSE) {
@@ -691,7 +732,7 @@ export class ChronoHazard {
     const c = bc | 0;
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return res;
 
-    const idx = r * COLS + c;
+    const idx = ((r * COLS + c) | 0);
     if (idx < 0 || idx >= TOTAL_TILES) return res;
 
     const maskVal = this.dangerMask[idx];
@@ -731,7 +772,7 @@ export class ChronoHazard {
       const c = tile.c | 0;
       if (r < 0 || r >= ROWS || c < 0 || c >= COLS) continue;
 
-      const idx = r * COLS + c;
+      const idx = ((r * COLS + c) | 0);
       if (idx < 0 || idx >= TOTAL_TILES) continue;
 
       // If tile was in dilation or collapse, stabilize it
@@ -757,10 +798,13 @@ export class ChronoHazard {
 
   public evaluateBombSlide(br: number, bc: number, currentSpeed: number): { speed: number } {
     const bombRes = this.evaluateBomb(br, bc);
+    const res = this.scratchBombSlideResult;
     if (bombRes.isSlipstreamKick) {
-      return { speed: bombRes.kickSpeed };
+      res.speed = bombRes.kickSpeed;
+    } else {
+      res.speed = currentSpeed;
     }
-    return { speed: currentSpeed };
+    return res;
   }
 
   public onBombPlaced(
@@ -770,21 +814,20 @@ export class ChronoHazard {
     _power: number,
     fuseMs: number
   ): { isChronoShifted: boolean; modifiedFuseMs: number; tint: number; floatingText: string } {
-    const res = this.evaluateBomb(row, col);
-    if (res.isAccelerated) {
-      return {
-        isChronoShifted: true,
-        modifiedFuseMs: Math.max(800, fuseMs - res.fuseAccelerationMs),
-        tint: res.bombTint,
-        floatingText: res.floatingText,
-      };
+    const bombRes = this.evaluateBomb(row, col);
+    const res = this.scratchBombPlacedResult;
+    if (bombRes.isAccelerated) {
+      res.isChronoShifted = true;
+      res.modifiedFuseMs = Math.max(800, fuseMs - bombRes.fuseAccelerationMs);
+      res.tint = bombRes.bombTint;
+      res.floatingText = bombRes.floatingText;
+    } else {
+      res.isChronoShifted = false;
+      res.modifiedFuseMs = fuseMs;
+      res.tint = 0xffffff;
+      res.floatingText = '';
     }
-    return {
-      isChronoShifted: false,
-      modifiedFuseMs: fuseMs,
-      tint: 0xffffff,
-      floatingText: '',
-    };
+    return res;
   }
 
   public onBombDetonated(
@@ -793,39 +836,44 @@ export class ChronoHazard {
     col: number,
     power: number
   ): { isTemporalImplosion: boolean; modifiedPower: number; piercing: boolean; bonusScore: number; floatingText: string } {
-    const res = this.evaluateBomb(row, col);
-    if (res.isChronoImplosion) {
-      return {
-        isTemporalImplosion: true,
-        modifiedPower: power + res.extraPower,
-        piercing: true,
-        bonusScore: res.bonusScore,
-        floatingText: res.floatingText,
-      };
+    const bombRes = this.evaluateBomb(row, col);
+    const res = this.scratchBombDetonatedResult;
+    if (bombRes.isChronoImplosion) {
+      res.isTemporalImplosion = true;
+      res.modifiedPower = power + bombRes.extraPower;
+      res.piercing = true;
+      res.bonusScore = bombRes.bonusScore;
+      res.floatingText = bombRes.floatingText;
+    } else {
+      res.isTemporalImplosion = false;
+      res.modifiedPower = power;
+      res.piercing = false;
+      res.bonusScore = 0;
+      res.floatingText = '';
     }
-    return {
-      isTemporalImplosion: false,
-      modifiedPower: power,
-      piercing: false,
-      bonusScore: 0,
-      floatingText: '',
-    };
+    return res;
   }
 
   public onBombBlastImpact(r: number, c: number): { stabilized: boolean; floatingText: string } {
-    if (!Number.isFinite(r) || !Number.isFinite(c)) return { stabilized: false, floatingText: '' };
+    const res = this.scratchBombBlastImpactResult;
+    res.stabilized = false;
+    res.floatingText = '';
+
+    if (!Number.isFinite(r) || !Number.isFinite(c)) return res;
     const ir = r | 0;
     const ic = c | 0;
-    if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return { stabilized: false, floatingText: '' };
-    const idx = ir * COLS + ic;
-    if (idx < 0 || idx >= TOTAL_TILES) return { stabilized: false, floatingText: '' };
+    if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return res;
+    const idx = ((ir * COLS + ic) | 0);
+    if (idx < 0 || idx >= TOTAL_TILES) return res;
 
     if (this.dangerMask[idx] === ChronoDangerValue.DILATION || this.dangerMask[idx] === ChronoDangerValue.COLLAPSE) {
       this.cleanseGrid[idx] = TIMELINE_STABILIZE_DURATION_MS;
       this.dangerMask[idx] = ChronoDangerValue.ANCHOR;
-      return { stabilized: true, floatingText: FLOATING_TEXT_TIMELINE_STABILIZED };
+      res.stabilized = true;
+      res.floatingText = FLOATING_TEXT_TIMELINE_STABILIZED;
+      return res;
     }
-    return { stabilized: false, floatingText: '' };
+    return res;
   }
 
   public onBombKicked(
@@ -834,18 +882,17 @@ export class ChronoHazard {
     col: number,
     currentSpeed: number
   ): { isSlipstream: boolean; modifiedSpeed: number; floatingText: string } {
-    const res = this.evaluateBomb(row, col);
-    if (res.isSlipstreamKick) {
-      return {
-        isSlipstream: true,
-        modifiedSpeed: res.kickSpeed,
-        floatingText: FLOATING_TEXT_CHRONO_SLIPSTREAM,
-      };
+    const bombRes = this.evaluateBomb(row, col);
+    const res = this.scratchBombKickedResult;
+    if (bombRes.isSlipstreamKick) {
+      res.isSlipstream = true;
+      res.modifiedSpeed = bombRes.kickSpeed;
+      res.floatingText = FLOATING_TEXT_CHRONO_SLIPSTREAM;
+    } else {
+      res.isSlipstream = false;
+      res.modifiedSpeed = currentSpeed;
+      res.floatingText = '';
     }
-    return {
-      isSlipstream: false,
-      modifiedSpeed: currentSpeed,
-      floatingText: '',
-    };
+    return res;
   }
 }

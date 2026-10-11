@@ -419,7 +419,7 @@ export class RelicManager {
     for (const enemy of enemies) {
       const dr = enemy.r - bombTile.r;
       const dc = enemy.c - bombTile.c;
-      const dist = Math.sqrt(dr * dr + dc * dc);
+      const dist = Math.hypot(dr, dc);
       if (dist <= radius && dist > 0.1) {
         pulledEnemyIds.push(enemy.id);
       }
@@ -481,7 +481,7 @@ export class RelicManager {
     for (const enemy of enemies) {
       const dr = enemy.r - playerTile.r;
       const dc = enemy.c - playerTile.c;
-      const dist = Math.sqrt(dr * dr + dc * dc);
+      const dist = Math.hypot(dr, dc);
       if (dist <= radius) {
         stunnedEnemyIds.push(enemy.id);
       }

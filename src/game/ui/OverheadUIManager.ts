@@ -99,11 +99,11 @@ export class OverheadUIManager {
       }
 
       if (countWithin60 >= 2) {
-        eA.overheadUI.setLODMode('minimal');
+        if (typeof eA.overheadUI.setLODMode === 'function') eA.overheadUI.setLODMode('minimal');
       } else if (minDistSq <= 4900) {
-        eA.overheadUI.setLODMode('compact');
+        if (typeof eA.overheadUI.setLODMode === 'function') eA.overheadUI.setLODMode('compact');
       } else {
-        eA.overheadUI.setLODMode('full');
+        if (typeof eA.overheadUI.setLODMode === 'function') eA.overheadUI.setLODMode('full');
       }
     }
 
@@ -247,8 +247,8 @@ export class OverheadUIManager {
         alpha = targetAlpha;
       }
 
-      entity.overheadUI.setAlpha(alpha);
-      entity.overheadUI.setCustomOffsets(ox, oy);
+      if (typeof entity.overheadUI.setAlpha === 'function') entity.overheadUI.setAlpha(alpha);
+      if (typeof entity.overheadUI.setCustomOffsets === 'function') entity.overheadUI.setCustomOffsets(ox, oy);
     }
 
     // Zero-GC reference cleanup: release strong entity references to prevent heap retention

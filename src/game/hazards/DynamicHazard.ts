@@ -552,7 +552,7 @@ export class DynamicHazard {
       // Horizontal Corridor
       for (let c = minC; c <= maxC; c++) {
         if (this.isWalkableOrPiercable(r1, c)) {
-          const idx = r1 * COLS + c;
+          const idx = ((r1 * COLS + c) | 0);
           if (idx >= 0 && idx < TOTAL_TILES) {
             if (this.dangerMask[idx] === 0) {
               this.dangerMask[idx] = dangerCode;
@@ -570,7 +570,7 @@ export class DynamicHazard {
       // Vertical Corridor
       for (let r = minR; r <= maxR; r++) {
         if (this.isWalkableOrPiercable(r, c1)) {
-          const idx = r * COLS + c1;
+          const idx = ((r * COLS + c1) | 0);
           if (idx >= 0 && idx < TOTAL_TILES) {
             if (this.dangerMask[idx] === 0) {
               this.dangerMask[idx] = dangerCode;
@@ -669,7 +669,7 @@ export class DynamicHazard {
     ) {
       return false;
     }
-    const idx = (r | 0) * COLS + (c | 0);
+    const idx = (((r | 0) * COLS + (c | 0)) | 0);
     if (idx < 0 || idx >= TOTAL_TILES) return false;
     return this.dangerMask[idx] === 2; // 2 = Lethal Active Beam
   }
@@ -687,7 +687,7 @@ export class DynamicHazard {
     ) {
       return false;
     }
-    const idx = (r | 0) * COLS + (c | 0);
+    const idx = (((r | 0) * COLS + (c | 0)) | 0);
     if (idx < 0 || idx >= TOTAL_TILES) return false;
     return this.dangerMask[idx] === 1;
   }
@@ -705,7 +705,7 @@ export class DynamicHazard {
     ) {
       return false;
     }
-    const idx = (r | 0) * COLS + (c | 0);
+    const idx = (((r | 0) * COLS + (c | 0)) | 0);
     if (idx < 0 || idx >= TOTAL_TILES) return false;
     return this.dangerMask[idx] === 3;
   }
@@ -757,7 +757,7 @@ export class DynamicHazard {
       return res;
     }
 
-    const idx = ((playerR | 0) * COLS) + (playerC | 0);
+    const idx = (((playerR | 0) * COLS + (playerC | 0)) | 0);
     if (idx < 0 || idx >= TOTAL_TILES) return res;
     const tileCode = this.dangerMask[idx];
 
@@ -843,7 +843,7 @@ export class DynamicHazard {
       return res;
     }
 
-    const idx = (enemyR | 0) * COLS + (enemyC | 0);
+    const idx = (((enemyR | 0) * COLS + (enemyC | 0)) | 0);
     if (idx < 0 || idx >= TOTAL_TILES) return res;
     if (this.dangerMask[idx] === 2) {
       if (isBoss) {
@@ -1044,7 +1044,7 @@ export class DynamicHazard {
       return res;
     }
 
-    const idx = ((r | 0) * COLS) + (c | 0);
+    const idx = (((r | 0) * COLS + (c | 0)) | 0);
     const isOvercharged = this.lifecycleState === HazardLifecycleState.ACTIVE && this.dangerMask[idx] > 0;
     const modifiedPower = isOvercharged ? safePower + 2 : safePower;
     const piercing = isOvercharged;
@@ -1198,7 +1198,7 @@ export class DynamicHazard {
       for (let c = 0; c < COLS; c++) {
         if (this.isWalkableOrPiercable(r, c)) {
           totalWalkable++;
-          const idx = r * COLS + c;
+          const idx = ((r * COLS + c) | 0);
           if (this.dangerMask[idx] > 0) {
             dangerousWalkable++;
           }

@@ -354,6 +354,13 @@ export class GravityHazard {
     superCompressed: false,
   };
 
+  private readonly scratchCenter: { r: number; c: number; worldX: number; worldY: number } = {
+    r: 6,
+    c: 7,
+    worldX: 300,
+    worldY: 260,
+  };
+
   private readonly scratchBombDetonationResult: GravityBombDetonationResult = {
     collapsed: false,
     singularityId: -1,
@@ -547,25 +554,37 @@ export class GravityHazard {
 
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
-        const idx = r * COLS + c;
+        const idx = ((r * COLS + c) | 0);
         if (idx < 0 || idx >= TOTAL_TILES || idx * 2 + 1 >= this.pullField.length) continue;
         const dr = this.centerRow - r;
         const dc = this.centerCol - c;
         const dist = Math.hypot(dr, dc);
 
-        if (dist === 0) {
+        if (dist < 1e-8) {
           this.pullField[idx * 2] = 0;
           this.pullField[idx * 2 + 1] = 0;
+          this.pullVectorsX[idx] = 0;
+          this.pullVectorsY[idx] = 0;
+          this.intensityGrid[idx] = 0;
         } else if (dist <= GRAVITY_PULL_RADIUS_TILES) {
-          const invDist = Number.isFinite(dist) && dist > 0 ? 1 / dist : 0;
-          this.pullField[idx * 2] = dr * invDist;
-          this.pullField[idx * 2 + 1] = dc * invDist;
-          this.pullVectorsX[idx] = (dc * invDist) * GRAVITY_MAX_PULL_SPEED;
-          this.pullVectorsY[idx] = (dr * invDist) * GRAVITY_MAX_PULL_SPEED;
+          const invDist = Number.isFinite(dist) && dist > 1e-8 ? 1 / dist : 0;
+          let vr = dr * invDist;
+          let vc = dc * invDist;
+          if (Math.abs(vr) < 1e-15) vr = 0;
+          if (Math.abs(vc) < 1e-15) vc = 0;
+          this.pullField[idx * 2] = vr;
+          this.pullField[idx * 2 + 1] = vc;
+          const pvx = vc * GRAVITY_MAX_PULL_SPEED;
+          const pvy = vr * GRAVITY_MAX_PULL_SPEED;
+          this.pullVectorsX[idx] = Math.abs(pvx) < 1e-15 ? 0 : pvx;
+          this.pullVectorsY[idx] = Math.abs(pvy) < 1e-15 ? 0 : pvy;
           this.intensityGrid[idx] = (GRAVITY_PULL_RADIUS_TILES - dist) / GRAVITY_PULL_RADIUS_TILES;
         } else {
           this.pullField[idx * 2] = 0;
           this.pullField[idx * 2 + 1] = 0;
+          this.pullVectorsX[idx] = 0;
+          this.pullVectorsY[idx] = 0;
+          this.intensityGrid[idx] = 0;
         }
       }
     }
@@ -595,7 +614,7 @@ export class GravityHazard {
 
         // Euclidean circle of radius 3 contains exactly 29 tiles (distSq <= 9)
         if (distSq <= GRAVITY_PULL_RADIUS_TILES * GRAVITY_PULL_RADIUS_TILES) {
-          const idx = r * COLS + c;
+          const idx = ((r * COLS + c) | 0);
           if (idx < 0 || idx >= TOTAL_TILES) continue;
           if (isBurst) {
             this.dangerMask[idx] = 2; // All 29 tiles in burst become lethal 2
@@ -662,8 +681,12 @@ export class GravityHazard {
       res.intensity = intensity;
 
       if (dist > 0.0001) {
-        res.pullVx = (dx / dist) * speed;
-        res.pullVy = (dy / dist) * speed;
+        let vx = (dx / dist) * speed;
+        let vy = (dy / dist) * speed;
+        if (!Number.isFinite(vx) || Math.abs(vx) < 1e-15) vx = 0;
+        if (!Number.isFinite(vy) || Math.abs(vy) < 1e-15) vy = 0;
+        res.pullVx = vx;
+        res.pullVy = vy;
       } else {
         res.pullVx = 0;
         res.pullVy = 0;
@@ -1336,11 +1359,10 @@ export class GravityHazard {
   }
 
   public getCenter(): { r: number; c: number; worldX: number; worldY: number } {
-    return {
-      r: this.centerRow,
-      c: this.centerCol,
-      worldX: this.centerWorldX,
-      worldY: this.centerWorldY,
-    };
+    this.scratchCenter.r = this.centerRow;
+    this.scratchCenter.c = this.centerCol;
+    this.scratchCenter.worldX = this.centerWorldX;
+    this.scratchCenter.worldY = this.centerWorldY;
+    return this.scratchCenter;
   }
 }

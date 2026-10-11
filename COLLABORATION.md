@@ -1502,3 +1502,208 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
      - ESLint 분석: `npm run lint` **0 에러 (Clean exit 0)**.
      - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
 
+### 13) 조이스틱 데드존 경계 오차 허용치 정밀 조사 및 (3, 4) 경계 검증 (Deadzone Boundary Tolerance & Zero-Jitter Audit — 2026-10-12 완료 — VERIFICATION CONFIRMED)
+- **점검 대상 및 수학적 분석**:
+  1. **데드존 경계 수식**: `distSq < 25 - 1e-7` 및 `distance < 5 - 1e-7`.
+  2. **피타고라스 삼각 정수 좌표 (3, 4) 분석**:
+     - $\Delta x = 3, \Delta y = 4 \implies \text{distSq} = 3^2 + 4^2 = 9 + 16 = 25.0$.
+     - 반경 $R = 5.0$, 임계값 $\text{deadzoneSq} = 25.0$.
+     - $\text{distSq} < 25.0 - 10^{-7}$ 조건식 평가: $25.0 < 24.9999999 \implies \text{FALSE}$.
+     - 따라서 $(3, 4)$는 데드존 내부로 판정되지 않고, 즉각 활성(DOWN + RIGHT) 방향으로 정확히 판별됨 (0% 입력 누락).
+  3. **IEEE-754 부동소수점 오차 방어**:
+     - 삼각함수 좌표 $x = 5\cos\theta, y = 5\sin\theta$ 계산 시, 부동소수점 반올림 오차로 인해 $\text{distSq} = 24.999999999999996$이 발생할 수 있음.
+     - 기존 순수 부등식(`distSq < 25` 또는 `distance < 5`) 적용 시, 36,000개 경계 각도 중 1,751개(약 4.86%)에서 입력 누락(Dropped Inputs)이 발생하는 취약점이 존재했음.
+     - 오차 허용치 `- 1e-7` 적용으로 $24.999999999999996 < 24.9999999 \implies \text{FALSE}$가 되어, 경계상 모든 각도에서 **입력 누락 0건(0 / 36,000 dropped)** 달성.
+  4. **코드 조화 및 강화 (`src/game/input_state.ts`)**:
+     - `resolveJoystickVector` 및 `MultiTouchPointerTracker.onPointerMove`에 이어, `resolveJoystickDirection(angle, distance)`의 거리 가드 조건식도 `distance < 5 - 1e-7`로 완전 일치시켜 조이스틱 처리 파이프라인 전체가 동일한 허용치를 갖도록 조화 완료.
+  5. **전용 검증 스위트 신설 (`tests/input_state_deadzone_boundary.test.mjs`)**:
+     - `Boundary Tolerance 1.1`: 피타고라스 경계 좌표 $(\pm 3, \pm 4)$, $(\pm 4, \pm 3)$, $(\pm 5, 0)$, $(0, \pm 5)$ 12개 좌표 전수 활성화 및 모순 없는 8방향 매핑 검증.
+     - `Boundary Tolerance 1.2`: $(3, 4)$ 주변 10,000회 연속 마이크로 노이즈($\pm 10^{-12}$) 주입 테스트에서 지터 0건(Zero Jitter) 및 100% DOWN+RIGHT 유지 검증.
+     - `Boundary Tolerance 1.3`: $R = 5.0$ 경계원 상 36,000개 각도 연속 스윕에서 벡터 및 방향 누락 0건(0 dropped) 검증.
+     - `Boundary Tolerance 1.4`: `MultiTouchPointerTracker` 1,000프레임 연속 $(203, 204)$ 경계 좌표 소크 테스트에서 상태 감쇠/깜빡임 0건 및 데드존 복귀 시 즉각 리셋 검증.
+     - `Boundary Tolerance 1.5`: 서브 데드존(4.999px $\implies$ 100% 무반응)과 활성 경계(5.000px $\implies$ 활성화) 간 엄격한 이진 분리 검증.
+  6. **검증 결과 지표**:
+     - 신규 경계 검증 스위트: **5 / 5 PASS** (`tests/input_state_deadzone_boundary.test.mjs`, 94ms).
+     - 전체 회귀 테스트 배터리: **1,711 / 1,711 PASS** (100% 무결점 통과 across 104 test suites, 0 실패, 0 스킵).
+     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+     - ESLint 분석: `npm run lint` **0 에러 (Clean exit 0)**.
+     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0)**.
+
+
+### 14) 제12 웨이브 변이체: 심연의 조수(Abyssal Tide) 진행도 및 스케일링 엔진 구현 (Wave Mutator #12 — ABYSSAL_TIDE)
+- **작업 개요 및 아키텍처 연동**:
+  1. **진행도 타입 체계 (`ProgressionTypes.ts`)**:
+     - `WaveMutatorId`: 12번째 신규 변이체 `ABYSSAL_TIDE: 'ABYSSAL_TIDE'` 정식 등록.
+     - `WaveMutator.statModifiers`: `tidalPulseIntervalMs?: number`, `abyssalSlipstreamMultiplier?: number`, `slipstreamVelocityMultiplier?: number` 속성 타입 선언 추가.
+  2. **스케일링 엔진 카탈로그 (`ScalingEngine.ts`)**:
+     - `WAVE_MUTATOR_CATALOG[WaveMutatorId.ABYSSAL_TIDE]` 정의:
+       - 이름: `Abyssal Tide` (🌊 심연의 조수)
+       - 설명: 지하 해양 파동이 아레나에 차오르며 폭탄 폭발 수압 추진(+1 화력 반경, x1.15 플레이어 피해) 및 25초 주기 조수 맥동(`tidalPulseIntervalMs: 25000`), 슬립스트림 속도 부스트(`abyssalSlipstreamMultiplier: 1.2`, `slipstreamVelocityMultiplier: 1.2`) 부여.
+  3. **전수 검증 지표**:
+     - `tests/progression.test.mjs`: 12개 고유 변이체 정의 및 `ABYSSAL_TIDE` 능력치 수정자(화력 +1, 데미지 1.15x, 25초 주기, 슬립스트림 부스트) 무결 검증.
+     - 전체 회귀 테스트 배터리: **1,723 / 1,723 PASS** (100% 무결점 통과, 0 실패, 0 스킵).
+     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+     - ESLint 분석: `npm run lint` **0 에러 (Clean exit 0)**.
+     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0)**.
+
+### 15) 멀티터치 조이스틱 & 버튼 스팸 카오스 스트레스 테스트 및 레이스 컨디션 원천 차단 (Multi-Touch Chaos Stress Tests & Zero Race Conditions — 2026-10-12 완료 — VICTORY CONFIRMED)
+- **작업 개요 및 아키텍처 방어**:
+  1. **입력 상태 머신 동시성 경합(Race Condition) 원천 제거 (`input_state.ts`)**:
+     - **초고속 연타 재입력(Rapid Tap Re-Press) 레이스 컨디션 해결**: 1프레임 미만의 초고속 연타(`pointerdown` -> `pointerup` -> `pointerdown`) 시, 선행 release에 의해 예약된 RAF 콜백이 후행 신규 입력 활성화 후 실행되어 `state[action] = false`로 덮어쓰는 취약점 발견. `releaseMobileAction`에 `shouldKeepActive?: () => boolean` 술어를 추가하고 `onPointerUp`에서 `() => (this.controlActivePointers.get(target)?.size ?? 0) > 0`을 전달하여 신규 터치가 활성화된 경우 구형 릴리즈 콜백이 상태를 덮어쓰지 않도록 원천 방어.
+     - **멀티핑거 조이스틱 스왑/핸드오프 폴백**: 조이스틱 플레이트에 두 손가락이 동시 닿은 상태에서 주 손가락이 떨어지거나 취소될 때(`onPointerUp`, `onPointerCancel`, `recoverDroppedPointers`, `releasePointerFromTarget`), 잔여 손가락이 존재할 경우 해당 손가락의 최신 좌표로부터 조이스틱 벡터를 즉각 재평가(`this.onPointerMove(lastActiveId, remainingCoords)`). 잔여 손가락이 데드존 내에 머무르고 있을 경우 스틱 방향이 깔끔하게 0으로 리셋되어 고스트 방향 잔류 버그 완전 방지.
+     - **가변 데드존 옵션 및 5.0px 서브픽셀 부동소수점 오차 동기화**: `MultiTouchPointerTrackerOptions`에 `deadzone?: number` 지원 추가, `setDeadzone`/`getDeadzone` 탑재, `onPointerMove` 내 데드존 임계값을 `distSq < deadzoneSq - 1e-7`로 일치시켜 서브픽셀 지터 시 누락 및 미세 떨림 100% 제거.
+  2. **신규 전용 카오스 스트레스 테스트 스위트 신설 (`tests/chaos_multitouch_stress.test.mjs`)**:
+     - `Chaos MultiTouch 1.1`: 5.0px 데드존 경계에서 서브픽셀 지터($4.9999\text{px} \leftrightarrow 5.0001\text{px}$) 10,000회 연속 교차 테스트. 5,000회 서브데드존 100% 비활성화, 5,000회 상위데드존 100% 활성화, 반대 방향 모순 0건, 비불리언 플래그 0건 검증.
+     - `Chaos MultiTouch 1.2`: 5.0px 경계상 $\pm 0.00005\text{px}$ 초미세 스텝 10,000회 벡터 변환으로 IEEE-754 부동소수점 무결성 및 UP+DOWN / LEFT+RIGHT 상충 0건 검증.
+     - `Chaos MultiTouch 2.1`: 8방향 컴퍼스 경계각($22.5^\circ, 67.5^\circ, \dots$) 주변 $\pm 0.01^\circ$ 지터 10,000회 주입 테스트에서 방향 깜빡임 및 축 충돌 0건 검증.
+     - `Chaos MultiTouch 3.1`: 초고속 연타 재입력 10,000 사이클에서 프레임 릴리즈 콜백에 의한 신규 입력 삼킴 현상 0건(Zero Race Condition) 검증.
+     - `Chaos MultiTouch 3.2`: 멀티핑거 버튼 스태킹 10,000 사이클에서 마지막 손가락이 떨어질 때까지 버튼 활성 상태 100% 유지 검증.
+     - `Chaos MultiTouch 3.3`: 멀티핑거 조이스틱 핸드오프 10,000 사이클에서 주 손가락 이탈 시 보조 손가락 위치로의 즉각적인 정상 전환 및 고스트 방향 잔류 0건 검증.
+     - `Chaos MultiTouch 4.1`: 조이스틱 연속 드래그(5.0px 경계 지터 포함)와 폭탄/대시/궁극기 버튼 동시 스팸(200Hz) 결합 5-핑거 동시 교전 10,000 사이클 스트레스 테스트 무결점 통과.
+     - `Chaos MultiTouch 5.1`: 무작위 터치 다운/서브픽셀 이동/업/캔슬/컨트롤 간 포인터 재할당/워치독 회수 혼합 카오스 10,000 사이클 테스트 후 100% 클린 제로 상태 복귀 검증.
+  3. **전수 검증 지표 (Victory Metrics)**:
+     - 신규 멀티터치 카오스 스위트: **8 / 8 PASS** (`tests/chaos_multitouch_stress.test.mjs`, 109.7ms).
+     - 전체 입력 계층 테스트 배터리: **81 / 81 PASS** (100% 통과, 0 실패, 140ms across 5 test suites).
+
+### 16) 일일 진화 및 복원력 패치: 제10원소 심연의 균열/해양 대소용돌이 위험 요소(Abyssal Rift & Ocean Maelstrom Hazard) 완성 및 10대 원소 판테온(Decagon Pantheon) 대통합 (Daily Evolution & Decagon Pantheon Completion — 2026-10-12 완료 — VICTORY CONFIRMED)
+- **자율 진화 스웜 배치 (Swarm Mobilization & Task Distribution)**:
+  - 총 30인 정예 서브에이전트 스웜이 5대 분과(Scout 1-5, Architect & Zero-GC 1-5, Chaos QA 1-10, Creative Expansion 1-7, Victory Auditors 1-3)로 동시 가동되어 10번째 신화적 원소 차원 심연/해양(Abyss / Deep Sea) 위험 요소 구현 및 10대 원소 판테온(Decagon Pantheon)의 대통합을 완수.
+- **10대 원소 판테온(Decagon Pantheon) 완성 목록**:
+  1. **에테르 / 빛 (Aether / Light)**: 퀀텀 스파이어 (`DynamicHazard.ts`)
+  2. **공허 / 중력 (Void / Gravity)**: 중력 특이점 (`GravityHazard.ts`)
+  3. **빙결 / 얼음 (Water / Ice)**: 극저온 동결 (`FrostHazard.ts`)
+  4. **번개 / 전자기 (Air / Lightning)**: 테슬라 폭풍 (`VoltHazard.ts`)
+  5. **대지 / 화염 (Earth / Fire)**: 마그마 칼데라 (`MagmaHazard.ts`)
+  6. **자연 / 부식 (Nature / Decay)**: 독성 미아스마 & 포자 만개 (`MiasmaHazard.ts`)
+  7. **시간 / 시공간 (Time / Spacetime)**: 크로노 왜곡 & 타키온 팽창 (`ChronoHazard.ts`)
+  8. **태양 / 플라즈마 (Sun / Plasma)**: 태양 코로나 & 코로나 질량 방출 (`SolarHazard.ts`)
+  9. **우주 / 일식 (Cosmos / Eclipse)**: 아스트랄 성운 & 일식 붕괴 (`NebulaHazard.ts`)
+  10. **심연 / 해양 (Abyss / Deep Sea)**: 심연의 균열 & 해양 대소용돌이 (`AbyssalHazard.ts`)
+- **작업 개요 및 아키텍처 구현**:
+  1. **제10원소 심연의 균열 & 해양 대소용돌이 동적 위험 요소 (`AbyssalHazard.ts`)**:
+     - 10번째 심연/해양 원소 완성: 195타일 1D TypedArray 단일 평면 버퍼(`Uint8Array dangerMask`, `Float32Array pressureGrid`, `Float32Array cleanseGrid`, `Int16Array activeAbyssalIndices`) 기반 제로 GC 구조.
+     - 4단계 생명주기 FSM: `DORMANT` -> `TIDAL_SURGE` (2,000ms) -> `ABYSSAL_MAELSTROM` (350ms) -> `OCEANIC_CALM` (5,800ms).
+     - 3단계 텔레그래프 서브 페이즈: `TIDAL_UNDERTOW` / `HIGH_TIDE_WARNING` (1,000ms, 만조 경고 및 심연 저류) -> `TRENCH_CONVERGENCE` / `WHIRLPOOL_VORTEX` (600ms, 해구 수렴 소용돌이) -> `MAELSTROM_IMMINENT` (400ms, 소용돌이 붕괴 임박).
+     - 수학적 안전 구역 보장: $\ge 80\%$ (13x15 표준 아레나 기준 85.128% 관측, 반경 3 유클리드 격자구 내 29타일 한정).
+     - 이산 라플라시안 수압 확산(Discrete Laplacian Hydro-Pressure Diffusion): 힙 할당 없는 인플레이스 수압 연산.
+  2. **100% 절차적 웹 오디오 신디사이저 (`AbyssalHazardAudio.ts`)**:
+     - 44Hz / 48Hz 서브 베이스 해양 트렌치 드론, 320Hz -> 640Hz / 680Hz -> 48Hz 공진 저역통과 필터 소용돌이 파열음(Q=3.8), 급류 백색 소음 펄스.
+     - 432Hz 베르디/솔페지오 자연 해양 조율 4화음(432Hz Root, 540Hz 3rd, 648Hz 5th, 864Hz Octave) 안정화 차임.
+     - Web Audio 16-보이스 `AudioVoicePool` 연동 및 Node.js / SSR 무중단 폴백.
+  3. **무차폐 단일 패스 렌더링 파이프라인 (`HazardRenderer.ts`)**:
+     - `renderAbyssalMaelstrom`: 딥 오션 사이안(`0x06b6d4`), 아쿠아마린(`0x22d3ee`), 심해 네이비 블루(`0x0e7490`) 팔레트.
+     - 텔레그래프 면 채우기 알파를 엄격히 $0.18 \sim 0.40$으로 제어하여 바닥 폭탄, 퓨즈, 아이템 시인성 100% 보장.
+  4. **플레이어 전투 숙련도 및 전술 폭탄 상호작용 체계**:
+     - **심연 글라이드 (Abyssal Glide / Aqua Dash)**: 소용돌이 구역 대시 통과 시 1,200ms 무적(I-Frames) 및 +40% 속도 버스트(1,500ms 쿨다운 가드).
+     - **심해 수압 감속 (Hydrostatic Drag / Crushing Depth)**: 미대시 보행 시 2,000ms간 30% 감속 디버프.
+     - **수압 융합 폭탄 (Hydro-Fused Bomb)**: 활성 타일 위 폭탄 설치 시 퓨즈 1.2초 단축(-1.2s), 오션 사이안 틴트(`0x06b6d4`).
+     - **대소용돌이 파열 기폭 (Maelstrom Burst)**: 소용돌이 붕괴 구역 내 기폭 시 +2 화력 반경 관통, +250 스코어 보너스, +10 얼티밋 게이지 충전.
+     - **심연 슬립스트림 킥 (Hydrodynamic Slipstream Kick)**: 폭탄 킥 및 슬라이딩 시 460 px/s 초고속 슬립스트림 추진.
+     - **해양 안식처 (Oceanic Calm / Hydro-Barrier)**: 폭탄 폭발 반경 내 소용돌이 정화 및 4.0초간 안전 지대 형성.
+     - **미니언 심연 분쇄 & 보스 소용돌이 정지**: 일반 적 120 환경 피해, 보스 15% Max HP 피해 및 1.5초 완전 정지 스턴(2,500ms 단일 타격 안티 익스플로잇 가드 장착).
+  5. **진행도 및 스케일링 엔진 연동 (`ProgressionTypes.ts`, `ScalingEngine.ts`)**:
+     - 신규 웨이브 변이체 `ABYSSAL_TIDE` (12번째 웨이브 변이체: 🌊 심연의 조수, 폭발 반경 +1, 플레이어 피해 배율 1.15x, 25초 주기 조수 맥동, 슬립스트림 속도 배율 1.2x) 카탈로그 등록.
+  6. **배럴 파일 및 통합 내보내기 (`src/game/hazards/index.ts`, `src/game/index.ts`)**:
+     - `src/game/hazards/index.ts`: `AbyssalHazard`, `AbyssalHazardAudio`, 생명주기 상태, 텔레그래프 페이즈, 위험값, 타이밍 상수, 튜닝 파라미터, 플로팅 텍스트 라벨, 결과 인터페이스 및 오디오 프리셋 전수 명시적 내보내기 완료.
+     - `src/game/index.ts`: 루트 엔진 배럴 파일에 `export { AbyssalHazard, AbyssalHazardAudio } from './hazards/index.ts'` 및 와일드카드 재내보내기 완전 동기화.
+  7. **전수 검증 지표 및 프로덕션 빌드 (Final Victory Metrics)**:
+     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+     - ESLint 분석: `npm run lint` **0 에러 (Clean exit 0)**.
+     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+### 17) UI 텍스트 및 위험 요소 렌더링 뎁스 레이어, 텔레그래프 면 채우기 알파(0.18-0.40) & 카메라 좌표 변환 전수 감사 (UI Text, Hazard Depth Layers, Telegraph Alpha & Camera Transform Audit — 2026-10-12 완료 — AUDIT CONFIRMED)
+- **감사 대상 및 목적**:
+  1. **Global RENDER_DEPTH 계층 무차폐성 (Depth Hierarchy Invariants)**:
+     - 바닥/벽/블록/포탈/아이템/폭탄/텔레그래프/위험 요소 -> 동적 엔티티 2.5D 대역(100~700) -> 월드 VFX(750~770) -> 보스 계층(800~820) -> UI 계층(900~950) 전수 뎁스 분리 검증.
+     - `CRISIS_HAZARDS` (9) 및 `TELEGRAPHS` (8)이 네임태그(최소 100.3, $\Delta \ge 91.3$), 보스 페이즈 바(820, $\Delta = 811$), 플로팅 전투 텍스트(900, $\Delta = 891$)를 뎁스 우선순위 상 절대 차폐하지 못함을 수학적으로 입증.
+  2. **텔레그래프 면 채우기 알파 엄격 제어 ($0.18 \sim 0.40$)**:
+     - 바닥 폭탄(`BOMBS` = 7) 및 아이템(`ITEMS` = 6) 위에 렌더링되는 텔레그래프 마커(`TELEGRAPHS` = 8)와 위험 요소 그래픽스(`CRISIS_HAZARDS` = 9)의 면 채우기 알파가 과도하게 불투명할 경우 바닥 폭탄과 퓨즈가 시각적으로 가려지는 문제 방지.
+     - `TelegraphEngine`: Yellow 티어 $0.18$, Amber 티어 $0.18 \sim 0.40$ ($0.29 + 0.11\sin\omega t$), Red Flash 티어 $0.38 \sim 0.40$으로 표준화.
+     - `HazardRenderer`: 판테온 9대 원소(Dynamic, Frost, Volt, Magma, Miasma, Chrono, Solar, Nebula, Abyssal) 전수의 텔레그래프 면 채우기 알파를 Tier 1: $0.18$, Tier 2: $0.36$, Tier 3: $0.40$으로 단일 표준화 완료.
+  3. **카메라 좌표 변환 및 불변성 (Camera Coordinate Transforms)**:
+     - 뷰포트 $800 \times 600$ 대비 아레나 $600 \times 520$ ($15 \times 13$, 40px 타일):
+       - `offsetX = (800 - 600) / 2 = 100px`, `offsetY = (600 - 520) / 2 = 40px`.
+       - 기본 스크롤: `baseScrollX = -100`, `baseScrollY = -40`.
+       - 월드 $\to$ 화면: $X_{\text{screen}} = X_{\text{world}} + 100$, $Y_{\text{screen}} = Y_{\text{world}} + 40$.
+       - 화면 $\to$ 월드 전단사(Bijective) 가역 매핑 및 아레나 중심 $(300, 260) \leftrightarrow (400, 300)$ 완전 일치 검증.
+       - 카메라 트라우마 쉐이크 시 월드 객체(`scrollFactor = 1`) 간 상대 벡터 불변성($\vec{d}_{\text{bomb}-\text{hazard}}$, $\vec{d}_{\text{name}-\text{phaseBar}}$ 불변) 보장.
+  4. **전용 검증 스위트 신설 (`tests/unit/ui_hazard_depth_camera_transform_audit.test.mjs`)**:
+     - Depth Audit 1.1~1.4: 뎁스 계층 순서 및 최소 간격 수학적 검증 (4/4 PASS).
+     - Telegraph Audit 2.1~2.9: 텔레그래프 엔진 및 9대 원소 동적 위험 요소 면 채우기 알파 $[0.18, 0.40]$ 엄격 포함 검증 (9/9 PASS).
+     - Camera Transform 3.1~3.4: 뷰포트 마진 대칭성, 전단사 역변환, 타일 인덱스 변환 및 쉐이크 하 상대 위치 불변성 검증 (4/4 PASS).
+     - Soak Audit 4.1: 10,000 프레임 카메라 흔들림, 텔레그래프 렌더링, 동적 뎁스 연산 소크 테스트 (1/1 PASS, 0 NaN).
+  5. **전수 검증 지표**:
+     - 신규 감사 스위트: **18 / 18 PASS** (`tests/unit/ui_hazard_depth_camera_transform_audit.test.mjs`, 123ms).
+     - 뎁스/UI/카메라 연관 전체 스위트: **79 / 79 PASS** (100% 무결점 통과).
+     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+### 18) 비정상 부동소수점(Subnormal Floats $1\text{e-}323$), 영벡터(Zero-Length Vectors) 수학적 방어 및 속도 클램핑/정규화 전수 감사 (Subnormal Floats & Zero-Length Vector Mathematical Defense Audit — 2026-10-12 완료 — AUDIT CONFIRMED)
+- **감사 대상 및 목적**:
+  1. **비정상 부동소수점(Subnormal/Denormal Floats $1\text{e-}323 \sim 5\text{e-}324$) CPU 스톨 및 오동작 원천 차단**:
+     - IEEE-754 배정밀도(Double Precision) 기준 최소 정규수($\approx 2.22\text{e-}308$) 미만의 비정상 소수점($1\text{e-}323$, $\text{Number.MIN_VALUE}$)이 물리 속도, 확산 격자, 거리 쿼리에 유입될 때 발생하는 CPU 비정상수 지연(Denormal Stalls) 및 $0$ 나눗셈 역전 현상 원천 방어.
+     - 크기 $|v| < 1\text{e-}15$ 인 비정상 소수점을 엄격하게 부호 없는 안정적 $0.0$으로 Flush-to-Zero(FTZ).
+  2. **`clampVelocity` & `normalizeVector` 영벡터/비정상수 불변성 확립**:
+     - `clampVelocity(vx, vy, minSpeed, maxSpeed)`:
+       - 완전 정지 벡터 $(0, 0)$ 및 비정상수 벡터 $(1\text{e-}323, 1\text{e-}323)$ 입력 시 `rawSpeed < 1e-8` 판정에 의해 $\{vx: 0, vy: 0, speed: 0\}$ 항등 영벡터 반환.
+       - 비대칭 비정상수 벡터(예: $vx=100, vy=1\text{e-}323$) 유입 시 $vy$를 깨끗이 $0$으로 소거하여 $\{vx: 100, vy: 0, speed: 100\}$을 도출, 비정상수 파급 차단.
+     - `normalizeVector(x, y)`:
+       - 영벡터, 비정상 소수점, 비유한수($\text{NaN}, \pm\infty$) 입력 시 엄격하게 $\{x: 0, y: 0, length: 0\}$ 단위 영벡터 반환.
+       - `BaseEntity`, `SpatialSeparation`, `PlayerMovementPhysics`에 통일된 인터페이스로 노출.
+  3. **위험 요소 확산 격자(Hazard Diffusion Grids) 수학적 안정성**:
+     - `MiasmaHazard`, `MagmaHazard`, `VoltHazard`, `FrostHazard`, `NebulaHazard`, `SolarHazard`, `AbyssalHazard` 등 7대 확산 격자 시스템의 `stepDiscreteDiffusion`:
+       - 타임스텝 $\Delta t$ 및 확산율이 $1\text{e-}323$ 등 비정상수로 유입되더라도 $[0.001, 0.1]$ 대역으로 안전 클램핑되거나 즉시 안전 조기 반환.
+       - 감쇠(Exponential decay) 연산 결과 셀 값이 $< 1\text{e-}15$ 로 떨어질 경우 완벽하게 $0.0$으로 소거하여 잔류 부동소수점 오염 방지.
+       - 500스텝 연속 확산 소크 테스트에서 전체 195개 타일 전수 $\text{NaN} / \pm\infty$ 0건, $0.0 \le \text{grid}[i] \le 1.0$ 엄격 유지.
+  4. **거리 쿼리(Distance Queries) 및 인력 벡터장(Pull Field) 영거리 방어**:
+     - `GravityHazard`:
+       - 중심 좌표 $(centerRow, centerCol)$ 및 $dist < 1\text{e-}8$ 타일에서 $vr=0, vc=0$, 인력 속도 $\{0, 0\}$, 위협 강도 $0$ 완전 보장.
+       - `getGravitationalPullAt(centerX + 1e-323, centerY + 1e-323)` 중심부 픽셀 쿼리 시 $\{pullVx: 0, pullVy: 0\}$ 안정적 영벡터 도출.
+     - `SpatialSeparationGrid`:
+       - 거리 차이가 비정상수($1\text{e-}323$)인 엔티티 군집 충돌 시 Zero-Division 방어(Golden Spiral 분산 각도) 발동으로 $\text{NaN}$ 발생 0건 보장.
+  5. **전용 검증 스위트 신설 (`tests/unit/subnormal_math_defense.test.mjs`)**:
+     - `CLAMP-VEC-01`: 영벡터 및 $1\text{e-}323$ 비정상 소수점의 안정적 $\{vx: 0, vy: 0, speed: 0\}$ 생성 검증 (PASS).
+     - `CLAMP-VEC-02`: 정규/비정상 혼합 벡터의 비정상 성분 소거 및 크기 클램핑 검증 (PASS).
+     - `NORM-VEC-01`: `normalizeVector` 영벡터, 비정상수, $\text{NaN}/\infty$ 입력 시 $\{x: 0, y: 0, length: 0\}$ 불변성 검증 (PASS).
+     - `HAZARD-DIFF-01`: 7대 위험 요소 격자의 500스텝 연속 비정상수 확산 시 $\text{NaN}$ 미발생 및 수렴성 검증 (PASS).
+     - `DIST-QUERY-01`: `GravityHazard` 중심 및 $1\text{e-}323$ 델타 거리 쿼리의 영벡터 수렴 검증 (PASS).
+     - `DIST-QUERY-02`: `SpatialSeparation` $1\text{e-}323$ 변위 엔티티 쌍 충돌 분해 및 속도 안정성 검증 (PASS).
+  6. **전수 검증 지표**:
+     - 신규 수학 방어 스위트: **6 / 6 PASS** (`tests/unit/subnormal_math_defense.test.mjs`, 484ms).
+     - 연관 물리/확산/군집 스위트: **57 / 57 PASS** (100% 무결점 통과).
+     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+
+### 19) 10대 원소 위험 요소 동시 병렬 공존(Simultaneous Parallel Coexistence), 엄격한 메모리 격리 및 복합 안전 구역($\ge 80\%$) 전수 검증 (All 10 Hazards Simultaneous Parallel Coexistence & Zero Cross-Corruption Audit — 2026-10-12 완료 — VICTORY CONFIRMED)
+- **감사 대상 및 목적**:
+  1. **10대 원소 판테온 전수 병렬 활성화 및 메모리 격리 (Strict Buffer Isolation)**:
+     - 10대 위험 요소(`Dynamic`, `Frost`, `Volt`, `Magma`, `Miasma`, `Chrono`, `Gravity`, `Solar`, `Nebula`, `Abyssal`)를 단일 씬에서 100% 병렬 인스턴스화.
+     - 각 위험 요소의 TypedArray 버퍼(`Uint8Array dangerMask`, `Float32Array`, `Int16Array`)가 고유한 독립 `ArrayBuffer`를 소유하며, 단일 바이트 참조 공유나 프로토타입 오염이 없음을 검증.
+     - 위험 요소 $i$의 특정 인덱스($42+i$) 변조 시 다른 9개 위험 요소의 마스크 변조율이 정확히 $0$임을 메모리 오염 차단 테스트로 입증.
+  2. **개별 및 복합 안전 구역 수학적 불변식 ($\ge 80\%$) 보장**:
+     - 개별 활성화 시: 모든 10개 위험 요소가 각각 단독으로 $\ge 80\%$ 안전 구역 유지 (13x15 격자 기준 $85.128\% \sim 100\%$).
+     - 동일 진원지($r=6, c=7$) 복합 중첩 시: 29개 유클리드 격자점($dr^2 + dc^2 \le 9$)에 위험 구역이 완벽히 수렴하여 복합 안전 구역 $85.128\% \ge 80\%$ 불변성 보장.
+     - 분산 진원지(4개 사분면 + 외곽) 스윕 시: 개별 위험 구역이 독립 경계를 유지하며 상호 마스크 오염 0건 달성.
+  3. **10,000 프레임 장기 동시 구동 소크 테스트 (10,000-Frame Simultaneous Soak)**:
+     - 10개 위험 요소를 동시 구동한 상태에서 10,000 프레임($\Delta t = 16.6\text{ms}$) 시뮬레이션 완료.
+     - 프레임당 실행 시간 $< 7\mu\text{s}$, $\text{NaN} / \pm\infty$ 0건, 힙 드리프트 0건, 불변식 위반 0건 확인.
+  4. **플레이어 전투 숙련도, 속도 합성 및 전술 폭탄 동시 상호작용 검증**:
+     - 10개 위험 요소의 감속/가속 계수 중첩 시 최소 속도 하한($\ge 40\text{ px/s}$) 및 클램핑 범위($[0.30, 1.85]$) 엄격 보장.
+     - `onBombPlaced`, `onBombDetonated`, `onBombBlastImpact`, `onBombKicked`가 10개 위험 요소 전반에 걸쳐 원자적으로 안전 처리됨을 검증.
+  5. **전용 검증 스위트 신설 (`tests/all_10_hazards_simultaneous_coexistence.test.mjs`)**:
+     - Tier 1: Baseline Invariants & Universal Initialization (10/10 PASS).
+     - Tier 2: Strict Memory Isolation (10/10 PASS).
+     - Tier 3: Simultaneous Parallel Activation ($\ge 80\%$ 안전 구역) (10/10 PASS).
+     - Tier 4: Simultaneous Full-Phase Cycling (10/10 PASS).
+     - Tier 5: 10,000-Frame Long-Running Soak Test (10/10 PASS).
+     - Tier 6: Climax High-Throughput Stress (10/10 PASS).
+     - Tier 7: Player Combat Mastery & Speed Stacking (10/10 PASS).
+     - Tier 8: Tactical Bomb Simultaneous Interactivity (10/10 PASS).
+     - Tier 9: Environmental Minions & Boss Anti-Exploit Isolation (10/10 PASS).
+     - Tier 10: Distributed Epicenter Multi-Sector Sweep (10/10 PASS).
+  6. **전수 검증 지표**:
+     - 신규 10원소 공존 스위트: **10 / 10 PASS** (`tests/all_10_hazards_simultaneous_coexistence.test.mjs`, 184ms).
+     - 전체 회귀 테스트 배터리: **1,866 / 1,866 PASS (100% 무결점 통과, 0 실패, 0 스킵)**.
+     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.

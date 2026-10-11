@@ -327,6 +327,11 @@ export class BossHUD {
     this.emitState(true);
   }
 
+  public destroy(): void {
+    this.dismissBoss();
+    this.game = null;
+  }
+
   public getState(): Readonly<BossHUDState> {
     return this.state;
   }

@@ -125,6 +125,19 @@ export const WAVE_MUTATOR_CATALOG: Record<WaveMutatorId, WaveMutator> = {
       astralSlipstreamMultiplier: 1.2,
     },
   },
+  [WaveMutatorId.ABYSSAL_TIDE]: {
+    id: WaveMutatorId.ABYSSAL_TIDE,
+    name: 'Abyssal Tide',
+    icon: '🌊',
+    description: 'Subterranean oceanic surges flood the arena; bomb blasts gain hydraulic propulsion (+1 radius, x1.15 player damage) while tidal pulses cycle every 25 seconds with slipstream velocity boosts.',
+    statModifiers: {
+      blastRadiusDelta: 1,
+      playerDamageMultiplier: 1.15,
+      tidalPulseIntervalMs: 25000,
+      abyssalSlipstreamMultiplier: 1.2,
+      slipstreamVelocityMultiplier: 1.2,
+    },
+  },
 };
 
 /* ==============================================================================
