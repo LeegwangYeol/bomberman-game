@@ -550,7 +550,7 @@ export class NebulaHazard {
     const row = Math.floor(py / TILE_SIZE);
     if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return res;
 
-    const idx = row * COLS + col;
+    const idx = ((row * COLS + col) | 0);
     const danger = this.dangerMask[idx];
 
     // Calm stardust anchor tiles are safe
@@ -646,7 +646,7 @@ export class NebulaHazard {
       return res;
     }
 
-    const idx = Math.floor(enemyRow) * COLS + Math.floor(enemyCol);
+    const idx = ((((enemyRow | 0) * COLS) + (enemyCol | 0)) | 0);
     if (this.dangerMask[idx] !== NebulaDangerValue.COLLAPSE) {
       return res;
     }
@@ -701,7 +701,7 @@ export class NebulaHazard {
 
     if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
 
-    const idx = row * COLS + col;
+    const idx = ((row * COLS + col) | 0);
     const danger = this.dangerMask[idx];
 
     if (danger === NebulaDangerValue.NEBULA || danger === NebulaDangerValue.COLLAPSE) {
@@ -736,7 +736,7 @@ export class NebulaHazard {
 
     if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
 
-    const idx = row * COLS + col;
+    const idx = ((row * COLS + col) | 0);
     if (this.dangerMask[idx] === NebulaDangerValue.NEBULA || this.dangerMask[idx] === NebulaDangerValue.COLLAPSE) {
       res.isSlipstreamKick = true;
       res.kickSpeed = BOMB_KICK_NEBULA_SPEED;
@@ -763,7 +763,7 @@ export class NebulaHazard {
 
     if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
 
-    const idx = row * COLS + col;
+    const idx = ((row * COLS + col) | 0);
     if (this.dangerMask[idx] === NebulaDangerValue.NEBULA || this.dangerMask[idx] === NebulaDangerValue.COLLAPSE) {
       res.isSlipstreamKick = true;
       res.kickSpeed = Math.max(currentSpeed, BOMB_KICK_NEBULA_SPEED);
@@ -795,7 +795,7 @@ export class NebulaHazard {
 
     if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
 
-    const idx = row * COLS + col;
+    const idx = ((row * COLS + col) | 0);
     if (this.dangerMask[idx] === NebulaDangerValue.COLLAPSE) {
       res.isSingularity = true;
       res.extraPower = SINGULARITY_EXTRA_POWER;
@@ -818,7 +818,7 @@ export class NebulaHazard {
 
     if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
 
-    const idx = row * COLS + col;
+    const idx = ((row * COLS + col) | 0);
     if (this.dangerMask[idx] === NebulaDangerValue.NEBULA || this.dangerMask[idx] === NebulaDangerValue.COLLAPSE) {
       this.dangerMask[idx] = NebulaDangerValue.ANCHOR;
       this.cleanseGrid[idx] = STARDUST_CALM_DURATION_MS;
@@ -847,7 +847,7 @@ export class NebulaHazard {
       const c = tile.c | 0;
       if (r < 0 || r >= ROWS || c < 0 || c >= COLS) continue;
 
-      const idx = r * COLS + c;
+      const idx = ((r * COLS + c) | 0);
       if (idx < 0 || idx >= TOTAL_TILES) continue;
 
       if (this.dangerMask[idx] === NebulaDangerValue.NEBULA || this.dangerMask[idx] === NebulaDangerValue.COLLAPSE) {
@@ -903,17 +903,17 @@ export class NebulaHazard {
 
   public isTileInNebula(row: number, col: number): boolean {
     if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return false;
-    return this.dangerMask[row * COLS + col] === NebulaDangerValue.NEBULA;
+    return this.dangerMask[((row * COLS + col) | 0)] === NebulaDangerValue.NEBULA;
   }
 
   public isTileInCollapse(row: number, col: number): boolean {
     if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return false;
-    return this.dangerMask[row * COLS + col] === NebulaDangerValue.COLLAPSE;
+    return this.dangerMask[((row * COLS + col) | 0)] === NebulaDangerValue.COLLAPSE;
   }
 
   public isTileInCalm(row: number, col: number): boolean {
     if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return false;
-    return this.dangerMask[row * COLS + col] === NebulaDangerValue.ANCHOR;
+    return this.dangerMask[((row * COLS + col) | 0)] === NebulaDangerValue.ANCHOR;
   }
 
   public isTileCalm(row: number, col: number): boolean {

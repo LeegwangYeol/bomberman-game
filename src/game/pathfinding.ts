@@ -618,7 +618,7 @@ export class ZeroGCPathfinder {
       // 1. Up
       if (currR > 0) {
         const nIdx = curr - cols;
-        const isLethal = (lethalMask && lethalMask[nIdx] !== 0) || (dangerMask && isLethalHazardValue(dangerMask[nIdx]));
+        const isLethal = (lethalMask && isLethalHazardValue(lethalMask[nIdx])) || (dangerMask && isLethalHazardValue(dangerMask[nIdx]));
         if (visited[nIdx] !== gen &&
             obstacleMask[nIdx] !== TILE_WALL &&
             obstacleMask[nIdx] !== TILE_BLOCK &&
@@ -633,7 +633,7 @@ export class ZeroGCPathfinder {
       // 2. Down
       if (currR < rows - 1) {
         const nIdx = curr + cols;
-        const isLethal = (lethalMask && lethalMask[nIdx] !== 0) || (dangerMask && isLethalHazardValue(dangerMask[nIdx]));
+        const isLethal = (lethalMask && isLethalHazardValue(lethalMask[nIdx])) || (dangerMask && isLethalHazardValue(dangerMask[nIdx]));
         if (visited[nIdx] !== gen &&
             obstacleMask[nIdx] !== TILE_WALL &&
             obstacleMask[nIdx] !== TILE_BLOCK &&
@@ -648,7 +648,7 @@ export class ZeroGCPathfinder {
       // 3. Left
       if (currC > 0) {
         const nIdx = curr - 1;
-        const isLethal = (lethalMask && lethalMask[nIdx] !== 0) || (dangerMask && isLethalHazardValue(dangerMask[nIdx]));
+        const isLethal = (lethalMask && isLethalHazardValue(lethalMask[nIdx])) || (dangerMask && isLethalHazardValue(dangerMask[nIdx]));
         if (visited[nIdx] !== gen &&
             obstacleMask[nIdx] !== TILE_WALL &&
             obstacleMask[nIdx] !== TILE_BLOCK &&
@@ -663,7 +663,7 @@ export class ZeroGCPathfinder {
       // 4. Right
       if (currC < cols - 1) {
         const nIdx = curr + 1;
-        const isLethal = (lethalMask && lethalMask[nIdx] !== 0) || (dangerMask && isLethalHazardValue(dangerMask[nIdx]));
+        const isLethal = (lethalMask && isLethalHazardValue(lethalMask[nIdx])) || (dangerMask && isLethalHazardValue(dangerMask[nIdx]));
         if (visited[nIdx] !== gen &&
             obstacleMask[nIdx] !== TILE_WALL &&
             obstacleMask[nIdx] !== TILE_BLOCK &&

@@ -165,8 +165,36 @@ function createMockScene() {
       sprite: () => createChainable(),
       text: () => createChainable(),
       graphics: () => createChainable(),
+      circle: () => createChainable(),
     },
-    tweens: { add: () => ({}) },
+    physics: {
+      world: {
+        enable: () => {},
+      },
+      add: {
+        existing: (obj) => {
+          obj.body = {
+            setSize: () => obj.body,
+            setOffset: () => obj.body,
+            setCollideWorldBounds: () => obj.body,
+            setVelocity: (vx, vy) => {
+              if (obj.body) {
+                obj.body.velocity.x = vx;
+                obj.body.velocity.y = vy;
+              }
+              return obj.body;
+            },
+            velocity: { x: 0, y: 0 },
+            x: obj.x || 0,
+            y: obj.y || 0,
+            width: 24,
+            height: 24,
+          };
+          return obj;
+        },
+      },
+    },
+    tweens: { add: () => ({ stop: () => {}, remove: () => {} }) },
     sound: { play: () => {} },
   };
 }
@@ -189,8 +217,8 @@ test('Multi-Hazard Danger Mask: Blending, Zero-GC merge and Value Classification
 
   // Set magma burst (lethal = 2) at (3, 3)
   magmaMask[3 * COLS + 3] = MagmaDangerValue.BURST;
-  // Set magma warning (telegraph = 1) at (3, 4)
-  magmaMask[3 * COLS + 4] = MagmaDangerValue.WARNING;
+  // Set magma heating (telegraph = 1) at (3, 4)
+  magmaMask[3 * COLS + 4] = MagmaDangerValue.HEATING;
 
   // Set volt discharge (lethal = 2) at (4, 4)
   voltMask[4 * COLS + 4] = VoltDangerValue.DISCHARGE;
@@ -205,7 +233,7 @@ test('Multi-Hazard Danger Mask: Blending, Zero-GC merge and Value Classification
   mask.mergeHazardMask(miasmaMask);
 
   assert.equal(mask.getCoord(3, 3), 2, 'Magma burst remains lethal 2 and not downgraded by static 1');
-  assert.equal(mask.getCoord(3, 4), 1, 'Magma warning is telegraph 1');
+  assert.equal(mask.getCoord(3, 4), 1, 'Magma heating is telegraph 1');
   assert.equal(mask.getCoord(4, 4), 2, 'Volt discharge is lethal 2');
   assert.equal(mask.getCoord(5, 5), 0, 'Fertile soil sanctuary is not marked as hazardous');
 
@@ -230,7 +258,7 @@ test('Target Inside Lethal Hazard Cell: findPathBFS terminates at closest safe f
     }
   }
 
-  const path = findPathBFS(start, target, map, false, null, null, hazardMask);
+  const path = findPathBFS(start, target, map, hazardMask, false, hazardMask);
   assert.ok(path, 'A path to the closest reachable safe frontier must be returned');
   assert.ok(path.length > 0, 'Path must not be empty');
 
@@ -241,7 +269,7 @@ test('Target Inside Lethal Hazard Cell: findPathBFS terminates at closest safe f
     assert.equal(isLethal, false, `Step ${i} at (${step.r}, ${step.c}) must NEVER enter a lethal hazard cell!`);
   }
 
-  // The last step should stop at the edge of the hazard (e.g. c === 6), adjacent to the target
+  // The last step should stop at the edge of the hazard (c === 6), adjacent to the target
   const lastStep = path[path.length - 1];
   assert.equal(lastStep.c, 6, 'Path terminates safely at c=6 immediately adjacent to lethal zone (c=7..9)');
 });
@@ -298,8 +326,11 @@ test('Cul-de-Sacs with Lethal Mouth Obstruction: 100% bomb rejection across 4 ca
 
       const endTile = corridorTiles[corridorTiles.length - 1];
 
+      // Bomb power covers the depth of the cul-de-sac
+      const power = depth;
+
       // 1. Placing a bomb at the end of this cul-de-sac must be rejected 100% of the time!
-      const canPlace = canSafelyPlaceBomb(endTile, 2, map, null, 15, hazardMask);
+      const canPlace = canSafelyPlaceBomb(endTile, power, map, null, 15, hazardMask);
       assert.equal(
         canPlace,
         false,
@@ -307,7 +338,7 @@ test('Cul-de-Sacs with Lethal Mouth Obstruction: 100% bomb rejection across 4 ca
       );
 
       // 2. Escape path must be null
-      const escapePath = getSafeBombEscapePath(endTile, 2, map, null, 15, hazardMask);
+      const escapePath = getSafeBombEscapePath(endTile, power, map, null, 15, hazardMask);
       assert.equal(
         escapePath,
         null,
@@ -319,8 +350,6 @@ test('Cul-de-Sacs with Lethal Mouth Obstruction: 100% bomb rejection across 4 ca
 
 test('Cul-de-Sac with Shielded Safe Alcove: Discovers safe tile in dead end when exit is blocked', () => {
   const map = createEmptyMap();
-  const startR = 6;
-  const startC = 7;
 
   // Build East-facing cul-de-sac of depth 3: tiles (6, 7), (6, 8), (6, 9)
   // Walls on North (row 5) and South (row 7), wall cap on East (6, 10)
@@ -366,9 +395,9 @@ test('Multi-Hazard Evasion: findEscapePathBFS routes around lethal cells through
   const map = createEmptyMap();
   const entityPos = { r: 5, c: 5 };
 
-  // Place active bombs creating danger on row 5: entity needs to escape!
-  const existingBombs = new Uint8Array(ROWS * COLS);
-  existingBombs[5 * COLS + 5] = 1; // Simulated bomb at (5, 5)
+  // Danger tiles around (5, 5): current tile is dangerous!
+  const dangerTiles = new FlatHazardMask();
+  dangerTiles.setCoord(5, 5, 1); // Entity tile is currently dangerous!
 
   // Surround South, East, and West with lethal hazard barriers (val = 2)
   const hazardMask = new Uint8Array(ROWS * COLS);
@@ -379,7 +408,7 @@ test('Multi-Hazard Evasion: findEscapePathBFS routes around lethal cells through
   // North (4, 5) has hoarfrost telegraph warning (val = 1, non-lethal) leading to safe tile at (3, 5)
   hazardMask[4 * COLS + 5] = 1; // Hoarfrost telegraph (non-lethal)
 
-  const escapePath = findEscapePathBFS(entityPos, 2, map, existingBombs, 10, hazardMask);
+  const escapePath = findEscapePathBFS(entityPos, dangerTiles, map, null, 10, hazardMask);
   assert.ok(escapePath, 'Entity must escape through the only non-lethal corridor (North)');
   assert.ok(escapePath.length > 0);
 
@@ -398,6 +427,10 @@ test('Full Sector Engulfment: findEscapePathBFS returns null safely when complet
   const map = createEmptyMap();
   const entityPos = { r: 5, c: 5 };
 
+  // Danger tiles: entity tile is under imminent danger
+  const dangerTiles = new FlatHazardMask();
+  dangerTiles.setCoord(5, 5, 1);
+
   // Box entity in completely on all 4 cardinal sides with lethal hazards
   const hazardMask = new Uint8Array(ROWS * COLS);
   hazardMask[4 * COLS + 5] = 2; // North lethal
@@ -405,7 +438,7 @@ test('Full Sector Engulfment: findEscapePathBFS returns null safely when complet
   hazardMask[5 * COLS + 4] = 2; // West lethal
   hazardMask[5 * COLS + 6] = 2; // East lethal
 
-  const escapePath = findEscapePathBFS(entityPos, 2, map, null, 10, hazardMask);
+  const escapePath = findEscapePathBFS(entityPos, dangerTiles, map, null, 10, hazardMask);
   assert.equal(escapePath, null, 'Entity boxed in by lethal hazards must return null without crashing');
 });
 
@@ -494,7 +527,7 @@ test('Monte Carlo Soak: 5,000 Randomized Layouts strictly enforce 0.0% suicide i
     map[targetR][targetC] = TILE_EMPTY;
 
     // 1. Stress test findPathBFS
-    const path = findPathBFS({ r: startR, c: startC }, { r: targetR, c: targetC }, map, false, null, null, hazardMask);
+    const path = findPathBFS({ r: startR, c: startC }, { r: targetR, c: targetC }, map, hazardMask, false, hazardMask);
     totalSearches++;
     if (path) {
       for (const step of path) {

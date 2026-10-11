@@ -709,6 +709,10 @@ export class FrostHazard {
     return this.intensityGrid;
   }
 
+  public getCryoShockwaveMask(): Uint8Array {
+    return this.cryoShockwaveMask;
+  }
+
   /**
    * Main simulation tick. Advances FSM and recalculates danger/friction fields.
    */

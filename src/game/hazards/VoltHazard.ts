@@ -72,7 +72,9 @@ export const VoltDangerValue = {
   TELEGRAPH: 1,         // Alias
   LIGHTNING_BURST: 2,   // Lethal discharge stage: instant electro-vaporization
   LIGHTNING_DISCHARGE: 2, // Alias
+  DISCHARGE: 2,         // Alias
   BURST: 2,             // Alias
+  STATIC: 1,            // Alias
   DISSIPATING: 3,       // Post-discharge ozone/spark dissipation
 } as const;
 
