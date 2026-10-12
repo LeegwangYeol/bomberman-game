@@ -1707,3 +1707,35 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
      - 전체 회귀 테스트 배터리: **1,866 / 1,866 PASS (100% 무결점 통과, 0 실패, 0 스킵)**.
      - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
      - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+
+### 20) 일일 자율 진화 및 유지보수: 제5대 보스 '스팀 토이 타이탄(Steam Toy Titan)' 완성 및 5대 보스 가운틀릿 완결 (Daily Evolution Cycle: 2026-10-13 — 100% COMPLETE)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 자율 스웜 기동.
+  - 30+ 서브에이전트 스웜 편성 (5개 사단: 정찰/컨텍스트 5, 아키텍트/Zero-GC 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결**:
+    - `GDD.md` 및 `GameModes.ts` (`BOSS_RUSH_SEQUENCE`)에 정의되어 있던 제5대 보스 **'스팀 토이 타이탄' (`SteamToyTitanBoss.ts`, Clockwork Arch-Inventor, 🦾🤖)** 물리적 구현 및 정식 편입.
+    - 5대 보스 체제 완결:
+      1. `king_gummy_bear` (Colossus of Gelatin, 9 HP)
+      2. `captain_nibbles` (Mecha Hamster, 10 HP)
+      3. `queen_bee_cupcake` (Queen Mellifera, 12 HP)
+      4. `boss_mutant_flora` (Verdant Terror, 15 HP)
+      5. `steam_toy_titan` (Clockwork Arch-Inventor, 16 HP)
+    - **핵심 메커닉 구현 완료**:
+      - 7단계 유한상태기계 (`INTRO` $\to$ `PHASE_1` $\to$ `INTERMISSION` $\to$ `PHASE_2` $\to$ `ENRAGED` $\to$ `STUNNED` $\to$ `DEFEATED`).
+      - 토이 말렛 슬램 (Toy Mallet Slam): 8.0초 주기(분노 시 5.0초, 클락워크 시너지 시 3.5초)로 바닥을 내리쳐 반경 3타일 내 모든 폭탄을 바깥으로 2타일 강제 넉백 슬라이딩 (360 px/s) + 스팀 압력 충격파.
+      - 기어 톱니 궤적 텔레그래프 (Gear Telegraph): $\ge 40\%$ 안전 구역 불변식을 엄격히 준수하는 3단계 텔레그래프 (29개 타일 점유, $85.128\%$ 안전 구역 보장).
+      - 회전 황동 기어 쉴드: Phase 2 및 Enraged 상태에서 정면 60도 부채꼴 각도의 폭탄 폭발을 방어하고 기어 와인 SFX 재생. 측면/후면 및 스턴 중에는 완전 관통.
+      - 스턴 피격 시 말렛 차징 즉시 취소 및 기어 쉴드 해제, 150ms 멀티 폭탄 콤보 버퍼링 및 전술적 취약점(ARCH-02) 완벽 구현.
+      - 환경 위험요소 단일 피격 데미지 15% Max HP 캡 및 2.5초 쿨다운 보호 가드.
+      - 100% 절차적 웹오디오 신디사이저 (`SteamToyTitanAudio.ts`): 황동 기어 회전음, 증기 배출(Steam Hiss), 거대 말렛 임팩트 사운드, 정적 화이트 노이즈 버퍼 캐싱 및 이중 워치독 클린업.
+  - **하드닝 및 방어적 개선**:
+    - `AbyssalHazard.ts` 및 `NebulaHazard.ts`의 NaN 비교 우회(Bypass) 결함 수정: `NaN` 좌표 입력 시 타일 0(0, 0)으로 누수되던 버그를 `Number.isInteger` 엄격 검증으로 원천 차단.
+    - `WaveDirector.ts` Wave 35 보스 매핑 및 `createBoss` 팩토리에 타이탄 및 에일리어스(`clockwork_titan`, `clockwork_arch_inventor`, `void_devourer_avatar`) 완벽 편입.
+    - `GameScene.ts`의 `startBossEncounter`에 타이탄 인스턴스화 연결.
+  - **전수 검증 지표**:
+    - 신규 타이탄 전용 10티어 테스트 스위트: **24 / 24 PASS** (`tests/steam_toy_titan_boss.test.mjs`, 10,000 프레임 Zero-GC 소크 테스트 포함).
+    - 전체 회귀 테스트 배터리: **1,912 / 1,912 PASS (100% 무결점 통과, 0 실패, 0 스킵)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.

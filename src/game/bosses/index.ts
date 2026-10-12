@@ -8,6 +8,8 @@ export * from './GummyBearBoss.ts';
 export * from './HamsterBoss.ts';
 export * from './QueenBeeBoss.ts';
 export * from './MutantFloraBoss.ts';
+export * from './SteamToyTitanBoss.ts';
+export * from './SteamToyTitanAudio.ts';
 export * from './TelegraphEngine.ts';
 export * from './BossAttackManager.ts';
 export * from './BossHUD.ts';

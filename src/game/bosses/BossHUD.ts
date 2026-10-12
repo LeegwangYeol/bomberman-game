@@ -84,6 +84,27 @@ export const BOSS_METADATA: Record<
     themeColor: '#F59E0B',
     phaseHpSegments: [3, 4, 5],
   },
+  steam_toy_titan: {
+    name: 'Steam Toy Titan',
+    title: 'Clockwork Arch-Inventor',
+    avatarEmoji: '🦾',
+    themeColor: '#FF6B00',
+    phaseHpSegments: [5, 5, 6], // 16 HP total
+  },
+  boss_steam_toy_titan: {
+    name: 'Steam Toy Titan',
+    title: 'Clockwork Arch-Inventor',
+    avatarEmoji: '🦾',
+    themeColor: '#FF6B00',
+    phaseHpSegments: [5, 5, 6],
+  },
+  clockwork_titan: {
+    name: 'Steam Toy Titan',
+    title: 'Clockwork Arch-Inventor',
+    avatarEmoji: '🦾',
+    themeColor: '#FF6B00',
+    phaseHpSegments: [5, 5, 6],
+  },
 };
 
 export class BossHUD {

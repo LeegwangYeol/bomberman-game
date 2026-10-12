@@ -86,6 +86,11 @@ import {
   MAX_NEBULA_TILES,
 } from '../../src/game/hazards/NebulaHazard.ts';
 
+import {
+  AbyssalHazard,
+  MAX_ABYSSAL_TILES,
+} from '../../src/game/hazards/AbyssalHazard.ts';
+
 /* ==============================================================================
  * SUITE 1: 1D TYPEDARRAY BUFFER SIZING & MEMORY LAYOUT AUDIT
  * ============================================================================== */
@@ -261,6 +266,21 @@ test('Audit Suite 1: NebulaHazard 1D TypedArray buffers match exact grid capacit
 
   assert.ok(nh.getActiveNebulaIndices() instanceof Int16Array, 'activeNebulaIndices must be Int16Array');
   assert.equal(nh.getActiveNebulaIndices().length, MAX_NEBULA_TILES, 'activeNebulaIndices length must be 32');
+});
+
+test('Audit Suite 1: AbyssalHazard 1D TypedArray buffers match exact grid capacity', () => {
+  const ah = new AbyssalHazard();
+  assert.ok(ah.getDangerMask() instanceof Uint8Array, 'dangerMask must be Uint8Array');
+  assert.equal(ah.getDangerMask().length, TOTAL_TILES, 'dangerMask length must be 195');
+
+  assert.ok(ah.pressureGrid instanceof Float32Array, 'pressureGrid must be Float32Array');
+  assert.equal(ah.pressureGrid.length, TOTAL_TILES, 'pressureGrid length must be 195');
+
+  assert.ok(ah.cleanseGrid instanceof Float32Array, 'cleanseGrid must be Float32Array');
+  assert.equal(ah.cleanseGrid.length, TOTAL_TILES, 'cleanseGrid length must be 195');
+
+  assert.ok(ah.getActiveIndices() instanceof Int16Array, 'activeAbyssalIndices must be Int16Array');
+  assert.ok(ah.getActiveIndices().length <= MAX_ABYSSAL_TILES);
 });
 
 /* ==============================================================================
@@ -484,7 +504,7 @@ test('Audit Suite 2: Discrete Euclidean radius-3 balls equal exactly 29 lattice 
   assert.equal(nh.getSafeAreaRatio(), EXPECTED_SAFE_RATIO, 'NebulaHazard safe area must be >= 80%');
 });
 
-test('Audit Suite 2: All 9 hazards reject out-of-bounds, float, and aliased coordinates', () => {
+test('Audit Suite 2: All 10 hazards reject out-of-bounds, float, and aliased coordinates', () => {
   // Aliased coordinate (-1, 15) which algebraically equals index 0 (-1 * 15 + 15 = 0)
   const ALIAS_R = -1;
   const ALIAS_C = 15;
@@ -497,6 +517,7 @@ test('Audit Suite 2: All 9 hazards reject out-of-bounds, float, and aliased coor
     new ChronoHazard(),
     new SolarHazard(),
     new NebulaHazard(6, 7),
+    new AbyssalHazard(6, 7),
   ];
 
   for (const h of hazards) {
@@ -515,6 +536,24 @@ test('Audit Suite 2: All 9 hazards reject out-of-bounds, float, and aliased coor
       assert.equal(res.hit, false);
     }
   }
+});
+
+test('Audit Suite 2: AbyssalHazard and NebulaHazard NaN and float tile queries never leak to tile 0', () => {
+  const ah = new AbyssalHazard(6, 7);
+  ah.start('NORMAL', 6, 7);
+  assert.equal(ah.isTileCleansed(NaN, 0), false);
+  assert.equal(ah.isTileInAbyss(1.5, 2), false);
+  assert.equal(ah.isTileInMaelstrom(NaN, NaN), false);
+  assert.equal(ah.onBombPlaced('b1', NaN, 0, 1000).isAccelerated, false);
+  assert.equal(ah.onBombKicked('b1', 1.5, 0, 100).isSlipstreamKick, false);
+
+  const nh = new NebulaHazard(6, 7);
+  nh.start('NORMAL', 6, 7);
+  assert.equal(nh.isTileInNebula(NaN, 0), false);
+  assert.equal(nh.isTileInCollapse(1.5, 2), false);
+  assert.equal(nh.isTileInCalm(NaN, NaN), false);
+  assert.equal(nh.onBombPlaced('b1', NaN, 0, 1000).isAccelerated, false);
+  assert.equal(nh.onBombKicked('b1', 1.5, 0, 100).isSlipstreamKick, false);
 });
 
 /* ==============================================================================

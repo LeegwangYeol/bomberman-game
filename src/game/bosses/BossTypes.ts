@@ -22,7 +22,10 @@ export type BossId =
   | 'boss_hamster_nibbles'
   | 'boss_queen_bee'
   | 'boss_mutant_flora'
-  | 'mutant_flora';
+  | 'mutant_flora'
+  | 'steam_toy_titan'
+  | 'boss_steam_toy_titan'
+  | 'clockwork_titan';
 
 export const TelegraphTier = {
   NONE: 0,
@@ -90,6 +93,8 @@ export const BossProjectileType = {
   EMP_MINE: 2,
   POLLEN_POD: 3,
   FALLING_CANDY: 4,
+  GEAR_SHARD: 5,
+  STEAM_VENT_BURST: 6,
 } as const;
 
 export type BossProjectileType = typeof BossProjectileType[keyof typeof BossProjectileType];

@@ -757,9 +757,9 @@ export class AbyssalHazard {
     res.bombTint = 0xffffff;
     res.floatingText = '';
 
-    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
 
-    const idx = row * COLS + col;
+    const idx = (row | 0) * COLS + (col | 0);
     const danger = this.dangerMask[idx];
 
     if (danger === AbyssalDangerValue.TIDAL || danger === AbyssalDangerValue.MAELSTROM) {
@@ -793,9 +793,9 @@ export class AbyssalHazard {
     res.bombTint = 0xffffff;
     res.floatingText = '';
 
-    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
 
-    const idx = row * COLS + col;
+    const idx = (row | 0) * COLS + (col | 0);
     if (this.dangerMask[idx] === AbyssalDangerValue.TIDAL || this.dangerMask[idx] === AbyssalDangerValue.MAELSTROM) {
       res.isSlipstreamKick = true;
       res.kickSpeed = BOMB_KICK_ABYSSAL_SPEED;
@@ -820,9 +820,9 @@ export class AbyssalHazard {
     res.bombTint = 0xffffff;
     res.floatingText = '';
 
-    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
 
-    const idx = row * COLS + col;
+    const idx = (row | 0) * COLS + (col | 0);
     if (this.dangerMask[idx] === AbyssalDangerValue.TIDAL || this.dangerMask[idx] === AbyssalDangerValue.MAELSTROM) {
       res.isSlipstreamKick = true;
       res.kickSpeed = Math.max(currentSpeed, BOMB_KICK_ABYSSAL_SPEED);
@@ -855,9 +855,9 @@ export class AbyssalHazard {
     res.bombTint = 0xffffff;
     res.floatingText = '';
 
-    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
 
-    const idx = row * COLS + col;
+    const idx = (row | 0) * COLS + (col | 0);
     if (this.dangerMask[idx] === AbyssalDangerValue.MAELSTROM) {
       res.isMaelstrom = true;
       res.extraPower = MAELSTROM_EXTRA_POWER;
@@ -879,9 +879,9 @@ export class AbyssalHazard {
     res.durationMs = 0;
     res.floatingText = '';
 
-    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
 
-    const idx = row * COLS + col;
+    const idx = (row | 0) * COLS + (col | 0);
     if (this.dangerMask[idx] === AbyssalDangerValue.TIDAL || this.dangerMask[idx] === AbyssalDangerValue.MAELSTROM) {
       this.dangerMask[idx] = AbyssalDangerValue.CALM;
       this.cleanseGrid[idx] = HYDRO_BARRIER_ANCHOR_DURATION_MS;
@@ -968,8 +968,8 @@ export class AbyssalHazard {
   }
 
   public isTileInAbyss(row: number, col: number): boolean {
-    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return false;
-    return this.dangerMask[row * COLS + col] === AbyssalDangerValue.TIDAL;
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= ROWS || col < 0 || col >= COLS) return false;
+    return this.dangerMask[(row | 0) * COLS + (col | 0)] === AbyssalDangerValue.TIDAL;
   }
 
   public isTileInAbyssalZone(row: number, col: number): boolean {
@@ -981,18 +981,18 @@ export class AbyssalHazard {
   }
 
   public isTileInMaelstrom(row: number, col: number): boolean {
-    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return false;
-    return this.dangerMask[row * COLS + col] === AbyssalDangerValue.MAELSTROM;
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= ROWS || col < 0 || col >= COLS) return false;
+    return this.dangerMask[(row | 0) * COLS + (col | 0)] === AbyssalDangerValue.MAELSTROM;
   }
 
   public isTileInCalm(row: number, col: number): boolean {
-    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return false;
-    return this.dangerMask[row * COLS + col] === AbyssalDangerValue.CALM;
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= ROWS || col < 0 || col >= COLS) return false;
+    return this.dangerMask[(row | 0) * COLS + (col | 0)] === AbyssalDangerValue.CALM;
   }
 
   public isTileCleansed(row: number, col: number): boolean {
-    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return false;
-    const idx = (row * COLS + col) | 0;
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= ROWS || col < 0 || col >= COLS) return false;
+    const idx = (row | 0) * COLS + (col | 0);
     return this.cleanseGrid[idx] > 0 || this.dangerMask[idx] === AbyssalDangerValue.CALM;
   }
 

@@ -135,6 +135,7 @@ import {
   HamsterBoss,
   QueenBeeBoss,
   MutantFloraBoss,
+  SteamToyTitanBoss,
   TelegraphEngine,
   BossHUD,
 } from './bosses/index.ts';
@@ -2406,6 +2407,14 @@ export default class GameScene extends Phaser.Scene {
       this.activeBoss = new QueenBeeBoss(startX, startY);
     } else if (bossId === 'boss_mutant_flora' || bossId === 'mutant_flora' || bossId === 'verdant_terror') {
       this.activeBoss = new MutantFloraBoss(startX, startY);
+    } else if (
+      bossId === 'steam_toy_titan' ||
+      bossId === 'boss_steam_toy_titan' ||
+      bossId === 'clockwork_titan' ||
+      bossId === 'clockwork_arch_inventor' ||
+      bossId === 'void_devourer_avatar'
+    ) {
+      this.activeBoss = new SteamToyTitanBoss(startX, startY);
     } else {
       this.activeBoss = new GummyBearBoss(startX, startY);
     }

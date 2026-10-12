@@ -699,7 +699,7 @@ export class NebulaHazard {
     res.bombTint = 0xffffff;
     res.floatingText = '';
 
-    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
 
     const idx = ((row * COLS + col) | 0);
     const danger = this.dangerMask[idx];
@@ -734,7 +734,7 @@ export class NebulaHazard {
     res.bombTint = 0xffffff;
     res.floatingText = '';
 
-    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
 
     const idx = ((row * COLS + col) | 0);
     if (this.dangerMask[idx] === NebulaDangerValue.NEBULA || this.dangerMask[idx] === NebulaDangerValue.COLLAPSE) {
@@ -761,7 +761,7 @@ export class NebulaHazard {
     res.bombTint = 0xffffff;
     res.floatingText = '';
 
-    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
 
     const idx = ((row * COLS + col) | 0);
     if (this.dangerMask[idx] === NebulaDangerValue.NEBULA || this.dangerMask[idx] === NebulaDangerValue.COLLAPSE) {
@@ -793,7 +793,7 @@ export class NebulaHazard {
     res.bombTint = 0xffffff;
     res.floatingText = '';
 
-    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
 
     const idx = ((row * COLS + col) | 0);
     if (this.dangerMask[idx] === NebulaDangerValue.COLLAPSE) {
@@ -816,7 +816,7 @@ export class NebulaHazard {
     res.durationMs = 0;
     res.floatingText = '';
 
-    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= ROWS || col < 0 || col >= COLS) return res;
 
     const idx = ((row * COLS + col) | 0);
     if (this.dangerMask[idx] === NebulaDangerValue.NEBULA || this.dangerMask[idx] === NebulaDangerValue.COLLAPSE) {
@@ -902,17 +902,17 @@ export class NebulaHazard {
   }
 
   public isTileInNebula(row: number, col: number): boolean {
-    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return false;
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= ROWS || col < 0 || col >= COLS) return false;
     return this.dangerMask[((row * COLS + col) | 0)] === NebulaDangerValue.NEBULA;
   }
 
   public isTileInCollapse(row: number, col: number): boolean {
-    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return false;
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= ROWS || col < 0 || col >= COLS) return false;
     return this.dangerMask[((row * COLS + col) | 0)] === NebulaDangerValue.COLLAPSE;
   }
 
   public isTileInCalm(row: number, col: number): boolean {
-    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return false;
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= ROWS || col < 0 || col >= COLS) return false;
     return this.dangerMask[((row * COLS + col) | 0)] === NebulaDangerValue.ANCHOR;
   }
 

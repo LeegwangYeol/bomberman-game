@@ -25,7 +25,6 @@ import {
 } from '../src/game/crises/index.ts';
 import {
   MutantFloraBoss,
-  BossState,
 } from '../src/game/bosses/index.ts';
 
 /* ==============================================================================
@@ -141,6 +140,9 @@ test('WaveDirector 3.1: selectBossForWave dynamically resolves MutantFloraBoss',
 
   const boss25 = WaveDirector.selectBossForWave(25);
   assert.equal(boss25, 'queen_bee_cupcake');
+
+  const boss35 = WaveDirector.selectBossForWave(35);
+  assert.equal(boss35, 'steam_toy_titan');
 });
 
 test('WaveDirector 3.2: createBoss instantiates MutantFloraBoss and boss variants', () => {
@@ -156,6 +158,10 @@ test('WaveDirector 3.2: createBoss instantiates MutantFloraBoss and boss variant
 
   const flora3 = WaveDirector.createBoss('verdant_terror');
   assert.ok(flora3 instanceof MutantFloraBoss);
+
+  const titan = WaveDirector.createBoss('steam_toy_titan', 300, 260);
+  assert.equal(titan.config.id, 'steam_toy_titan');
+  assert.equal(titan.maxHp, 16);
 
   const hamster = WaveDirector.createBoss('captain_nibbles');
   assert.equal(hamster.config.id, 'boss_hamster_nibbles');

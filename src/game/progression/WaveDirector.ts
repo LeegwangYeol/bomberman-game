@@ -13,6 +13,7 @@ import { MutantFloraBoss } from '../bosses/MutantFloraBoss.ts';
 import { GummyBearBoss } from '../bosses/GummyBearBoss.ts';
 import { HamsterBoss } from '../bosses/HamsterBoss.ts';
 import { QueenBeeBoss } from '../bosses/QueenBeeBoss.ts';
+import { SteamToyTitanBoss } from '../bosses/SteamToyTitanBoss.ts';
 import { ScalingEngine } from './ScalingEngine.ts';
 import type { WaveScalingParameters, WaveMutator } from './ProgressionTypes.ts';
 
@@ -75,6 +76,7 @@ export class WaveDirector {
     'king_gummy_bear',
     'captain_nibbles',
     'queen_bee_cupcake',
+    'steam_toy_titan',
   ]);
 
   private currentWave: number = 1;
@@ -165,6 +167,7 @@ export class WaveDirector {
     if (safeWave === 5) return 'king_gummy_bear';
     if (safeWave === 15) return 'captain_nibbles';
     if (safeWave === 25) return 'queen_bee_cupcake';
+    if (safeWave === 35) return 'steam_toy_titan';
 
     const bossIndex = Math.floor(safeWave / 5) % WaveDirector.BOSS_ROTATION.length;
     return WaveDirector.BOSS_ROTATION[bossIndex] ?? 'boss_mutant_flora';
@@ -175,6 +178,15 @@ export class WaveDirector {
    */
   public static createBoss(bossId: string, startX: number = 300, startY: number = 260): BaseBoss {
     const normalized = (bossId || '').toLowerCase().trim();
+    if (
+      normalized === 'steam_toy_titan' ||
+      normalized === 'boss_steam_toy_titan' ||
+      normalized === 'clockwork_titan' ||
+      normalized === 'clockwork_arch_inventor' ||
+      normalized === 'void_devourer_avatar'
+    ) {
+      return new SteamToyTitanBoss(startX, startY);
+    }
     if (
       normalized === 'boss_mutant_flora' ||
       normalized === 'mutant_flora' ||
