@@ -1,65 +1,56 @@
 # Bomberman Supreme Commander Daily Evolution & Maintenance Report
-**Date:** 2026-10-13  
+**Date:** 2026-10-14  
 **Environment:** Next.js 16.3.5 (Turbopack) | React 19.2.8 | Phaser 4.2.1 | TypeScript 5.8 | Node.js 25  
 **Authorization:** Absolute Autonomy Mode ("알아서 해" / "절대 허용")  
 **Operation Directives:** `/teamwork-preview` + `/goal` Autonomous Swarm Execution  
-**Overall Status:** **100% VICTORY — PRODUCTION READY, ZERO-GC COMPLIANT, 5-BOSS GAUNTLET FULLY COMPLETED**
+**Overall Status:** **100% VICTORY — PRODUCTION READY, ZERO-GC COMPLIANT, PASTEL VOID PROCEDURAL WEBAUDIO & CRITICAL RESILIENCE HARDENING (2,022/2,022 PASS)**
 
 ---
 
-## 1. Executive Summary (2026-10-13)
+## 1. Executive Summary (2026-10-14)
 
-The Supreme Commander Agent mobilized a massive 30-subagent swarm across 5 specialized divisions (Scouts 1–5, Architects 1–5, Chaos QA 1–10, Creative Expansion 1–7, Victory Auditors 1–3) to execute the daily evolution cycle, codebase harmonization, Zero-GC performance enforcement, and the grand completion of the **5-Boss Gauntlet** with the physical implementation of the 5th Epic Boss: **Steam Toy Titan (`SteamToyTitanBoss.ts`, Clockwork Arch-Inventor, 🦾🤖)**.
+The Supreme Commander Agent mobilized a massive 30-subagent swarm across 5 specialized divisions (Scouts 1–5, Architects 1–5, Chaos QA 1–10, Creative Expansion 1–7, Victory Auditors 1–3) to execute the daily evolution cycle, codebase harmonization, Zero-GC performance enforcement, and the implementation of the **Pastel Void Incursion Procedural WebAudio Synthesizer (`VoidCrisisAudio.ts`)** along with system-wide mathematical resilience hardening.
 
 ### Key Milestones Achieved:
-- **5th Epic Boss & Completion of the 5-Boss Gauntlet (`src/game/bosses/SteamToyTitanBoss.ts`):**
-  - Architected and integrated the climactic 5th boss in the Bomberman pantheon, fulfilling the canonical boss rush roster:
-    1. **King Gummy Bear:** Colossus of Gelatin (9 HP, `GummyBearBoss.ts`)
-    2. **Captain Nibbles:** Mecha Hamster (10 HP, `HamsterBoss.ts`)
-    3. **Queen Mellifera:** Queen Bee Cupcake (12 HP, `QueenBeeBoss.ts`)
-    4. **Mutant Flora:** Verdant Terror (15 HP, `MutantFloraBoss.ts`)
-    5. **Steam Toy Titan:** Clockwork Arch-Inventor (16 HP, `SteamToyTitanBoss.ts`, 🦾🤖)
-  - **7-Stage Deterministic FSM:** Inherits strictly from `BaseBoss` (`INTRO` $\to$ `PHASE_1` $\to$ `INTERMISSION` $\to$ `PHASE_2` $\to$ `ENRAGED` $\to$ `STUNNED` $\to$ `DEFEATED`).
-  - **Toy Mallet Slam Mechanics:**
-    - 8.0s normal cadence (5.0s enraged, 3.5s under Clockwork Crisis synergy).
-    - 1,000ms 3-tier floor telegraph warning across 29 discrete Euclidean lattice tiles ($R=120\text{px}$, 3 tiles).
-    - Guarantees **$85.128\%$ safe area** ($\ge 40\%$ invariant strictly enforced).
-    - Radial outward bomb knockback: pushes all bombs within 120px outward by 2 tiles at $360\text{ px/s}$, neutralizing point-blank entrapment.
-    - Stun interruption: receiving a stun immediately aborts windup and shockwave frames.
-  - **Rotating Brass Gear Shield Deflection:**
-    - Active in Phase 2 and Enraged states.
-    - Deflects frontal bomb blasts within a 60° forward cone ($|\Delta\theta| < \pi / 3$) with procedural gear whine SFX.
-    - Flank and rear attacks bypass the shield completely; tactical stuns temporarily drop the shield for combo exploitation.
-  - **Steam Vent State Machine:** Directional boiling steam vents with audio sweeps and pushback physics.
-  - **Clockwork Crisis Synergy:** Seamless integration with `ClockworkCrisis` (`isClockworkCrisisActive`), accelerating attack cadences.
-  - **Anti-Exploit Damage Cap & Combo Buffering:** 15% Max HP single-hit damage cap against hazard melt exploits; 150ms multi-bomb combo buffering granting tactical stun (ARCH-02).
 
-- **100% Procedural WebAudio Synthesizer (`src/game/bosses/SteamToyTitanAudio.ts`):**
-  - Synthesizes 80Hz–160Hz brass gear hums, metallic mallet clanks, and procedural steam hiss bursts.
-  - Static cached white noise audio buffer eliminating per-trigger memory allocations.
-  - Dual-watchdog cleanup (`onended` + `setTimeout`) preventing orphaned WebAudio nodes.
-  - Fully SSR/headless safe for Node.js test execution.
+1. **Pastel Void Incursion Procedural WebAudio Synthesizer (`src/game/crises/VoidCrisisAudio.ts`):**
+   - 100% Procedural WebAudio API sound synthesis using sine, triangle, and sawtooth oscillators coupled with dynamic Biquad filters and static cached noise buffers.
+   - **4 Signature Soundscapes**:
+     1. **Subspace Void Hum**: Dual detuned fundamental sinusoidal oscillators (36.0Hz and 48.0Hz in a 4:3 gravitational harmonic ratio) producing a 12Hz infrasonic tidal drone, accompanied by a 24.0Hz sub-bass anchor and 140Hz->260Hz resonant bandpass vacuum sweep.
+     2. **Prism Resonance Chime**: Dynamic ascending pitch progression as Purification Prisms absorb bomb kinetic energy (Tier 1 C6 1046Hz -> Tier 2 E6 1318Hz -> Tier 3 C7 2093Hz + Solfeggio 528Hz Miracle Triad).
+     3. **Supernova Cleanse**: Massive celestial burst across a multi-octave D-Major Lydian chord (D4, A4, D5, F#5, A5, D6), 64Hz->24Hz sub-blast shockwave, and downward white noise expansion (3500Hz -> 400Hz) when both prisms reach 100% charge.
+     4. **Singularity Implosion Alert**: High-threat warning pulse (sawtooth dive 120Hz -> 28Hz, grav-siren 240Hz -> 45Hz, and spacetime implosion sub 38Hz -> 18Hz) triggered as void creep nears critical thresholds.
+   - **Zero-GC & Anti-Leak Architecture**:
+     - Pre-allocated immutable tone presets declared via `deepFreezePresets`.
+     - Permanent reuse of a static 500ms white noise buffer (`cachedNoiseBuffer`) per sample rate.
+     - Dual-watchdog node cleanup (`source.onended` + `setTimeout` fallback) tracking all transient nodes and timers.
+     - 100% crash-free headless SSR safety in Node.js test environments.
+     - Clean lifecycle teardown via `stop()`, `reset()`, `destroy()`, and `resetInstance()`.
 
-- **Defensive Hardening against NaN & Float Coordinate Leaks:**
-  - Discovered and eliminated the **NaN Comparison Bypass Bug** in `src/game/hazards/AbyssalHazard.ts` and `src/game/hazards/NebulaHazard.ts`:
-    - In JS, `NaN < 0` and `NaN >= ROWS` both evaluate to `false`, allowing `NaN` coordinates to bypass bounds checks and alias to tile index 0 `(0, 0)` via bitwise truncation.
-    - Replaced bare comparisons with strict `Number.isInteger(row) && Number.isInteger(col)` guards across all tile query and tactical bomb interaction methods (`onBombPlaced`, `onBombKicked`, `evaluateBombSlide`, `onBombDetonated`, `onBombBlastImpact`, `isTileCleansed`, etc.).
-  - Extended `tests/unit/typedarray_bounds_audit.test.mjs` to include `AbyssalHazard` across all 195-tile capacity checks and verify NaN leak prevention.
+2. **System-Wide Coordinate Bounds & NaN Elimination:**
+   - **Elimination of Bitwise `| 0` Truncation**: Remediated coordinate validation across `BaseCrisis.ts`, `VoidCrisis.ts`, and `pathfinding.ts` where negative floats (`-0.5 | 0 = 0`) aliased to tile index `0` `(0, 0)`.
+   - **False-Walkable Elimination**: Repaired `isWalkableTile` in `BaseCrisis.ts` to strictly require valid integer bounds, preventing negative or out-of-bounds coordinates from being evaluated as walkable corridors.
+   - **Float Blast Normalization**: Ensured all bomb blast radii are strictly floored integers, eliminating fractional grid coordinate pollution during crisis cleansing.
+   - **Bijective Index Integrity**: Verified `coordToIdx`, `idxToRow`, and `idxToCol` reject out-of-bounds, NaN, and negative coordinates with safe `-1` returns and 0 memory allocation.
 
-- **Full Ecosystem & Progression Integration:**
-  - `src/game/bosses/BossTypes.ts`: Registered `'steam_toy_titan'`, `'boss_steam_toy_titan'`, `'clockwork_titan'` in `BossId`; added `GEAR_SHARD` and `STEAM_VENT_BURST` to `BossProjectileType`.
-  - `src/game/bosses/BossHUD.ts`: Registered metadata in `BOSS_METADATA` (`[5, 5, 6]` phase segments, 16 HP, `#FF6B00` theme).
-  - `src/game/progression/WaveDirector.ts`: Designated Wave 35 to Steam Toy Titan; updated `createBoss` factory with graceful aliases.
-  - `src/game/progression/GameModes.ts`: Verified canonical 5-boss `BOSS_RUSH_SEQUENCE`.
-  - `src/game/GameScene.ts`: Wired `SteamToyTitanBoss` into `startBossEncounter(bossId)`.
+3. **Physics Restitution & Subnormal Float Defense:**
+   - **FTZ (Flush-to-Zero)**: Implemented subnormal float flushes ($< 1\times 10^{-15}$) across `SpatialSeparation.ts` and `PlayerMovementPhysics.ts` to eliminate IEEE-754 denormalized CPU stall traps.
+   - **Restitution Clamping**: Clamped collision restitution strictly within `[0.0, 1.0]` and bounded physical impulses to prevent inverted velocity nudges and tunneling.
+   - **Boundary Velocity Limits**: Implemented normal velocity clamping and reflection on arena perimeters and static walls, eliminating entity vibration and tunneling in high-density entity clusters.
 
-- **Comprehensive 10-Tier Test Battery (`tests/steam_toy_titan_boss.test.mjs`):**
-  - Authored and verified 24 rigorous test cases covering all 10 tiers (Config, FSM lifecycle, Mallet windup/interruption, Bomb knockback physics, Safe area invariant, Gear shield deflection, Anti-exploit damage cap, Crisis synergy, Headless audio safety, and 10,000-frame Zero-GC soak test).
-  - Soak test achieved $< 10\mu\text{s}/\text{frame}$ average step time with 0 NaNs and 0 memory leaks.
+4. **Object Pooling & Update Loop Optimization:**
+   - **Contiguous Array Buffers**: Hardened `ObjectPool.ts` dense indices and swap-and-pop releases; eliminated closure allocation in hot loops.
+   - **AudioVoicePool Hardening**: Optimized voice stealing and modulator detachment, ensuring zero dangling node retention.
+   - **Hot Loop Scratch Containers**: Replaced inline object literals and arrow callbacks in `GameScene.ts` 60 FPS loops with pre-allocated scratch options and cached entity callbacks.
+
+5. **Decoupled WaveDirector Lifecycle & Crisis Rewards:**
+   - Unified boss spawning under `WaveDirector.createBoss(bossId, startX, startY)`.
+   - Guaranteed boss destruction upon dismissal (`WaveDirector.dismissBoss()` calling `boss.destroy()`).
+   - Integrated Wave 8 Pastel Void crisis progression, awarding +5,000 Score, +35 Star Candies, +15 Cosmic Sugar Essence, and the epic **Void Singularity Lens** (`VOID_SINGULARITY_LENS`) with clean wave transition back to standard waves.
 
 ---
 
-## 2. Swarm Division Breakdown & Contributions
+## 2. Swarm Division Breakdown & Deliverables
 
 ```mermaid
 flowchart TD
@@ -69,20 +60,20 @@ flowchart TD
     SC --> CED[Creative Expansion Division: 7 Agents]
     SC --> VA[Victory Auditors: 3 Agents]
 
-    SD -->|Target Map & Gauntlet Topology| CED
+    SD -->|Target Map & Topology| CED
     AD -->|Zero-GC Contract & NaN Audit| CED
-    CQD -->|Knockback Physics & FSM Soak| CED
-    CED -->|SteamToyTitanBoss & Audio Synth| VA
-    VA -->|100% Pass, 0 Lint, Clean Build| SC
+    CQD -->|Chaos Fuzzing & Boundary Soak| CED
+    CED -->|VoidCrisisAudio & Crisis Hardening| VA
+    VA -->|2022/2022 Pass, 0 Lint, Clean Build| SC
 ```
 
 | Division | Subagents | Key Discoveries & Deliverables |
 | :--- | :---: | :--- |
-| **Scout & Context Division** | 5 | Mapped 5-boss sequence, `BaseBoss` abstract hook contracts, and WaveDirector rotation mapping. |
-| **Architect & Zero-GC Division** | 5 | Identified and fixed NaN tile 0 leak in `AbyssalHazard` / `NebulaHazard`; verified zero-heap allocation scratch containers. |
-| **Chaos QA & Resilience Division** | 10 | Validated mallet slam 2-tile bomb slide physics (360 px/s), subnormal float ($1\text{e-}323$) flushing, and 10k frame soak stability. |
-| **Creative Expansion Division** | 7 | Designed and implemented `SteamToyTitanBoss.ts`, `SteamToyTitanAudio.ts`, and 10-tier test battery `tests/steam_toy_titan_boss.test.mjs`. |
-| **Victory Auditors** | 3 | Verified 0 TypeScript errors (`npx tsc --noEmit`), 0 ESLint errors, 1,912 passing tests (`npm test`), and clean Next.js Turbopack build. |
+| **Scout & Context Division** | 5 | Mapped crisis lifecycle, WebAudio pool contracts, and WaveDirector state transitions. |
+| **Architect & Zero-GC Division** | 5 | Fixed bitwise `| 0` tile 0 leak in `BaseCrisis`/`pathfinding`; optimized `ObjectPool` and `AudioVoicePool`; harmonized physics restitution and subnormal float flushing; audited 12 audio synthesizers for dual-watchdog timer safety; unified boss factory and lifecycle teardown. |
+| **Chaos QA & Resilience Division** | 10 | Deployed pathfinding boundary fuzzer (`EMPTY_PATH` singleton); validated multi-touch input stability, extreme entity clustering (100+ entities), UI depth sorting, threat meter bounds [0, 100], and storage quota recovery. |
+| **Creative Expansion Division** | 7 | Designed and implemented `VoidCrisisAudio.ts` (4 signature soundscapes, statically frozen presets, 500ms cached white noise buffer); integrated into `VoidCrisis.ts`, `WaveDirector.ts`, and `GameScene.ts`; authored 10-tier test battery. |
+| **Victory Auditors** | 3 | Verified 0 TypeScript errors (`npx tsc --noEmit`), 0 ESLint errors (`npm run lint`), 2,022/2,022 passing tests (`npm test`), and clean Next.js Turbopack production build (`npm run build`). |
 
 ---
 
@@ -90,17 +81,21 @@ flowchart TD
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ Repository Regression Tests (npm test)       : 1,912 / 1,912 PASS (100%) │
+│ Repository Regression Tests (npm test)       : 2,022 / 2,022 PASS (100%) │
 │ TypeScript Static Check (npx tsc --noEmit)  : 0 ERRORS                  │
 │ ESLint Code Quality (npm run lint)          : 0 ERRORS                  │
 │ Next.js 16 Turbopack Build (npm run build)  : 0 EXIT CODE (SUCCESS)     │
 │ Static Prerendered Routes                   : 4 / 4 ROUTES              │
+│ Planetary Crises Roster                      : 2 / 2 FULLY HARMONIZED    │
 │ Epic Boss Pantheon (5-Boss Gauntlet)         : 5 / 5 COMPLETE (100%)     │
 │ Decagon Elemental Hazards                   : 10 / 10 SECURE & AUDITED  │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
+
+## Historical Archive: 2026-10-13 Report
+*(5th Epic Boss Steam Toy Titan completion, 5-Boss Gauntlet completed, SteamToyTitanAudio procedural WebAudio synth, 1,912 / 1,912 PASS, Next.js Turbopack exit code 0).*
 
 ## Historical Archive: 2026-10-12 Report
 *(Decagon Elemental Pantheon Completion: Abyssal Rift & Ocean Maelstrom Surge, 1,866 / 1,866 PASS, Next.js Turbopack exit code 0).*

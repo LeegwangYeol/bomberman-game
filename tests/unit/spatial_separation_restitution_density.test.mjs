@@ -285,6 +285,102 @@ test('ZERO-DIST-01: Co-located entities (dist = 0) disperse deterministically wi
   }
 });
 
+test('ZERO-DIST-02: Extreme clustering stressor with 100 entities spawned at identical coordinates resolves without infinite forces or stack overflow', () => {
+  const COUNT = 100;
+  const ORIGIN_X = 400;
+  const ORIGIN_Y = 400;
+  const entities = [];
+  // Spawn exactly 100 entities at the identical coordinate
+  for (let i = 0; i < COUNT; i++) {
+    entities.push(createMockEntity(ORIGIN_X, ORIGIN_Y, 0, 0, 1.0, 12));
+  }
+
+  const startTs = performance.now();
+  const stats = resolveEntitySeparation(entities, {
+    iterations: 3,
+    separationFactor: 0.5,
+    restitution: 0.5,
+    velocityNudgeFactor: 2.0,
+    maxVelocityNudge: 250,
+    maxDisplacement: 32.0,
+    applyVelocityNudges: true,
+    bounds: { minX: 20, maxX: 780, minY: 20, maxY: 780 },
+  });
+  const elapsedMs = performance.now() - startTs;
+
+  assert.equal(stats.entitiesProcessed, COUNT);
+  assert.ok(stats.zeroDistancesHandled > 0, 'Zero distances must be handled');
+  assert.equal(stats.nanGuardsTriggered, 0, 'Zero NaN guards triggered');
+  assert.ok(elapsedMs < 30.0, `Resolution must complete quickly without stack overflow (took ${elapsedMs.toFixed(2)}ms)`);
+
+  // Verify all entities have finite coordinates, bounded displacement, and bounded velocities
+  for (let i = 0; i < COUNT; i++) {
+    const e = entities[i];
+    assert.ok(Number.isFinite(e.x), `Entity ${i} x must be finite`);
+    assert.ok(Number.isFinite(e.y), `Entity ${i} y must be finite`);
+    assert.ok(Number.isFinite(e.body.velocity.x), `Entity ${i} vx must be finite`);
+    assert.ok(Number.isFinite(e.body.velocity.y), `Entity ${i} vy must be finite`);
+
+    // Speed must not exceed MAX_SPEED (400)
+    const speed = Math.hypot(e.body.velocity.x, e.body.velocity.y);
+    assert.ok(speed <= 400.01, `Entity ${i} speed (${speed}) must not exceed MAX_SPEED (400)`);
+
+    // Displacement from spawn origin must not exceed maxDisplacement (32.0)
+    const disp = Math.hypot(e.x - ORIGIN_X, e.y - ORIGIN_Y);
+    assert.ok(disp <= 32.01, `Entity ${i} displacement (${disp}) must not exceed maxDisplacement (32)`);
+  }
+});
+
+test('ZERO-DIST-03: Multi-tick soak test of 100 co-located entities dispersing over 50 ticks maintains stability, zero NaN, and bounded speed', () => {
+  const COUNT = 100;
+  const ORIGIN_X = 400;
+  const ORIGIN_Y = 400;
+  const entities = [];
+  for (let i = 0; i < COUNT; i++) {
+    entities.push(createMockEntity(ORIGIN_X, ORIGIN_Y, 0, 0, 1.0, 12));
+  }
+
+  const TICKS = 50;
+  for (let t = 0; t < TICKS; t++) {
+    // Integrate velocities (dt = 0.016s)
+    for (let i = 0; i < COUNT; i++) {
+      entities[i].x += entities[i].body.velocity.x * 0.016;
+      entities[i].y += entities[i].body.velocity.y * 0.016;
+    }
+
+    const stats = resolveEntitySeparation(entities, {
+      iterations: 2,
+      separationFactor: 0.5,
+      restitution: 0.3,
+      velocityNudgeFactor: 0.5,
+      maxVelocityNudge: 200,
+      applyVelocityNudges: true,
+      bounds: { minX: 20, maxX: 780, minY: 20, maxY: 780 },
+    });
+
+    assert.equal(stats.nanGuardsTriggered, 0, `Tick ${t} produced NaN`);
+  }
+
+  // Verify all 100 entities dispersed cleanly
+  let dispersedCount = 0;
+  for (let i = 0; i < COUNT; i++) {
+    const e = entities[i];
+    assert.ok(Number.isFinite(e.x));
+    assert.ok(Number.isFinite(e.y));
+    assert.ok(Number.isFinite(e.body.velocity.x));
+    assert.ok(Number.isFinite(e.body.velocity.y));
+
+    const speed = Math.hypot(e.body.velocity.x, e.body.velocity.y);
+    assert.ok(speed <= 400.01, `Entity ${i} final speed (${speed}) must be <= 400`);
+
+    const dist = Math.hypot(e.x - ORIGIN_X, e.y - ORIGIN_Y);
+    if (dist > 5) dispersedCount++;
+  }
+
+  assert.ok(dispersedCount >= 95, `At least 95 of 100 entities must have dispersed outward (got ${dispersedCount})`);
+});
+
+
 /* ==============================================================================
  * SUITE 5: SOAK SIMULATION & ZERO-GC UNDER EXTREME DENSITY (120 ENTITIES)
  * ============================================================================== */
@@ -347,3 +443,144 @@ test('SOAK-01: 500-tick soak simulation with 120 colliding entities maintains 0 
     assert.ok(Number.isFinite(e.body.velocity.y), `Final entity ${i} vy must be finite`);
   }
 });
+
+/* ==============================================================================
+ * SUITE 6: RESTITUTION CLAMPING, BOUNDARY VELOCITY LIMITS & DENSE COLLISION DEFENSES
+ * ============================================================================== */
+
+test('BOUNDARY-VEL-01: Entity hitting arena boundary has velocity into wall clamped or reflected with restitution', () => {
+  // Entity at left boundary (x = 20) with velocity moving left (-100 px/s)
+  const eLeftInelastic = createMockEntity(15, 100, -100, 0, 1.0, 12);
+  resolveEntitySeparation([eLeftInelastic], {
+    bounds: { minX: 20, maxX: 600, minY: 20, maxY: 500 },
+    restitution: 0.0,
+    applyVelocityNudges: true,
+  });
+
+  // Position clamped to boundary minX (20), velocity into wall clamped to 0
+  assert.equal(eLeftInelastic.x, 20);
+  assert.equal(eLeftInelastic.body.velocity.x, 0, 'Velocity into wall must be zeroed when restitution = 0');
+
+  // Entity at right boundary with restitution = 0.5: bounces inward
+  const eRightElastic = createMockEntity(605, 100, 120, 0, 1.0, 12);
+  resolveEntitySeparation([eRightElastic], {
+    bounds: { minX: 20, maxX: 600, minY: 20, maxY: 500 },
+    restitution: 0.5,
+    applyVelocityNudges: true,
+  });
+
+  assert.equal(eRightElastic.x, 600);
+  assert.ok(eRightElastic.body.velocity.x < 0, 'Velocity should reflect back into arena');
+  assert.equal(Math.round(eRightElastic.body.velocity.x), -60, 'Velocity reflected by restitution: -120 * 0.5 = -60');
+});
+
+test('BOUNDARY-VEL-02: Entity hitting static walls or grid tiles has normal velocity into wall clamped/reflected', () => {
+  // Static wall at [100, 100] to [140, 140]
+  const wall = { x: 100, y: 100, width: 40, height: 40 };
+  const entity = createMockEntity(105, 120, 150, 0, 1.0, 12); // Pushing right into wall
+
+  resolveEntitySeparation([entity], {
+    walls: [wall],
+    restitution: 0.0,
+    applyVelocityNudges: true,
+  });
+
+  // Pushed out to left of wall (100 - 12 = 88)
+  assert.ok(entity.x <= 88.01, `Entity x (${entity.x}) must be pushed out to left of wall`);
+  assert.equal(entity.body.velocity.x, 0, 'Velocity into wall must be clamped to 0');
+});
+
+test('RESTITUTION-CLAMP-01: Out-of-range restitution values are clamped strictly to [0.0, 1.0]', () => {
+  const eA1 = createMockEntity(190, 200, 100, 0, 1.0, 12);
+  const eB1 = createMockEntity(210, 200, -100, 0, 1.0, 12);
+
+  // Negative restitution (-5.0) clamped to 0.0 (inelastic collision)
+  resolveEntitySeparation([eA1, eB1], {
+    iterations: 1,
+    separationFactor: 0.5,
+    restitution: -5.0,
+    velocityNudgeFactor: 0.0,
+    applyVelocityNudges: true,
+  });
+  const vRel1 = eB1.body.velocity.x - eA1.body.velocity.x;
+  assert.ok(Math.abs(vRel1) < 1.0, 'Negative restitution clamped to 0.0 behaves inelastically');
+
+  // Excessive restitution (10.0) clamped to 1.0 (perfectly elastic)
+  const eA2 = createMockEntity(190, 200, 100, 0, 1.0, 12);
+  const eB2 = createMockEntity(210, 200, -100, 0, 1.0, 12);
+  resolveEntitySeparation([eA2, eB2], {
+    restitution: 10.0,
+    applyVelocityNudges: true,
+  });
+  assert.ok(eA2.body.velocity.x < 0, 'Clamped to 1.0 reverses A');
+  assert.ok(eB2.body.velocity.x > 0, 'Clamped to 1.0 reverses B');
+
+  // NaN and Infinity restitution safely fallback to 0.0
+  const eA3 = createMockEntity(190, 200, 100, 0, 1.0, 12);
+  const eB3 = createMockEntity(210, 200, -100, 0, 1.0, 12);
+  resolveEntitySeparation([eA3, eB3], {
+    restitution: NaN,
+    applyVelocityNudges: true,
+  });
+  assert.ok(Number.isFinite(eA3.body.velocity.x));
+  assert.ok(Number.isFinite(eB3.body.velocity.x));
+});
+
+test('DENSE-SUBNORMAL-01: 120 entities colliding densely with subnormal velocities flush subnormals cleanly', () => {
+  const COUNT = 120;
+  const entities = [];
+  for (let i = 0; i < COUNT; i++) {
+    // Entities with subnormal positions and velocities
+    const subX = 300 + (i % 2 === 0 ? 1e-323 : -1e-323);
+    const subY = 300 + (i % 2 === 0 ? -1e-323 : 1e-323);
+    const subVx = (i % 2 === 0 ? 1 : -1) * 1e-320;
+    const subVy = (i % 2 === 0 ? -1 : 1) * 1e-320;
+    entities.push(createMockEntity(subX, subY, subVx, subVy, 1.0, 12));
+  }
+
+  const stats = resolveEntitySeparation(entities, {
+    iterations: 3,
+    separationFactor: 0.5,
+    restitution: 0.5,
+    velocityNudgeFactor: 1.0,
+    applyVelocityNudges: true,
+  });
+
+  assert.equal(stats.nanGuardsTriggered, 0, 'Zero NaN guards triggered');
+  assert.ok(stats.overlapsResolved > 0);
+
+  for (let i = 0; i < COUNT; i++) {
+    const e = entities[i];
+    assert.ok(Number.isFinite(e.x));
+    assert.ok(Number.isFinite(e.y));
+    assert.ok(Number.isFinite(e.body.velocity.x));
+    assert.ok(Number.isFinite(e.body.velocity.y));
+    // Verify no subnormal float survived (< 1e-15 non-zero)
+    if (e.body.velocity.x !== 0) {
+      assert.ok(Math.abs(e.body.velocity.x) >= 1e-15, `vx ${e.body.velocity.x} must not be subnormal`);
+    }
+    if (e.body.velocity.y !== 0) {
+      assert.ok(Math.abs(e.body.velocity.y) >= 1e-15, `vy ${e.body.velocity.y} must not be subnormal`);
+    }
+  }
+});
+
+test('CUSTOM-MAX-SPEED-01: options.maxSpeed bounds final velocities under explosive dense collisions', () => {
+  const eA = createMockEntity(200, 200, 800, 0, 1.0, 12);
+  const eB = createMockEntity(208, 200, -800, 0, 1.0, 12);
+
+  resolveEntitySeparation([eA, eB], {
+    iterations: 2,
+    restitution: 1.0,
+    velocityNudgeFactor: 5.0,
+    maxSpeed: 250,
+    applyVelocityNudges: true,
+  });
+
+  const speedA = Math.hypot(eA.body.velocity.x, eA.body.velocity.y);
+  const speedB = Math.hypot(eB.body.velocity.x, eB.body.velocity.y);
+
+  assert.ok(speedA <= 250.01, `Speed A (${speedA}) must be clamped to maxSpeed 250`);
+  assert.ok(speedB <= 250.01, `Speed B (${speedB}) must be clamped to maxSpeed 250`);
+});
+

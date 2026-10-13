@@ -287,3 +287,107 @@ test('WaveDirector 5.2: 10,000 continuous frames execute without NaN or memory l
   assert.equal(director.getActiveBoss(), null);
   assert.equal(director.getActiveCrisisType(), null);
 });
+
+/* ==============================================================================
+ * SUITE 6: MODULAR DECOUPLING, CLEAN EVENT CONTRACTS & ZERO-LEAK LIFECYCLE
+ * ============================================================================== */
+
+test('WaveDirector 6.1: dismissBoss invokes boss destroy() ensuring zero retained pools/nodes', () => {
+  const cm = new CrisisManager();
+  const director = new WaveDirector(cm);
+
+  // Spawn Steam Toy Titan boss which has destroy() cleaning up pools & audio
+  const boss = director.spawnBoss('steam_toy_titan', 300, 260);
+  assert.ok(boss);
+  let destroyCalled = false;
+  const originalDestroy = boss.destroy.bind(boss);
+  boss.destroy = () => {
+    destroyCalled = true;
+    originalDestroy();
+  };
+
+  assert.equal(director.getActiveBoss(), boss);
+  director.dismissBoss();
+  assert.equal(director.getActiveBoss(), null);
+  assert.equal(destroyCalled, true, 'Boss destroy() must be invoked on dismissBoss');
+});
+
+test('WaveDirector 6.2: director.destroy() cleans up listeners, bosses, and crisis manager cleanly', () => {
+  const cm = new CrisisManager();
+  const director = new WaveDirector(cm);
+
+  let eventFired = false;
+  director.on('wave-started', () => {
+    eventFired = true;
+  });
+
+  director.startWave(10); // Active Crisis + Boss
+  assert.ok(director.getActiveBoss());
+  assert.ok(director.getActiveCrisisType());
+
+  // Call destroy
+  director.destroy();
+  assert.equal(director.getActiveBoss(), null);
+  assert.equal(director.getActiveCrisisType(), null);
+  assert.equal(director.getWaveState(), WaveState.IDLE);
+  assert.equal(cm.getActiveCrisis(), null);
+
+  // Subsequent events should not trigger previously attached listeners
+  eventFired = false;
+  director.startWave(1);
+  assert.equal(eventFired, false, 'Listeners must be cleared after destroy');
+});
+
+test('WaveDirector 6.3: removeAllListeners provides granular and complete pruning', () => {
+  const director = new WaveDirector();
+  let e1Count = 0;
+  let e2Count = 0;
+
+  director.on('test-1', () => { e1Count++; });
+  director.on('test-2', () => { e2Count++; });
+
+  // Specific event pruning
+  director.removeAllListeners('test-1');
+  director['emit']('test-1');
+  director['emit']('test-2');
+  assert.equal(e1Count, 0);
+  assert.equal(e2Count, 1);
+
+  // Complete pruning
+  director.removeAllListeners();
+  director['emit']('test-2');
+  assert.equal(e2Count, 1);
+});
+
+test('WaveDirector 6.4: CrisisManager removeAllListeners and dual emitter bridge cleanup', () => {
+  let mockGameEmitCount = 0;
+  const mockGame = {
+    events: {
+      emit: () => {
+        mockGameEmitCount++;
+        return true;
+      },
+    },
+  };
+
+  const cm = new CrisisManager(mockGame);
+  let directListenerCount = 0;
+  cm.on('crisis-triggered', () => {
+    directListenerCount++;
+  });
+
+  cm.triggerCrisis(CrisisType.PASTEL_VOID);
+  assert.equal(directListenerCount, 1);
+  assert.ok(mockGameEmitCount >= 1);
+
+  // Test removeAllListeners on CrisisManager
+  cm.removeAllListeners('crisis-triggered');
+  cm.emit('crisis-triggered', { crisisType: CrisisType.PASTEL_VOID });
+  assert.equal(directListenerCount, 1); // Unchanged
+
+  // Test destroy() on CrisisManager clears everything including eventEmitter
+  cm.destroy();
+  assert.equal(cm.getEventEmitter(), null);
+  assert.equal(cm.getActiveCrisis(), null);
+});
+

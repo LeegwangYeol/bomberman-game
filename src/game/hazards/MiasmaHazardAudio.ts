@@ -696,6 +696,13 @@ export class MiasmaHazardAudio {
     endFreq: number = 200,
     gainLevel: number = 0.15
   ): void {
+    // Mathematical defense against subnormal floats (1e-323): flush to zero & early return
+    if (
+      (typeof duration === 'number' && Math.abs(duration) < 1e-8) ||
+      (typeof gainLevel === 'number' && Math.abs(gainLevel) < 1e-15)
+    ) {
+      return;
+    }
     const ctx = this.getContext();
     if (!ctx) return;
 

@@ -8,5 +8,6 @@ export * from './LavaCrisis.ts';
 export * from './RiftCrisis.ts';
 export * from './PsychicCrisis.ts';
 export * from './PsychicCrisisAudio.ts';
+export * from './VoidCrisisAudio.ts';
 export * from './CrisisManager.ts';
 export * from './SituationLog.ts';

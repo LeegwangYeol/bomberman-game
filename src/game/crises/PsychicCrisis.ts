@@ -148,7 +148,7 @@ export class PsychicCrisis extends BaseCrisis {
         }
       }
     } else if (stage === CrisisStage.OUTBREAK) {
-      this.threatMeter = Math.max(35.0, this.threatMeter);
+      this.setThreat(Math.max(35.0, this.threatMeter));
       this.phantomTimerMs = 0;
       this.triggerAlert(
         'psychic_outbreak',
@@ -160,7 +160,7 @@ export class PsychicCrisis extends BaseCrisis {
       );
       this.spawnDisruptionZones();
     } else if (stage === CrisisStage.CLIMAX) {
-      this.threatMeter = Math.max(70.0, this.threatMeter);
+      this.setThreat(Math.max(70.0, this.threatMeter));
       this.triggerAlert(
         'psychic_climax',
         'MIND RENDING COMMENCED',
@@ -186,7 +186,7 @@ export class PsychicCrisis extends BaseCrisis {
       const progress = Math.min(1.0, Math.max(0.0, this.stageElapsedMs / duration));
       const targetThreat = 10.0 + progress * 24.0;
       if (Number.isFinite(targetThreat)) {
-        this.threatMeter = Math.min(34.9, Math.max(this.threatMeter, targetThreat));
+        this.setThreat(Math.min(34.9, Math.max(this.threatMeter, targetThreat)));
       }
     } else if (this.stage === CrisisStage.OUTBREAK) {
       // Outbreak: Safe threat scaling [35.0 .. 69.9]
@@ -194,7 +194,7 @@ export class PsychicCrisis extends BaseCrisis {
       const progress = Math.min(1.0, Math.max(0.0, this.stageElapsedMs / duration));
       const targetThreat = 35.0 + progress * 34.0;
       if (Number.isFinite(targetThreat)) {
-        this.threatMeter = Math.min(69.9, Math.max(35.0, targetThreat));
+        this.setThreat(Math.min(69.9, Math.max(35.0, targetThreat)));
       }
 
       this.phantomTimerMs += dt;
@@ -215,7 +215,7 @@ export class PsychicCrisis extends BaseCrisis {
       const progress = Math.min(1.0, Math.max(0.0, this.stageElapsedMs / duration));
       const targetThreat = 70.0 + progress * 29.0;
       if (Number.isFinite(targetThreat)) {
-        this.threatMeter = Math.min(100.0, Math.max(70.0, Math.max(this.threatMeter, targetThreat)));
+        this.setThreat(Math.min(100.0, Math.max(70.0, Math.max(this.threatMeter, targetThreat))));
       }
 
       this.pulseTimerMs += dt;
@@ -228,7 +228,9 @@ export class PsychicCrisis extends BaseCrisis {
 
     // Guard against NaN or infinite threat values
     if (!Number.isFinite(this.threatMeter) || Number.isNaN(this.threatMeter)) {
-      this.threatMeter = 10.0;
+      this.setThreat(10.0);
+    } else {
+      this.setThreat(this.threatMeter);
     }
   }
 
@@ -296,9 +298,9 @@ export class PsychicCrisis extends BaseCrisis {
     if (dispelled) {
       this.resolveObjective('resist_psionics');
       if (this.stage === CrisisStage.OUTBREAK) {
-        this.threatMeter = Math.max(35.0, this.threatMeter - 5);
+        this.setThreat(Math.max(35.0, this.threatMeter - 5));
       } else if (this.stage === CrisisStage.CLIMAX) {
-        this.threatMeter = Math.max(70.0, this.threatMeter - 5);
+        this.setThreat(Math.max(70.0, this.threatMeter - 5));
       }
       return true;
     }
@@ -374,7 +376,7 @@ export class PsychicCrisis extends BaseCrisis {
       this.resolveObjective('resist_psionics');
 
       // Safely damp threat
-      this.threatMeter = Math.max(0, this.threatMeter - 5);
+      this.setThreat(Math.max(0, this.threatMeter - 5));
     }
   }
 

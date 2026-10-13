@@ -106,6 +106,7 @@ import {
   RENDER_DEPTH,
   applyPhysicsBodyInvariantGuard,
   resolveEntitySeparation,
+  type SpatialSeparationOptions,
 } from './entities';
 
 export * from './entities';
@@ -136,6 +137,7 @@ import {
   QueenBeeBoss,
   MutantFloraBoss,
   SteamToyTitanBoss,
+  SteamToyTitanAudio,
   TelegraphEngine,
   BossHUD,
 } from './bosses/index.ts';
@@ -146,6 +148,7 @@ import {
   HazardType,
   SituationLog,
   PsychicCrisisAudio,
+  VoidCrisisAudio,
 } from './crises/index.ts';
 import {
   DynamicHazard,
@@ -308,7 +311,7 @@ import {
   HazardRenderer,
   type HazardRendererContext,
 } from './hazards/index.ts';
-import { PerkTreeManager, RelicManager, type RelicId, type AppliedPerkBonuses, type WaveMutator } from './progression/index.ts';
+import { PerkTreeManager, RelicManager, WaveDirector, type RelicId, type AppliedPerkBonuses, type WaveMutator } from './progression/index.ts';
 
 import { decompressGrid, compressGrid } from './persistence/GameStatePersistence.ts';
 import type {
@@ -481,6 +484,11 @@ export default class GameScene extends Phaser.Scene {
   private readonly scratchActiveEntities: BaseEntity[] = [];
   private readonly scratchActiveEnemies: BaseEntity[] = [];
   private readonly scratchActiveItems: Phaser.Physics.Arcade.Sprite[] = [];
+  private readonly scratchSeparationOptions: SpatialSeparationOptions = {
+    iterations: 1,
+    separationFactor: 0.4,
+    bounds: { minX: 20, maxX: 600 - 20, minY: 20, maxY: 500 },
+  };
 
   private getConveyorAt(row: number, col: number): ConveyorConfig | undefined {
     for (let i = 0; i < this.conveyors.length; i++) {
@@ -526,8 +534,9 @@ export default class GameScene extends Phaser.Scene {
   }
   private statsTimerAccumulator: number = 0;
 
-  // Crisis Subsystem Integration
+  // Crisis Subsystem & Progression Integration
   public crisisManager: CrisisManager = new CrisisManager();
+  public waveDirector: WaveDirector = new WaveDirector(this.crisisManager);
   public situationLog: SituationLog | null = null;
   public crisisGraphics: Phaser.GameObjects.Graphics | null = null;
   public hasRewardedActiveCrisis: boolean = false;
@@ -1183,6 +1192,13 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.stopCrisisMode();
+    if (this.waveDirector) {
+      if (typeof this.waveDirector.destroy === 'function') {
+        this.waveDirector.destroy();
+      } else {
+        this.waveDirector.reset();
+      }
+    }
     if (this.situationLog) {
       if (typeof this.situationLog.destroy === 'function') {
         this.situationLog.destroy();
@@ -1287,6 +1303,8 @@ export default class GameScene extends Phaser.Scene {
       this.abyssalHazardAudio = null as unknown as AbyssalHazardAudio;
     }
     PsychicCrisisAudio.resetInstance();
+    VoidCrisisAudio.resetInstance();
+    SteamToyTitanAudio.resetInstance();
     webAudioSynth.destroy();
     AudioVoicePool.resetInstance();
 
@@ -2338,6 +2356,7 @@ export default class GameScene extends Phaser.Scene {
     this.telegraphEngine = new TelegraphEngine(this.telegraphGraphics);
 
     // Initialize Crisis Subsystem Renderers & Bridge
+    this.crisisManager.setEventEmitter(this.game);
     this.situationLog = new SituationLog(this.game);
     this.crisisGraphics = this.add.graphics();
     this.crisisGraphics.setDepth(RENDER_DEPTH.CRISIS_HAZARDS);
@@ -2401,23 +2420,7 @@ export default class GameScene extends Phaser.Scene {
     const startX = 300;
     const startY = 260;
 
-    if (bossId === 'captain_nibbles' || bossId === 'boss_hamster_nibbles') {
-      this.activeBoss = new HamsterBoss(startX, startY);
-    } else if (bossId === 'queen_bee_cupcake' || bossId === 'boss_queen_bee') {
-      this.activeBoss = new QueenBeeBoss(startX, startY);
-    } else if (bossId === 'boss_mutant_flora' || bossId === 'mutant_flora' || bossId === 'verdant_terror') {
-      this.activeBoss = new MutantFloraBoss(startX, startY);
-    } else if (
-      bossId === 'steam_toy_titan' ||
-      bossId === 'boss_steam_toy_titan' ||
-      bossId === 'clockwork_titan' ||
-      bossId === 'clockwork_arch_inventor' ||
-      bossId === 'void_devourer_avatar'
-    ) {
-      this.activeBoss = new SteamToyTitanBoss(startX, startY);
-    } else {
-      this.activeBoss = new GummyBearBoss(startX, startY);
-    }
+    this.activeBoss = WaveDirector.createBoss(bossId, startX, startY);
 
     if (this.bossHUD) {
       this.bossHUD.initBoss(this.activeBoss.config.id as BossId, this.activeBoss.maxHp);
@@ -2908,7 +2911,7 @@ export default class GameScene extends Phaser.Scene {
             // Reverse velocity and direction for clean specular wall rebound
             dir.x = -dCol;
             dir.y = -dRow;
-            bomb.setData('slideDir', { x: dir.x, y: dir.y });
+            bomb.setData('slideDir', dir);
 
             // Clean tile snapping to safe boundary tile before reflection
             const safeCol = Math.max(0, Math.min(COLS - 1, stopCol));
@@ -3042,36 +3045,40 @@ export default class GameScene extends Phaser.Scene {
         const child = enemiesList[ei] as Phaser.GameObjects.GameObject;
         if (child && child.active) {
           if (child instanceof ChaserEnemy) {
+            const cb = ((child as unknown as { _dropBombCb?: (r: number, c: number, fuseMs?: number) => boolean })._dropBombCb ??= (r, c, fuseMs) => {
+              return this.placeEnemyBomb(child, r, c, child.bombPower, fuseMs);
+            });
             child.updateAI(
               delta,
               _time,
               this.isCloaked ? null : this.player,
               this.map,
               bombTiles,
-              (r, c, fuseMs) => {
-                return this.placeEnemyBomb(child, r, c, child.bombPower, fuseMs);
-              }
+              cb
             );
           } else if (child instanceof BomberEnemy) {
+            const cb = ((child as unknown as { _dropBombCb?: (r: number, c: number, fuseMs?: number) => boolean })._dropBombCb ??= (r, c, fuseMs) => {
+              return this.placeEnemyBomb(child, r, c, child.bombPower, fuseMs);
+            });
             child.updateAI(
               delta,
               _time,
               this.isCloaked ? null : this.player,
               this.map,
               bombTiles,
-              (r, c, fuseMs) => {
-                return this.placeEnemyBomb(child, r, c, child.bombPower, fuseMs);
-              }
+              cb
             );
           } else if (child instanceof TankEnemy) {
+            const destroyCb = ((child as unknown as { _destroyBlockCb?: (r: number, c: number) => void })._destroyBlockCb ??= (r, c) => this.destroyBlock(r, c));
+            const stompCb = ((child as unknown as { _stompSlowCb?: (slowPct: number, durationMs: number) => void })._stompSlowCb ??= (slowPct, durationMs) => this.applyStompSlow(slowPct, durationMs));
             child.updateAI(
               delta,
               _time,
               this.isCloaked ? null : this.player,
               this.map,
               bombTiles,
-              (r, c) => this.destroyBlock(r, c),
-              (slowPct, durationMs) => this.applyStompSlow(slowPct, durationMs)
+              destroyCb,
+              stompCb
             );
           } else if (child instanceof GhostEnemy) {
             child.updateAI(delta, _time, this.isCloaked ? null : this.player, this.map, bombTiles);
@@ -3135,9 +3142,10 @@ export default class GameScene extends Phaser.Scene {
           const child = alliesList[ai] as Phaser.GameObjects.GameObject;
           if (child && child.active) {
             if (child instanceof MiniBomberAlly) {
-              child.updateAI(delta, _time, this.player, this.map, bombTiles, (r, c, power) => {
+              const placeBombCb = ((child as unknown as { _placeBombCb?: (r: number, c: number, power: number) => boolean })._placeBombCb ??= (r, c, power) => {
                 return this.placeAllyBomb(child, r, c, power);
               });
+              child.updateAI(delta, _time, this.player, this.map, bombTiles, placeBombCb);
             } else if (child instanceof PetDroneAlly) {
               child.updateAI(delta, _time, this.player, activeItems, activeEnemies);
             } else if (child instanceof ShieldGuardAlly) {
@@ -3183,17 +3191,14 @@ export default class GameScene extends Phaser.Scene {
 
     // Physical spatial separation pass across active dynamic entities
     if (this.scratchActiveEntities.length > 1) {
-      resolveEntitySeparation(this.scratchActiveEntities, {
-        iterations: 1,
-        separationFactor: 0.4,
-        bounds: { minX: 20, maxX: 600 - 20, minY: 20, maxY: 500 },
-        map: this.map,
-      });
+      this.scratchSeparationOptions.map = this.map;
+      resolveEntitySeparation(this.scratchActiveEntities, this.scratchSeparationOptions);
     }
 
     if (this.overheadUIManager) {
       this.overheadUIManager.update(this.scratchActiveEntities, this.player, delta);
     }
+    this.scratchActiveEntities.length = 0;
 
     // 10c. Dynamic Hazard Environmental Vaporization for Enemies
     if (this.dynamicHazard && this.dynamicHazard.getState() === HazardLifecycleState.ACTIVE) {
@@ -3269,6 +3274,39 @@ export default class GameScene extends Phaser.Scene {
             const bCol = Math.floor(bomb.x / TILE_SIZE);
             const bRow = Math.floor(bomb.y / TILE_SIZE);
             this.explodeBomb(bomb, bRow, bCol);
+          }
+        }
+      }
+
+      // Steam Toy Titan: Mallet Slam Shockwave Radial Bomb Knockback & Player Hit
+      if (
+        this.activeBoss instanceof SteamToyTitanBoss &&
+        this.activeBoss.malletImpactActive
+      ) {
+        const titan = this.activeBoss as SteamToyTitanBoss;
+        // 1. Player shockwave damage check
+        if (!this.isInvulnerable && !this.isAegisOverdriveActive) {
+          const pHit = titan.evaluatePlayerMalletHit(this.player.x, this.player.y);
+          if (pHit.hit) {
+            this.playerDie();
+          }
+        }
+        // 2. Radial bomb knockback (slides up to 2 tiles outward respecting arena boundaries & walls)
+        for (let bi = 0; bi < bombsList.length; bi++) {
+          const bomb = bombsList[bi] as Phaser.Physics.Arcade.Sprite;
+          if (bomb && bomb.active && !bomb.getData('isSliding')) {
+            const bCol = Math.floor(bomb.x / TILE_SIZE);
+            const bRow = Math.floor(bomb.y / TILE_SIZE);
+            const kb = titan.checkBombKnockback(bomb.x, bomb.y, bCol, bRow, this.map);
+            if (kb.shouldKnockback && (kb.slideVx !== 0 || kb.slideVy !== 0)) {
+              bomb.setData('isSliding', true);
+              bomb.setData('slideSpeed', SteamToyTitanBoss.BOMB_KNOCKBACK_SPEED);
+              const dirX = Math.sign(kb.slideVx);
+              const dirY = Math.sign(kb.slideVy);
+              bomb.setData('slideDir', { x: dirX, y: dirY });
+              (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(false);
+              bomb.setVelocity(kb.slideVx, kb.slideVy);
+            }
           }
         }
       }
@@ -3507,12 +3545,31 @@ export default class GameScene extends Phaser.Scene {
         // Edge-triggered reward when crisis resolves
         if (activeCrisis.getStage() === CrisisStage.RESOLVED && !this.hasRewardedActiveCrisis) {
           this.hasRewardedActiveCrisis = true;
-          this.score += 5000;
-          this.starCandies = (this.starCandies || 0) + 35;
-          this.cosmicEssence = (this.cosmicEssence || 0) + 15;
-          this.spawnFloatingText(this.player.x, this.player.y - 25, '🌟 CRISIS STABILIZED! +5000 SCORE +35 CANDY +15 ESSENCE', '#38bdf8');
+          const currentCrisisType = activeCrisis.id;
+          const reward = this.crisisManager.getCrisisReward(currentCrisisType);
+          this.score += reward.scoreAwarded;
+          this.starCandies = (this.starCandies || 0) + reward.starCandies;
+          this.cosmicEssence = (this.cosmicEssence || 0) + reward.cosmicEssence;
+
+          // Award relic if not already discovered
+          if (this.relicManager && reward.relicReward) {
+            this.relicManager.discoverRelic(reward.relicReward);
+            if (this.relicManager.getEquippedRelics().length < 1) {
+              this.relicManager.equipRelic(reward.relicReward);
+            }
+          }
+
+          this.spawnFloatingText(
+            this.player.x,
+            this.player.y - 25,
+            `🌟 CRISIS STABILIZED! +${reward.scoreAwarded} SCORE +${reward.starCandies} CANDY +${reward.cosmicEssence} ESSENCE${reward.relicReward ? ' 🎁 RELIC: ' + reward.relicReward : ''}`,
+            '#38bdf8'
+          );
           if (this.game && this.game.events) {
-            this.game.events.emit('currency-reward', { starCandies: 35, cosmicEssence: 15 });
+            this.game.events.emit('currency-reward', { starCandies: reward.starCandies, cosmicEssence: reward.cosmicEssence });
+            if (reward.relicReward) {
+              this.game.events.emit('relic-awarded', { relicId: reward.relicReward, crisisType: currentCrisisType });
+            }
           }
           this.emitStatsUpdate();
         }
@@ -3902,6 +3959,23 @@ export default class GameScene extends Phaser.Scene {
         }
         case HazardType.PURIFICATION_PRISM: {
           const prismPulse = 0.8 + 0.2 * Math.sin(time / 150 + hazard.idx);
+
+          // 3x3 Safe Aura Zone when Prism is Charged (100% Charge / Intensity >= 1.0)
+          if ((hazard.data !== undefined && hazard.data >= 100) || hazard.intensity >= 1.0) {
+            const auraPulse = 0.75 + 0.25 * Math.sin(time / 200 + hazard.idx);
+            // Safe Aura floor fill (3 tiles x 3 tiles = 120x120px)
+            this.crisisGraphics.fillStyle(0x38bdf8, 0.12 * auraPulse);
+            this.crisisGraphics.fillRoundedRect(x - 60, y - 60, 120, 120, 12);
+
+            // Glowing sanctuary perimeter barrier
+            this.crisisGraphics.lineStyle(2, 0x00ffff, 0.65 * auraPulse);
+            this.crisisGraphics.strokeRoundedRect(x - 60, y - 60, 120, 120, 12);
+
+            // Shimmering inner sacred halo
+            this.crisisGraphics.lineStyle(1.5, 0xa855f7, 0.45 * auraPulse);
+            this.crisisGraphics.strokeCircle(x, y, 52 * auraPulse);
+          }
+
           this.crisisGraphics.fillStyle(0x00ffff, 0.25 * prismPulse);
           this.crisisGraphics.fillCircle(x, y, 24 * prismPulse);
 
@@ -4020,11 +4094,23 @@ export default class GameScene extends Phaser.Scene {
       this.crisisGraphics.fillStyle(0x2e1065, 0.9);
       this.crisisGraphics.fillCircle(ax, ay, 26);
 
-      this.crisisGraphics.lineStyle(3, 0xd946ef, 0.9);
-      this.crisisGraphics.strokeCircle(ax, ay, 26);
+      const hasShield = (activeCrisis as { avatarShieldActive?: boolean }).avatarShieldActive !== false;
+      if (hasShield) {
+        // Intact Iridescent Sugar Shield (impervious outer barrier)
+        this.crisisGraphics.lineStyle(2.5, 0x38bdf8, 0.9);
+        this.crisisGraphics.strokeCircle(ax, ay, 32 + 3 * Math.sin(time / 140));
 
-      this.crisisGraphics.lineStyle(2, 0x38bdf8, 0.85);
-      this.crisisGraphics.strokeCircle(ax, ay, 32 + 3 * Math.sin(time / 140));
+        this.crisisGraphics.lineStyle(1.5, 0x00ffff, 0.65);
+        this.crisisGraphics.strokeCircle(ax, ay, 36 + 2 * Math.cos(time / 180));
+      } else {
+        // Shattered Shield: Exposed vulnerable core with warning aura
+        const exposedPulse = 0.8 + 0.2 * Math.sin(time / 100);
+        this.crisisGraphics.fillStyle(0xf43f5e, 0.25 * exposedPulse);
+        this.crisisGraphics.fillCircle(ax, ay, 34 * exposedPulse);
+
+        this.crisisGraphics.lineStyle(2, 0xf43f5e, 0.9);
+        this.crisisGraphics.strokeCircle(ax, ay, 28);
+      }
     }
   }
 

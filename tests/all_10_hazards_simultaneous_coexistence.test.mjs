@@ -319,6 +319,18 @@ test('Tier 5 [10,000-Frame Long-Running Soak Test]: 10,000 continuous frames of 
   const dt = 16.666; // 60 FPS
   const totalFrames = 10000;
 
+  // Warmup run for JIT stabilization
+  for (let w = 0; w < 200; w++) {
+    for (let h = 0; h < all.length; h++) all[h].update(dt);
+  }
+
+  const isGcExposed = typeof global.gc === 'function';
+  if (isGcExposed) {
+    global.gc();
+    global.gc();
+  }
+  const initialHeap = process.memoryUsage().heapUsed;
+
   const minObservedRatios = new Array(10).fill(1.0);
   let minObservedComposite = 1.0;
 
@@ -356,17 +368,42 @@ test('Tier 5 [10,000-Frame Long-Running Soak Test]: 10,000 continuous frames of 
         compRatio >= MIN_SAFE_AREA_INVARIANT,
         `Frame ${frame}: Composite safe ratio ${compRatio} < 0.80`
       );
+      assert.ok(
+        compRatio >= 0.40,
+        `Frame ${frame}: Composite safe ratio ${compRatio} must be >= 0.40 (40%)`
+      );
     }
   }
 
   const durationMs = performance.now() - startTime;
   const usPerFrame = (durationMs / totalFrames) * 1000;
 
+  if (isGcExposed) {
+    global.gc();
+    global.gc();
+  }
+  const finalHeap = process.memoryUsage().heapUsed;
+  const driftMB = (finalHeap - initialHeap) / (1024 * 1024);
+
   // Assert minimum observed bounds for all 10 hazards
   for (let h = 0; h < 10; h++) {
     assert.ok(minObservedRatios[h] >= MIN_SAFE_AREA_INVARIANT, `Hazard ${h} min observed ratio >= 0.80`);
   }
   assert.ok(minObservedComposite >= MIN_SAFE_AREA_INVARIANT, 'Composite min >= 0.80');
+  assert.ok(minObservedComposite >= 0.40, 'Composite safe area ratio must be >= 0.40');
+
+  // Strict Zero-GC memory drift invariant: <= 0.25 MB under explicit GC, < 5.0 MB under ambient GC
+  if (isGcExposed) {
+    assert.ok(
+      driftMB <= 0.25,
+      `Zero-GC Violation: 10,000-frame heap drift was ${driftMB.toFixed(4)} MB (budget <= 0.25 MB)`
+    );
+  } else {
+    assert.ok(
+      driftMB < 5.0,
+      `Ambient memory drift was ${driftMB.toFixed(4)} MB (budget < 5.0 MB)`
+    );
+  }
 
   // Performance budget: < 250 µs per frame across all 10 simultaneous hazards
   assert.ok(
@@ -648,4 +685,132 @@ test('Tier 10 [Distributed Epicenter Multi-Sector Sweep]: Safe area >= 80% with 
       `Distributed hazard ${h} ratio ${ratio} must be >= 0.80`
     );
   }
+});
+
+test('Tier 11 [ChaosQA-6 Multi-Hazard Coexistence Soak Bot]: 2,000+ continuous frames across all 10 simultaneous hazards verify Zero-GC growth and composite safe area ratio >= 40%', () => {
+  const { dynamic, gravity, frost, volt, magma, miasma, chrono, solar, nebula, abyssal, all } = instantiateAll10Hazards();
+
+  // Multi-sector clustered epicenters representing realistic chaotic coexistence:
+  // North sector: Gravity, Frost, Volt
+  gravity.setCenter(4, 5);
+  frost.setCenter(4, 5);
+  volt.setCenter(4, 5);
+
+  // South sector: Magma, Miasma, Chrono
+  magma.setCenter(8, 9);
+  miasma.setCenter(8, 9);
+  chrono.setCenter(8, 9);
+
+  // Center arena: Solar, Nebula, Abyssal
+  solar.setCenter(6, 7);
+  nebula.setCenter(6, 7);
+  abyssal.setCenter(6, 7);
+
+  // Activate all 10 hazards simultaneously
+  dynamic.start('OUTBREAK');
+  gravity.start();
+  frost.start();
+  volt.start();
+  magma.start();
+  miasma.start();
+  chrono.start('NORMAL', 8, 9);
+  solar.start('NORMAL', 6, 7);
+  nebula.start('NORMAL', 6, 7);
+  abyssal.start('NORMAL', 6, 7);
+
+  const dt = 16.666;
+  const totalFrames = 2000; // 2,000 frames (exceeding 1,000+ frames requirement)
+
+  // Warmup 200 frames for JIT stabilization
+  for (let w = 0; w < 200; w++) {
+    for (let h = 0; h < all.length; h++) all[h].update(dt);
+  }
+
+  const isGcExposed = typeof global.gc === 'function';
+  if (isGcExposed) {
+    global.gc();
+    global.gc();
+  }
+  const initialHeap = process.memoryUsage().heapUsed;
+
+  let minObservedComposite = 1.0;
+  const minIndividualRatios = new Array(10).fill(1.0);
+
+  const startTime = performance.now();
+
+  for (let frame = 0; frame < totalFrames; frame++) {
+    // 1. All 10 hazards update simultaneously every frame
+    dynamic.update(dt);
+    gravity.update(dt);
+    frost.update(dt);
+    volt.update(dt);
+    magma.update(dt);
+    miasma.update(dt);
+    chrono.update(dt);
+    solar.update(dt);
+    nebula.update(dt);
+    abyssal.update(dt);
+
+    // 2. Verify individual safe area ratios (each hazard must satisfy >= 80%)
+    for (let h = 0; h < all.length; h++) {
+      const r = all[h].getSafeAreaRatio();
+      if (r < minIndividualRatios[h]) minIndividualRatios[h] = r;
+      assert.ok(r >= MIN_SAFE_AREA_INVARIANT, `Frame ${frame}: Hazard ${h} safe area ratio ${r} < 0.80`);
+      assert.ok(Number.isFinite(r), `Frame ${frame}: Hazard ${h} safe area ratio is not finite`);
+    }
+
+    // 3. Verify composite safe area ratio across all 10 hazards >= 40%
+    if (frame % 5 === 0) {
+      const compositeRatio = calculateCompositeSafeAreaRatio(all);
+      if (compositeRatio < minObservedComposite) minObservedComposite = compositeRatio;
+      assert.ok(
+        compositeRatio >= 0.40,
+        `Frame ${frame}: Composite safe area ratio ${compositeRatio} must be >= 0.40 (40%)`
+      );
+    }
+  }
+
+  const durationMs = performance.now() - startTime;
+  const usPerFrame = (durationMs / totalFrames) * 1000;
+
+  if (isGcExposed) {
+    global.gc();
+    global.gc();
+  }
+  const finalHeap = process.memoryUsage().heapUsed;
+  const driftMB = (finalHeap - initialHeap) / (1024 * 1024);
+
+  // Assertions:
+  // 1. Safe area ratio >= 40% across all 2,000 frames
+  assert.ok(
+    minObservedComposite >= 0.40,
+    `Min observed composite safe area ratio ${(minObservedComposite * 100).toFixed(2)}% must be >= 40%`
+  );
+
+  // 2. All individual hazards preserved >= 80% safe area
+  for (let h = 0; h < 10; h++) {
+    assert.ok(
+      minIndividualRatios[h] >= MIN_SAFE_AREA_INVARIANT,
+      `Hazard ${h} min individual ratio ${minIndividualRatios[h]} must be >= 0.80`
+    );
+  }
+
+  // 3. Zero GC growth verification
+  if (isGcExposed) {
+    assert.ok(
+      driftMB <= 0.25,
+      `Zero-GC Violation: 2,000-frame heap drift was ${driftMB.toFixed(4)} MB (threshold <= 0.25 MB)`
+    );
+  } else {
+    assert.ok(
+      driftMB < 5.0,
+      `Ambient memory drift was ${driftMB.toFixed(4)} MB (threshold < 5.0 MB)`
+    );
+  }
+
+  // 4. Performance throughput budget
+  assert.ok(
+    usPerFrame < 250,
+    `2,000 frames took ${durationMs.toFixed(2)} ms (${usPerFrame.toFixed(2)} µs/frame, budget < 250 µs)`
+  );
 });

@@ -476,6 +476,8 @@ export class NebulaHazardAudio {
     endFilterFreq: number = 65,
     q: number = 3.5
   ): void {
+    // Mathematical defense against subnormal floats (1e-323): flush to zero & early return
+    if (typeof durationSec === 'number' && Math.abs(durationSec) < 1e-8) return;
     const ctx = NebulaHazardAudio.getAudioContext();
     if (!ctx || ctx.state === 'closed') return;
 
@@ -485,14 +487,23 @@ export class NebulaHazardAudio {
     let sourceNode: AudioBufferSourceNode | null = null;
     let filterNode: BiquadFilterNode | null = null;
     let gainNode: GainNode | null = null;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
 
     let isCleanedUp = false;
     const cleanup = () => {
       if (isCleanedUp) return;
       isCleanedUp = true;
+      if (timerId !== null) {
+        clearTimeout(timerId);
+        NebulaHazardAudio.activeTimers.delete(timerId);
+        timerId = null;
+      }
       try {
         if (sourceNode) {
           sourceNode.onended = null;
+          try {
+            if (typeof sourceNode.stop === 'function') sourceNode.stop();
+          } catch {}
           sourceNode.disconnect();
         }
         if (filterNode) filterNode.disconnect();
@@ -533,7 +544,10 @@ export class NebulaHazardAudio {
       sourceNode.start(now);
       sourceNode.stop(now + durationSec + 0.05);
 
-      const timerId = setTimeout(cleanup, Math.ceil((durationSec + 0.1) * 1000));
+      timerId = setTimeout(() => {
+        if (timerId !== null) NebulaHazardAudio.activeTimers.delete(timerId);
+        cleanup();
+      }, Math.ceil((durationSec + 0.1) * 1000));
       NebulaHazardAudio.activeTimers.add(timerId);
     } catch {
       cleanup();
@@ -552,6 +566,9 @@ export class NebulaHazardAudio {
 
     for (const node of NebulaHazardAudio.pendingNodes) {
       try {
+        if ('stop' in node && typeof (node as AudioScheduledSourceNode).stop === 'function') {
+          (node as AudioScheduledSourceNode).stop();
+        }
         node.disconnect();
       } catch {
         // Safe ignore

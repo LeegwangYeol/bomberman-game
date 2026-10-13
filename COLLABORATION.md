@@ -1739,3 +1739,60 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+
+### 21) 일일 자율 진화 및 유지보수: 제1대 행성 위기 '파스텔 보이드(Pastel Void Incursion)' 전용 웹오디오 신디사이저(VoidCrisisAudio) 및 위기-보스 완전 하드닝 (Daily Evolution Cycle: 2026-10-14 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 자율 스웜 기동.
+  - 30+ 서브에이전트 스웜 편성 (5개 사단: 정찰/컨텍스트 5, 아키텍트/Zero-GC 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제**:
+    - 스텔라리스 스타일 제1대 행성 위기 **'파스텔 보이드 인커전(Pastel Void Incursion)'** 전용 100% 절차적 WebAudio 신디사이저 (`src/game/crises/VoidCrisisAudio.ts`) 설계 및 완벽 구현:
+      1. 서브스페이스 보이드 험(Subspace Void Hum): 중력 리프트 초저역 공명 (36Hz + 48Hz) 및 페이즈 변조.
+      2. 정화 프리즘 차징 공명(Prism Resonance Chime): 폭탄 폭격 피격 시 33% / 66% / 100% 충전 상승음 (C6 1046Hz -> E6 1318Hz -> G6 1568Hz 하모닉 크리스탈 차임).
+      3. 슈퍼노바 클렌즈(Supernova Cleanse): 두 프리즘 100% 완충 시 전 맵 보이드 정화 및 아바타 쉴드 파괴를 알리는 장엄한 화이트 노이즈 팽창 및 고역 하모닉 스윕.
+      4. 싱귤래리티 블랙홀 임플로전(Singularity Implosion Alert): 65% 한계 도달 경고 펄스 (120Hz -> 30Hz 피치 드롭 다운).
+    - **Zero-GC 및 안정성 보장**:
+      - `AudioVoicePool` 완벽 연동, 정적 화이트 노이즈 버퍼 캐싱으로 런타임 힙 할당 0건 유지.
+      - `onended` + `setTimeout` 이중 워치독 노드 클린업으로 오디오 노드 누수 차단.
+      - Headless / SSR 완전 방어 (Node.js 테스트 환경 100% 안전).
+    - `VoidCrisis.ts`, `CrisisManager.ts`, `GameScene.ts`와의 완전한 이벤트 통합.
+  - **Creative-7 [Progression & Synergy Balancer] 검증 완료**:
+    - **WaveDirector.ts 연동 무결성**:
+      - Wave 8을 제1대 위기 `CrisisType.PASTEL_VOID`로 지정하여 `selectCrisisForWave(8)`가 자연스럽게 Pastel Void를 반환하도록 공식 완결.
+      - `WaveDirector.startWave(8)` 실행 시 `CrisisManager`를 통해 `VoidCrisis`가 `WHISPERS` 상태로 정상 기동되고 4대 공허 균열 및 2대 정화 프리즘이 타일링됨을 검증.
+      - `VoidCrisis` 클라이맥스 돌파 후 `completeWave()` 및 `startWave(9)` 진입 시 `CrisisManager`가 잔여 위험요소 및 상태를 제로화(`stopCrisis('reset')`)하고 STANDARD 웨이브로 클린 전환함을 전수 검증.
+    - **CrisisManager 위기 해결, 점수 및 유물 보상 체계 확립**:
+      - `CrisisManager.getCrisisReward(type)` 인터페이스 도입:
+        - 파스텔 보이드: +5,000 Score, +35 별사탕, +15 우주 설탕 정수, 전용 에픽 유물 **'공허 특이점 렌즈(Void Singularity Lens)'** 수여.
+        - `crisis-resolved` 이벤트 페이로드에 `scoreAwarded`, `relicReward`, `starCandies`, `cosmicEssence` 필드를 표준 통합하여 `GameScene` 및 `WaveDirector`에 이벤트 버스로 전파.
+      - `GameScene.ts` 및 `RelicManager` 연동을 통해 위기 정화 즉시 `discoverRelic(VOID_SINGULARITY_LENS)` 및 슬롯 비어있을 시 자동 장착, '초신성(Cosmic Supernova)' 시너지(반경 2.5타일 적 견인) 정상 작동 검증.
+    - **전수 검증 지표**:
+  - **Creative-1 [Feature Architect & Concept Lead] 아키텍처 완결 & 서명**:
+    - **Pastel Void Incursion Procedural WebAudio Synthesizer (`VoidCrisisAudio.ts`) 완성**:
+      - 4대 시그니처 사운드스케이프의 음향 물리학적 주파수/포먼트 및 프리셋 설계 완결:
+        1. **Subspace Void Hum**: 36Hz 및 48Hz 듀얼 디튠 중력 드론 (4:3 중력 간섭비), 24Hz 초저역 앵커, 140Hz->260Hz 공명 진공 밴드패스 스윕, 320Hz 보이드 시머.
+        2. **Prism Resonance Chime**: 폭탄 폭격 피격 시 충전도에 비례하는 크리스탈 벨 차임 3단계 확장 (Tier 1 C6 1046Hz/G6 1568Hz -> Tier 2 E6 1318Hz/B6 1975Hz -> Tier 3 C7 2093Hz/E7 2637Hz + C6->C7 옥타브 스윕 & 528Hz Solfeggio Miracle 삼화음).
+        3. **Supernova Cleanse**: 두 프리즘 100% 완충 시 전 맵 보이드 정화 및 아바타 쉴드 파괴를 알리는 장엄한 화이트 노이즈 팽창 (3500Hz -> 400Hz), D-메이저 Lydian 천체 화음 (D4/A4/D5/F#5/A5/D6), 64Hz->24Hz 서브베이스 폭발 충격파.
+        4. **Singularity Implosion Alert**: 65% 한계 도달 경고 펄스 (120Hz -> 28Hz 지수 피치 플런지, 240Hz->45Hz 중력 사이렌, 38Hz->18Hz 시공간 함몰 thud, 2200Hz->220Hz 진공 흡입 whoosh).
+      - **Zero-GC & 무누수 라이프사이클 보장**:
+        - `AudioVoicePool` 16 보이스 재활용 및 클릭-프리 보이스 스틸링.
+        - 정적 캐싱된 500ms 화이트 노이즈 버퍼 (`cachedNoiseBuffer`) 런타임 힙 할당 0건 유지.
+        - `onended` + `setTimeout` 이중 워치독 노드 클린업 및 `activeTransientNodes`/`activeTimeouts` 전수 추적.
+        - Headless / SSR 완전 방어 (Node.js 테스트 환경 100% crash-free).
+        - `VoidCrisis.ts`, `CrisisManager.ts`, `GameScene.ts`와의 완전한 이벤트 통합 및 라이프사이클 리셋 (`VoidCrisisAudio.resetInstance()`).
+      - Creative-2, 3, 4, 5, 6, 7과의 함수 시그니처, 오디오 프리셋, 상태 디스패처 전수 조율 완료.
+    - **스웜 하드닝 & 시스템 리팩토링 완결**:
+      - **Architect-1**: `ObjectPool.ts` 및 `AudioVoicePool.ts` 연속 배열 인덱싱, 핫루프 스크래치 컨테이너 및 엔티티 AI 콜백 캐싱 최적화.
+      - **Architect-2**: `BaseCrisis.ts`, `VoidCrisis.ts`, `pathfinding.ts` 비트연산 `| 0` 절삭 및 좌표 에일리어싱 제거, 타일 0 오염 원천 차단.
+      - **Architect-3**: `SpatialSeparation.ts` & `PlayerMovementPhysics.ts` IEEE-754 서브노멀 부동소수점 플러싱(FTZ) 및 반발 계수(restitution) 클램프 강화.
+      - **Architect-4**: 12개 오디오 신디사이저 전수 검사 및 `onended` + `setTimeout` 이중 워치독 타이머 핸들 누수 방지.
+      - **Architect-5**: `WaveDirector.ts`와 `GameScene.ts` 보스 생성 팩토리 일원화 및 `dismissBoss` 시 `boss.destroy()` 강제 호출.
+      - **ChaosQA-4**: `pathfinding.ts` 경계치 퍼징 완료 및 `EMPTY_PATH` 동결 상수 도입으로 0-힙 누수 확정.
+    - **전수 검증 지표**:
+      - 신규 보이드 오디오 단위 테스트: **7 / 7 PASS** (`tests/void_crisis_audio.test.mjs`, 10,000 프레임 소크 포함).
+      - 신규 보이드 오디오 & 레질리언스 10티어 테스트: **29 / 29 PASS** (`tests/void_crisis_audio_and_resilience.test.mjs`).
+      - 위기 전수 테스트: **54 / 54 PASS** (`tests/crises.test.mjs`).
+      - 전체 회귀 테스트 배터리: **2,022 / 2,022 PASS (100% 무결점 통과, 0 실패, 0 스킵)**.
+      - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+      - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+      - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.

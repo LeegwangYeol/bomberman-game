@@ -19,7 +19,16 @@ import type {
 } from './CrisisTypes.ts';
 import type { IGameEventEmitter } from './SituationLog.ts';
 export type { IGameEventEmitter };
+import { RelicId } from '../progression/ProgressionTypes.ts';
 import { VoidCrisis } from './VoidCrisis.ts';
+
+export interface CrisisResolutionReward {
+  crisisType: CrisisType;
+  scoreAwarded: number;
+  relicReward: RelicId;
+  starCandies: number;
+  cosmicEssence: number;
+}
 import { ClockworkCrisis } from './ClockworkCrisis.ts';
 import { OrbitalCrisis } from './OrbitalCrisis.ts';
 import { SolarFlareCrisis } from './SolarFlareCrisis.ts';
@@ -120,6 +129,15 @@ export class CrisisManager {
     return this;
   }
 
+  public removeAllListeners(event?: string): this {
+    if (event) {
+      this.listeners.delete(event);
+    } else {
+      this.listeners.clear();
+    }
+    return this;
+  }
+
   public emit(event: string, payload?: unknown): void {
     const set = this.listeners.get(event);
     if (set) {
@@ -185,9 +203,14 @@ export class CrisisManager {
       if (!this.hasCountedResolution) {
         this.totalCrisesResolved++;
         this.hasCountedResolution = true;
+        const reward = status.crisisType ? this.getCrisisReward(status.crisisType) : null;
         this.emit('crisis-resolved', {
           crisisType: status.crisisType,
           totalCrisesResolved: this.totalCrisesResolved,
+          scoreAwarded: reward?.scoreAwarded ?? 5000,
+          relicReward: reward?.relicReward ?? RelicId.VOID_SINGULARITY_LENS,
+          starCandies: reward?.starCandies ?? 35,
+          cosmicEssence: reward?.cosmicEssence ?? 15,
         });
       }
     } else if (status.isDefeated && status.stage === CrisisStage.FAILED) {
@@ -255,6 +278,44 @@ export class CrisisManager {
     return this.activeCrisis ? this.activeCrisis.getThreat() : 0;
   }
 
+  public getThreat(): number {
+    return this.getThreatMeter();
+  }
+
+  public setThreat(value: number): void {
+    if (this.activeCrisis) {
+      if (typeof this.activeCrisis.setThreat === 'function') {
+        this.activeCrisis.setThreat(value);
+      }
+      const newThreat = this.getThreatMeter();
+      this.emit('crisis-threat-changed', {
+        crisisType: this.activeCrisis.id,
+        threatMeter: newThreat,
+      });
+    }
+  }
+
+  public setThreatMeter(value: number): void {
+    this.setThreat(value);
+  }
+
+  public adjustThreat(delta: number): void {
+    if (this.activeCrisis) {
+      if (typeof this.activeCrisis.adjustThreat === 'function') {
+        this.activeCrisis.adjustThreat(delta);
+      }
+      const newThreat = this.getThreatMeter();
+      this.emit('crisis-threat-changed', {
+        crisisType: this.activeCrisis.id,
+        threatMeter: newThreat,
+      });
+    }
+  }
+
+  public adjustThreatMeter(delta: number): void {
+    this.adjustThreat(delta);
+  }
+
   public getRegisteredCrisisTypes(): CrisisType[] {
     return Array.from(this.crisesRegistry.keys());
   }
@@ -282,6 +343,22 @@ export class CrisisManager {
     return this.totalCrisesResolved;
   }
 
+  public getCrisisReward(type: CrisisType): CrisisResolutionReward {
+    let relic: RelicId = RelicId.VOID_SINGULARITY_LENS;
+    if (type === CrisisType.CLOCKWORK_REBELLION) relic = RelicId.CLOCKWORK_SPRING;
+    else if (type === CrisisType.SOLAR_FLARES) relic = RelicId.SOLAR_CAPACITOR;
+    else if (type === CrisisType.CREEPING_LAVA) relic = RelicId.PYROCLASTIC_PRISM;
+    else if (type === CrisisType.PASTEL_VOID) relic = RelicId.VOID_SINGULARITY_LENS;
+
+    return {
+      crisisType: type,
+      scoreAwarded: 5000,
+      relicReward: relic,
+      starCandies: 35,
+      cosmicEssence: 15,
+    };
+  }
+
   public resolveCrisis(victoryMessage?: string): void {
     if (this.activeCrisis) {
       const type = this.activeCrisis.id;
@@ -289,9 +366,14 @@ export class CrisisManager {
       if (!this.hasCountedResolution) {
         this.totalCrisesResolved++;
         this.hasCountedResolution = true;
+        const reward = this.getCrisisReward(type);
         this.emit('crisis-resolved', {
           crisisType: type,
           totalCrisesResolved: this.totalCrisesResolved,
+          scoreAwarded: reward.scoreAwarded,
+          relicReward: reward.relicReward,
+          starCandies: reward.starCandies,
+          cosmicEssence: reward.cosmicEssence,
         });
       }
     }
@@ -306,9 +388,14 @@ export class CrisisManager {
       if (!this.hasCountedResolution) {
         this.totalCrisesResolved++;
         this.hasCountedResolution = true;
+        const reward = this.getCrisisReward(type);
         this.emit('crisis-resolved', {
           crisisType: type,
           totalCrisesResolved: this.totalCrisesResolved,
+          scoreAwarded: reward.scoreAwarded,
+          relicReward: reward.relicReward,
+          starCandies: reward.starCandies,
+          cosmicEssence: reward.cosmicEssence,
         });
       }
     } else if (result === 'failed') {
@@ -462,7 +549,9 @@ export class CrisisManager {
     s.themeColor = this.activeCrisis.themeColor;
     s.stage = status.stage;
     s.stageName = STAGE_NAMES[status.stage] || status.stage;
-    s.threatLevel = Math.round(status.threatMeter);
+    s.threatLevel = typeof status.threatMeter === 'number' && Number.isFinite(status.threatMeter)
+      ? Math.round(status.threatMeter)
+      : 0;
     s.threatTrend = status.threatTrend;
     s.stageRemainingMs = status.stageRemainingMs;
     s.totalDurationMs = status.stageDurationMs;

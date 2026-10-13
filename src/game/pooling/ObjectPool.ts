@@ -325,6 +325,7 @@ export class ObjectPool<T> {
           } catch {}
         }
       }
+      this.storage[i] = null as unknown as T;
     }
     this.storage.length = 0;
     this.freeHead = 0;

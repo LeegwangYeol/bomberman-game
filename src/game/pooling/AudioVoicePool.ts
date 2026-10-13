@@ -90,6 +90,16 @@ export class AudioVoice {
     const duration = Math.max(0.01, Number.isFinite(params.duration) ? params.duration : 0.1);
     const wasActive = this.isBusy && Number.isFinite(this.endTime) && now < this.endTime;
 
+    // Subnormal float protection for gain: flush near-zero or subnormal float (< 1e-15, e.g. 1e-323) to 0
+    let reqGain = params.gain !== undefined && Number.isFinite(params.gain) ? params.gain : 0.3;
+    if (Math.abs(reqGain) < 1e-15) {
+      reqGain = 0;
+    }
+    if (reqGain === 0) {
+      this.forceSilence(ctx);
+      return;
+    }
+
     // Cancel all scheduled parameter automations from previous sounds & unhook modulators
     this.detachAllModulators();
     this.gain.gain.cancelScheduledValues(now);
@@ -101,16 +111,23 @@ export class AudioVoice {
     if (params.type) {
       this.osc.type = params.type;
     }
-    const baseFreq = Number.isFinite(params.frequency) ? Math.max(10, params.frequency) : 440;
+    const rawFreq = Number.isFinite(params.frequency) ? params.frequency : 440;
+    const baseFreq = Math.abs(rawFreq) < 1e-15 ? 10 : Math.max(10, rawFreq);
     this.osc.frequency.setValueAtTime(baseFreq, now);
 
-    if (params.frequencyRamp && Number.isFinite(params.frequencyRamp.target) && Number.isFinite(params.frequencyRamp.duration) && params.frequencyRamp.duration > 0) {
-      const rampEnd = now + params.frequencyRamp.duration;
+    if (params.frequencyRamp && Number.isFinite(params.frequencyRamp.target) && Number.isFinite(params.frequencyRamp.duration)) {
+      const rawDur = params.frequencyRamp.duration;
       const targetFreq = Math.max(10, params.frequencyRamp.target);
-      if (params.frequencyRamp.exponential) {
-        this.osc.frequency.exponentialRampToValueAtTime(targetFreq, rampEnd);
+      // Catastrophic cancellation guard: subnormal duration (< 1e-4s, e.g. 1e-323) flushes to immediate setValueAtTime
+      if (rawDur <= 1e-4) {
+        this.osc.frequency.setValueAtTime(targetFreq, now);
       } else {
-        this.osc.frequency.linearRampToValueAtTime(targetFreq, rampEnd);
+        const rampEnd = now + rawDur;
+        if (params.frequencyRamp.exponential) {
+          this.osc.frequency.exponentialRampToValueAtTime(targetFreq, rampEnd);
+        } else {
+          this.osc.frequency.linearRampToValueAtTime(targetFreq, rampEnd);
+        }
       }
     }
 
@@ -124,11 +141,15 @@ export class AudioVoice {
         this.filter.Q.setValueAtTime(1.0, now);
       }
       if (params.filter.rampTarget !== undefined && params.filter.rampDuration !== undefined &&
-          Number.isFinite(params.filter.rampTarget) && Number.isFinite(params.filter.rampDuration) && params.filter.rampDuration > 0) {
-        this.filter.frequency.exponentialRampToValueAtTime(
-          Math.max(10, params.filter.rampTarget),
-          now + params.filter.rampDuration
-        );
+          Number.isFinite(params.filter.rampTarget) && Number.isFinite(params.filter.rampDuration)) {
+        const targetRamp = Math.max(10, params.filter.rampTarget);
+        const fRampDur = params.filter.rampDuration;
+        // Catastrophic cancellation guard for filter ramp
+        if (fRampDur <= 1e-4) {
+          this.filter.frequency.setValueAtTime(targetRamp, now);
+        } else {
+          this.filter.frequency.exponentialRampToValueAtTime(targetRamp, now + fRampDur);
+        }
       }
     } else {
       this.filter.type = 'allpass';
@@ -137,7 +158,7 @@ export class AudioVoice {
     }
 
     // 3. Gain Envelope with click-free preemption de-zippering
-    const peakGain = Number.isFinite(params.gain) ? Math.max(0.0001, Math.min(1.0, params.gain!)) : 0.3;
+    const peakGain = Math.max(0.0001, Math.min(1.0, reqGain));
     const attack = (params.attackTime && Number.isFinite(params.attackTime)) ? Math.max(0.001, params.attackTime) : 0.005;
 
     if (wasActive) {
@@ -154,12 +175,13 @@ export class AudioVoice {
     const attackEnd = now + (wasActive ? 0.002 + attack : attack);
     const totalEnd = now + duration;
 
-    if (params.decayTime && Number.isFinite(params.decayTime) && params.decayTime > 0 &&
+    if (params.decayTime && Number.isFinite(params.decayTime) && params.decayTime > 1e-4 &&
         params.sustainLevel !== undefined && Number.isFinite(params.sustainLevel)) {
       const decayEnd = attackEnd + params.decayTime;
-      const sustainGain = Math.max(0.0001, peakGain * params.sustainLevel);
+      const sustainGain = Math.max(0.0001, peakGain * Math.max(0, params.sustainLevel));
       this.gain.gain.linearRampToValueAtTime(sustainGain, decayEnd);
-      const release = (params.releaseTime && Number.isFinite(params.releaseTime) && params.releaseTime > 0) ? params.releaseTime : 0.05;
+      const rawRelease = (params.releaseTime && Number.isFinite(params.releaseTime) && params.releaseTime > 0) ? params.releaseTime : 0.05;
+      const release = rawRelease <= 1e-4 ? 0.001 : rawRelease;
       const releaseStart = Math.max(decayEnd, totalEnd - release);
       this.gain.gain.setValueAtTime(sustainGain, releaseStart);
     }
@@ -325,7 +347,8 @@ export class AudioVoicePool {
     let minRemaining = Infinity;
     let maxRemaining = -Infinity;
     for (let i = 0; i < this.voices.length; i++) {
-      const r = Math.max(0, this.voices[i].endTime - now);
+      const rRaw = this.voices[i].endTime - now;
+      const r = Math.abs(rRaw) < 1e-15 || rRaw < 0 ? 0 : rRaw;
       if (r < minRemaining) minRemaining = r;
       if (r > maxRemaining) maxRemaining = r;
     }
@@ -335,7 +358,8 @@ export class AudioVoicePool {
       let minR = Infinity;
       let minSeq = Infinity;
       for (let i = 0; i < this.voices.length; i++) {
-        const r = Math.max(0, this.voices[i].endTime - now);
+        const rRaw = this.voices[i].endTime - now;
+        const r = Math.abs(rRaw) < 1e-15 || rRaw < 0 ? 0 : rRaw;
         if (r < minR - 0.01) {
           minR = r;
           minSeq = this.voices[i].allocSeq;
@@ -364,6 +388,10 @@ export class AudioVoicePool {
 
   public playTone(params: AudioVoiceToneParams): AudioVoice | null {
     if (!this.ctx) return null;
+    // Subnormal float protection: flush subnormal gain (< 1e-15, e.g. 1e-323) to 0 and skip allocation
+    if (params.gain !== undefined && Number.isFinite(params.gain) && Math.abs(params.gain) < 1e-15) {
+      return null;
+    }
     const voice = this.acquireVoice();
     if (!voice) return null;
     voice.play(params, this.ctx);

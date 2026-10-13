@@ -25,10 +25,17 @@ import {
   findEscapePathBFS,
   findTargetBlockBFS,
   findDemolitionPath,
+  findPathWithDemolition,
   canSafelyPlaceBomb,
   getSafeBombEscapePath,
+  getBlastTiles,
   isTileInBlastRange,
   isTileInHazardMask,
+  isTileLethalInHazardMask,
+  getSafeDemolitionApproaches,
+  findCorneringBombTile,
+  findOffensiveBombTile,
+  EMPTY_PATH,
 } from '../../src/game/pathfinding.ts';
 
 import {
@@ -655,3 +662,242 @@ test('Audit Suite 3: Tactical bomb hooks return recycled scratch instances witho
   assert.strictEqual(mh.onBombDetonated('b1', 6, 7, 2), mh.onBombDetonated('b1', 6, 7, 2));
   assert.strictEqual(mh.onBombBlastImpact(6, 7), mh.onBombBlastImpact(6, 7));
 });
+
+/* ==============================================================================
+ * SUITE 4: PATHFINDING BOUNDARY FUZZER & ZERO-GC AUDIT
+ * ============================================================================== */
+
+test('Audit Suite 4.1: coordToIdx, idxToRow, idxToCol safely reject out-of-bounds, negative, NaN, Infinity, float, and aliased coordinates', () => {
+  // 1. coordToIdx aliasing and bounds rejection
+  assert.equal(coordToIdx(-1, 15), -1, '(-1, 15) must not alias to 0');
+  assert.equal(coordToIdx(13, -15), -1, '(13, -15) must not alias to 180');
+  assert.equal(coordToIdx(5, 15), -1, '(5, 15) must not alias to 90');
+  assert.equal(coordToIdx(-2, 30), -1, '(-2, 30) must not alias to 0');
+
+  // Negative bounds
+  assert.equal(coordToIdx(-1, 0), -1);
+  assert.equal(coordToIdx(0, -1), -1);
+  assert.equal(coordToIdx(-100, -100), -1);
+
+  // Overflow bounds
+  assert.equal(coordToIdx(ROWS, 0), -1);
+  assert.equal(coordToIdx(0, COLS), -1);
+  assert.equal(coordToIdx(999, 999), -1);
+
+  // Non-finite and float coordinates
+  assert.equal(coordToIdx(NaN, 5), -1);
+  assert.equal(coordToIdx(5, NaN), -1);
+  assert.equal(coordToIdx(NaN, NaN), -1);
+  assert.equal(coordToIdx(Infinity, 0), -1);
+  assert.equal(coordToIdx(0, -Infinity), -1);
+  assert.equal(coordToIdx(1.5, 2), -1);
+  assert.equal(coordToIdx(1, 2.5), -1);
+
+  // 2. idxToRow and idxToCol bounds rejection
+  assert.equal(idxToRow(-1), -1);
+  assert.equal(idxToCol(-1), -1);
+  assert.equal(idxToRow(-15), -1);
+  assert.equal(idxToCol(-15), -1);
+  assert.equal(idxToRow(195), -1);
+  assert.equal(idxToCol(195), -1);
+  assert.equal(idxToRow(999), -1);
+  assert.equal(idxToCol(999), -1);
+  assert.equal(idxToRow(NaN), -1);
+  assert.equal(idxToCol(NaN), -1);
+  assert.equal(idxToRow(Infinity), -1);
+  assert.equal(idxToCol(Infinity), -1);
+  assert.equal(idxToRow(1.5), -1);
+  assert.equal(idxToCol(1.5), -1);
+
+  // 3. Bijective round-trip validation for all 195 valid arena cells
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const idx = coordToIdx(r, c);
+      assert.ok(idx >= 0 && idx < TOTAL_TILES, `Index ${idx} must be in [0, ${TOTAL_TILES - 1}]`);
+      assert.equal(idxToRow(idx), r, `idxToRow(${idx}) must equal ${r}`);
+      assert.equal(idxToCol(idx), c, `idxToCol(${idx}) must equal ${c}`);
+    }
+  }
+});
+
+test('Audit Suite 4.2: ZeroGCPathfinder core methods reject out-of-bounds, negative, and NaN indices without RangeError or heap memory allocation', () => {
+  const pf = new ZeroGCPathfinder();
+  const outPath = new Int16Array(TOTAL_TILES);
+  const obstacleMask = new Uint8Array(TOTAL_TILES);
+  const dangerMask = new Uint8Array(TOTAL_TILES);
+
+  const invalidIndices = [
+    -1, -15, -999,
+    195, 196, 999, 10000,
+    NaN, Infinity, -Infinity,
+    1.5, 2.7,
+    null, undefined
+  ];
+
+  for (const idx1 of invalidIndices) {
+    for (const idx2 of [0, 16, 194, ...invalidIndices]) {
+      // 1. findPath
+      const pathLen = pf.findPath(idx1, idx2, outPath, obstacleMask);
+      assert.equal(pathLen, 0, `findPath(${idx1}, ${idx2}) must safely return 0 steps`);
+
+      // 2. findPathWithDemolition
+      const demoRes = pf.findPathWithDemolition(idx1, idx2, outPath, obstacleMask);
+      assert.equal(demoRes.pathLength, 0, `findPathWithDemolition(${idx1}, ${idx2}) pathLength must be 0`);
+      assert.equal(demoRes.reachedTarget, false, `findPathWithDemolition(${idx1}, ${idx2}) reachedTarget must be false`);
+      assert.equal(demoRes.blockingBlockIdx, -1, `findPathWithDemolition(${idx1}, ${idx2}) blockingBlockIdx must be -1`);
+    }
+
+    // 3. findSafeTile
+    const safeRes = pf.findSafeTile(idx1, dangerMask, obstacleMask, null, 8, outPath);
+    assert.equal(safeRes, -1, `findSafeTile(${idx1}) must safely return -1`);
+
+    // 4. hasSafeTile
+    const hasSafe = pf.hasSafeTile(idx1, dangerMask, obstacleMask, null, 8);
+    assert.equal(hasSafe, false, `hasSafeTile(${idx1}) must safely return false`);
+
+    // 5. computeBlast
+    assert.doesNotThrow(() => {
+      pf.computeBlast(idx1, 2, obstacleMask, dangerMask, false);
+    }, `computeBlast(${idx1}) must never throw RangeError`);
+  }
+
+  // Parameter boundary checks (maxSteps <= 0, power <= 0, NaN power when tile is dangerous)
+  dangerMask[16] = 1;
+  assert.equal(pf.findSafeTile(16, dangerMask, obstacleMask, null, 0, outPath), -1);
+  assert.equal(pf.findSafeTile(16, dangerMask, obstacleMask, null, -5, outPath), -1);
+  assert.equal(pf.findSafeTile(16, dangerMask, obstacleMask, null, NaN, outPath), -1);
+  assert.equal(pf.hasSafeTile(16, dangerMask, obstacleMask, null, 0), false);
+  assert.equal(pf.hasSafeTile(16, dangerMask, obstacleMask, null, -1), false);
+  assert.equal(pf.hasSafeTile(16, dangerMask, obstacleMask, null, NaN), false);
+  dangerMask[16] = 0;
+});
+
+test('Audit Suite 4.3: High-level pathfinding API functions safely return fallback paths or empty results on invalid/out-of-bounds inputs', () => {
+  const map = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+  const emptyMask = new FlatHazardMask(TOTAL_TILES);
+
+  const invalidCoords = [
+    { r: -1, c: 0 },
+    { r: 0, c: -1 },
+    { r: -1, c: 15 },  // Aliased pair
+    { r: 13, c: -15 }, // Aliased pair
+    { r: 5, c: 15 },   // Aliased pair
+    { r: 13, c: 5 },
+    { r: 999, c: 999 },
+    { r: -999, c: -999 },
+    { r: NaN, c: 5 },
+    { r: 5, c: NaN },
+    { r: NaN, c: NaN },
+    { r: Infinity, c: 0 },
+    { r: 0, c: -Infinity },
+    { r: 1.5, c: 2.5 },
+    null,
+    undefined,
+  ];
+
+  const validCoord = { r: 1, c: 1 };
+
+  for (const invalid of invalidCoords) {
+    // 1. findPathBFS
+    const path1 = findPathBFS(invalid, validCoord, map, emptyMask);
+    assert.strictEqual(path1, EMPTY_PATH, `findPathBFS with invalid start must return frozen EMPTY_PATH`);
+    const path2 = findPathBFS(validCoord, invalid, map, emptyMask);
+    assert.strictEqual(path2, EMPTY_PATH, `findPathBFS with invalid target must return frozen EMPTY_PATH`);
+
+    // 2. findEscapePathBFS
+    const escape = findEscapePathBFS(invalid, emptyMask, map, emptyMask);
+    assert.strictEqual(escape, null, `findEscapePathBFS with invalid start must return null`);
+
+    // 3. findTargetBlockBFS
+    const targetBlock = findTargetBlockBFS(invalid, validCoord, map, emptyMask);
+    assert.strictEqual(targetBlock, null, `findTargetBlockBFS with invalid start must return null`);
+
+    // 4. findDemolitionPath
+    const demoPath = findDemolitionPath(invalid, validCoord, map, emptyMask);
+    assert.strictEqual(demoPath, null, `findDemolitionPath with invalid start must return null`);
+
+    // 5. findPathWithDemolition
+    const demoRes = findPathWithDemolition(invalid, validCoord, map, emptyMask);
+    assert.equal(demoRes.pathLength, 0, `findPathWithDemolition pathLength must be 0`);
+    assert.equal(demoRes.reachedTarget, false, `findPathWithDemolition reachedTarget must be false`);
+
+    // 6. canSafelyPlaceBomb
+    assert.equal(canSafelyPlaceBomb(invalid, 2, map), false, `canSafelyPlaceBomb must return false for invalid pos`);
+
+    // 7. getSafeBombEscapePath
+    assert.strictEqual(getSafeBombEscapePath(invalid, 2, map), null, `getSafeBombEscapePath must return null for invalid pos`);
+
+    // 8. isTileInBlastRange
+    assert.equal(isTileInBlastRange(invalid, validCoord, 2, map), false);
+    assert.equal(isTileInBlastRange(validCoord, invalid, 2, map), false);
+
+    // 9. getSafeDemolitionApproaches
+    const approaches = getSafeDemolitionApproaches(invalid, map);
+    assert.strictEqual(approaches, EMPTY_PATH, `getSafeDemolitionApproaches must return frozen EMPTY_PATH for invalid target`);
+
+    // 10. findCorneringBombTile & findOffensiveBombTile
+    assert.strictEqual(findCorneringBombTile(invalid, validCoord, map), null);
+    assert.strictEqual(findOffensiveBombTile(invalid, validCoord, map), null);
+  }
+});
+
+test('Audit Suite 4.4: Zero-GC Soak Test: 10,000 chaotic boundary & NaN fuzz cycles execute with zero heap drift (< 0.25 MB)', () => {
+  const map = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+  const emptyMask = new FlatHazardMask(TOTAL_TILES);
+
+  const fuzzInputs = [
+    { r: -1, c: 15 },
+    { r: 13, c: -15 },
+    { r: NaN, c: 5 },
+    { r: 5, c: NaN },
+    { r: Infinity, c: 0 },
+    { r: 1.5, c: 2.5 },
+    { r: 999, c: 999 },
+    { r: -999, c: -999 },
+    null,
+    undefined,
+    -1,
+    195,
+    NaN,
+    Infinity,
+  ];
+
+  // Warmup JIT
+  for (let i = 0; i < 50; i++) {
+    const input = fuzzInputs[i % fuzzInputs.length];
+    findPathBFS(input, { r: 1, c: 1 }, map, emptyMask);
+    findEscapePathBFS(input, emptyMask, map, emptyMask);
+    findPathWithDemolition(input, { r: 1, c: 1 }, map, emptyMask);
+    canSafelyPlaceBomb(input, 2, map);
+    getSafeBombEscapePath(input, 2, map);
+    isTileInBlastRange(input, { r: 1, c: 1 }, 2, map);
+    getSafeDemolitionApproaches(input, map);
+  }
+
+  const isGcExposed = typeof global.gc === 'function';
+  if (isGcExposed) global.gc();
+  const memBefore = process.memoryUsage().heapUsed;
+
+  const ITERATIONS = 10000;
+  for (let i = 0; i < ITERATIONS; i++) {
+    const input = fuzzInputs[i % fuzzInputs.length];
+    findPathBFS(input, { r: 1, c: 1 }, map, emptyMask);
+    findEscapePathBFS(input, emptyMask, map, emptyMask);
+    findPathWithDemolition(input, { r: 1, c: 1 }, map, emptyMask);
+    canSafelyPlaceBomb(input, 2, map);
+    getSafeBombEscapePath(input, 2, map);
+    isTileInBlastRange(input, { r: 1, c: 1 }, 2, map);
+    getSafeDemolitionApproaches(input, map);
+  }
+
+  if (isGcExposed) global.gc();
+  const memAfter = process.memoryUsage().heapUsed;
+  const driftMB = (memAfter - memBefore) / (1024 * 1024);
+
+  if (isGcExposed) {
+    assert.ok(driftMB < 0.25, `Boundary fuzz soak heap drift ${driftMB.toFixed(4)} MB must be < 0.25 MB`);
+  } else {
+    assert.ok(driftMB < 3.0, `Ambient boundary fuzz soak heap drift ${driftMB.toFixed(4)} MB must remain small`);
+  }
+});
+

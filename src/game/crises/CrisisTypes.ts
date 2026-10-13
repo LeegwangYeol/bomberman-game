@@ -261,6 +261,8 @@ export interface ICrisis {
   resolveCrisis(victoryMessage?: string): void;
   failCrisis(failureMessage?: string): void;
   reset(): void;
+  setThreat?(value: number): void;
+  adjustThreat?(delta: number): void;
   serialize?(): SerializedCrisisState;
   deserialize?(state: Partial<SerializedCrisisState>): void;
 }

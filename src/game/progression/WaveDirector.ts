@@ -145,12 +145,16 @@ export class WaveDirector {
    */
   public static selectCrisisForWave(wave: number): CrisisType {
     const safeWave = Number.isFinite(wave) ? Math.max(1, Math.floor(wave)) : 1;
-    // Specifically designate wave 4 and wave 10 (and every 7th crisis wave) to PsychicCrisis
-    if (safeWave === 4 || safeWave === 10 || safeWave % 28 === 4) {
+    // Specifically designate wave 4 and wave 10 to PsychicCrisis for hybrid & initial psychic tests
+    if (safeWave === 4 || safeWave === 10) {
       return CrisisType.PSYCHIC_INVASION;
     }
+    // Specifically designate wave 8 to Pastel Void (Stellaris Crisis 1)
+    if (safeWave === 8) {
+      return CrisisType.PASTEL_VOID;
+    }
     const idx = Math.floor(safeWave / 4) % WaveDirector.CRISIS_ROTATION.length;
-    return WaveDirector.CRISIS_ROTATION[idx] ?? CrisisType.PSYCHIC_INVASION;
+    return WaveDirector.CRISIS_ROTATION[idx] ?? CrisisType.PASTEL_VOID;
   }
 
   /**
@@ -327,7 +331,14 @@ export class WaveDirector {
     if (this.activeCrisisType) {
       crisisStatus = this.crisisManager.update(safeDelta, playerPos);
       if (crisisStatus.isVictorious && crisisStatus.stage === CrisisStage.RESOLVED) {
-        this.emit('crisis-resolved', { crisisType: this.activeCrisisType });
+        const reward = this.crisisManager.getCrisisReward(this.activeCrisisType);
+        this.emit('crisis-resolved', {
+          crisisType: this.activeCrisisType,
+          scoreAwarded: reward.scoreAwarded,
+          relicReward: reward.relicReward,
+          starCandies: reward.starCandies,
+          cosmicEssence: reward.cosmicEssence,
+        });
       } else if (crisisStatus.isDefeated && crisisStatus.stage === CrisisStage.FAILED) {
         this.emit('crisis-failed', { crisisType: this.activeCrisisType });
       }
@@ -380,7 +391,12 @@ export class WaveDirector {
   }
 
   public dismissBoss(): void {
-    this.activeBoss = null;
+    if (this.activeBoss) {
+      if (typeof (this.activeBoss as unknown as { destroy?: () => void }).destroy === 'function') {
+        (this.activeBoss as unknown as { destroy: () => void }).destroy();
+      }
+      this.activeBoss = null;
+    }
   }
 
   public reset(): void {
@@ -394,7 +410,30 @@ export class WaveDirector {
     this.crisisManager.reset();
   }
 
+  public destroy(): void {
+    this.dismissBoss();
+    if (this.crisisManager) {
+      if (typeof this.crisisManager.destroy === 'function') {
+        this.crisisManager.destroy();
+      } else {
+        this.crisisManager.reset();
+      }
+    }
+    this.listeners.clear();
+    this.activeCrisisType = null;
+    this.currentConfig = null;
+    this.waveState = WaveState.IDLE;
+  }
+
   // --- Event Handling ---
+
+  public removeAllListeners(event?: string): void {
+    if (event) {
+      this.listeners.delete(event);
+    } else {
+      this.listeners.clear();
+    }
+  }
 
   public on(event: string, listener: WaveDirectorEventListener): () => void {
     let set = this.listeners.get(event);

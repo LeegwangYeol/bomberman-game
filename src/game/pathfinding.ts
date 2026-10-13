@@ -61,14 +61,23 @@ export interface DemolitionPath {
  * Coordinate transformations
  */
 export function coordToIdx(r: number, c: number): number {
-  return ((r * COLS + c) | 0);
+  if (!Number.isInteger(r) || !Number.isInteger(c) || r < 0 || r >= ROWS || c < 0 || c >= COLS) {
+    return -1;
+  }
+  return r * COLS + c;
 }
 
 export function idxToRow(idx: number): number {
+  if (!Number.isInteger(idx) || idx < 0 || idx >= TOTAL_TILES) {
+    return -1;
+  }
   return (idx / COLS) | 0;
 }
 
 export function idxToCol(idx: number): number {
+  if (!Number.isInteger(idx) || idx < 0 || idx >= TOTAL_TILES) {
+    return -1;
+  }
   return idx % COLS;
 }
 
@@ -178,7 +187,11 @@ export class FlatHazardMask implements Iterable<string> {
     return this;
   }
 
-  public copyFrom(source: FlatHazardMask | Uint8Array): this {
+  public copyFrom(source: FlatHazardMask | Uint8Array | null | undefined): this {
+    if (!source) {
+      this.clear();
+      return this;
+    }
     if (source instanceof FlatHazardMask) {
       const copyLen = Math.min(this.length, source.length);
       this.mask.set(source.mask.subarray(0, copyLen));
@@ -392,7 +405,11 @@ export class ZeroGCPathfinder {
     }
   }
 
-  public setObstacles(walkableBitmask: Uint8Array): void {
+  public setObstacles(walkableBitmask: Uint8Array | null | undefined): void {
+    if (!walkableBitmask) {
+      this.obstacleMask.fill(0);
+      return;
+    }
     const copyLen = Math.min(this.obstacleMask.length, walkableBitmask.length);
     this.obstacleMask.set(walkableBitmask.subarray(0, copyLen));
     if (this.obstacleMask.length > copyLen) {
@@ -429,7 +446,8 @@ export class ZeroGCPathfinder {
       typeof targetIdx !== 'number' ||
       !Number.isInteger(targetIdx) ||
       targetIdx < 0 ||
-      targetIdx >= this.totalTiles
+      targetIdx >= this.totalTiles ||
+      !outPath
     ) {
       return 0;
     }
@@ -574,12 +592,16 @@ export class ZeroGCPathfinder {
       typeof startIdx !== 'number' ||
       !Number.isInteger(startIdx) ||
       startIdx < 0 ||
-      startIdx >= this.totalTiles
+      startIdx >= this.totalTiles ||
+      !dangerMask ||
+      dangerMask.length < this.totalTiles ||
+      !outPath
     ) {
       return -1;
     }
 
     if (dangerMask[startIdx] === 0) return 0;
+    if (typeof maxSteps !== 'number' || !Number.isFinite(maxSteps) || maxSteps <= 0) return -1;
 
     const cols = this.cols;
     const rows = this.rows;
@@ -711,12 +733,15 @@ export class ZeroGCPathfinder {
       typeof startIdx !== 'number' ||
       !Number.isInteger(startIdx) ||
       startIdx < 0 ||
-      startIdx >= this.totalTiles
+      startIdx >= this.totalTiles ||
+      !dangerMask ||
+      dangerMask.length < this.totalTiles
     ) {
       return false;
     }
 
     if (dangerMask[startIdx] === 0) return false;
+    if (typeof maxSteps !== 'number' || !Number.isFinite(maxSteps) || maxSteps <= 0) return false;
 
     const cols = this.cols;
     const rows = this.rows;
@@ -838,7 +863,8 @@ export class ZeroGCPathfinder {
       typeof targetIdx !== 'number' ||
       !Number.isInteger(targetIdx) ||
       targetIdx < 0 ||
-      targetIdx >= this.totalTiles
+      targetIdx >= this.totalTiles ||
+      !outPath
     ) {
       return res;
     }
@@ -1068,23 +1094,24 @@ export class ZeroGCPathfinder {
     outMask: Uint8Array = this.hazardMask,
     clearFirst: boolean = false
   ): void {
+    if (!outMask) return;
     if (clearFirst) outMask.fill(0);
     if (
       typeof centerIdx !== 'number' ||
-      !Number.isFinite(centerIdx) ||
-      (centerIdx | 0) < 0 ||
-      (centerIdx | 0) >= this.totalTiles
+      !Number.isInteger(centerIdx) ||
+      centerIdx < 0 ||
+      centerIdx >= this.totalTiles
     ) {
       return;
     }
 
-    const safeCenter = centerIdx | 0;
+    const safeCenter = centerIdx;
     if (safeCenter < outMask.length) {
       outMask[safeCenter] = 1;
     }
     const cr = (safeCenter / this.cols) | 0;
     const cc = safeCenter % this.cols;
-    const safePower = (typeof power === 'number' && Number.isFinite(power)) ? Math.max(0, power | 0) : 0;
+    const safePower = (typeof power === 'number' && Number.isFinite(power) && power > 0) ? Math.floor(power) : 0;
 
     for (let dir = 0; dir < 4; dir++) {
       for (let i = 1; i <= safePower; i++) {
@@ -1109,6 +1136,7 @@ export class ZeroGCPathfinder {
 
 // Global Zero-GC Pathfinder Singleton
 export const zeroGCPathfinder = new ZeroGCPathfinder();
+export const EMPTY_PATH: readonly GridCoord[] = Object.freeze([]);
 const outPathBuffer = new Int16Array(TOTAL_TILES);
 const sharedBombMask = new Uint8Array(TOTAL_TILES);
 const sharedDangerMask = new Uint8Array(TOTAL_TILES);
@@ -1121,20 +1149,23 @@ const sharedHazardScratch: GridCoord = { r: 0, c: 0 };
 
 function populateObstacleMask(map: number[][] | Uint8Array, outMask: Uint8Array): void {
   outMask.fill(0);
+  if (!map) return;
   if (map instanceof Uint8Array) {
     const copyLen = Math.min(outMask.length, map.length);
     outMask.set(map.subarray(0, copyLen));
     return;
   }
+  if (!Array.isArray(map)) return;
   const rMax = Math.min(ROWS, map.length);
   for (let r = 0; r < rMax; r++) {
     const row = map[r];
-    if (!row) continue;
+    if (!row || !Array.isArray(row)) continue;
     const base = r * COLS;
     const cMax = Math.min(COLS, row.length);
     for (let c = 0; c < cMax; c++) {
       if (base + c < outMask.length) {
-        outMask[base + c] = row[c];
+        const val = row[c];
+        outMask[base + c] = typeof val === 'number' && Number.isFinite(val) ? val : 0;
       }
     }
   }
@@ -1161,11 +1192,15 @@ function populateMaskFromSetOrArray(
   } else if (source instanceof Set) {
     outMask.fill(0);
     for (const key of source) {
+      if (typeof key !== 'string') continue;
       const comma = key.indexOf(',');
       if (comma !== -1) {
-        const r = parseInt(key.slice(0, comma), 10);
-        const c = parseInt(key.slice(comma + 1), 10);
-        if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+        const rStr = key.slice(0, comma).trim();
+        const cStr = key.slice(comma + 1).trim();
+        if (rStr === '' || cStr === '') continue;
+        const r = Number(rStr);
+        const c = Number(cStr);
+        if (Number.isInteger(r) && Number.isInteger(c) && r >= 0 && r < ROWS && c >= 0 && c < COLS) {
           outMask[r * COLS + c] = 1;
         }
       }
@@ -1188,16 +1223,16 @@ export function findPathBFS(
   hazardMask?: Set<string> | Uint8Array | FlatHazardMask
 ): GridCoord[] {
   if (
-    !start || !target ||
+    !start || !target || !map ||
     !Number.isInteger(start.r) || !Number.isInteger(start.c) ||
     !Number.isInteger(target.r) || !Number.isInteger(target.c) ||
     start.r < 0 || start.r >= ROWS || start.c < 0 || start.c >= COLS ||
     target.r < 0 || target.r >= ROWS || target.c < 0 || target.c >= COLS
   ) {
-    return [];
+    return EMPTY_PATH as GridCoord[];
   }
 
-  if (start.r === target.r && start.c === target.c) return [];
+  if (start.r === target.r && start.c === target.c) return EMPTY_PATH as GridCoord[];
 
   populateObstacleMask(map, sharedObstacleMask);
   populateMaskFromSetOrArray(bombTiles, sharedBombMask);
@@ -1221,7 +1256,7 @@ export function findPathBFS(
     lethalMask
   );
 
-  if (len === 0) return [];
+  if (len === 0) return EMPTY_PATH as GridCoord[];
 
   const path: GridCoord[] = new Array(len);
   for (let i = 0; i < len; i++) {
@@ -1325,9 +1360,10 @@ export function findEscapePathBFS(
   lethalHazardMask?: Set<string> | Uint8Array | FlatHazardMask
 ): GridCoord[] | null {
   if (
-    !start ||
+    !start || !map ||
     !Number.isInteger(start.r) || !Number.isInteger(start.c) ||
-    start.r < 0 || start.r >= ROWS || start.c < 0 || start.c >= COLS
+    start.r < 0 || start.r >= ROWS || start.c < 0 || start.c >= COLS ||
+    !Number.isFinite(maxSteps) || maxSteps <= 0
   ) {
     return null;
   }
@@ -1355,7 +1391,7 @@ export function findEscapePathBFS(
   );
 
   if (len === -1) return null;
-  if (len === 0) return [];
+  if (len === 0) return EMPTY_PATH as GridCoord[];
 
   const path: GridCoord[] = new Array(len);
   for (let i = 0; i < len; i++) {
@@ -1379,17 +1415,27 @@ export function isTileInBlastRange(
   power: number,
   map: number[][] | Uint8Array
 ): boolean {
-  const tr = typeof tile === 'number' ? (tile / COLS) | 0 : tile.r;
-  const tc = typeof tile === 'number' ? tile % COLS : tile.c;
-  const cr = typeof center === 'number' ? (center / COLS) | 0 : center.r;
-  const cc = typeof center === 'number' ? center % COLS : center.c;
+  if (!tile || !center || !map) return false;
+  const tr = typeof tile === 'number'
+    ? (Number.isInteger(tile) && tile >= 0 && tile < TOTAL_TILES ? (tile / COLS) | 0 : NaN)
+    : (typeof tile === 'object' && tile !== null ? tile.r : NaN);
+  const tc = typeof tile === 'number'
+    ? (Number.isInteger(tile) && tile >= 0 && tile < TOTAL_TILES ? tile % COLS : NaN)
+    : (typeof tile === 'object' && tile !== null ? tile.c : NaN);
+  const cr = typeof center === 'number'
+    ? (Number.isInteger(center) && center >= 0 && center < TOTAL_TILES ? (center / COLS) | 0 : NaN)
+    : (typeof center === 'object' && center !== null ? center.r : NaN);
+  const cc = typeof center === 'number'
+    ? (Number.isInteger(center) && center >= 0 && center < TOTAL_TILES ? center % COLS : NaN)
+    : (typeof center === 'object' && center !== null ? center.c : NaN);
 
   // AI-02: Boundary check coordinates against grid dimensions
   if (
     !Number.isInteger(tr) || !Number.isInteger(tc) ||
     !Number.isInteger(cr) || !Number.isInteger(cc) ||
     tr < 0 || tr >= ROWS || tc < 0 || tc >= COLS ||
-    cr < 0 || cr >= ROWS || cc < 0 || cc >= COLS
+    cr < 0 || cr >= ROWS || cc < 0 || cc >= COLS ||
+    !Number.isFinite(power) || power < 0
   ) {
     return false;
   }
@@ -1434,7 +1480,7 @@ export function findTargetBlockBFS(
   bombTiles?: Set<string> | Uint8Array | FlatHazardMask
 ): BlockTargetResult | null {
   if (
-    !start || !target ||
+    !start || !target || !map ||
     !Number.isInteger(start.r) || !Number.isInteger(start.c) ||
     !Number.isInteger(target.r) || !Number.isInteger(target.c) ||
     start.r < 0 || start.r >= ROWS || start.c < 0 || start.c >= COLS ||
@@ -1631,6 +1677,15 @@ export function getSafeDemolitionApproaches(
   maxEscapeSteps: number = 8,
   hazardMask?: Set<string> | Uint8Array | FlatHazardMask
 ): GridCoord[] {
+  if (
+    !targetBlock || !map ||
+    !Number.isInteger(targetBlock.r) || !Number.isInteger(targetBlock.c) ||
+    targetBlock.r < 0 || targetBlock.r >= ROWS || targetBlock.c < 0 || targetBlock.c >= COLS ||
+    !Number.isFinite(bombPower) || bombPower <= 0 ||
+    !Number.isFinite(maxEscapeSteps) || maxEscapeSteps <= 0
+  ) {
+    return EMPTY_PATH as GridCoord[];
+  }
   const dirs = [
     { dr: -1, dc: 0 },
     { dr: 1, dc: 0 },
@@ -1641,7 +1696,7 @@ export function getSafeDemolitionApproaches(
   for (const d of dirs) {
     const r = targetBlock.r + d.dr;
     const c = targetBlock.c + d.dc;
-    if (r >= 0 && r < ROWS && c >= 0 && c < COLS && map[r][c] === TILE_EMPTY) {
+    if (r >= 0 && r < ROWS && c >= 0 && c < COLS && map[r]?.[c] === TILE_EMPTY) {
       const isBomb = isTileInHazardMask(bombTiles, r, c);
       const isLethalHazard = isTileLethalInHazardMask(hazardMask, r, c);
       if (!isBomb && !isLethalHazard && canSafelyPlaceBomb({ r, c }, bombPower, map, bombTiles, maxEscapeSteps, hazardMask)) {
@@ -1649,7 +1704,7 @@ export function getSafeDemolitionApproaches(
       }
     }
   }
-  return safe;
+  return safe.length === 0 ? (EMPTY_PATH as GridCoord[]) : safe;
 }
 
 /**
@@ -1663,7 +1718,7 @@ export function findDemolitionPath(
   blockPenalty: number = 8
 ): DemolitionPath | null {
   if (
-    !start || !target ||
+    !start || !target || !map ||
     !Number.isInteger(start.r) || !Number.isInteger(start.c) ||
     !Number.isInteger(target.r) || !Number.isInteger(target.c) ||
     start.r < 0 || start.r >= ROWS || start.c < 0 || start.c >= COLS ||
@@ -1717,22 +1772,25 @@ export function findPathWithDemolition(
   blockPenaltyOrBombMask?: number | Uint8Array | null,
   maybeBlockPenalty: number = 8
 ): DemolitionPathResult {
+  const startIdx = typeof start === 'number'
+    ? (Number.isInteger(start) && start >= 0 && start < TOTAL_TILES ? start : -1)
+    : (start && Number.isInteger(start.r) && Number.isInteger(start.c) ? coordToIdx(start.r, start.c) : -1);
+  const targetIdx = typeof target === 'number'
+    ? (Number.isInteger(target) && target >= 0 && target < TOTAL_TILES ? target : -1)
+    : (target && Number.isInteger(target.r) && Number.isInteger(target.c) ? coordToIdx(target.r, target.c) : -1);
+
   if (mapOrOutPath instanceof Int16Array) {
-    const startIdx = typeof start === 'number' ? start : coordToIdx(start.r, start.c);
-    const targetIdx = typeof target === 'number' ? target : coordToIdx(target.r, target.c);
     const obstacleMask = (bombTilesOrObstacleMask instanceof Uint8Array) ? bombTilesOrObstacleMask : zeroGCPathfinder.obstacleMask;
     const bombMask = (blockPenaltyOrBombMask instanceof Uint8Array) ? blockPenaltyOrBombMask : null;
-    const penalty = typeof maybeBlockPenalty === 'number' ? maybeBlockPenalty : 8;
+    const penalty = typeof maybeBlockPenalty === 'number' && Number.isFinite(maybeBlockPenalty) ? maybeBlockPenalty : 8;
     return zeroGCPathfinder.findPathWithDemolition(startIdx, targetIdx, mapOrOutPath, obstacleMask, bombMask, penalty);
   }
 
-  const startIdx = typeof start === 'number' ? start : coordToIdx(start.r, start.c);
-  const targetIdx = typeof target === 'number' ? target : coordToIdx(target.r, target.c);
   if (Array.isArray(mapOrOutPath)) {
     populateObstacleMask(mapOrOutPath, sharedObstacleMask);
   }
   populateMaskFromSetOrArray(bombTilesOrObstacleMask, sharedBombMask);
-  const penalty = typeof blockPenaltyOrBombMask === 'number' ? blockPenaltyOrBombMask : 8;
+  const penalty = typeof blockPenaltyOrBombMask === 'number' && Number.isFinite(blockPenaltyOrBombMask) ? blockPenaltyOrBombMask : 8;
 
   return zeroGCPathfinder.findPathWithDemolition(
     startIdx,
@@ -1757,14 +1815,20 @@ export function getSafeBombEscapePath(
   maxEscapeSteps: number = 8,
   hazardMask?: Set<string> | Uint8Array | FlatHazardMask
 ): GridCoord[] | null {
-  const r = typeof pos === 'number' ? (pos / COLS) | 0 : pos.r;
-  const c = typeof pos === 'number' ? pos % COLS : pos.c;
+  if (!pos || !map) return null;
+  const r = typeof pos === 'number'
+    ? (Number.isInteger(pos) && pos >= 0 && pos < TOTAL_TILES ? (pos / COLS) | 0 : NaN)
+    : (typeof pos === 'object' && pos !== null ? pos.r : NaN);
+  const c = typeof pos === 'number'
+    ? (Number.isInteger(pos) && pos >= 0 && pos < TOTAL_TILES ? pos % COLS : NaN)
+    : (typeof pos === 'object' && pos !== null ? pos.c : NaN);
 
   // AI-02 boundary guard
   if (
     !Number.isInteger(r) || !Number.isInteger(c) ||
     r < 0 || r >= ROWS || c < 0 || c >= COLS ||
-    !Number.isFinite(power) || power <= 0
+    !Number.isFinite(power) || power <= 0 ||
+    !Number.isFinite(maxEscapeSteps) || maxEscapeSteps <= 0
   ) {
     return null;
   }
@@ -1883,14 +1947,20 @@ export function canSafelyPlaceBomb(
   maxEscapeSteps: number = 8,
   hazardMask?: Set<string> | Uint8Array | FlatHazardMask
 ): boolean {
-  const r = typeof pos === 'number' ? (pos / COLS) | 0 : pos.r;
-  const c = typeof pos === 'number' ? pos % COLS : pos.c;
+  if (!pos || !map) return false;
+  const r = typeof pos === 'number'
+    ? (Number.isInteger(pos) && pos >= 0 && pos < TOTAL_TILES ? (pos / COLS) | 0 : NaN)
+    : (typeof pos === 'object' && pos !== null ? pos.r : NaN);
+  const c = typeof pos === 'number'
+    ? (Number.isInteger(pos) && pos >= 0 && pos < TOTAL_TILES ? pos % COLS : NaN)
+    : (typeof pos === 'object' && pos !== null ? pos.c : NaN);
 
   // AI-02 boundary guard
   if (
     !Number.isInteger(r) || !Number.isInteger(c) ||
     r < 0 || r >= ROWS || c < 0 || c >= COLS ||
-    !Number.isFinite(power) || power <= 0
+    !Number.isFinite(power) || power <= 0 ||
+    !Number.isFinite(maxEscapeSteps) || maxEscapeSteps <= 0
   ) {
     return false;
   }
@@ -2017,6 +2087,7 @@ export function findCorneringBombTile(
   hazardMask?: Set<string> | Uint8Array | FlatHazardMask
 ): GridCoord | null {
   if (
+    !enemyPos || !playerPos || !map ||
     !Number.isInteger(enemyPos.r) || !Number.isInteger(enemyPos.c) ||
     !Number.isInteger(playerPos.r) || !Number.isInteger(playerPos.c) ||
     enemyPos.r < 0 || enemyPos.r >= ROWS || enemyPos.c < 0 || enemyPos.c >= COLS ||
@@ -2036,7 +2107,7 @@ export function findCorneringBombTile(
   for (const d of dirs) {
     const nr = playerPos.r + d.dr;
     const nc = playerPos.c + d.dc;
-    if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && map[nr][nc] === TILE_EMPTY) {
+    if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && map[nr]?.[nc] === TILE_EMPTY) {
       playerNeighbors.push({ r: nr, c: nc });
     }
   }

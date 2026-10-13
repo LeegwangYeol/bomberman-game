@@ -444,12 +444,28 @@ export class VoltHazardAudio {
    * ZERO-LEAK PROCEDURAL WHITE NOISE SYNTHESIS
    * ============================================================================== */
 
+  public playFilteredNoiseBurst(
+    durationSec: number = 0.18,
+    _startFreq: number = 1500,
+    _endFreq: number = 300,
+    gainLevel: number = 0.20
+  ): boolean {
+    return this.playWhiteNoiseBurst(0, durationSec, gainLevel);
+  }
+
   public playWhiteNoiseBurst(
     _currentTimeMs: number = 0,
     durationSec: number = 0.18,
     gainLevel: number = 0.20
   ): boolean {
     void _currentTimeMs;
+    // Mathematical defense against subnormal floats (1e-323): flush to zero & early return
+    if (
+      (typeof durationSec === 'number' && Math.abs(durationSec) < 1e-8) ||
+      (typeof gainLevel === 'number' && Math.abs(gainLevel) < 1e-15)
+    ) {
+      return false;
+    }
     const ctx = this.getContext();
     if (!ctx || ctx.state === 'suspended' || typeof ctx.createBuffer !== 'function') {
       return false;

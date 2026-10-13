@@ -283,17 +283,31 @@ export class SolarHazardAudio {
   }
 
   public static playWhiteNoiseBurst(durationSec: number = 0.20, filterFreq: number = 800): void {
+    // Mathematical defense against subnormal floats (1e-323): flush to zero & early return
+    if (typeof durationSec === 'number' && Math.abs(durationSec) < 1e-8) return;
     const ctx = this.getAudioContext();
     if (!ctx || ctx.state === 'suspended') return;
 
     let sourceNode: AudioBufferSourceNode | null = null;
     let filterNode: BiquadFilterNode | null = null;
     let gainNode: GainNode | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let isCleanedUp = false;
 
     const cleanup = () => {
+      if (isCleanedUp) return;
+      isCleanedUp = true;
+      if (timer !== null) {
+        clearTimeout(timer);
+        this.activeTimers.delete(timer);
+        timer = null;
+      }
       try {
         if (sourceNode) {
           sourceNode.onended = null;
+          try {
+            if (typeof sourceNode.stop === 'function') sourceNode.stop();
+          } catch {}
           sourceNode.disconnect();
         }
         if (filterNode) filterNode.disconnect();
@@ -332,7 +346,10 @@ export class SolarHazardAudio {
       sourceNode.start();
       sourceNode.stop(ctx.currentTime + durationSec);
 
-      const timer = setTimeout(cleanup, Math.ceil(durationSec * 1000) + 50);
+      timer = setTimeout(() => {
+        if (timer !== null) this.activeTimers.delete(timer);
+        cleanup();
+      }, Math.ceil(durationSec * 1000) + 50);
       this.activeTimers.add(timer);
     } catch {
       cleanup();
@@ -347,6 +364,9 @@ export class SolarHazardAudio {
 
     for (const node of this.pendingNodes) {
       try {
+        if ('stop' in node && typeof (node as AudioScheduledSourceNode).stop === 'function') {
+          (node as AudioScheduledSourceNode).stop();
+        }
         node.disconnect();
       } catch {
         // ignore

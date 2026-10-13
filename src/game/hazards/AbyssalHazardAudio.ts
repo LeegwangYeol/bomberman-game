@@ -702,6 +702,8 @@ export class AbyssalHazardAudio {
     endFilterFreq: number = 48,
     q: number = 3.8
   ): void {
+    // Mathematical defense against subnormal floats (1e-323): flush to zero & early return
+    if (typeof durationSec === 'number' && Math.abs(durationSec) < 1e-8) return;
     const ctx = AbyssalHazardAudio.getAudioContext();
     if (!ctx || ctx.state === 'closed') return;
 
@@ -711,11 +713,17 @@ export class AbyssalHazardAudio {
     let sourceNode: AudioBufferSourceNode | null = null;
     let filterNode: BiquadFilterNode | null = null;
     let gainNode: GainNode | null = null;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
 
     let isCleanedUp = false;
     const cleanup = () => {
       if (isCleanedUp) return;
       isCleanedUp = true;
+      if (timerId !== null) {
+        clearTimeout(timerId);
+        AbyssalHazardAudio.activeTimers.delete(timerId);
+        timerId = null;
+      }
       try {
         if (sourceNode) {
           sourceNode.onended = null;
@@ -763,7 +771,10 @@ export class AbyssalHazardAudio {
       sourceNode.start(now);
       sourceNode.stop(now + durationSec + 0.05);
 
-      const timerId = setTimeout(cleanup, Math.ceil((durationSec + 0.1) * 1000));
+      timerId = setTimeout(() => {
+        if (timerId !== null) AbyssalHazardAudio.activeTimers.delete(timerId);
+        cleanup();
+      }, Math.ceil((durationSec + 0.1) * 1000));
       AbyssalHazardAudio.activeTimers.add(timerId);
     } catch {
       cleanup();

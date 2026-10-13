@@ -209,7 +209,9 @@ export class ChronoHazardAudio {
     timeoutId?: ReturnType<typeof setTimeout>;
   }> = new Set();
 
-  private sharedNoiseBuffer: AudioBuffer | null = null;
+  // Cached static 500ms white noise buffer (reused permanently without GC)
+  private static cachedNoiseBuffer: AudioBuffer | null = null;
+  private static cachedNoiseSampleRate: number = 0;
 
   constructor(poolOrCtx?: AudioVoicePool | AudioContext | null) {
     if (poolOrCtx) {
@@ -317,17 +319,22 @@ export class ChronoHazardAudio {
   }
 
   private getOrCreateNoiseBuffer(ctx: AudioContext): AudioBuffer | null {
-    if (this.sharedNoiseBuffer && this.sharedNoiseBuffer.sampleRate === ctx.sampleRate) {
-      return this.sharedNoiseBuffer;
-    }
     try {
-      const bufferSize = Math.floor(ctx.sampleRate * 0.5); // 500ms
-      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const sampleRate = ctx.sampleRate || 44100;
+      if (
+        ChronoHazardAudio.cachedNoiseBuffer &&
+        ChronoHazardAudio.cachedNoiseSampleRate === sampleRate
+      ) {
+        return ChronoHazardAudio.cachedNoiseBuffer;
+      }
+      const bufferSize = Math.max(256, Math.floor(sampleRate * 0.5)); // 500ms
+      const buffer = ctx.createBuffer(1, bufferSize, sampleRate);
       const data = buffer.getChannelData(0);
       for (let i = 0; i < bufferSize; i++) {
         data[i] = Math.random() * 2 - 1;
       }
-      this.sharedNoiseBuffer = buffer;
+      ChronoHazardAudio.cachedNoiseBuffer = buffer;
+      ChronoHazardAudio.cachedNoiseSampleRate = sampleRate;
       return buffer;
     } catch {
       return null;
@@ -566,7 +573,6 @@ export class ChronoHazardAudio {
       }
       this.voicePool = null;
     }
-    this.sharedNoiseBuffer = null;
     const closeable = this.ctx as unknown as { close?: () => Promise<void> } | null;
     if (closeable && typeof closeable.close === 'function') {
       try { void closeable.close().catch(() => {}); } catch {}

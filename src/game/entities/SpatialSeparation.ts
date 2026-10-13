@@ -60,6 +60,8 @@ export interface SpatialSeparationOptions {
   applyVelocityNudges?: boolean;
   /** Maximum cumulative separation displacement per tick to prevent runaway warping (default: 32.0) */
   maxDisplacement?: number;
+  /** Maximum entity velocity speed limit in px/s (default: 400.0) */
+  maxSpeed?: number;
 }
 
 export interface SpatialSeparationStats {
@@ -102,6 +104,7 @@ export class SpatialSeparationGrid {
   private curRestitution: number = 0.0;
   private curVelocityNudgeFactor: number = 0.0;
   private curMaxVelocityNudge: number = 250.0;
+  private curMaxSpeed: number = 400.0;
 
   // Scratch arrays for zero-GC active entity caching
   private scratchActive: SeparableEntity[] = [];
@@ -207,11 +210,14 @@ export class SpatialSeparationGrid {
     const velocityNudgeFactor = Math.max(0.0, Math.min(10.0, rawNudgeFactor));
     const rawMaxNudge = typeof options.maxVelocityNudge === 'number' && Number.isFinite(options.maxVelocityNudge) ? options.maxVelocityNudge : 250.0;
     const maxVelocityNudge = Math.max(10.0, rawMaxNudge);
+    const rawMaxSpeed = typeof options.maxSpeed === 'number' && Number.isFinite(options.maxSpeed) ? options.maxSpeed : 400.0;
+    const maxSpeedLimit = Math.max(50.0, rawMaxSpeed);
     const applyVelocityNudges = options.applyVelocityNudges ?? (restitution > 0 || velocityNudgeFactor > 0);
 
     this.curRestitution = restitution;
     this.curVelocityNudgeFactor = velocityNudgeFactor;
     this.curMaxVelocityNudge = maxVelocityNudge;
+    this.curMaxSpeed = maxSpeedLimit;
     this.curApplyVelocityNudges = applyVelocityNudges;
 
     // Dynamic grid reconfigure if custom cellSize or bounds exceed current grid geometry
@@ -246,6 +252,10 @@ export class SpatialSeparationGrid {
           stats.nanGuardsTriggered++;
           e.x = bounds ? (bounds.minX + bounds.maxX) / 2 : 200;
           e.y = bounds ? (bounds.minY + bounds.maxY) / 2 : 200;
+        } else {
+          // Mathematical defense against subnormal floats in position
+          if (Math.abs(e.x) < 1e-15) e.x = 0;
+          if (Math.abs(e.y) < 1e-15) e.y = 0;
         }
         this.scratchActive.push(e);
       }
@@ -257,7 +267,68 @@ export class SpatialSeparationGrid {
 
     if (activeCount < 2) {
       if (activeCount === 1) {
-        this.syncPhysicsBody(activeList[0], stats);
+        const e = activeList[0];
+        const r = Math.max(1.0, (typeof e.collisionRadius === 'number' && Number.isFinite(e.collisionRadius)) ? e.collisionRadius : defaultRadius);
+        this.posX[0] = e.x;
+        this.posY[0] = e.y;
+        this.initX[0] = e.x;
+        this.initY[0] = e.y;
+        this.radius[0] = r;
+
+        if (e.body && e.body.velocity) {
+          this.hasVel[0] = 1;
+          this.velX[0] = Math.abs(e.body.velocity.x) < 1e-15 ? 0 : e.body.velocity.x;
+          this.velY[0] = Math.abs(e.body.velocity.y) < 1e-15 ? 0 : e.body.velocity.y;
+        } else {
+          this.hasVel[0] = 0;
+          this.velX[0] = 0;
+          this.velY[0] = 0;
+        }
+
+        if (bounds) {
+          if (this.posX[0] < bounds.minX) {
+            this.posX[0] = bounds.minX;
+            if (this.hasVel[0] && this.velX[0] < 0) {
+              this.velX[0] = this.curRestitution > 0 ? -this.velX[0] * this.curRestitution : 0;
+              if (Math.abs(this.velX[0]) < 1e-15) this.velX[0] = 0;
+            }
+          } else if (this.posX[0] > bounds.maxX) {
+            this.posX[0] = bounds.maxX;
+            if (this.hasVel[0] && this.velX[0] > 0) {
+              this.velX[0] = this.curRestitution > 0 ? -this.velX[0] * this.curRestitution : 0;
+              if (Math.abs(this.velX[0]) < 1e-15) this.velX[0] = 0;
+            }
+          }
+          if (this.posY[0] < bounds.minY) {
+            this.posY[0] = bounds.minY;
+            if (this.hasVel[0] && this.velY[0] < 0) {
+              this.velY[0] = this.curRestitution > 0 ? -this.velY[0] * this.curRestitution : 0;
+              if (Math.abs(this.velY[0]) < 1e-15) this.velY[0] = 0;
+            }
+          } else if (this.posY[0] > bounds.maxY) {
+            this.posY[0] = bounds.maxY;
+            if (this.hasVel[0] && this.velY[0] > 0) {
+              this.velY[0] = this.curRestitution > 0 ? -this.velY[0] * this.curRestitution : 0;
+              if (Math.abs(this.velY[0]) < 1e-15) this.velY[0] = 0;
+            }
+          }
+        }
+
+        if (walls && walls.length > 0) {
+          this.resolveStaticWallsDirect(0, walls, r);
+        }
+
+        if (map) {
+          this.resolveGridMapWallsDirect(0, map, tileSize, r);
+        }
+
+        e.x = this.posX[0];
+        e.y = this.posY[0];
+        if (this.hasVel[0] && e.body?.velocity) {
+          e.body.velocity.x = this.velX[0];
+          e.body.velocity.y = this.velY[0];
+        }
+        this.syncPhysicsBody(e, stats);
       }
       stats.durationMs = Date.now() - startTs;
       return stats;
@@ -296,8 +367,8 @@ export class SpatialSeparationGrid {
           velX[i] = 0;
           velY[i] = 0;
         } else {
-          velX[i] = vx;
-          velY[i] = vy;
+          velX[i] = Math.abs(vx) < 1e-15 ? 0 : vx;
+          velY[i] = Math.abs(vy) < 1e-15 ? 0 : vy;
         }
       } else {
         hasVel[i] = 0;
@@ -412,10 +483,32 @@ export class SpatialSeparationGrid {
       for (let i = 0; i < activeCount; i++) {
         const r = radius[i];
         if (bounds) {
-          if (posX[i] < bounds.minX) posX[i] = bounds.minX;
-          else if (posX[i] > bounds.maxX) posX[i] = bounds.maxX;
-          if (posY[i] < bounds.minY) posY[i] = bounds.minY;
-          else if (posY[i] > bounds.maxY) posY[i] = bounds.maxY;
+          if (posX[i] < bounds.minX) {
+            posX[i] = bounds.minX;
+            if (hasVel[i] && velX[i] < 0) {
+              velX[i] = this.curRestitution > 0 ? -velX[i] * this.curRestitution : 0;
+              if (Math.abs(velX[i]) < 1e-15) velX[i] = 0;
+            }
+          } else if (posX[i] > bounds.maxX) {
+            posX[i] = bounds.maxX;
+            if (hasVel[i] && velX[i] > 0) {
+              velX[i] = this.curRestitution > 0 ? -velX[i] * this.curRestitution : 0;
+              if (Math.abs(velX[i]) < 1e-15) velX[i] = 0;
+            }
+          }
+          if (posY[i] < bounds.minY) {
+            posY[i] = bounds.minY;
+            if (hasVel[i] && velY[i] < 0) {
+              velY[i] = this.curRestitution > 0 ? -velY[i] * this.curRestitution : 0;
+              if (Math.abs(velY[i]) < 1e-15) velY[i] = 0;
+            }
+          } else if (posY[i] > bounds.maxY) {
+            posY[i] = bounds.maxY;
+            if (hasVel[i] && velY[i] > 0) {
+              velY[i] = this.curRestitution > 0 ? -velY[i] * this.curRestitution : 0;
+              if (Math.abs(velY[i]) < 1e-15) velY[i] = 0;
+            }
+          }
         }
 
         if (walls && walls.length > 0) {
@@ -445,10 +538,32 @@ export class SpatialSeparationGrid {
 
       const r = radius[i];
       if (bounds) {
-        if (posX[i] < bounds.minX) posX[i] = bounds.minX;
-        else if (posX[i] > bounds.maxX) posX[i] = bounds.maxX;
-        if (posY[i] < bounds.minY) posY[i] = bounds.minY;
-        else if (posY[i] > bounds.maxY) posY[i] = bounds.maxY;
+        if (posX[i] < bounds.minX) {
+          posX[i] = bounds.minX;
+          if (hasVel[i] && velX[i] < 0) {
+            velX[i] = this.curRestitution > 0 ? -velX[i] * this.curRestitution : 0;
+            if (Math.abs(velX[i]) < 1e-15) velX[i] = 0;
+          }
+        } else if (posX[i] > bounds.maxX) {
+          posX[i] = bounds.maxX;
+          if (hasVel[i] && velX[i] > 0) {
+            velX[i] = this.curRestitution > 0 ? -velX[i] * this.curRestitution : 0;
+            if (Math.abs(velX[i]) < 1e-15) velX[i] = 0;
+          }
+        }
+        if (posY[i] < bounds.minY) {
+          posY[i] = bounds.minY;
+          if (hasVel[i] && velY[i] < 0) {
+            velY[i] = this.curRestitution > 0 ? -velY[i] * this.curRestitution : 0;
+            if (Math.abs(velY[i]) < 1e-15) velY[i] = 0;
+          }
+        } else if (posY[i] > bounds.maxY) {
+          posY[i] = bounds.maxY;
+          if (hasVel[i] && velY[i] > 0) {
+            velY[i] = this.curRestitution > 0 ? -velY[i] * this.curRestitution : 0;
+            if (Math.abs(velY[i]) < 1e-15) velY[i] = 0;
+          }
+        }
       }
 
       if (walls && walls.length > 0) {
@@ -476,7 +591,7 @@ export class SpatialSeparationGrid {
         } else {
           const safeVx = Math.abs(vx) < 1e-15 ? 0 : vx;
           const safeVy = Math.abs(vy) < 1e-15 ? 0 : vy;
-          const MAX_SPEED = 400;
+          const MAX_SPEED = this.curMaxSpeed;
           const speed = Math.hypot(safeVx, safeVy);
           if (speed < 1e-8) {
             vx = 0;
@@ -566,7 +681,7 @@ export class SpatialSeparationGrid {
     // ZERO DIVISION DEFENSE:
     // If entities are co-located at identical coordinates (or distance < 1e-4),
     // calculate a deterministic, non-zero golden spiral dispersion angle.
-    if (distSq < 1e-8) {
+    if (distSq < 1e-8 || !Number.isFinite(distSq)) {
       stats.zeroDistancesHandled++;
       const angle = (i * goldenAngle + j * 0.785398) % 6.283185307179586;
       nx = Math.cos(angle);
@@ -585,6 +700,11 @@ export class SpatialSeparationGrid {
       nx = 1.0;
       ny = 0.0;
       overlap = minDistance;
+    } else {
+      // Subnormal float defenses (< 1e-15)
+      if (Math.abs(nx) < 1e-15) nx = 0;
+      if (Math.abs(ny) < 1e-15) ny = 0;
+      if (Math.abs(overlap) < 1e-15) overlap = 0;
     }
 
     // Mass-weighted displacement: heavier entities move less
@@ -600,32 +720,71 @@ export class SpatialSeparationGrid {
     this.posX[j] += nx * push * ratioB;
     this.posY[j] += ny * push * ratioB;
 
+    // Mathematical defense against subnormal floats and NaN propagation in positions
+    if (!Number.isFinite(this.posX[i]) || !Number.isFinite(this.posY[i])) {
+      stats.nanGuardsTriggered++;
+      this.posX[i] = this.initX[i];
+      this.posY[i] = this.initY[i];
+    } else {
+      if (Math.abs(this.posX[i]) < 1e-15) this.posX[i] = 0;
+      if (Math.abs(this.posY[i]) < 1e-15) this.posY[i] = 0;
+    }
+
+    if (!Number.isFinite(this.posX[j]) || !Number.isFinite(this.posY[j])) {
+      stats.nanGuardsTriggered++;
+      this.posX[j] = this.initX[j];
+      this.posY[j] = this.initY[j];
+    } else {
+      if (Math.abs(this.posX[j]) < 1e-15) this.posX[j] = 0;
+      if (Math.abs(this.posY[j]) < 1e-15) this.posY[j] = 0;
+    }
+
     // Velocity nudges and restitution math (Zero-NaN guarded)
     if (this.curApplyVelocityNudges && (this.hasVel[i] || this.hasVel[j])) {
-      const vAx = this.velX[i];
-      const vAy = this.velY[i];
-      const vBx = this.velX[j];
-      const vBy = this.velY[j];
+      const vAx = Math.abs(this.velX[i]) < 1e-15 ? 0 : this.velX[i];
+      const vAy = Math.abs(this.velY[i]) < 1e-15 ? 0 : this.velY[i];
+      const vBx = Math.abs(this.velX[j]) < 1e-15 ? 0 : this.velX[j];
+      const vBy = Math.abs(this.velY[j]) < 1e-15 ? 0 : this.velY[j];
 
       // Relative velocity: entity B relative to entity A
       const vRelX = vBx - vAx;
       const vRelY = vBy - vAy;
       const vRelNorm = vRelX * nx + vRelY * ny;
 
-      // 1. Restitution impulse (for closing entities: vRelNorm < 0)
+      // 1. Restitution impulse (for closing entities: vRelNorm < -1e-4)
       if (vRelNorm < -1e-4 && this.curRestitution >= 0) {
         stats.restitutionImpulsesApplied++;
         const rawImpulse = -(1.0 + this.curRestitution) * vRelNorm;
-        const impulseMag = Math.min(rawImpulse, this.curMaxVelocityNudge * 2);
+        const impulseMag = Math.max(0, Math.min(rawImpulse, this.curMaxVelocityNudge * 2));
 
-        if (Number.isFinite(impulseMag)) {
+        if (Number.isFinite(impulseMag) && impulseMag > 0) {
           if (this.hasVel[i]) {
-            this.velX[i] -= nx * impulseMag * ratioA;
-            this.velY[i] -= ny * impulseMag * ratioA;
+            let nvx = this.velX[i] - nx * impulseMag * ratioA;
+            let nvy = this.velY[i] - ny * impulseMag * ratioA;
+            if (!Number.isFinite(nvx) || !Number.isFinite(nvy)) {
+              stats.nanGuardsTriggered++;
+              nvx = 0;
+              nvy = 0;
+            } else {
+              if (Math.abs(nvx) < 1e-15) nvx = 0;
+              if (Math.abs(nvy) < 1e-15) nvy = 0;
+            }
+            this.velX[i] = nvx;
+            this.velY[i] = nvy;
           }
           if (this.hasVel[j]) {
-            this.velX[j] += nx * impulseMag * ratioB;
-            this.velY[j] += ny * impulseMag * ratioB;
+            let nvx = this.velX[j] + nx * impulseMag * ratioB;
+            let nvy = this.velY[j] + ny * impulseMag * ratioB;
+            if (!Number.isFinite(nvx) || !Number.isFinite(nvy)) {
+              stats.nanGuardsTriggered++;
+              nvx = 0;
+              nvy = 0;
+            } else {
+              if (Math.abs(nvx) < 1e-15) nvx = 0;
+              if (Math.abs(nvy) < 1e-15) nvy = 0;
+            }
+            this.velX[j] = nvx;
+            this.velY[j] = nvy;
           }
         } else {
           stats.nanGuardsTriggered++;
@@ -636,16 +795,36 @@ export class SpatialSeparationGrid {
       if (this.curVelocityNudgeFactor > 0 && overlap > 0) {
         stats.velocityNudgesApplied++;
         const rawNudge = overlap * this.curVelocityNudgeFactor;
-        const nudgeSpeed = Math.min(rawNudge, this.curMaxVelocityNudge);
+        const nudgeSpeed = Math.max(0, Math.min(rawNudge, this.curMaxVelocityNudge));
 
-        if (Number.isFinite(nudgeSpeed)) {
+        if (Number.isFinite(nudgeSpeed) && nudgeSpeed > 0) {
           if (this.hasVel[i]) {
-            this.velX[i] -= nx * nudgeSpeed * ratioA;
-            this.velY[i] -= ny * nudgeSpeed * ratioA;
+            let nvx = this.velX[i] - nx * nudgeSpeed * ratioA;
+            let nvy = this.velY[i] - ny * nudgeSpeed * ratioA;
+            if (!Number.isFinite(nvx) || !Number.isFinite(nvy)) {
+              stats.nanGuardsTriggered++;
+              nvx = 0;
+              nvy = 0;
+            } else {
+              if (Math.abs(nvx) < 1e-15) nvx = 0;
+              if (Math.abs(nvy) < 1e-15) nvy = 0;
+            }
+            this.velX[i] = nvx;
+            this.velY[i] = nvy;
           }
           if (this.hasVel[j]) {
-            this.velX[j] += nx * nudgeSpeed * ratioB;
-            this.velY[j] += ny * nudgeSpeed * ratioB;
+            let nvx = this.velX[j] + nx * nudgeSpeed * ratioB;
+            let nvy = this.velY[j] + ny * nudgeSpeed * ratioB;
+            if (!Number.isFinite(nvx) || !Number.isFinite(nvy)) {
+              stats.nanGuardsTriggered++;
+              nvx = 0;
+              nvy = 0;
+            } else {
+              if (Math.abs(nvx) < 1e-15) nvx = 0;
+              if (Math.abs(nvy) < 1e-15) nvy = 0;
+            }
+            this.velX[j] = nvx;
+            this.velY[j] = nvy;
           }
         } else {
           stats.nanGuardsTriggered++;
@@ -687,14 +866,30 @@ export class SpatialSeparationGrid {
       if (minX < minY) {
         if (overlapRight < overlapLeft) {
           this.posX[i] -= overlapRight;
+          if (this.hasVel[i] && this.velX[i] > 0) {
+            this.velX[i] = this.curRestitution > 0 ? -this.velX[i] * this.curRestitution : 0;
+            if (Math.abs(this.velX[i]) < 1e-15) this.velX[i] = 0;
+          }
         } else {
           this.posX[i] += overlapLeft;
+          if (this.hasVel[i] && this.velX[i] < 0) {
+            this.velX[i] = this.curRestitution > 0 ? -this.velX[i] * this.curRestitution : 0;
+            if (Math.abs(this.velX[i]) < 1e-15) this.velX[i] = 0;
+          }
         }
       } else {
         if (overlapBottom < overlapTop) {
           this.posY[i] -= overlapBottom;
+          if (this.hasVel[i] && this.velY[i] > 0) {
+            this.velY[i] = this.curRestitution > 0 ? -this.velY[i] * this.curRestitution : 0;
+            if (Math.abs(this.velY[i]) < 1e-15) this.velY[i] = 0;
+          }
         } else {
           this.posY[i] += overlapTop;
+          if (this.hasVel[i] && this.velY[i] < 0) {
+            this.velY[i] = this.curRestitution > 0 ? -this.velY[i] * this.curRestitution : 0;
+            if (Math.abs(this.velY[i]) < 1e-15) this.velY[i] = 0;
+          }
         }
       }
     }
@@ -743,16 +938,32 @@ export class SpatialSeparationGrid {
             let pushedY = false;
             if (c === 0) {
               this.posX[i] = Math.max(this.posX[i], wRight + radius);
+              if (this.hasVel[i] && this.velX[i] < 0) {
+                this.velX[i] = this.curRestitution > 0 ? -this.velX[i] * this.curRestitution : 0;
+                if (Math.abs(this.velX[i]) < 1e-15) this.velX[i] = 0;
+              }
               pushedX = true;
             } else if (c === cols - 1) {
               this.posX[i] = Math.min(this.posX[i], wLeft - radius);
+              if (this.hasVel[i] && this.velX[i] > 0) {
+                this.velX[i] = this.curRestitution > 0 ? -this.velX[i] * this.curRestitution : 0;
+                if (Math.abs(this.velX[i]) < 1e-15) this.velX[i] = 0;
+              }
               pushedX = true;
             }
             if (r === 0) {
               this.posY[i] = Math.max(this.posY[i], wBottom + radius);
+              if (this.hasVel[i] && this.velY[i] < 0) {
+                this.velY[i] = this.curRestitution > 0 ? -this.velY[i] * this.curRestitution : 0;
+                if (Math.abs(this.velY[i]) < 1e-15) this.velY[i] = 0;
+              }
               pushedY = true;
             } else if (r === rows - 1) {
               this.posY[i] = Math.min(this.posY[i], wTop - radius);
+              if (this.hasVel[i] && this.velY[i] > 0) {
+                this.velY[i] = this.curRestitution > 0 ? -this.velY[i] * this.curRestitution : 0;
+                if (Math.abs(this.velY[i]) < 1e-15) this.velY[i] = 0;
+              }
               pushedY = true;
             }
 
@@ -760,18 +971,52 @@ export class SpatialSeparationGrid {
               if (minX < minY) {
                 if (this.initX[i] <= wLeft + 1) {
                   this.posX[i] -= overlapR;
+                  if (this.hasVel[i] && this.velX[i] > 0) {
+                    this.velX[i] = this.curRestitution > 0 ? -this.velX[i] * this.curRestitution : 0;
+                    if (Math.abs(this.velX[i]) < 1e-15) this.velX[i] = 0;
+                  }
                 } else if (this.initX[i] >= wRight - 1) {
                   this.posX[i] += overlapL;
+                  if (this.hasVel[i] && this.velX[i] < 0) {
+                    this.velX[i] = this.curRestitution > 0 ? -this.velX[i] * this.curRestitution : 0;
+                    if (Math.abs(this.velX[i]) < 1e-15) this.velX[i] = 0;
+                  }
                 } else {
-                  this.posX[i] += overlapR < overlapL ? -overlapR : overlapL;
+                  const pushLeft = overlapR < overlapL;
+                  this.posX[i] += pushLeft ? -overlapR : overlapL;
+                  if (this.hasVel[i]) {
+                    if (pushLeft && this.velX[i] > 0) {
+                      this.velX[i] = this.curRestitution > 0 ? -this.velX[i] * this.curRestitution : 0;
+                    } else if (!pushLeft && this.velX[i] < 0) {
+                      this.velX[i] = this.curRestitution > 0 ? -this.velX[i] * this.curRestitution : 0;
+                    }
+                    if (Math.abs(this.velX[i]) < 1e-15) this.velX[i] = 0;
+                  }
                 }
               } else {
                 if (this.initY[i] <= wTop + 1) {
                   this.posY[i] -= overlapB;
+                  if (this.hasVel[i] && this.velY[i] > 0) {
+                    this.velY[i] = this.curRestitution > 0 ? -this.velY[i] * this.curRestitution : 0;
+                    if (Math.abs(this.velY[i]) < 1e-15) this.velY[i] = 0;
+                  }
                 } else if (this.initY[i] >= wBottom - 1) {
                   this.posY[i] += overlapT;
+                  if (this.hasVel[i] && this.velY[i] < 0) {
+                    this.velY[i] = this.curRestitution > 0 ? -this.velY[i] * this.curRestitution : 0;
+                    if (Math.abs(this.velY[i]) < 1e-15) this.velY[i] = 0;
+                  }
                 } else {
-                  this.posY[i] += overlapB < overlapT ? -overlapB : overlapT;
+                  const pushUp = overlapB < overlapT;
+                  this.posY[i] += pushUp ? -overlapB : overlapT;
+                  if (this.hasVel[i]) {
+                    if (pushUp && this.velY[i] > 0) {
+                      this.velY[i] = this.curRestitution > 0 ? -this.velY[i] * this.curRestitution : 0;
+                    } else if (!pushUp && this.velY[i] < 0) {
+                      this.velY[i] = this.curRestitution > 0 ? -this.velY[i] * this.curRestitution : 0;
+                    }
+                    if (Math.abs(this.velY[i]) < 1e-15) this.velY[i] = 0;
+                  }
                 }
               }
             }
@@ -801,7 +1046,7 @@ export class SpatialSeparationGrid {
         } else {
           const safeVx = Math.abs(vx) < 1e-15 ? 0 : vx;
           const safeVy = Math.abs(vy) < 1e-15 ? 0 : vy;
-          const MAX_VELOCITY = 400;
+          const MAX_VELOCITY = this.curMaxSpeed;
           const speed = Math.hypot(safeVx, safeVy);
           if (speed < 1e-8) {
             e.body.velocity.x = 0;
@@ -864,7 +1109,11 @@ export function clamp(val: number, min: number = 50, max: number = 400): number 
   if (val === Infinity) {
     return upper;
   }
-  return Math.min(upper, Math.max(lower, val));
+  let safeVal = val;
+  if (Math.abs(safeVal) < 1e-15) {
+    safeVal = 0;
+  }
+  return Math.min(upper, Math.max(lower, safeVal));
 }
 
 /**

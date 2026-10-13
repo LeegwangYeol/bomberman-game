@@ -207,6 +207,13 @@ export abstract class BaseCrisis implements ICrisis {
       }
     }
 
+    // Ensure threatMeter is strictly bounded [0, 100] even if modified by subclasses
+    if (typeof this.threatMeter !== 'number' || !Number.isFinite(this.threatMeter) || Number.isNaN(this.threatMeter)) {
+      this.threatMeter = 0;
+    } else {
+      this.threatMeter = Math.max(0, Math.min(100, this.threatMeter));
+    }
+
     // Update Threat Trend
     if (this.threatMeter > this.lastThreatValue + 0.1) {
       this.threatTrend = this.threatMeter >= 85 ? 'critical' : 'rising';
@@ -275,7 +282,15 @@ export abstract class BaseCrisis implements ICrisis {
     if (this.stage === CrisisStage.INACTIVE || this.stage === CrisisStage.RESOLVED || this.stage === CrisisStage.FAILED) {
       return;
     }
-    this.onBombBlast(r, c, radius);
+    if (
+      typeof r !== 'number' || typeof c !== 'number' ||
+      !Number.isInteger(r) || !Number.isInteger(c) ||
+      r < 0 || r >= ROWS || c < 0 || c >= COLS ||
+      !Number.isFinite(radius) || radius <= 0
+    ) {
+      return;
+    }
+    this.onBombBlast(r, c, Math.floor(radius));
   }
 
   public resolveObjective(objectiveId: string, value?: number): void {
@@ -327,16 +342,19 @@ export abstract class BaseCrisis implements ICrisis {
     durationMs: number = 0,
     data: number = 0
   ): HazardTile | null {
-    if (typeof r !== 'number' || typeof c !== 'number' || !Number.isFinite(r) || !Number.isFinite(c)) return null;
-    const ir = r | 0;
-    const ic = c | 0;
-    if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return null;
-    const idx = ir * COLS + ic;
+    if (
+      typeof r !== 'number' || typeof c !== 'number' ||
+      !Number.isInteger(r) || !Number.isInteger(c) ||
+      r < 0 || r >= ROWS || c < 0 || c >= COLS
+    ) {
+      return null;
+    }
+    const idx = r * COLS + c;
     const tile = this.hazardTileBuffer[idx];
 
     if (type === HazardType.NONE) {
       if (tile.type !== HazardType.NONE) {
-        this.clearHazardTile(ir, ic);
+        this.clearHazardTile(r, c);
       }
       return tile;
     }
@@ -358,11 +376,14 @@ export abstract class BaseCrisis implements ICrisis {
   }
 
   public clearHazardTile(r: number, c: number): void {
-    if (typeof r !== 'number' || typeof c !== 'number' || !Number.isFinite(r) || !Number.isFinite(c)) return;
-    const ir = r | 0;
-    const ic = c | 0;
-    if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return;
-    const idx = ir * COLS + ic;
+    if (
+      typeof r !== 'number' || typeof c !== 'number' ||
+      !Number.isInteger(r) || !Number.isInteger(c) ||
+      r < 0 || r >= ROWS || c < 0 || c >= COLS
+    ) {
+      return;
+    }
+    const idx = r * COLS + c;
     const tile = this.hazardTileBuffer[idx];
     if (tile.type === HazardType.NONE) return;
 
@@ -396,20 +417,26 @@ export abstract class BaseCrisis implements ICrisis {
   }
 
   public isTileHazardous(r: number, c: number): boolean {
-    if (typeof r !== 'number' || typeof c !== 'number' || !Number.isFinite(r) || !Number.isFinite(c)) return false;
-    const ir = r | 0;
-    const ic = c | 0;
-    if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return false;
-    const idx = ir * COLS + ic;
+    if (
+      typeof r !== 'number' || typeof c !== 'number' ||
+      !Number.isInteger(r) || !Number.isInteger(c) ||
+      r < 0 || r >= ROWS || c < 0 || c >= COLS
+    ) {
+      return false;
+    }
+    const idx = r * COLS + c;
     return this.hazardTileBuffer[idx].type !== HazardType.NONE;
   }
 
   public getHazardAt(r: number, c: number): HazardTile | null {
-    if (typeof r !== 'number' || typeof c !== 'number' || !Number.isFinite(r) || !Number.isFinite(c)) return null;
-    const ir = r | 0;
-    const ic = c | 0;
-    if (ir < 0 || ir >= ROWS || ic < 0 || ic >= COLS) return null;
-    const idx = ir * COLS + ic;
+    if (
+      typeof r !== 'number' || typeof c !== 'number' ||
+      !Number.isInteger(r) || !Number.isInteger(c) ||
+      r < 0 || r >= ROWS || c < 0 || c >= COLS
+    ) {
+      return null;
+    }
+    const idx = r * COLS + c;
     const tile = this.hazardTileBuffer[idx];
     return tile.type !== HazardType.NONE ? tile : null;
   }
@@ -430,15 +457,28 @@ export abstract class BaseCrisis implements ICrisis {
   // --- Threat, Objectives & Alerts Helpers ---
 
   public setThreat(value: number): void {
-    if (typeof value !== 'number' || !Number.isFinite(value) || Number.isNaN(value)) {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+      value = 0;
+    }
+    if (value === Infinity || value > 100) {
+      value = 100;
+    } else if (value === -Infinity || value < 0) {
       value = 0;
     }
     this.threatMeter = Math.max(0, Math.min(100, value));
   }
 
   public adjustThreat(delta: number): void {
-    if (typeof delta !== 'number' || !Number.isFinite(delta) || Number.isNaN(delta)) {
+    if (typeof delta !== 'number' || Number.isNaN(delta)) {
       delta = 0;
+    }
+    if (delta === Infinity) {
+      this.setThreat(100);
+      return;
+    }
+    if (delta === -Infinity) {
+      this.setThreat(0);
+      return;
     }
     this.setThreat(this.threatMeter + delta);
   }
@@ -522,7 +562,9 @@ export abstract class BaseCrisis implements ICrisis {
       stage: this.stage,
       stageElapsedMs: this.stageElapsedMs,
       stageDurationMs: this.stageDurationMs,
-      threatMeter: this.threatMeter,
+      threatMeter: typeof this.threatMeter === 'number' && Number.isFinite(this.threatMeter)
+        ? Math.max(0, Math.min(100, this.threatMeter))
+        : 0,
       threatTrend: this.threatTrend,
       objectives: objectivesCopy,
       activeAlert: alertCopy,
@@ -544,9 +586,19 @@ export abstract class BaseCrisis implements ICrisis {
     this.stageDurationMs = typeof state.stageDurationMs === 'number' && Number.isFinite(state.stageDurationMs)
       ? Math.max(0, state.stageDurationMs)
       : (this.definition.stageDurations[this.stage as keyof typeof this.definition.stageDurations] || 0);
-    this.threatMeter = typeof state.threatMeter === 'number' && Number.isFinite(state.threatMeter)
-      ? Math.max(0, Math.min(100, state.threatMeter))
-      : 0;
+    if (typeof state.threatMeter === 'number') {
+      if (state.threatMeter === Infinity || state.threatMeter > 100) {
+        this.threatMeter = 100;
+      } else if (state.threatMeter === -Infinity || state.threatMeter < 0) {
+        this.threatMeter = 0;
+      } else if (!Number.isNaN(state.threatMeter)) {
+        this.threatMeter = Math.max(0, Math.min(100, state.threatMeter));
+      } else {
+        this.threatMeter = 0;
+      }
+    } else {
+      this.threatMeter = 0;
+    }
     this.threatTrend = state.threatTrend || 'stable';
     this.isVictorious = Boolean(state.isVictorious);
     this.isDefeated = Boolean(state.isDefeated);
@@ -582,7 +634,12 @@ export abstract class BaseCrisis implements ICrisis {
     this.clearAllHazards();
     if (Array.isArray(state.hazardTiles)) {
       for (const h of state.hazardTiles) {
-        if (h && typeof h.r === 'number' && typeof h.c === 'number') {
+        if (
+          h &&
+          typeof h.r === 'number' && typeof h.c === 'number' &&
+          Number.isInteger(h.r) && Number.isInteger(h.c) &&
+          h.r >= 0 && h.r < ROWS && h.c >= 0 && h.c < COLS
+        ) {
           this.setHazardTile(h.r, h.c, h.type, h.intensity, h.remainingMs ?? h.durationMs, h.data);
         }
       }
@@ -605,14 +662,20 @@ export abstract class BaseCrisis implements ICrisis {
 
   // Helper grid bounds checks
   protected isPerimeter(r: number, c: number): boolean {
+    if (!Number.isInteger(r) || !Number.isInteger(c)) return false;
+    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
     return r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1;
   }
 
   protected isPillar(r: number, c: number): boolean {
+    if (!Number.isInteger(r) || !Number.isInteger(c)) return false;
+    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
     return r % 2 === 0 && c % 2 === 0;
   }
 
   protected isWalkableTile(r: number, c: number): boolean {
+    if (!Number.isInteger(r) || !Number.isInteger(c)) return false;
+    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
     return !this.isPerimeter(r, c) && !this.isPillar(r, c);
   }
 

@@ -35,6 +35,13 @@ export interface BombKnockbackResult {
   slideVx: number;
   slideVy: number;
   distanceTiles: number;
+  targetCol: number;
+  targetRow: number;
+  targetX: number;
+  targetY: number;
+  clampedByWall: boolean;
+  clampedByBoundary: boolean;
+  steps: number;
 }
 
 export class SteamToyTitanBoss extends BaseBoss {
@@ -91,6 +98,13 @@ export class SteamToyTitanBoss extends BaseBoss {
     slideVx: 0,
     slideVy: 0,
     distanceTiles: 0,
+    targetCol: 0,
+    targetRow: 0,
+    targetX: 0,
+    targetY: 0,
+    clampedByWall: false,
+    clampedByBoundary: false,
+    steps: 0,
   };
 
   private readonly preallocatedTelegraphs: TelegraphTile[] = [];
@@ -420,41 +434,137 @@ export class SteamToyTitanBoss extends BaseBoss {
 
   /**
    * Queries whether a bomb at (bx, by) is within the 3-tile shockwave.
-   * If within range, returns knockback direction sliding the bomb 2 tiles outward away from impact.
+   * If within range, returns knockback direction sliding the bomb up to 2 tiles outward away from impact.
+   * Strictly clamps destination within arena boundaries (cols 1..13, rows 1..11, coords [60..540, 60..460])
+   * and prevents bombs from penetrating or getting stuck inside solid walls and pillars.
    */
   public checkBombKnockback(
     bombX: number,
     bombY: number,
-    bombCol: number,
-    bombRow: number
+    bombCol?: number,
+    bombRow?: number,
+    map?: number[][]
   ): BombKnockbackResult {
     const res = this.scratchBombKnockback;
     res.shouldKnockback = false;
     res.slideVx = 0;
     res.slideVy = 0;
     res.distanceTiles = 0;
+    res.targetCol = Number.isInteger(bombCol) ? (bombCol as number) : 1;
+    res.targetRow = Number.isInteger(bombRow) ? (bombRow as number) : 1;
+    res.targetX = Number.isFinite(bombX) ? bombX : 60;
+    res.targetY = Number.isFinite(bombY) ? bombY : 60;
+    res.clampedByWall = false;
+    res.clampedByBoundary = false;
+    res.steps = 0;
 
     if (!this.malletImpactActive) {
       return res;
     }
 
-    const dx = bombX - this.malletImpactX;
-    const dy = bombY - this.malletImpactY;
+    const bx = Number.isFinite(bombX) ? bombX : 0;
+    const by = Number.isFinite(bombY) ? bombY : 0;
+
+    const dx = bx - this.malletImpactX;
+    const dy = by - this.malletImpactY;
     const distPx = Math.hypot(dx, dy);
 
     if (distPx <= SteamToyTitanBoss.MALLET_RADIUS_PX) {
       res.shouldKnockback = true;
       res.distanceTiles = distPx / 40;
 
+      let nx = 1;
+      let ny = 0;
       if (distPx > 1e-4) {
-        const nx = dx / distPx;
-        const ny = dy / distPx;
+        nx = dx / distPx;
+        ny = dy / distPx;
         res.slideVx = nx * SteamToyTitanBoss.BOMB_KNOCKBACK_SPEED;
         res.slideVy = ny * SteamToyTitanBoss.BOMB_KNOCKBACK_SPEED;
       } else {
         // Fallback outward slide
         res.slideVx = SteamToyTitanBoss.BOMB_KNOCKBACK_SPEED;
         res.slideVy = 0;
+      }
+
+      // Discrete grid calculations
+      const bCol = Number.isInteger(bombCol) ? (bombCol as number) : Math.floor(bx / 40);
+      const bRow = Number.isInteger(bombRow) ? (bombRow as number) : Math.floor(by / 40);
+
+      // Safe walkable boundaries: 15 cols (1..13), 13 rows (1..11)
+      const minCol = 1;
+      const maxCol = 13;
+      const minRow = 1;
+      const maxRow = 11;
+
+      // Determine step direction along primary/cardinal axes
+      let dCol = Math.round(nx);
+      let dRow = Math.round(ny);
+
+      if (dCol === 0 && dRow === 0) {
+        if (Math.abs(dx) >= Math.abs(dy)) {
+          dCol = Math.sign(dx) || 1;
+        } else {
+          dRow = Math.sign(dy) || 1;
+        }
+      }
+
+      let curCol = Math.max(minCol, Math.min(maxCol, bCol));
+      let curRow = Math.max(minRow, Math.min(maxRow, bRow));
+      let stepsTaken = 0;
+      const maxKnockbackSteps = 2; // 2 tiles outward
+
+      for (let step = 1; step <= maxKnockbackSteps; step++) {
+        const nextCol = curCol + dCol;
+        const nextRow = curRow + dRow;
+
+        // 1. Arena Boundary Check (Border walls at col 0, 14 and row 0, 12)
+        if (nextCol < minCol || nextCol > maxCol || nextRow < minRow || nextRow > maxRow) {
+          res.clampedByBoundary = true;
+          break;
+        }
+
+        // 2. Solid Wall / Block Obstacle Check
+        let isSolid = false;
+        if (map && map.length > nextRow && map[nextRow] && map[nextRow].length > nextCol) {
+          if (map[nextRow][nextCol] !== 0) {
+            isSolid = true;
+          }
+        } else {
+          // Standard arena layout: indestructible pillars at even row & even col
+          if (nextRow % 2 === 0 && nextCol % 2 === 0) {
+            isSolid = true;
+          }
+        }
+
+        if (isSolid) {
+          res.clampedByWall = true;
+          break;
+        }
+
+        curCol = nextCol;
+        curRow = nextRow;
+        stepsTaken++;
+      }
+
+      res.steps = stepsTaken;
+      res.targetCol = curCol;
+      res.targetRow = curRow;
+      res.targetX = curCol * 40 + 20;
+      res.targetY = curRow * 40 + 20;
+
+      // If blocked immediately (0 steps possible), outward slide velocity in blocked direction is zeroed
+      // to prevent pushing into solid walls or penetrating boundaries
+      if (stepsTaken === 0) {
+        if (res.clampedByBoundary) {
+          if (dCol < 0 && bCol <= minCol) res.slideVx = 0;
+          if (dCol > 0 && bCol >= maxCol) res.slideVx = 0;
+          if (dRow < 0 && bRow <= minRow) res.slideVy = 0;
+          if (dRow > 0 && bRow >= maxRow) res.slideVy = 0;
+        }
+        if (res.clampedByWall) {
+          if (dCol !== 0) res.slideVx = 0;
+          if (dRow !== 0) res.slideVy = 0;
+        }
       }
     }
 

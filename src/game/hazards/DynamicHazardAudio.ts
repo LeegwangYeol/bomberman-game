@@ -883,6 +883,18 @@ export class DynamicHazardAudio {
   }
 
   /**
+   * Harmonization alias for filtered noise bursts across all hazard audio synthesizers.
+   */
+  public playFilteredNoiseBurst(
+    duration: number = 0.10,
+    startFilterFreq: number = 2200,
+    endFilterFreq: number = 500,
+    peakGain: number = 0.30
+  ): void {
+    this.playWhiteNoiseBurst(duration, peakGain, startFilterFreq, endFilterFreq);
+  }
+
+  /**
    * Synthesizes a transient filtered white noise burst adhering strictly to Zero-Leak standards.
    * Auto-disconnects nodes immediately upon playback completion.
    */
@@ -892,6 +904,13 @@ export class DynamicHazardAudio {
     startFilterFreq: number = 2200,
     endFilterFreq: number = 500
   ): void {
+    // Mathematical defense against subnormal floats (1e-323): flush to zero & early return
+    if (
+      (typeof duration === 'number' && Math.abs(duration) < 1e-8) ||
+      (typeof peakGain === 'number' && Math.abs(peakGain) < 1e-15)
+    ) {
+      return;
+    }
     const ctx = this.getContext();
     if (!ctx) return;
 

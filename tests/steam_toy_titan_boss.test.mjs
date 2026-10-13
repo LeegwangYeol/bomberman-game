@@ -24,6 +24,14 @@ import {
 } from '../src/game/bosses/index.ts';
 import { WaveDirector } from '../src/game/progression/WaveDirector.ts';
 import { BOSS_RUSH_SEQUENCE } from '../src/game/progression/GameModes.ts';
+import { simulateBombKickSlide } from '../src/game/gameplay_mechanics.ts';
+import {
+  ROWS,
+  COLS,
+  TILE_EMPTY,
+  TILE_WALL,
+  TILE_BLOCK,
+} from '../src/game/pathfinding.ts';
 
 /* ==============================================================================
  * TIER 1: CONFIG, IDENTITY & METADATA INVARIANTS
@@ -259,6 +267,186 @@ test('Tier 4.2: Player damage evaluation from mallet shockwave', () => {
   const hit2 = boss.evaluatePlayerMalletHit(500, 400);
   assert.strictEqual(hit2.hit, false);
   assert.strictEqual(hit2.damage, 0);
+});
+
+test('Tier 4.3: Mallet knockback bomb slide respects arena boundaries (stops before border walls)', () => {
+  const boss = new SteamToyTitanBoss(300, 260);
+
+  // 1. East Boundary: Bomb at col 13 (x=540, y=260) pushed East towards border wall (col 14)
+  boss.executeMalletSlam(460, 260); // Slam 80px to the left of bomb
+  const kbEast = boss.checkBombKnockback(540, 260, 13, 6);
+  assert.strictEqual(kbEast.shouldKnockback, true);
+  assert.strictEqual(kbEast.clampedByBoundary, true, 'East border wall col 14 must clamp bomb');
+  assert.strictEqual(kbEast.targetCol, 13, 'Bomb must stop at col 13 without entering col 14 wall');
+  assert.strictEqual(kbEast.targetX, 540);
+  assert.strictEqual(kbEast.slideVx, 0, 'Outward velocity into border wall must be zeroed');
+  assert.strictEqual(kbEast.steps, 0);
+
+  // 2. West Boundary: Bomb at col 1 (x=60, y=260) pushed West towards border wall (col 0)
+  boss.executeMalletSlam(140, 260); // Slam 80px to the right of bomb
+  const kbWest = boss.checkBombKnockback(60, 260, 1, 6);
+  assert.strictEqual(kbWest.shouldKnockback, true);
+  assert.strictEqual(kbWest.clampedByBoundary, true, 'West border wall col 0 must clamp bomb');
+  assert.strictEqual(kbWest.targetCol, 1, 'Bomb must stop at col 1 without entering col 0 wall');
+  assert.strictEqual(kbWest.targetX, 60);
+  assert.strictEqual(kbWest.slideVx, 0, 'Outward velocity into border wall must be zeroed');
+  assert.strictEqual(kbWest.steps, 0);
+
+  // 3. North Boundary: Bomb at row 1 (x=300, y=60) pushed North towards border wall (row 0)
+  boss.executeMalletSlam(300, 140); // Slam 80px below bomb
+  const kbNorth = boss.checkBombKnockback(300, 60, 7, 1);
+  assert.strictEqual(kbNorth.shouldKnockback, true);
+  assert.strictEqual(kbNorth.clampedByBoundary, true, 'North border wall row 0 must clamp bomb');
+  assert.strictEqual(kbNorth.targetRow, 1, 'Bomb must stop at row 1 without entering row 0 wall');
+  assert.strictEqual(kbNorth.targetY, 60);
+  assert.strictEqual(kbNorth.slideVy, 0, 'Outward velocity into border wall must be zeroed');
+  assert.strictEqual(kbNorth.steps, 0);
+
+  // 4. South Boundary: Bomb at row 11 (x=300, y=460) pushed South towards border wall (row 12)
+  boss.executeMalletSlam(300, 380); // Slam 80px above bomb
+  const kbSouth = boss.checkBombKnockback(300, 460, 7, 11);
+  assert.strictEqual(kbSouth.shouldKnockback, true);
+  assert.strictEqual(kbSouth.clampedByBoundary, true, 'South border wall row 12 must clamp bomb');
+  assert.strictEqual(kbSouth.targetRow, 11, 'Bomb must stop at row 11 without entering row 12 wall');
+  assert.strictEqual(kbSouth.targetY, 460);
+  assert.strictEqual(kbSouth.slideVy, 0, 'Outward velocity into border wall must be zeroed');
+  assert.strictEqual(kbSouth.steps, 0);
+});
+
+test('Tier 4.4: Mallet knockback bomb slide halts before solid indestructible pillars and soft blocks', () => {
+  const boss = new SteamToyTitanBoss(300, 260);
+
+  // 1. Indestructible Pillar: Standard pillar at (row 6, col 10).
+  // Bomb at (row 6, col 8) (open corridor) pushed East:
+  // Step 1: col 9 (open), Step 2: col 10 (pillar -> HALT at col 9!)
+  boss.executeMalletSlam(300, 260); // Slam at col 7 (x=300), bomb at col 8 (x=340)
+  const kbPillar = boss.checkBombKnockback(340, 260, 8, 6);
+  assert.strictEqual(kbPillar.shouldKnockback, true);
+  assert.strictEqual(kbPillar.clampedByWall, true, 'Indestructible pillar at (6, 10) must clamp trajectory');
+  assert.strictEqual(kbPillar.steps, 1, 'Bomb slides exactly 1 open tile before halting in front of pillar');
+  assert.strictEqual(kbPillar.targetCol, 9, 'Bomb halts at safe open tile (col 9)');
+  assert.strictEqual(kbPillar.targetRow, 6);
+  assert.strictEqual(kbPillar.targetX, 380);
+  assert.strictEqual(kbPillar.targetY, 260);
+
+  // 2. Custom Map Soft Block: Place block at (row 6, col 9) right in front of bomb
+  const customMap = [];
+  for (let r = 0; r < ROWS; r++) {
+    customMap[r] = [];
+    for (let c = 0; c < COLS; c++) {
+      if (r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1 || (r % 2 === 0 && c % 2 === 0)) {
+        customMap[r][c] = TILE_WALL;
+      } else {
+        customMap[r][c] = TILE_EMPTY;
+      }
+    }
+  }
+  customMap[6][9] = TILE_BLOCK; // Soft block right in front of bomb
+
+  const kbBlock = boss.checkBombKnockback(340, 260, 8, 6, customMap);
+  assert.strictEqual(kbBlock.shouldKnockback, true);
+  assert.strictEqual(kbBlock.clampedByWall, true, 'Soft block at (6, 9) must halt bomb');
+  assert.strictEqual(kbBlock.steps, 0, 'Bomb cannot enter block tile, 0 steps taken');
+  assert.strictEqual(kbBlock.targetCol, 8, 'Bomb stays safely at original col 8');
+  assert.strictEqual(kbBlock.slideVx, 0, 'Velocity into block must be safely zeroed');
+});
+
+test('Tier 4.5: Bomb slide trajectory simulation integration with simulateBombKickSlide', () => {
+  // Construct standard 13x15 arena
+  const map = [];
+  for (let r = 0; r < ROWS; r++) {
+    map[r] = [];
+    for (let c = 0; c < COLS; c++) {
+      if (r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1 || (r % 2 === 0 && c % 2 === 0)) {
+        map[r][c] = TILE_WALL;
+      } else {
+        map[r][c] = TILE_EMPTY;
+      }
+    }
+  }
+
+  const boss = new SteamToyTitanBoss(300, 260);
+  boss.executeMalletSlam(140, 100);
+
+  // Bomb at (row 1, col 3) knocked North towards outer wall row 0
+  const kb = boss.checkBombKnockback(140, 60, 3, 1, map);
+  assert.strictEqual(kb.shouldKnockback, true);
+
+  // Simulate slide using canonical simulateBombKickSlide
+  const dirX = Math.sign(kb.slideVx);
+  const dirY = Math.sign(kb.slideVy);
+  const slideSim = simulateBombKickSlide(3, 1, dirX, dirY, map);
+
+  // Invariant 1: Bomb end position is strictly within valid walkable arena
+  assert.ok(slideSim.endCol >= 1 && slideSim.endCol <= 13, `endCol ${slideSim.endCol} within [1, 13]`);
+  assert.ok(slideSim.endRow >= 1 && slideSim.endRow <= 11, `endRow ${slideSim.endRow} within [1, 11]`);
+  // Invariant 2: End tile must be empty (never wall or block)
+  assert.strictEqual(map[slideSim.endRow][slideSim.endCol], TILE_EMPTY, 'Final tile must be walkable empty');
+  // Invariant 3: Zero tunneling through walls
+  for (const pt of slideSim.trajectory) {
+    assert.strictEqual(map[pt.row][pt.col], TILE_EMPTY, `Trajectory tile (${pt.row}, ${pt.col}) must be walkable`);
+  }
+});
+
+test('Tier 4.6: Multi-bomb radial knockback soak test under 360-degree angles', () => {
+  // Standard arena map
+  const map = [];
+  for (let r = 0; r < ROWS; r++) {
+    map[r] = [];
+    for (let c = 0; c < COLS; c++) {
+      if (r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1 || (r % 2 === 0 && c % 2 === 0)) {
+        map[r][c] = TILE_WALL;
+      } else {
+        map[r][c] = TILE_EMPTY;
+      }
+    }
+  }
+
+  const boss = new SteamToyTitanBoss(300, 260);
+  boss.executeMalletSlam(300, 260);
+
+  // Test 36 bombs in a full 360-degree radial ring (every 10 degrees at radius 60px)
+  for (let angleDeg = 0; angleDeg < 360; angleDeg += 10) {
+    const rad = (angleDeg * Math.PI) / 180;
+    const bx = 300 + Math.cos(rad) * 60;
+    const by = 260 + Math.sin(rad) * 60;
+    const bCol = Math.floor(bx / 40);
+    const bRow = Math.floor(by / 40);
+
+    const kb = boss.checkBombKnockback(bx, by, bCol, bRow, map);
+    assert.strictEqual(kb.shouldKnockback, true, `Angle ${angleDeg}° must trigger knockback within 60px`);
+
+    // Invariant 1: Destination strictly within arena boundaries
+    assert.ok(
+      kb.targetCol >= 1 && kb.targetCol <= 13,
+      `Angle ${angleDeg}° targetCol ${kb.targetCol} must be in [1, 13]`
+    );
+    assert.ok(
+      kb.targetRow >= 1 && kb.targetRow <= 11,
+      `Angle ${angleDeg}° targetRow ${kb.targetRow} must be in [1, 11]`
+    );
+    assert.ok(
+      kb.targetX >= 60 && kb.targetX <= 540,
+      `Angle ${angleDeg}° targetX ${kb.targetX} must be in [60, 540]`
+    );
+    assert.ok(
+      kb.targetY >= 60 && kb.targetY <= 460,
+      `Angle ${angleDeg}° targetY ${kb.targetY} must be in [60, 460]`
+    );
+
+    // Invariant 2: Destination tile is NEVER an obstacle
+    assert.strictEqual(
+      map[kb.targetRow][kb.targetCol],
+      TILE_EMPTY,
+      `Angle ${angleDeg}° destination (${kb.targetRow}, ${kb.targetCol}) must not be inside solid wall`
+    );
+
+    // Invariant 3: Zero NaN guarantee
+    assert.ok(!Number.isNaN(kb.targetX), `Angle ${angleDeg}° targetX must not be NaN`);
+    assert.ok(!Number.isNaN(kb.targetY), `Angle ${angleDeg}° targetY must not be NaN`);
+    assert.ok(!Number.isNaN(kb.slideVx), `Angle ${angleDeg}° slideVx must not be NaN`);
+    assert.ok(!Number.isNaN(kb.slideVy), `Angle ${angleDeg}° slideVy must not be NaN`);
+  }
 });
 
 /* ==============================================================================

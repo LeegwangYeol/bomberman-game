@@ -61,17 +61,23 @@ export function calculateClampedPlayerSpeed(options?: SpeedCalculationOptions): 
       ? rawBase
       : BASE_PLAYER_SPEED;
 
-  // 2. Additive bonuses (perks, surge, custom)
+  // 2. Additive bonuses (perks, surge, custom) with subnormal float defense
   const perkBonus =
-    typeof options.perkSpeedBonus === 'number' && Number.isFinite(options.perkSpeedBonus)
+    typeof options.perkSpeedBonus === 'number' &&
+    Number.isFinite(options.perkSpeedBonus) &&
+    Math.abs(options.perkSpeedBonus) >= FLOAT_EPSILON
       ? Math.max(0, options.perkSpeedBonus)
       : 0;
   const surgeBonus =
-    typeof options.surgeBonus === 'number' && Number.isFinite(options.surgeBonus)
+    typeof options.surgeBonus === 'number' &&
+    Number.isFinite(options.surgeBonus) &&
+    Math.abs(options.surgeBonus) >= FLOAT_EPSILON
       ? Math.max(0, options.surgeBonus)
       : 0;
   const customBonus =
-    typeof options.customBonus === 'number' && Number.isFinite(options.customBonus)
+    typeof options.customBonus === 'number' &&
+    Number.isFinite(options.customBonus) &&
+    Math.abs(options.customBonus) >= FLOAT_EPSILON
       ? options.customBonus
       : 0;
 
@@ -263,8 +269,8 @@ export function resolvePlayerCornerSlide(params: CornerSlideParams): CornerSlide
     isPassable,
   } = params;
 
-  const safePx = Number.isFinite(px) ? px : 200;
-  const safePy = Number.isFinite(py) ? py : 200;
+  const safePx = Number.isFinite(px) ? (Math.abs(px) < FLOAT_EPSILON ? 0 : px) : 200;
+  const safePy = Number.isFinite(py) ? (Math.abs(py) < FLOAT_EPSILON ? 0 : py) : 200;
   const safeTileSize = Number.isFinite(tileSize) && tileSize >= 8 ? tileSize : 40;
   const safeDelta = Number.isFinite(delta) && delta >= 0 ? delta : 16.666;
   const safeSpeed = Number.isFinite(speed) && speed > 0 ? speed : BASE_PLAYER_SPEED;
@@ -363,8 +369,8 @@ export function resolvePlayerCornerSlide(params: CornerSlideParams): CornerSlide
   }
 
   return {
-    vx: Number.isFinite(vx) ? vx : 0,
-    vy: Number.isFinite(vy) ? vy : 0,
+    vx: Number.isFinite(vx) ? (Math.abs(vx) < FLOAT_EPSILON ? 0 : vx) : 0,
+    vy: Number.isFinite(vy) ? (Math.abs(vy) < FLOAT_EPSILON ? 0 : vy) : 0,
     snappedX,
     snappedY,
     facing,

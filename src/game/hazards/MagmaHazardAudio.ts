@@ -443,6 +443,13 @@ export class MagmaHazardAudio {
     endFreq: number = 200,
     gainLevel: number = 0.20
   ): boolean {
+    // Mathematical defense against subnormal floats (1e-323): flush to zero & early return
+    if (
+      (typeof duration === 'number' && Math.abs(duration) < 1e-8) ||
+      (typeof gainLevel === 'number' && Math.abs(gainLevel) < 1e-15)
+    ) {
+      return false;
+    }
     const ctx = this.getContext();
     if (!ctx || ctx.state === 'suspended' || typeof ctx.createBuffer !== 'function') {
       return false;

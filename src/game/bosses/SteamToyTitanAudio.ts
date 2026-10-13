@@ -474,12 +474,21 @@ export class SteamToyTitanAudio {
       this.activeTransientNodes.add(filter);
       this.activeTransientNodes.add(gain);
 
+      let tid: ReturnType<typeof setTimeout> | null = null;
       let cleanedUp = false;
       const cleanup = () => {
         if (cleanedUp) return;
         cleanedUp = true;
+        if (tid !== null) {
+          clearTimeout(tid);
+          this.activeTimeouts.delete(tid);
+          tid = null;
+        }
         try {
           source.onended = null;
+          try {
+            if (typeof source.stop === 'function') source.stop();
+          } catch {}
           source.disconnect();
           filter.disconnect();
           gain.disconnect();
@@ -490,7 +499,7 @@ export class SteamToyTitanAudio {
       };
 
       source.onended = cleanup;
-      this.safeTimeout(cleanup, Math.ceil((duration + 0.05) * 1000));
+      tid = this.safeTimeout(cleanup, Math.ceil((duration + 0.05) * 1000));
 
       try {
         source.start(now);
