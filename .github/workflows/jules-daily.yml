@@ -3,7 +3,7 @@ name: Jules Daily Check
 on:
   schedule:
     # INFO : GitHub evaluates cron in UTC, not KST
-    - cron: '19'
+    - cron: '19 20 * * *'
   workflow_dispatch:
 
 permissions:
