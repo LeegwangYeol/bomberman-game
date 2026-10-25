@@ -286,7 +286,7 @@ export abstract class BaseCrisis implements ICrisis {
       typeof r !== 'number' || typeof c !== 'number' ||
       !Number.isInteger(r) || !Number.isInteger(c) ||
       r < 0 || r >= ROWS || c < 0 || c >= COLS ||
-      !Number.isFinite(radius) || radius <= 0
+      !Number.isFinite(radius) || radius < 0
     ) {
       return;
     }
