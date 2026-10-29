@@ -153,6 +153,10 @@ export class WaveDirector {
     if (safeWave === 8) {
       return CrisisType.PASTEL_VOID;
     }
+    // Specifically designate wave 12 to Clockwork Toy Rebellion (Stellaris Crisis 2)
+    if (safeWave === 12) {
+      return CrisisType.CLOCKWORK_REBELLION;
+    }
     const idx = Math.floor(safeWave / 4) % WaveDirector.CRISIS_ROTATION.length;
     return WaveDirector.CRISIS_ROTATION[idx] ?? CrisisType.PASTEL_VOID;
   }

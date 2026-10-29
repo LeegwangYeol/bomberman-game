@@ -375,6 +375,17 @@ export class SolarHazardAudio {
     this.pendingNodes.clear();
   }
 
+  public static reset(): void {
+    this.clearPendingNodes();
+    this.lastState = SolarLifecycleState.DORMANT;
+    this.lastTelegraph = SolarTelegraphPhase.NONE;
+    this.lastDroneTimestampMs = 0;
+  }
+
+  public reset(): void {
+    SolarHazardAudio.reset();
+  }
+
   public static destroy(): void {
     this.clearPendingNodes();
     this.sharedNoiseBuffer = null;

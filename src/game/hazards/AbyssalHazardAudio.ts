@@ -948,6 +948,18 @@ export class AbyssalHazardAudio {
     AbyssalHazardAudio.pendingNodes.clear();
   }
 
+  public static reset(): void {
+    AbyssalHazardAudio.clearPendingNodes();
+    AbyssalHazardAudio.lastState = AbyssalLifecycleState.DORMANT;
+    AbyssalHazardAudio.lastTelegraph = AbyssalTelegraphPhase.NONE;
+    AbyssalHazardAudio.lastDroneTimestampMs = 0;
+    AbyssalHazardAudio.lastSweepTimestampMs = 0;
+  }
+
+  public reset(): void {
+    AbyssalHazardAudio.reset();
+  }
+
   public static destroy(): void {
     AbyssalHazardAudio.clearPendingNodes();
     AbyssalHazardAudio.sharedNoiseBuffer = null;

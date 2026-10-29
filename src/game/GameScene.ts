@@ -149,6 +149,7 @@ import {
   SituationLog,
   PsychicCrisisAudio,
   VoidCrisisAudio,
+  ClockworkCrisisAudio,
 } from './crises/index.ts';
 import {
   DynamicHazard,
@@ -1304,6 +1305,7 @@ export default class GameScene extends Phaser.Scene {
     }
     PsychicCrisisAudio.resetInstance();
     VoidCrisisAudio.resetInstance();
+    ClockworkCrisisAudio.resetInstance();
     SteamToyTitanAudio.resetInstance();
     webAudioSynth.destroy();
     AudioVoicePool.resetInstance();

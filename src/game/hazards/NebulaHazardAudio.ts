@@ -577,6 +577,18 @@ export class NebulaHazardAudio {
     NebulaHazardAudio.pendingNodes.clear();
   }
 
+  public static reset(): void {
+    NebulaHazardAudio.clearPendingNodes();
+    NebulaHazardAudio.lastState = NebulaLifecycleState.DORMANT;
+    NebulaHazardAudio.lastTelegraph = NebulaTelegraphPhase.NONE;
+    NebulaHazardAudio.lastDroneTimestampMs = 0;
+    NebulaHazardAudio.lastSweepTimestampMs = 0;
+  }
+
+  public reset(): void {
+    NebulaHazardAudio.reset();
+  }
+
   public static destroy(): void {
     NebulaHazardAudio.clearPendingNodes();
     NebulaHazardAudio.sharedNoiseBuffer = null;

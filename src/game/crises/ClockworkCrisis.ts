@@ -8,6 +8,7 @@
 import { BaseCrisis } from './BaseCrisis.ts';
 import { CrisisType, CrisisStage, HazardType } from './CrisisTypes.ts';
 import { ROWS, COLS } from '../pathfinding.ts';
+import { ClockworkCrisisAudio } from './ClockworkCrisisAudio.ts';
 
 export interface DynamoConduit {
   r: number;
@@ -65,6 +66,8 @@ export class ClockworkCrisis extends BaseCrisis {
     this.isOverloadWindowActive = false;
     this.overloadWindowTimerMs = 0;
 
+    ClockworkCrisisAudio.getInstance().reset();
+
     this.conduits = ClockworkCrisis.DYNAMO_CONDUITS.map((c) => ({
       r: c.r,
       c: c.c,
@@ -93,6 +96,8 @@ export class ClockworkCrisis extends BaseCrisis {
   }
 
   protected onStageEnter(stage: CrisisStage): void {
+    ClockworkCrisisAudio.getInstance().playCrisisState(stage, this.threatMeter);
+
     if (stage === CrisisStage.WHISPERS) {
       this.triggerAlert(
         'clockwork_whispers',
@@ -147,12 +152,19 @@ export class ClockworkCrisis extends BaseCrisis {
   }
 
   protected onUpdate(deltaMs: number): void {
+    // 0. Whispers ticking metronome
+    if (this.stage === CrisisStage.WHISPERS) {
+      const progress = Math.min(1.0, this.stageElapsedMs / 10000);
+      ClockworkCrisisAudio.getInstance().playMetronomeTick(progress);
+    }
+
     // 1. EMP pulse loop in Outbreak & Climax
     if (this.stage === CrisisStage.OUTBREAK || this.stage === CrisisStage.CLIMAX) {
       this.empTimerMs += deltaMs;
 
       if (!this.isEmpWarningActive && this.empTimerMs >= this.empIntervalMs - this.empWarningMs) {
         this.isEmpWarningActive = true;
+        ClockworkCrisisAudio.getInstance().playEmpWarning();
         this.triggerAlert(
           'emp_warning',
           'EMP PULSE CHARGING',
@@ -184,6 +196,8 @@ export class ClockworkCrisis extends BaseCrisis {
     this.totalEmpPulsesFired++;
     this.resolveObjective('survive_emp');
 
+    ClockworkCrisisAudio.getInstance().playEmpPulse();
+
     this.triggerAlert(
       'emp_pulse',
       'EMP PULSE DISCHARGED!',
@@ -209,8 +223,10 @@ export class ClockworkCrisis extends BaseCrisis {
    */
   public evaluateBombEmpInteraction(bombFuseMs: number): { action: 'detonate' | 'disarm'; refundSlot: boolean } {
     if (bombFuseMs <= 50) {
+      ClockworkCrisisAudio.getInstance().playBombForcedDetonate();
       return { action: 'detonate', refundSlot: false };
     }
+    ClockworkCrisisAudio.getInstance().playBombDisarm();
     return { action: 'disarm', refundSlot: true };
   }
 
@@ -240,9 +256,11 @@ export class ClockworkCrisis extends BaseCrisis {
 
       const activeHits = this.conduits.filter((c) => c.isHit).length;
       this.resolveObjective('dynamo_overload', activeHits);
+      ClockworkCrisisAudio.getInstance().playConduitHit(activeHits);
 
       if (activeHits === 4) {
         // Complete 4-way overload achieved!
+        ClockworkCrisisAudio.getInstance().playOverloadCleanse();
         this.resolveCrisis('Dynamo Overload short-circuited the Steam Toy Titan and dismantled the mechanical rebellion!');
       } else {
         this.triggerAlert(
@@ -263,6 +281,7 @@ export class ClockworkCrisis extends BaseCrisis {
   private resetConduitOverload(): void {
     this.isOverloadWindowActive = false;
     this.overloadWindowTimerMs = 0;
+    ClockworkCrisisAudio.getInstance().playConduitReset();
     for (const conduit of this.conduits) {
       conduit.isHit = false;
       this.setHazardTile(conduit.r, conduit.c, HazardType.DYNAMO_CONDUIT, 0.5, 0, 0);

@@ -1796,3 +1796,27 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
       - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
       - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
       - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+
+### 22) 일일 자율 진화 및 유지보수: 제2대 행성 위기 '클락워크 토이 반란(Clockwork Toy Rebellion)' 전용 절차적 웹오디오 신디사이저(ClockworkCrisisAudio) 완성 및 전 시스템 오디오 라이프사이클 표준화 (Daily Evolution Cycle: 2026-10-30 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 대규모 30+ 서브에이전트 스웜 기동.
+  - 5대 사단 편성 (정찰/컨텍스트 5, 아키텍트/Zero-GC 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결**:
+    - 제2대 스텔라리스 위기 **'클락워크 토이 반란' (`ClockworkCrisis.ts`, Stellaris Crisis 2)** 전용 **100% 절차적 웹오디오 신디사이저 (`ClockworkCrisisAudio.ts`)** 신규 설계 및 구현 완료.
+    - 4대 시그니처 사운드스케이프 물리적 구현:
+      1. **Metronome Ticking Protocol**: 60 BPM $\to$ 120 BPM 가속 메트로놈. 삼각형파 우드블록 틱 (1800Hz $\to$ 400Hz 지수 감쇠, Q=3.5 밴드패스, 40ms)과 황동 톡 (1200Hz $\to$ 250Hz, Q=3.0, 50ms) 교차 발진.
+      2. **Conveyor Belt & Industrial Steam Gear Drone**: 90Hz 삼각파 + 55Hz 정현파 디튠 기계음, 165Hz 기어 톱니 마찰음, 1200Hz~2800Hz 대역통과 증기 벤트 히스 사운드.
+      3. **EMP Capacitor Buildup & Pulse Surge**: 2.5초 지수적 고전압 커패시터 충전음 (300Hz $\to$ 2400Hz 스윕), 80Hz $\to$ 20Hz 초저역 전자기 충격파 방전, 폭탄 해제(Disarm) 메탈릭 피즐 및 50ms 이하 강제 폭파 스냅.
+      4. **Dynamo Conduit Resonance & Overload Cleanse**: 4대 발전 도관 피격 시 E-Major 화음 (E5 659Hz $\to$ G#5 831Hz $\to$ B5 988Hz $\to$ E6 1318Hz) 공명 차임, 4도관 1.5초 동기화 달성 시 웅장한 4음 산업용 아르페지오 + 220Hz $\to$ 35Hz 전원 강등 험 + 기계식 릴레이 클랙.
+  - **전 시스템 오디오 라이프사이클 표준화**:
+    - Architect 4 감사 결과 지적된 결함 해결: `AbyssalHazardAudio.ts`, `NebulaHazardAudio.ts`, `SolarHazardAudio.ts`에 누락되었던 인스턴스 및 정적 `reset()` 메서드를 완벽 구현하여 10대 위험 요소 및 전 위기 오디오의 일관된 라이프사이클(`stop()`, `reset()`, `destroy()`) 표준화 달성.
+  - **웨이브 및 유물 시스템 공식 편입**:
+    - `WaveDirector.ts`의 `selectCrisisForWave(12)`를 `CrisisType.CLOCKWORK_REBELLION`으로 공식 지정하여 4웨이브 단위 위기 로테이션 확립.
+    - 위기 정화 보상으로 전용 레어 유물 **'태엽 스프링(Clockwork Spring)'** (+450 px/s 킥 슬라이딩, 1 소프트 블록 관통, 젤라틴 코어와의 '키네틱 핀볼' 시너지) 지급 및 Wave 13 정상 전환 전수 검증.
+  - **전수 검증 지표**:
+    - 신규 클락워크 오디오 전용 9티어 테스트 스위트: **9 / 9 PASS** (`tests/clockwork_crisis_audio.test.mjs`, 10,000 프레임 Zero-GC 소크 포함).
+    - 전체 회귀 테스트 배터리: **2,056 / 2,056 PASS (100% 무결점 통과, 0 실패, 0 스킵)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
