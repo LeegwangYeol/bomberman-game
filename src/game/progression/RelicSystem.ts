@@ -58,7 +58,7 @@ export const RELIC_CATALOG: Record<RelicId, RelicDefinition> = {
     description: 'Generates a confectionery polarity field drawing treats toward the carrier.',
     mechanics: 'Dropped power-ups and Star Candies within 4 tiles are magnetically drawn directly to the player.',
     internalCooldownMs: 500,
-    synergyPartners: [RelicId.POCKET_CHRONOMETER],
+    synergyPartners: [RelicId.POCKET_CHRONOMETER, RelicId.ORBITAL_TARGETING_CORE],
     synergyName: 'Chrono Attraction',
     synergyDescription: 'Magnet pull speed +100%; item collection extends remaining time by +1 second (up to +15s max).',
   },
@@ -110,6 +110,18 @@ export const RELIC_CATALOG: Record<RelicId, RelicDefinition> = {
     synergyName: 'Kinetic Pinball',
     synergyDescription: 'Kicked bombs explode with +1 tile blast radius if they collide with an enemy.',
   },
+  [RelicId.ORBITAL_TARGETING_CORE]: {
+    id: RelicId.ORBITAL_TARGETING_CORE,
+    name: 'Orbital Targeting Core',
+    icon: '🛰️',
+    rarity: 'epic',
+    description: 'Salvaged fire-control subcore from the Orbital Dreadnought.',
+    mechanics: 'Bomb detonations paint orbital crosshairs; after 1.2s, a micro-kinetic lance strikes the tile, dealing 150 damage to enemies.',
+    internalCooldownMs: 500,
+    synergyPartners: [RelicId.MAGNETRON_DIAL],
+    synergyName: 'Orbital Ion Strike',
+    synergyDescription: 'Micro-kinetic lance expands to a 3-tile cross pattern and draws items and star candies within 8 tiles.',
+  },
 };
 
 export const SYNERGY_DEFINITIONS: RelicSynergy[] = [
@@ -140,6 +152,13 @@ export const SYNERGY_DEFINITIONS: RelicSynergy[] = [
     name: 'Chrono Attraction',
     icon: '⏱️🧭',
     description: 'Final 30s doubles magnet range to 8 tiles and items grant +1s time extension.',
+  },
+  {
+    relicA: RelicId.MAGNETRON_DIAL,
+    relicB: RelicId.ORBITAL_TARGETING_CORE,
+    name: 'Orbital Ion Strike',
+    icon: '🧭🛰️',
+    description: 'Micro-kinetic lance expands to a 3-tile cross pattern and draws items and star candies within 8 tiles.',
   },
 ];
 
@@ -294,13 +313,19 @@ export class RelicManager {
   }
 
   public hasSynergy(relicA: RelicId, relicB: RelicId): boolean {
-    return this.isEquipped(relicA) && this.isEquipped(relicB);
+    if (!this.isEquipped(relicA) || !this.isEquipped(relicB)) return false;
+    return SYNERGY_DEFINITIONS.some(
+      (s) => (s.relicA === relicA && s.relicB === relicB) || (s.relicA === relicB && s.relicB === relicA)
+    );
   }
 
   /**
    * Internal Cooldown Guard (500ms) to prevent infinite loop procs (Edge Case 21)
    */
   private checkAndSetIcd(procKey: string, nowMs: number): boolean {
+    if (typeof nowMs !== 'number' || !Number.isFinite(nowMs)) {
+      return false;
+    }
     const last = this.lastProcTimes.get(procKey);
     if (last !== undefined) {
       if (nowMs < last || nowMs - last < 500) {

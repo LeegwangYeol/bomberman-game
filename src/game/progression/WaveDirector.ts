@@ -89,6 +89,11 @@ export class WaveDirector {
   private elapsedMs: number = 0;
   private readonly listeners: Map<string, Set<WaveDirectorEventListener>> = new Map();
 
+  // One-shot event emission guards per wave
+  private hasEmittedBossDefeated: boolean = false;
+  private hasEmittedCrisisResolved: boolean = false;
+  private hasEmittedCrisisFailed: boolean = false;
+
   // Cached Zero-GC return status
   private readonly cachedStatus: WaveDirectorStatus = {
     wave: 1,
@@ -156,6 +161,10 @@ export class WaveDirector {
     // Specifically designate wave 12 to Clockwork Toy Rebellion (Stellaris Crisis 2)
     if (safeWave === 12) {
       return CrisisType.CLOCKWORK_REBELLION;
+    }
+    // Specifically designate wave 16 to Orbital Bombardment (Stellaris Crisis 3)
+    if (safeWave === 16) {
+      return CrisisType.ORBITAL_BOMBARDMENT;
     }
     const idx = Math.floor(safeWave / 4) % WaveDirector.CRISIS_ROTATION.length;
     return WaveDirector.CRISIS_ROTATION[idx] ?? CrisisType.PASTEL_VOID;
@@ -261,6 +270,9 @@ export class WaveDirector {
     this.elapsedMs = 0;
     this.waveType = WaveDirector.determineWaveType(this.currentWave);
     this.waveState = WaveState.ACTIVE;
+    this.hasEmittedBossDefeated = false;
+    this.hasEmittedCrisisResolved = false;
+    this.hasEmittedCrisisFailed = false;
 
     const scaling = ScalingEngine.calculateWaveParameters(this.currentWave);
     const mutators = scaling.mutators;
@@ -335,16 +347,22 @@ export class WaveDirector {
     if (this.activeCrisisType) {
       crisisStatus = this.crisisManager.update(safeDelta, playerPos);
       if (crisisStatus.isVictorious && crisisStatus.stage === CrisisStage.RESOLVED) {
-        const reward = this.crisisManager.getCrisisReward(this.activeCrisisType);
-        this.emit('crisis-resolved', {
-          crisisType: this.activeCrisisType,
-          scoreAwarded: reward.scoreAwarded,
-          relicReward: reward.relicReward,
-          starCandies: reward.starCandies,
-          cosmicEssence: reward.cosmicEssence,
-        });
+        if (!this.hasEmittedCrisisResolved) {
+          this.hasEmittedCrisisResolved = true;
+          const reward = this.crisisManager.getCrisisReward(this.activeCrisisType);
+          this.emit('crisis-resolved', {
+            crisisType: this.activeCrisisType,
+            scoreAwarded: reward.scoreAwarded,
+            relicReward: reward.relicReward,
+            starCandies: reward.starCandies,
+            cosmicEssence: reward.cosmicEssence,
+          });
+        }
       } else if (crisisStatus.isDefeated && crisisStatus.stage === CrisisStage.FAILED) {
-        this.emit('crisis-failed', { crisisType: this.activeCrisisType });
+        if (!this.hasEmittedCrisisFailed) {
+          this.hasEmittedCrisisFailed = true;
+          this.emit('crisis-failed', { crisisType: this.activeCrisisType });
+        }
       }
     }
 
@@ -354,7 +372,10 @@ export class WaveDirector {
       const py = playerPos?.y ?? 260;
       this.activeBoss.update(safeDelta, px, py);
       if (this.activeBoss.bossState === BossState.DEFEATED) {
-        this.emit('boss-defeated', { bossId: this.activeBoss.config.id, boss: this.activeBoss });
+        if (!this.hasEmittedBossDefeated) {
+          this.hasEmittedBossDefeated = true;
+          this.emit('boss-defeated', { bossId: this.activeBoss.config.id, boss: this.activeBoss });
+        }
       }
     }
 
@@ -379,8 +400,12 @@ export class WaveDirector {
   public completeWave(): void {
     if (this.activeCrisisType) {
       this.crisisManager.stopCrisis('resolved');
+      this.activeCrisisType = null;
     }
     this.dismissBoss();
+    this.hasEmittedBossDefeated = false;
+    this.hasEmittedCrisisResolved = false;
+    this.hasEmittedCrisisFailed = false;
 
     const completedWave = this.currentWave;
     this.waveState = WaveState.CLEARED;

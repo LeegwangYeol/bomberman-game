@@ -306,9 +306,7 @@ export abstract class BaseCrisis implements ICrisis {
       obj.currentCount = Math.min(obj.targetCount, obj.currentCount + 1);
     }
 
-    if (obj.currentCount >= obj.targetCount) {
-      obj.isCompleted = true;
-    }
+    obj.isCompleted = obj.currentCount >= obj.targetCount;
 
     this.onResolveObjective(objectiveId, value);
   }

@@ -7,6 +7,7 @@
 
 import { BaseCrisis } from './BaseCrisis.ts';
 import { CrisisType, CrisisStage, HazardType } from './CrisisTypes.ts';
+import { OrbitalCrisisAudio } from './OrbitalCrisisAudio.ts';
 
 export interface UplinkTerminal {
   r: number;
@@ -37,6 +38,7 @@ export class OrbitalCrisis extends BaseCrisis {
   }
 
   protected onInit(): void {
+    OrbitalCrisisAudio.getInstance().reset();
     this.salvoTimerMs = 0;
     this.salvosEvadedCount = 0;
     this.macrocannonCharge = 0;
@@ -69,6 +71,8 @@ export class OrbitalCrisis extends BaseCrisis {
   }
 
   protected onStageEnter(stage: CrisisStage): void {
+    OrbitalCrisisAudio.getInstance().playCrisisState(stage, this.threatMeter);
+
     if (stage === CrisisStage.WHISPERS) {
       this.triggerAlert(
         'orbital_whispers',
@@ -130,6 +134,7 @@ export class OrbitalCrisis extends BaseCrisis {
         p.remainingMs -= deltaMs;
         if (p.remainingMs <= 0) {
           this.setHazardTile(p.r, p.c, HazardType.KINETIC_CRATER, 1.0, 3500, 0);
+          OrbitalCrisisAudio.getInstance().playKineticCraterImpact();
           this.pendingCraters.splice(i, 1);
           i--;
         }
@@ -139,10 +144,13 @@ export class OrbitalCrisis extends BaseCrisis {
     if (this.stage === CrisisStage.CLIMAX) {
       // Macrocannon charges toward 100% over the climax duration
       this.macrocannonCharge = Math.min(100, (this.stageElapsedMs / this.stageDurationMs) * 100);
-      this.setThreat(Math.max(70, Math.floor(70 + (this.macrocannonCharge / 100) * 30)));
+      const uplinkMitigation = this.uplinks.filter((u) => u.isOverridden).length * 10;
+      this.setThreat(Math.max(0, Math.floor(70 + (this.macrocannonCharge / 100) * 30 - uplinkMitigation)));
+      OrbitalCrisisAudio.getInstance().playMacrocannonWhine(this.macrocannonCharge / 100);
 
       // If charged to 100% and not overridden, fail crisis
       if (this.macrocannonCharge >= 100 && !this.isVictorious) {
+        OrbitalCrisisAudio.getInstance().playMacrocannonBeam();
         this.failCrisis('Spinal Macrocannon particle lance obliterated the surface sector!');
       }
     }
@@ -161,9 +169,12 @@ export class OrbitalCrisis extends BaseCrisis {
       if (!this.isPerimeter(pt.r, pt.c)) {
         if (immediate) {
           this.setHazardTile(pt.r, pt.c, HazardType.KINETIC_CRATER, 1.0, 3500, 0);
+          OrbitalCrisisAudio.getInstance().playKineticCraterImpact();
         } else {
           // Set telegraph target tile for 1.5s
           this.setHazardTile(pt.r, pt.c, HazardType.KINETIC_TARGET, 0.7, 1500, 0);
+          OrbitalCrisisAudio.getInstance().playReticlePing();
+          OrbitalCrisisAudio.getInstance().playAtmosphericScream();
           this.pendingCraters.push({ r: pt.r, c: pt.c, remainingMs: 1500 });
         }
       }
@@ -184,7 +195,10 @@ export class OrbitalCrisis extends BaseCrisis {
         this.resolveObjective('override_uplinks');
 
         const activeCount = this.uplinks.filter((up) => up.isOverridden).length;
+        OrbitalCrisisAudio.getInstance().playUplinkSecured(activeCount);
+
         if (activeCount === 3) {
+          OrbitalCrisisAudio.getInstance().playCounterBarrage();
           this.resolveCrisis('Planetary defense grid activated! Counter-orbital EMP neutralized the dreadnought fleet!');
         } else {
           this.triggerAlert(
@@ -207,10 +221,16 @@ export class OrbitalCrisis extends BaseCrisis {
       this.adjustThreat(-8 * activeCount);
       const obj = this.objectives.find((o) => o.id === 'override_uplinks');
       if (obj && obj.isCompleted && !this.isVictorious) {
+        OrbitalCrisisAudio.getInstance().playCounterBarrage();
         this.resolveCrisis('Planetary defense grid activated! Counter-orbital EMP neutralized the dreadnought fleet!');
       }
     } else if (objectiveId === 'dodge_salvos') {
       this.adjustThreat(-5);
     }
+  }
+
+  public override reset(): void {
+    super.reset();
+    OrbitalCrisisAudio.getInstance().reset();
   }
 }

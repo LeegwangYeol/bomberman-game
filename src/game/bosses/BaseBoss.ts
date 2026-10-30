@@ -637,4 +637,10 @@ export abstract class BaseBoss {
   protected abstract onDamageBlocked(): void;
   protected abstract onStateChanged(prevState: BossState, nextState: BossState): void;
   protected abstract onDefeated(): void;
+
+  /**
+   * Lifecycle cleanup hook for releasing pooled resources, timers, and audio.
+   * Can be overridden by subclasses.
+   */
+  public destroy(): void {}
 }

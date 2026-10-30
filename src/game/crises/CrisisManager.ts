@@ -125,6 +125,9 @@ export class CrisisManager {
     const set = this.listeners.get(event);
     if (set) {
       set.delete(listener);
+      if (set.size === 0) {
+        this.listeners.delete(event);
+      }
     }
     return this;
   }
@@ -142,11 +145,15 @@ export class CrisisManager {
     const set = this.listeners.get(event);
     if (set) {
       for (const listener of set) {
-        listener(payload);
+        try {
+          listener(payload);
+        } catch {}
       }
     }
     if (this.eventEmitter && this.eventEmitter.events) {
-      this.eventEmitter.events.emit(event, payload);
+      try {
+        this.eventEmitter.events.emit(event, payload);
+      } catch {}
     }
   }
 
@@ -346,6 +353,7 @@ export class CrisisManager {
   public getCrisisReward(type: CrisisType): CrisisResolutionReward {
     let relic: RelicId = RelicId.VOID_SINGULARITY_LENS;
     if (type === CrisisType.CLOCKWORK_REBELLION) relic = RelicId.CLOCKWORK_SPRING;
+    else if (type === CrisisType.ORBITAL_BOMBARDMENT) relic = RelicId.ORBITAL_TARGETING_CORE;
     else if (type === CrisisType.SOLAR_FLARES) relic = RelicId.SOLAR_CAPACITOR;
     else if (type === CrisisType.CREEPING_LAVA) relic = RelicId.PYROCLASTIC_PRISM;
     else if (type === CrisisType.PASTEL_VOID) relic = RelicId.VOID_SINGULARITY_LENS;

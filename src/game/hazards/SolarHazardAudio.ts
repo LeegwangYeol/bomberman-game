@@ -242,43 +242,49 @@ export class SolarHazardAudio {
   }
 
   public static playThermonuclearDrone(voicePool?: AudioVoicePool | null): void {
-    if (voicePool) {
-      voicePool.playTone(SOLAR_AUDIO_PRESETS.THERMONUCLEAR_SUB_DRONE_38HZ);
-      voicePool.playTone(SOLAR_AUDIO_PRESETS.SOLAR_WHISPER_HUM);
+    const pool = voicePool || AudioVoicePool.getInstance();
+    if (pool) {
+      pool.playTone(SOLAR_AUDIO_PRESETS.THERMONUCLEAR_SUB_DRONE_38HZ);
+      pool.playTone(SOLAR_AUDIO_PRESETS.SOLAR_WHISPER_HUM);
     }
   }
 
   public static playCoronaArcSweep(voicePool?: AudioVoicePool | null): void {
-    if (voicePool) {
-      voicePool.playTone(SOLAR_AUDIO_PRESETS.CORONA_ARC_SWEEP);
+    const pool = voicePool || AudioVoicePool.getInstance();
+    if (pool) {
+      pool.playTone(SOLAR_AUDIO_PRESETS.CORONA_ARC_SWEEP);
     }
   }
 
   public static playSuperheatFlareCrack(voicePool?: AudioVoicePool | null): void {
-    if (voicePool) {
-      voicePool.playTone(SOLAR_AUDIO_PRESETS.SUPERHEAT_FLARE_CRACK);
-      voicePool.playTone(SOLAR_AUDIO_PRESETS.SUPERHEAT_FLARE_SUB_THUD);
+    const pool = voicePool || AudioVoicePool.getInstance();
+    if (pool) {
+      pool.playTone(SOLAR_AUDIO_PRESETS.SUPERHEAT_FLARE_CRACK);
+      pool.playTone(SOLAR_AUDIO_PRESETS.SUPERHEAT_FLARE_SUB_THUD);
     }
     this.playWhiteNoiseBurst(0.25, 600);
   }
 
   public static playSolarSurfChimes(voicePool?: AudioVoicePool | null): void {
-    if (voicePool) {
-      voicePool.playTone(SOLAR_AUDIO_PRESETS.SOLAR_SURF_CHIME_HIGH);
-      voicePool.playTone(SOLAR_AUDIO_PRESETS.SOLAR_SURF_CHIME_MID);
+    const pool = voicePool || AudioVoicePool.getInstance();
+    if (pool) {
+      pool.playTone(SOLAR_AUDIO_PRESETS.SOLAR_SURF_CHIME_HIGH);
+      pool.playTone(SOLAR_AUDIO_PRESETS.SOLAR_SURF_CHIME_MID);
     }
   }
 
   public static playSolarCalmResolution(voicePool?: AudioVoicePool | null): void {
-    if (voicePool) {
-      voicePool.playTone(SOLAR_AUDIO_PRESETS.SOLAR_CALM_SNAP);
-      voicePool.playTone(SOLAR_AUDIO_PRESETS.SOLAR_CALM_CHORD);
+    const pool = voicePool || AudioVoicePool.getInstance();
+    if (pool) {
+      pool.playTone(SOLAR_AUDIO_PRESETS.SOLAR_CALM_SNAP);
+      pool.playTone(SOLAR_AUDIO_PRESETS.SOLAR_CALM_CHORD);
     }
   }
 
   public static playSunstrokeWarble(voicePool?: AudioVoicePool | null): void {
-    if (voicePool) {
-      voicePool.playTone(SOLAR_AUDIO_PRESETS.SUNSTROKE_WARBLE);
+    const pool = voicePool || AudioVoicePool.getInstance();
+    if (pool) {
+      pool.playTone(SOLAR_AUDIO_PRESETS.SUNSTROKE_WARBLE);
     }
   }
 

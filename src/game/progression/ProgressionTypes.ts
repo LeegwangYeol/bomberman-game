@@ -205,7 +205,7 @@ export interface AppliedPerkBonuses {
 }
 
 /* ==============================================================================
- * EQUIPPABLE RELICS (8 ARTIFACTS)
+ * EQUIPPABLE RELICS (9 ARTIFACTS)
  * ============================================================================== */
 
 export const RelicId = {
@@ -217,6 +217,7 @@ export const RelicId = {
   SOLAR_CAPACITOR: 'solar_capacitor',
   VOID_SINGULARITY_LENS: 'void_singularity_lens',
   CLOCKWORK_SPRING: 'clockwork_spring',
+  ORBITAL_TARGETING_CORE: 'orbital_targeting_core',
 } as const;
 
 export type RelicId = typeof RelicId[keyof typeof RelicId];
