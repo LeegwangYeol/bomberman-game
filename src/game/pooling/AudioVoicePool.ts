@@ -433,6 +433,10 @@ export class AudioVoicePool {
     this.reset();
   }
 
+  public getContext(): AudioContext | null {
+    return this.ctx;
+  }
+
   public destroy(): void {
     for (let i = 0; i < this.voices.length; i++) {
       this.voices[i].disconnect();

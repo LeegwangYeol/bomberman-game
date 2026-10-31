@@ -166,26 +166,27 @@ export abstract class BaseCrisis implements ICrisis {
     if (typeof deltaMs !== 'number' || !Number.isFinite(deltaMs) || Number.isNaN(deltaMs) || deltaMs < 0) {
       deltaMs = 0;
     }
+
+    // Tick active alert even in RESOLVED / FAILED stages so victory/defeat banners fade out cleanly
+    if (this.activeAlert) {
+      this.activeAlert.remainingMs -= deltaMs;
+      if (this.activeAlert.remainingMs <= 0 || !Number.isFinite(this.activeAlert.remainingMs)) {
+        this.activeAlert = null;
+      }
+    }
+
     if (this.stage === CrisisStage.INACTIVE || this.stage === CrisisStage.RESOLVED || this.stage === CrisisStage.FAILED) {
       return;
     }
 
     this.stageElapsedMs += deltaMs;
 
-    // Tick active alert
-    if (this.activeAlert) {
-      this.activeAlert.remainingMs -= deltaMs;
-      if (this.activeAlert.remainingMs <= 0) {
-        this.activeAlert = null;
-      }
-    }
-
     // Tick hazard tiles
     for (let i = 0; i < this.activeHazardCount; i++) {
       const tile = this.activeHazardList[i];
       if (tile.durationMs > 0) {
         tile.remainingMs -= deltaMs;
-        if (tile.remainingMs <= 0) {
+        if (tile.remainingMs <= 0 || !Number.isFinite(tile.remainingMs) || Number.isNaN(tile.remainingMs)) {
           this.clearHazardTile(tile.r, tile.c);
           i--; // Adjust index since clearHazardTile compresses activeHazardList
         }
@@ -301,7 +302,9 @@ export abstract class BaseCrisis implements ICrisis {
     if (!obj) return;
 
     if (value !== undefined) {
-      obj.currentCount = Math.min(obj.targetCount, value);
+      if (typeof value === 'number' && Number.isFinite(value) && !Number.isNaN(value)) {
+        obj.currentCount = Math.max(0, Math.min(obj.targetCount, value));
+      }
     } else {
       obj.currentCount = Math.min(obj.targetCount, obj.currentCount + 1);
     }
@@ -358,11 +361,21 @@ export abstract class BaseCrisis implements ICrisis {
     }
 
     const wasActive = tile.type !== HazardType.NONE;
+    const safeIntensity = (typeof intensity === 'number' && Number.isFinite(intensity) && !Number.isNaN(intensity))
+      ? Math.max(0, Math.min(1, intensity))
+      : 1.0;
+    const safeDuration = (typeof durationMs === 'number' && Number.isFinite(durationMs) && !Number.isNaN(durationMs) && durationMs >= 0)
+      ? durationMs
+      : 0;
+    const safeData = (typeof data === 'number' && Number.isFinite(data) && !Number.isNaN(data))
+      ? data
+      : 0;
+
     tile.type = type;
-    tile.intensity = Math.max(0, Math.min(1, intensity));
-    tile.durationMs = durationMs;
-    tile.remainingMs = durationMs;
-    tile.data = data;
+    tile.intensity = safeIntensity;
+    tile.durationMs = safeDuration;
+    tile.remainingMs = safeDuration;
+    tile.data = safeData;
 
     if (!wasActive) {
       if (this.activeHazardCount < TOTAL_TILES) {
@@ -489,14 +502,17 @@ export abstract class BaseCrisis implements ICrisis {
     icon: string = '⚠️',
     durationMs: number = 3500
   ): void {
+    const safeDuration = (typeof durationMs === 'number' && Number.isFinite(durationMs) && !Number.isNaN(durationMs) && durationMs > 0)
+      ? durationMs
+      : 3500;
     const alert = this.cachedAlert;
     alert.id = id;
     alert.title = title;
     alert.message = message;
     alert.level = level;
     alert.icon = icon;
-    alert.durationMs = durationMs;
-    alert.remainingMs = durationMs;
+    alert.durationMs = safeDuration;
+    alert.remainingMs = safeDuration;
     this.activeAlert = alert;
   }
 

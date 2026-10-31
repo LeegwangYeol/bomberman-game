@@ -8,6 +8,7 @@
 import { BaseCrisis } from './BaseCrisis.ts';
 import { CrisisType, CrisisStage, HazardType } from './CrisisTypes.ts';
 import { ROWS, COLS } from '../pathfinding.ts';
+import { SolarFlareCrisisAudio } from './SolarFlareCrisisAudio.ts';
 
 export interface ThermalVent {
   r: number;
@@ -39,6 +40,7 @@ export class SolarFlareCrisis extends BaseCrisis {
   }
 
   protected onInit(): void {
+    SolarFlareCrisisAudio.getInstance().reset();
     this.cmeTimerMs = 0;
     this.isCmeWarningActive = false;
     this.isCmeSweeping = false;
@@ -72,6 +74,8 @@ export class SolarFlareCrisis extends BaseCrisis {
   }
 
   protected onStageEnter(stage: CrisisStage): void {
+    SolarFlareCrisisAudio.getInstance().playCrisisState(stage, this.threatMeter);
+
     if (stage === CrisisStage.WHISPERS) {
       this.triggerAlert(
         'solar_whispers',
@@ -103,6 +107,12 @@ export class SolarFlareCrisis extends BaseCrisis {
       for (const vent of this.vents) {
         this.setHazardTile(vent.r, vent.c, HazardType.THERMAL_VENT, 0.9, 0, 0);
       }
+    } else if (stage === CrisisStage.RESOLVED || stage === CrisisStage.FAILED || stage === CrisisStage.INACTIVE) {
+      this.isCmeSweeping = false;
+      this.isCmeWarningActive = false;
+      this.cmeTimerMs = 0;
+      this.cmeSweepRemainingMs = 0;
+      SolarFlareCrisisAudio.getInstance().stop();
     }
   }
 
@@ -113,6 +123,8 @@ export class SolarFlareCrisis extends BaseCrisis {
       // Warning 3s before sweep
       if (!this.isCmeWarningActive && this.cmeTimerMs >= this.cmeIntervalMs - this.cmeWarningMs) {
         this.isCmeWarningActive = true;
+        SolarFlareCrisisAudio.getInstance().playCmeWarning();
+        SolarFlareCrisisAudio.getInstance().playSolarWindDrone();
         this.triggerAlert(
           'cme_warning',
           'CORONAL SWEEP IN 3 SECONDS!',
@@ -128,10 +140,7 @@ export class SolarFlareCrisis extends BaseCrisis {
         this.cmeTimerMs = 0;
         this.isCmeWarningActive = false;
         this.triggerCmeSweep();
-      }
-
-      // Handle ongoing sweep
-      if (this.isCmeSweeping) {
+      } else if (this.isCmeSweeping) {
         this.cmeSweepRemainingMs -= deltaMs;
         if (this.cmeSweepRemainingMs <= 0) {
           this.endCmeSweep();
@@ -140,14 +149,23 @@ export class SolarFlareCrisis extends BaseCrisis {
     }
   }
 
+  public isThermalVent(r: number, c: number): boolean {
+    return this.vents.some((v) => v.r === r && v.c === c);
+  }
+
   public triggerCmeSweep(): void {
     this.isCmeSweeping = true;
     this.cmeSweepRemainingMs = this.cmeSweepDurationMs;
+    SolarFlareCrisisAudio.getInstance().playCmeSweep();
 
     // Apply solar sweep hazards to all open (non-pillar) corridor rows and columns
+    // In Climax stage, preserve thermal vent tiles so they are not wiped!
     for (let r = 1; r < ROWS - 1; r++) {
       for (let c = 1; c < COLS - 1; c++) {
         if (!this.isPillar(r, c)) {
+          if (this.stage === CrisisStage.CLIMAX && this.isThermalVent(r, c)) {
+            continue;
+          }
           this.setHazardTile(r, c, HazardType.SOLAR_SWEEP, 1.0, this.cmeSweepDurationMs, 0);
         }
       }
@@ -177,6 +195,13 @@ export class SolarFlareCrisis extends BaseCrisis {
         }
       }
     }
+
+    // In Climax stage, guarantee thermal vent tiles are restored to their active/cooled states
+    if (this.stage === CrisisStage.CLIMAX) {
+      for (const vent of this.vents) {
+        this.setHazardTile(vent.r, vent.c, HazardType.THERMAL_VENT, vent.isCooled ? 0.4 : 0.9, 0, vent.isCooled ? 1 : 0);
+      }
+    }
   }
 
   /**
@@ -184,13 +209,23 @@ export class SolarFlareCrisis extends BaseCrisis {
    * Indestructible pillars (r % 2 === 0 && c % 2 === 0) cast shadows.
    */
   public isTileShelteredFromFlare(r: number, c: number): boolean {
-    if (this.isPillar(r, c)) return true; // Inside/behind pillar
+    if (
+      typeof r !== 'number' || typeof c !== 'number' ||
+      !Number.isFinite(r) || !Number.isFinite(c) ||
+      Number.isNaN(r) || Number.isNaN(c) ||
+      r < 0 || r >= ROWS || c < 0 || c >= COLS
+    ) {
+      return false;
+    }
+    const row = Math.floor(r);
+    const col = Math.floor(c);
+    if (this.isPillar(row, col)) return true; // Inside/behind pillar
     // Check if adjacent orthogonal tile has a solid pillar shielding it
     const adjacentPillars = [
-      this.isPillar(r - 1, c),
-      this.isPillar(r + 1, c),
-      this.isPillar(r, c - 1),
-      this.isPillar(r, c + 1),
+      this.isPillar(row - 1, col),
+      this.isPillar(row + 1, col),
+      this.isPillar(row, col - 1),
+      this.isPillar(row, col + 1),
     ];
     return adjacentPillars.some((p) => p);
   }
@@ -199,7 +234,26 @@ export class SolarFlareCrisis extends BaseCrisis {
    * Edge Case 12: Exposed bombs flash-ignite immediately during CME sweep.
    */
   public shouldFlashIgniteBomb(r: number, c: number): boolean {
-    return this.isCmeSweeping && !this.isTileShelteredFromFlare(r, c);
+    if (this.stage !== CrisisStage.OUTBREAK && this.stage !== CrisisStage.CLIMAX) {
+      return false;
+    }
+    if (
+      typeof r !== 'number' || typeof c !== 'number' ||
+      !Number.isFinite(r) || !Number.isFinite(c) ||
+      Number.isNaN(r) || Number.isNaN(c) ||
+      r < 0 || r >= ROWS || c < 0 || c >= COLS
+    ) {
+      return false;
+    }
+    return this.isCmeSweeping && !this.isTileShelteredFromFlare(Math.floor(r), Math.floor(c));
+  }
+
+  public flashIgniteBomb(r: number, c: number): boolean {
+    if (this.shouldFlashIgniteBomb(r, c)) {
+      SolarFlareCrisisAudio.getInstance().playFlashIgnition();
+      return true;
+    }
+    return false;
   }
 
   protected onBombBlast(r: number, c: number, radius: number): void {
@@ -216,9 +270,9 @@ export class SolarFlareCrisis extends BaseCrisis {
         this.resolveObjective('cool_thermal_vents');
 
         const cooledCount = this.vents.filter((v) => v.isCooled).length;
-        if (cooledCount === 4) {
-          this.resolveCrisis('All 4 thermal coolant vents purged core heat! Coronal tempest neutralized!');
-        } else {
+        SolarFlareCrisisAudio.getInstance().playThermalVentPurged(cooledCount);
+
+        if (cooledCount < 4) {
           this.triggerAlert(
             `vent_${i}`,
             'THERMAL VENT COOLED',
@@ -239,10 +293,61 @@ export class SolarFlareCrisis extends BaseCrisis {
       this.adjustThreat(-6 * cooledCount);
       const obj = this.objectives.find((o) => o.id === 'cool_thermal_vents');
       if (obj && obj.isCompleted && !this.isVictorious) {
+        SolarFlareCrisisAudio.getInstance().playHeliosStabilization();
         this.resolveCrisis('All 4 Thermal Vents cooled! Super-flare extinguished and stellar calm restored!');
       }
     } else if (objectiveId === 'shelter_flares') {
       this.adjustThreat(-5);
     }
+  }
+
+  protected override getExtraSerializedState(): Record<string, unknown> {
+    return {
+      cmeTimerMs: this.cmeTimerMs,
+      isCmeWarningActive: this.isCmeWarningActive,
+      isCmeSweeping: this.isCmeSweeping,
+      cmeSweepRemainingMs: this.cmeSweepRemainingMs,
+      sweepsSurvivedCount: this.sweepsSurvivedCount,
+      vents: this.vents.map((v) => ({ r: v.r, c: v.c, isCooled: v.isCooled })),
+    };
+  }
+
+  protected override applyExtraSerializedState(extra: Record<string, unknown>): void {
+    if (typeof extra.cmeTimerMs === 'number' && Number.isFinite(extra.cmeTimerMs)) {
+      this.cmeTimerMs = Math.max(0, extra.cmeTimerMs);
+    }
+    this.isCmeWarningActive = Boolean(extra.isCmeWarningActive);
+    this.isCmeSweeping = Boolean(extra.isCmeSweeping);
+    if (typeof extra.cmeSweepRemainingMs === 'number' && Number.isFinite(extra.cmeSweepRemainingMs)) {
+      this.cmeSweepRemainingMs = Math.max(0, extra.cmeSweepRemainingMs);
+    }
+    if (typeof extra.sweepsSurvivedCount === 'number' && Number.isFinite(extra.sweepsSurvivedCount)) {
+      this.sweepsSurvivedCount = Math.max(0, extra.sweepsSurvivedCount);
+    }
+    if (Array.isArray(extra.vents)) {
+      for (const raw of extra.vents) {
+        if (raw && typeof raw === 'object' && 'r' in raw && 'c' in raw) {
+          const match = this.vents.find((v) => v.r === raw.r && v.c === raw.c);
+          if (match) {
+            match.isCooled = Boolean(raw.isCooled);
+          }
+        }
+      }
+    }
+  }
+
+  public override reset(): void {
+    super.reset();
+    SolarFlareCrisisAudio.getInstance().reset();
+    this.cmeTimerMs = 0;
+    this.isCmeWarningActive = false;
+    this.isCmeSweeping = false;
+    this.cmeSweepRemainingMs = 0;
+    this.sweepsSurvivedCount = 0;
+    this.vents = SolarFlareCrisis.THERMAL_VENTS.map((v) => ({
+      r: v.r,
+      c: v.c,
+      isCooled: false,
+    }));
   }
 }

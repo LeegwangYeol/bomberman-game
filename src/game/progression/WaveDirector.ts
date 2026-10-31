@@ -166,6 +166,10 @@ export class WaveDirector {
     if (safeWave === 16) {
       return CrisisType.ORBITAL_BOMBARDMENT;
     }
+    // Specifically designate wave 20 to Solar Flare Storm (Stellaris Crisis 4)
+    if (safeWave === 20) {
+      return CrisisType.SOLAR_FLARES;
+    }
     const idx = Math.floor(safeWave / 4) % WaveDirector.CRISIS_ROTATION.length;
     return WaveDirector.CRISIS_ROTATION[idx] ?? CrisisType.PASTEL_VOID;
   }

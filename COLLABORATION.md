@@ -1776,6 +1776,42 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
 
 
 
+### 24) 일일 자율 진화 및 유지보수: 제4대 행성 위기 '태양 플레어 폭풍(Solar Flare Storm)' 전용 절차적 웹오디오 신디사이저(SolarFlareCrisisAudio), Wave 20 위기-보스(Solar Flare + Mutant Flora) 연동 및 냉각 벤트 보존 버그 완전 픽스 (Daily Evolution Cycle: 2026-11-01 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 대규모 30+ 서브에이전트 스웜 기동.
+  - 5대 사단 편성 (정찰/컨텍스트 5, 아키텍트/Zero-GC 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결**:
+    - 제4대 스텔라리스 위기 **'태양 플레어 폭풍' (`SolarFlareCrisis.ts`, Stellaris Crisis 4)** 전용 **100% 절차적 웹오디오 신디사이저 (`SolarFlareCrisisAudio.ts`)** 신규 설계 및 구현 완료.
+    - **4대 시그니처 사운드스케이프 물리적 구현**:
+      1. **태양풍 & 지자기 정적 드론 (Solar Wind & Geomagnetic Static Drone)**: 38.4Hz 초저역 서브베이스 럼블, 528Hz Solfeggio Golden Sol 천체 주파수, 180Hz $\to$ 95Hz 삼각파 와블 펄스 및 대역통과 필터링된 지속적 플라즈마 화이트 노이즈.
+      2. **코로나 질량 방출(CME) 초음속 스윕 (CME Supersonic Sweep)**: 경보 단계 180Hz $\to$ 960Hz 크레센도 톱니파 스윕, 방출 시 120Hz $\to$ 30Hz 열핵 충격파 서브베이스, 240Hz $\to$ 60Hz 복도 화염 포효 럼블.
+      3. **전술 폭탄 플래시 점화 & 극저온 벤트 정화 (Tactical Flash-Ignition & Cryogenic Vent Purging)**: 플래시 폭탄 950Hz $\to$ 180Hz 압축 스냅, 4대 냉각 벤트 정화 단계별 F-Major 아르페지오 화음 (Tier 1: F5 698.46Hz, Tier 2: A5 880.00Hz, Tier 3: C6 1046.50Hz, Tier 4: F6 1396.91Hz 극저온 크리스탈 정화음).
+      4. **헬리오스 태양 코어 안정화 (Helios Solar Core Stabilization)**: 위기 극복 시 A-Major 528Hz Solfeggio 4음 천체 조화음 (A4 440Hz, C#5 554.37Hz, E5 659.25Hz, A5 880Hz + 1200Hz $\to$ 200Hz 열기 분산 스윕).
+  - **Zero-GC & 무누수 라이프사이클 보장**:
+    - `AudioVoicePool` 16 보이스 재활용 및 정적 캐싱된 500ms 화이트 노이즈 버퍼 (`cachedNoiseBuffer`) 영구 재사용.
+    - `onended` + `setTimeout` 이중 워치독 노드 클린업 및 `activeTransientNodes`/`activeTimeouts` 전수 추적.
+    - Headless / SSR 완전 방어 (Node.js 테스트 환경 100% crash-free).
+    - `GameScene.ts` teardown / cleanup에 `SolarFlareCrisisAudio.resetInstance()` 등록.
+    - `AudioVoicePool.ts`에 `getContext()` 메서드를 추가하여 풀 주입 시 Context 자동 바인딩 보장.
+  - **스웜 하드닝 & 시스템 버그 핀포인트 픽스 완결 (Architect & Chaos QA Swarm)**:
+    - **BaseCrisis.ts [Alert Countdown Leak 픽스]**: 위기 해결/실패(`RESOLVED` / `FAILED`) 상태 진입 시 `update()`가 즉시 리턴되어 화면 상단 빅토리/패배 알림 배너(`activeAlert`)의 `remainingMs`가 차감되지 않고 영구 잔존하던 결함을 수정. 스테이지 가드 이전에 알림 카운트다운을 수행하여 5초 후 자연 소멸하도록 보장.
+    - **BaseCrisis.ts [NaN/Non-finite Duration & Intensity 누수 방어]**: `setHazardTile` 및 `triggerAlert`에 전달되는 `intensity`, `durationMs`, `data` 매개변수에 대해 finite/NaN 엄격 검증을 적용하고, 만료 판정 시 `!Number.isFinite(tile.remainingMs)`를 즉시 회수하도록 방어하여 `activeHazardList` 힙 누수 차단.
+    - **BaseCrisis.ts [Objective NaN 오염 차단]**: `resolveObjective`에 NaN 값이 전달될 경우 `obj.currentCount`가 NaN으로 오염되어 이후 영구 완수 불가가 되던 문제를 차단.
+    - **SolarFlareCrisis.ts [냉각 벤트 영구 보존 & 복구]**: 클라이맥스 단계에서 CME 폭풍 스윕 발생 시 비-기둥 타일을 순회하며 `HazardType.SOLAR_SWEEP`으로 덮어쓰면서 기존에 배치된 4대 냉각 벤트(`HazardType.THERMAL_VENT`) 타일이 삭제되던 심각한 물리 버그를 스윕 대상 제외(`isThermalVent(r, c)`) 및 스윕 종료 시(`endCmeSweep()`) 원복 복구 코드로 완벽 방어.
+    - **SolarFlareCrisis.ts [스윕/경보 플래그 누수 & 오디오 정리]**: 위기가 스윕 도중 종료/실패될 경우 `isCmeSweeping`, `isCmeWarningActive` 플래그 및 타이머를 0으로 리셋하고 오디오를 즉시 정지(`SolarFlareCrisisAudio.getInstance().stop()`).
+    - **SolarFlareCrisis.ts [좌표 입력 무결성 방어]**: `shouldFlashIgniteBomb` 및 `isTileShelteredFromFlare`에 NaN, 음수, 경기장 범위를 벗어난 좌표가 전달될 경우 `false`를 반환하도록 좌표 클램핑 및 유효성 검사 완비.
+    - **SolarFlareCrisis.ts [직렬화 훅 완비]**: `getExtraSerializedState()` 및 `applyExtraSerializedState()`를 구현하여 세이브/로드 시 4대 벤트 냉각 상태, CME 스윕 타이머 및 생존 횟수를 완벽 복원.
+    - **SolarFlareCrisisAudio.ts [Voice Pool 정지 동기화]**: `reset()` 호출 시 내부 타이머 및 노드뿐 아니라 주입된 `AudioVoicePool`의 활성 보이스까지 전면 중지(`this.pool.stop()`)하도록 표준화.
+    - **WaveDirector.ts**: Wave 20을 `CrisisType.SOLAR_FLARES`로 공식 지정하여 Wave 20 위기-보스(Solar Flare + Mutant Flora) 복합 시나리오 확립.
+  - **전수 검증 지표**:
+    - 신규 태양 플레어 오디오 및 아키텍처 방어 전용 11티어 테스트 스위트: **11 / 11 PASS** (`tests/solar_flare_crisis_audio.test.mjs`, 10,000 프레임 Zero-GC 소크 및 아키텍처 결함 7종 방어 검증).
+    - 전체 회귀 테스트 배터리: **2,077 / 2,077 PASS (100% 무결점 통과, 0 실패, 0 스킵)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+
+
 ### 21) 일일 자율 진화 및 유지보수: 제1대 행성 위기 '파스텔 보이드(Pastel Void Incursion)' 전용 웹오디오 신디사이저(VoidCrisisAudio) 및 위기-보스 완전 하드닝 (Daily Evolution Cycle: 2026-10-14 — 100% COMPLETE & VERIFIED)
 - **작업 개요 및 목적**:
   - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 자율 스웜 기동.
@@ -1886,6 +1922,42 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - 유물 및 시너지 전수 테스트: **33 / 33 PASS** (`tests/progression.test.mjs`, 9종 유물 & 5종 시너지).
     - 카오스 버프 스태킹 및 36종 페어와이즈 시너지 테스트: **21 / 21 PASS** (`tests/fuzz_buff_stacking.test.mjs`, $\binom{9}{2} = 36$ 전수 검증).
     - 전체 회귀 테스트 배터리: **2,066 / 2,066 PASS (100% 무결점 통과, 0 실패, 0 스킵)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+
+
+### 24) 일일 자율 진화 및 유지보수: 제4대 행성 위기 '태양 플레어 폭풍(Solar Flare Storm)' 전용 절차적 웹오디오 신디사이저(SolarFlareCrisisAudio), Wave 20 위기-보스(Solar Flare + Mutant Flora) 연동 및 냉각 벤트 보존 버그 완전 픽스 (Daily Evolution Cycle: 2026-11-01 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 대규모 30+ 서브에이전트 스웜 기동.
+  - 5대 사단 편성 (정찰/컨텍스트 5, 아키텍트/Zero-GC 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결**:
+    - 제4대 스텔라리스 위기 **'태양 플레어 폭풍' (`SolarFlareCrisis.ts`, Stellaris Crisis 4)** 전용 **100% 절차적 웹오디오 신디사이저 (`SolarFlareCrisisAudio.ts`)** 신규 설계 및 구현 완료.
+    - **4대 시그니처 사운드스케이프 물리적 구현**:
+      1. **태양풍 & 지자기 정적 드론 (Solar Wind & Geomagnetic Static Drone)**: 38.4Hz 초저역 서브베이스 럼블, 528Hz Solfeggio Golden Sol 천체 주파수, 180Hz $\to$ 95Hz 삼각파 와블 펄스 및 대역통과 필터링된 지속적 플라즈마 화이트 노이즈.
+      2. **코로나 질량 방출(CME) 초음속 스윕 (CME Supersonic Sweep)**: 경보 단계 180Hz $\to$ 960Hz 크레센도 톱니파 스윕, 방출 시 120Hz $\to$ 30Hz 열핵 충격파 서브베이스, 240Hz $\to$ 60Hz 복도 화염 포효 럼블.
+      3. **전술 폭탄 플래시 점화 & 극저온 벤트 정화 (Tactical Flash-Ignition & Cryogenic Vent Purging)**: 플래시 폭탄 950Hz $\to$ 180Hz 압축 스냅, 4대 냉각 벤트 정화 단계별 F-Major 아르페지오 화음 (Tier 1: F5 698.46Hz, Tier 2: A5 880.00Hz, Tier 3: C6 1046.50Hz, Tier 4: F6 1396.91Hz 극저온 크리스탈 정화음).
+      4. **헬리오스 태양 코어 안정화 (Helios Solar Core Stabilization)**: 위기 극복 시 A-Major 528Hz Solfeggio 4음 천체 조화음 (A4 440Hz, C#5 554.37Hz, E5 659.25Hz, A5 880Hz + 1200Hz $\to$ 200Hz 열기 분산 스윕).
+  - **Zero-GC & 무누수 라이프사이클 보장**:
+    - `AudioVoicePool` 16 보이스 재활용 및 정적 캐싱된 500ms 화이트 노이즈 버퍼 (`cachedNoiseBuffer`) 영구 재사용.
+    - `onended` + `setTimeout` 이중 워치독 노드 클린업 및 `activeTransientNodes`/`activeTimeouts` 전수 추적.
+    - Headless / SSR 완전 방어 (Node.js 테스트 환경 100% crash-free).
+    - `GameScene.ts` teardown / cleanup에 `SolarFlareCrisisAudio.resetInstance()` 등록.
+    - `AudioVoicePool.ts`에 `getContext()` 메서드를 추가하여 풀 주입 시 Context 자동 바인딩 보장.
+  - **스웜 하드닝 & 시스템 버그 핀포인트 픽스 완결 (Architect & Chaos QA Swarm)**:
+    - **BaseCrisis.ts [Alert Countdown Leak 픽스]**: 위기 해결/실패(`RESOLVED` / `FAILED`) 상태 진입 시 `update()`가 즉시 리턴되어 화면 상단 빅토리/패배 알림 배너(`activeAlert`)의 `remainingMs`가 차감되지 않고 영구 잔존하던 결함을 수정. 스테이지 가드 이전에 알림 카운트다운을 수행하여 5초 후 자연 소멸하도록 보장.
+    - **BaseCrisis.ts [NaN/Non-finite Duration & Intensity 누수 방어]**: `setHazardTile` 및 `triggerAlert`에 전달되는 `intensity`, `durationMs`, `data` 매개변수에 대해 finite/NaN 엄격 검증을 적용하고, 만료 판정 시 `!Number.isFinite(tile.remainingMs)`를 즉시 회수하도록 방어하여 `activeHazardList` 힙 누수 차단.
+    - **BaseCrisis.ts [Objective NaN 오염 차단]**: `resolveObjective`에 NaN 값이 전달될 경우 `obj.currentCount`가 NaN으로 오염되어 이후 영구 완수 불가가 되던 문제를 차단.
+    - **SolarFlareCrisis.ts [냉각 벤트 영구 보존 & 복구]**: 클라이맥스 단계에서 CME 폭풍 스윕 발생 시 비-기둥 타일을 순회하며 `HazardType.SOLAR_SWEEP`으로 덮어쓰면서 기존에 배치된 4대 냉각 벤트(`HazardType.THERMAL_VENT`) 타일이 삭제되던 심각한 물리 버그를 스윕 대상 제외(`isThermalVent(r, c)`) 및 스윕 종료 시(`endCmeSweep()`) 원복 복구 코드로 완벽 방어.
+    - **SolarFlareCrisis.ts [스윕/경보 플래그 누수 & 오디오 정리]**: 위기가 스윕 도중 종료/실패될 경우 `isCmeSweeping`, `isCmeWarningActive` 플래그 및 타이머를 0으로 리셋하고 오디오를 즉시 정지(`SolarFlareCrisisAudio.getInstance().stop()`).
+    - **SolarFlareCrisis.ts [좌표 입력 무결성 방어]**: `shouldFlashIgniteBomb` 및 `isTileShelteredFromFlare`에 NaN, 음수, 경기장 범위를 벗어난 좌표가 전달될 경우 `false`를 반환하도록 좌표 클램핑 및 유효성 검사 완비.
+    - **SolarFlareCrisis.ts [직렬화 훅 완비]**: `getExtraSerializedState()` 및 `applyExtraSerializedState()`를 구현하여 세이브/로드 시 4대 벤트 냉각 상태, CME 스윕 타이머 및 생존 횟수를 완벽 복원.
+    - **SolarFlareCrisisAudio.ts [Voice Pool 정지 동기화]**: `reset()` 호출 시 내부 타이머 및 노드뿐 아니라 주입된 `AudioVoicePool`의 활성 보이스까지 전면 중지(`this.pool.stop()`)하도록 표준화.
+    - **WaveDirector.ts**: Wave 20을 `CrisisType.SOLAR_FLARES`로 공식 지정하여 Wave 20 위기-보스(Solar Flare + Mutant Flora) 복합 시나리오 확립.
+  - **전수 검증 지표**:
+    - 신규 태양 플레어 오디오 및 아키텍처 방어 전용 11티어 테스트 스위트: **11 / 11 PASS** (`tests/solar_flare_crisis_audio.test.mjs`, 10,000 프레임 Zero-GC 소크 및 아키텍처 결함 7종 방어 검증).
+    - 전체 회귀 테스트 배터리: **2,077 / 2,077 PASS (100% 무결점 통과, 0 실패, 0 스킵)**.
     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.

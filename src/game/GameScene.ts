@@ -151,6 +151,7 @@ import {
   VoidCrisisAudio,
   ClockworkCrisisAudio,
   OrbitalCrisisAudio,
+  SolarFlareCrisisAudio,
 } from './crises/index.ts';
 import {
   DynamicHazard,
@@ -1308,6 +1309,7 @@ export default class GameScene extends Phaser.Scene {
     VoidCrisisAudio.resetInstance();
     ClockworkCrisisAudio.resetInstance();
     OrbitalCrisisAudio.resetInstance();
+    SolarFlareCrisisAudio.resetInstance();
     SteamToyTitanAudio.resetInstance();
     webAudioSynth.destroy();
     AudioVoicePool.resetInstance();

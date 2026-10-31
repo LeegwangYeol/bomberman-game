@@ -11,5 +11,6 @@ export * from './PsychicCrisisAudio.ts';
 export * from './VoidCrisisAudio.ts';
 export * from './ClockworkCrisisAudio.ts';
 export * from './OrbitalCrisisAudio.ts';
+export * from './SolarFlareCrisisAudio.ts';
 export * from './CrisisManager.ts';
 export * from './SituationLog.ts';
