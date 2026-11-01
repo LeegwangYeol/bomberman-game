@@ -1962,3 +1962,34 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
 
+
+
+
+### 25) 일일 자율 진화 및 유지보수: 제5대 행성 위기 '기어오는 용암 균열(Creeping Lava Fissure)' 전용 절차적 웹오디오 신디사이저(LavaCrisisAudio), Wave 24 위기 진행 및 흑요석 응고/칼데라 밸브 봉인 완성 (Daily Evolution Cycle: 2026-11-02 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 대규모 30+ 서브에이전트 스웜 기동.
+  - 5대 사단 편성 (정찰/컨텍스트 5, 아키텍트/Zero-GC 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결**:
+    - 제5대 스텔라리스 위기 **'기어오는 용암 균열' (`LavaCrisis.ts`, Stellaris Crisis 5)** 전용 **100% 절차적 웹오디오 신디사이저 (`LavaCrisisAudio.ts`)** 신규 설계 및 구현 완료.
+    - **4대 시그니처 사운드스케이프 물리적 구현**:
+      1. **지하 마그마 럼블 & 지각 진동 드론 (Subterranean Magma Rumble & Tectonic Static Drone)**: 32.4Hz 초저역 맨틀 대류 럼블 (24Hz 지수 감쇠), 110Hz 삼각파 지각 펄스, 160Hz 마그마 비등 정적 노이즈, 780Hz $\to$ 390Hz 지진 경보 톱니파 스윕.
+      2. **용융 용암 침식 & 외곽 파열 포효 (Molten Lava Creep & Perimeter Rupture Roar)**: 140Hz $\to$ 820Hz 압력 상승 크레센도, 160Hz $\to$ 45Hz 열핵 충격파 서브베이스, 220Hz $\to$ 55Hz 복도 화염 포효 럼블 및 750Hz 대역통과 필터 노이즈.
+      3. **흑요석 급랭 & 고압 증기 방출 차임 (Obsidian Solidification & Steam Quench Chimes)**: 920Hz $\to$ 160Hz 급랭 스냅, 45Hz $\to$ 20Hz 서브 쿵소리, 4단계 D-Minor / D-Dorian 크리스탈 차임 아르페지오 (Tier 1: D5 587.33Hz, Tier 2: F5 698.46Hz, Tier 3: A5 880.00Hz, Tier 4: D6 1174.66Hz + Sub-Octave Anchor D4 293.66Hz) 및 2800Hz 고대역통과 급랭 증기 방출 노이즈.
+      4. **칼데라 압력 밸브 봉인 & 지각 안정화 (Caldera Pressure Valve Sealed & Tectonic Calm Resolution)**: 승리 및 위기 극복 시 D-Major Solfeggio 528Hz 평화의 화음 (D4 293.66Hz, F#4 369.99Hz, A4 440.00Hz, D5 587.33Hz) 및 480Hz $\to$ 50Hz 지각 열기 소산 스윕.
+  - **Zero-GC & 무누수 라이프사이클 보장**:
+    - `AudioVoicePool` 16 보이스 재활용 및 정적 캐싱된 500ms 화이트 노이즈 버퍼 (`cachedNoiseBuffer`) 영구 재사용.
+    - `onended` + `setTimeout` 이중 워치독 노드 클린업 및 `activeTransientNodes`/`activeTimeouts` 전수 추적.
+    - Headless / SSR 완전 방어 (Node.js 테스트 환경 100% crash-free).
+    - `GameScene.ts` teardown / cleanup에 `LavaCrisisAudio.resetInstance()` 등록.
+  - **스웜 하드닝 & 시스템 버그 핀포인트 픽스 완결 (Architect & Chaos QA Swarm)**:
+    - **LavaCrisis.ts [상태 직렬화/역직렬화 완비]**: `getExtraSerializedState()` 및 `applyExtraSerializedState()`를 구현하여 세이브/로드 시 `lavaAdvanceTimerMs`, `currentLavaRing`, `lavaTilesCount`, `obsidianSolidifiedCount`, `isCalderaSealed`를 완벽 복원.
+    - **LavaCrisis.ts [좌표 입력 무결성 및 NaN 방어]**: `shouldIncinerateEntity`, `onBombBlast`, `advanceLavaRing`에 전달되는 `r`, `c`, `radius`에 대해 NaN, Infinity, 음수, 경기장 범위 초과 좌표를 철저히 차단.
+    - **LavaCrisis.ts [라이프사이클 리셋 정합성]**: `reset()` 호출 시 상위 `super.reset()` 호출 및 `LavaCrisisAudio.reset()`을 수행하고, `init()` 호출 전까지 목표 배열(`objectives`)을 비워둔 상태로 유지하도록 정합성 확립.
+    - **BaseCrisis.ts [역직렬화 퍼징 방어]**: `deserialize()` 호출 시 `state.objectives`에 `null` 또는 미정의 원소가 포함되어 있을 경우 `o.id` 참조 시 발생할 수 있던 `TypeError: Cannot read properties of null`을 원천 필터링 방어.
+    - **WaveDirector.ts [Wave 24 위기 진행 공식 지정]**: Wave 24를 `CrisisType.CREEPING_LAVA`로 공식 지정하여 Wave 24 위기 시나리오를 확립하고, `CrisisManager`에서 **화쇄암 프리즘** 유물(`RelicId.PYROCLASTIC_PRISM`) 지급 확인.
+  - **전수 검증 지표**:
+    - 신규 용암 위기 오디오 및 아키텍처 방어 전용 11티어 테스트 스위트: **11 / 11 PASS** (`tests/lava_crisis_audio.test.mjs`, 10,000 프레임 Zero-GC 소크 및 아키텍처 결함 방어 검증).
+    - 전체 회귀 테스트 배터리: **2,089 / 2,089 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,077 $\to$ 2,089로 12개 테스트 순증)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.

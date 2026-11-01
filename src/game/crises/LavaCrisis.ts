@@ -8,6 +8,7 @@
 import { BaseCrisis } from './BaseCrisis.ts';
 import { CrisisType, CrisisStage, HazardType } from './CrisisTypes.ts';
 import { ROWS, COLS } from '../pathfinding.ts';
+import { LavaCrisisAudio } from './LavaCrisisAudio.ts';
 
 export class LavaCrisis extends BaseCrisis {
   public static readonly CALDERA_VALVE = { r: 6, c: 7 };
@@ -26,6 +27,7 @@ export class LavaCrisis extends BaseCrisis {
   }
 
   protected onInit(): void {
+    LavaCrisisAudio.getInstance().reset();
     this.lavaAdvanceTimerMs = 0;
     this.currentLavaRing = 1;
     this.lavaTilesCount = 0;
@@ -53,6 +55,8 @@ export class LavaCrisis extends BaseCrisis {
   }
 
   protected onStageEnter(stage: CrisisStage): void {
+    LavaCrisisAudio.getInstance().playCrisisState(stage, this.threatMeter);
+
     if (stage === CrisisStage.WHISPERS) {
       this.triggerAlert(
         'lava_whispers',
@@ -91,6 +95,8 @@ export class LavaCrisis extends BaseCrisis {
         0,
         0
       );
+    } else if (stage === CrisisStage.RESOLVED || stage === CrisisStage.FAILED || stage === CrisisStage.INACTIVE) {
+      LavaCrisisAudio.getInstance().stop();
     }
   }
 
@@ -109,9 +115,14 @@ export class LavaCrisis extends BaseCrisis {
   }
 
   public advanceLavaRing(): void {
+    if (typeof this.currentLavaRing !== 'number' || !Number.isFinite(this.currentLavaRing)) {
+      this.currentLavaRing = 1;
+    }
     if (this.currentLavaRing >= this.maxLavaRing) return;
 
-    const ring = this.currentLavaRing;
+    LavaCrisisAudio.getInstance().playLavaAdvance();
+
+    const ring = Math.floor(this.currentLavaRing);
     // Ring coordinates: top row = ring, bottom row = ROWS - 1 - ring, left col = ring, right col = COLS - 1 - ring
     const top = ring;
     const bottom = ROWS - 1 - ring;
@@ -132,6 +143,7 @@ export class LavaCrisis extends BaseCrisis {
   }
 
   private igniteLavaTile(r: number, c: number): void {
+    if (!Number.isFinite(r) || !Number.isFinite(c)) return;
     if (this.isPillar(r, c) || this.isPerimeter(r, c)) return;
     const current = this.getHazardAt(r, c);
     if (current && current.type === HazardType.OBSIDIAN_BLOCK) return; // Obsidian resists lava
@@ -144,23 +156,33 @@ export class LavaCrisis extends BaseCrisis {
    * Edge Case 13: Lava instantly incinerates placed bombs or dropped powerups.
    */
   public shouldIncinerateEntity(r: number, c: number): boolean {
-    const h = this.getHazardAt(r, c);
+    if (!Number.isFinite(r) || !Number.isFinite(c) || r < 0 || r >= ROWS || c < 0 || c >= COLS) {
+      return false;
+    }
+    const h = this.getHazardAt(Math.floor(r), Math.floor(c));
     return h !== null && h.type === HazardType.LAVA_SURFACE;
   }
 
   protected onBombBlast(r: number, c: number, radius: number): void {
+    if (!Number.isFinite(r) || !Number.isFinite(c) || !Number.isFinite(radius)) return;
+
+    const safeR = Math.floor(r);
+    const safeC = Math.floor(c);
+    const safeRadius = Math.max(0, Math.floor(radius));
+
     // 1. Cool molten lava into solid obsidian blocks
-    for (let dr = -radius; dr <= radius; dr++) {
-      for (let dc = -radius; dc <= radius; dc++) {
-        if (Math.abs(dr) + Math.abs(dc) <= radius) {
-          const tr = r + dr;
-          const tc = c + dc;
+    for (let dr = -safeRadius; dr <= safeRadius; dr++) {
+      for (let dc = -safeRadius; dc <= safeRadius; dc++) {
+        if (Math.abs(dr) + Math.abs(dc) <= safeRadius) {
+          const tr = safeR + dr;
+          const tc = safeC + dc;
           const h = this.getHazardAt(tr, tc);
           if (h && h.type === HazardType.LAVA_SURFACE) {
             // Transform molten lava into walkable obsidian block
             this.setHazardTile(tr, tc, HazardType.OBSIDIAN_BLOCK, 0.6, 0, 0);
             this.obsidianSolidifiedCount++;
             this.resolveObjective('solidify_lava');
+            LavaCrisisAudio.getInstance().playObsidianQuenched(this.obsidianSolidifiedCount);
           }
         }
       }
@@ -168,9 +190,10 @@ export class LavaCrisis extends BaseCrisis {
 
     // 2. Bomb detonating on Central Caldera Valve in Climax
     if (this.stage === CrisisStage.CLIMAX && !this.isCalderaSealed) {
-      const dist = Math.abs(LavaCrisis.CALDERA_VALVE.r - r) + Math.abs(LavaCrisis.CALDERA_VALVE.c - c);
-      if (dist <= radius) {
+      const dist = Math.abs(LavaCrisis.CALDERA_VALVE.r - safeR) + Math.abs(LavaCrisis.CALDERA_VALVE.c - safeC);
+      if (dist <= safeRadius) {
         this.isCalderaSealed = true;
+        LavaCrisisAudio.getInstance().playCalderaSealed();
         this.resolveObjective('seal_caldera');
         this.resolveCrisis('Central Caldera Pressure Valve sealed! Magma chambers safely cooled into obsidian bedrock!');
       }
@@ -198,5 +221,41 @@ export class LavaCrisis extends BaseCrisis {
         this.resolveCrisis('Central Caldera Pressure Valve sealed! Magma chambers safely cooled into obsidian bedrock!');
       }
     }
+  }
+
+  protected override getExtraSerializedState(): Record<string, unknown> {
+    return {
+      lavaAdvanceTimerMs: this.lavaAdvanceTimerMs,
+      currentLavaRing: this.currentLavaRing,
+      lavaTilesCount: this.lavaTilesCount,
+      obsidianSolidifiedCount: this.obsidianSolidifiedCount,
+      isCalderaSealed: this.isCalderaSealed,
+    };
+  }
+
+  protected override applyExtraSerializedState(extra: Record<string, unknown>): void {
+    if (typeof extra.lavaAdvanceTimerMs === 'number' && Number.isFinite(extra.lavaAdvanceTimerMs)) {
+      this.lavaAdvanceTimerMs = Math.max(0, extra.lavaAdvanceTimerMs);
+    }
+    if (typeof extra.currentLavaRing === 'number' && Number.isFinite(extra.currentLavaRing)) {
+      this.currentLavaRing = Math.max(1, Math.min(this.maxLavaRing, Math.floor(extra.currentLavaRing)));
+    }
+    if (typeof extra.lavaTilesCount === 'number' && Number.isFinite(extra.lavaTilesCount)) {
+      this.lavaTilesCount = Math.max(0, Math.floor(extra.lavaTilesCount));
+    }
+    if (typeof extra.obsidianSolidifiedCount === 'number' && Number.isFinite(extra.obsidianSolidifiedCount)) {
+      this.obsidianSolidifiedCount = Math.max(0, Math.floor(extra.obsidianSolidifiedCount));
+    }
+    this.isCalderaSealed = Boolean(extra.isCalderaSealed);
+  }
+
+  public override reset(): void {
+    super.reset();
+    LavaCrisisAudio.getInstance().reset();
+    this.lavaAdvanceTimerMs = 0;
+    this.currentLavaRing = 1;
+    this.lavaTilesCount = 0;
+    this.obsidianSolidifiedCount = 0;
+    this.isCalderaSealed = false;
   }
 }

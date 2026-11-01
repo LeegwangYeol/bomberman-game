@@ -170,6 +170,10 @@ export class WaveDirector {
     if (safeWave === 20) {
       return CrisisType.SOLAR_FLARES;
     }
+    // Specifically designate wave 24 to Creeping Lava Fissure (Stellaris Crisis 5)
+    if (safeWave === 24) {
+      return CrisisType.CREEPING_LAVA;
+    }
     const idx = Math.floor(safeWave / 4) % WaveDirector.CRISIS_ROTATION.length;
     return WaveDirector.CRISIS_ROTATION[idx] ?? CrisisType.PASTEL_VOID;
   }

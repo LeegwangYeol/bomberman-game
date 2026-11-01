@@ -618,17 +618,19 @@ export abstract class BaseCrisis implements ICrisis {
     this.isDefeated = Boolean(state.isDefeated);
 
     if (Array.isArray(state.objectives)) {
-      this.objectives = state.objectives.map((o) => ({
-        id: String(o.id || ''),
-        title: String(o.title || ''),
-        description: String(o.description || ''),
-        targetCount: typeof o.targetCount === 'number' && Number.isFinite(o.targetCount) ? Math.max(0, o.targetCount) : 0,
-        currentCount: typeof o.currentCount === 'number' && Number.isFinite(o.currentCount) ? Math.max(0, o.currentCount) : 0,
-        isCompleted: Boolean(o.isCompleted),
-        isFailed: Boolean(o.isFailed),
-        timeLimitMs: typeof o.timeLimitMs === 'number' && Number.isFinite(o.timeLimitMs) ? o.timeLimitMs : undefined,
-        remainingTimeMs: typeof o.remainingTimeMs === 'number' && Number.isFinite(o.remainingTimeMs) ? o.remainingTimeMs : undefined,
-      }));
+      this.objectives = state.objectives
+        .filter((o): o is NonNullable<typeof o> => Boolean(o && typeof o === 'object'))
+        .map((o) => ({
+          id: String(o.id || ''),
+          title: String(o.title || ''),
+          description: String(o.description || ''),
+          targetCount: typeof o.targetCount === 'number' && Number.isFinite(o.targetCount) ? Math.max(0, o.targetCount) : 0,
+          currentCount: typeof o.currentCount === 'number' && Number.isFinite(o.currentCount) ? Math.max(0, o.currentCount) : 0,
+          isCompleted: Boolean(o.isCompleted),
+          isFailed: Boolean(o.isFailed),
+          timeLimitMs: typeof o.timeLimitMs === 'number' && Number.isFinite(o.timeLimitMs) ? o.timeLimitMs : undefined,
+          remainingTimeMs: typeof o.remainingTimeMs === 'number' && Number.isFinite(o.remainingTimeMs) ? o.remainingTimeMs : undefined,
+        }));
     }
 
     if (state.activeAlert && typeof state.activeAlert === 'object') {
