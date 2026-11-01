@@ -3548,6 +3548,22 @@ export default class GameScene extends Phaser.Scene {
           this.situationLog.updateFromCrisisManager(this.crisisManager, Date.now());
         }
 
+        if (activeCrisis.id === 'solar_flare' && activeCrisis.getStage() !== CrisisStage.INACTIVE) {
+          const flareCrisis = activeCrisis as unknown as { flashIgniteBomb?: (r: number, c: number) => boolean };
+          if (typeof flareCrisis.flashIgniteBomb === 'function') {
+            this.bombs.getChildren().forEach((child) => {
+              const b = child as Phaser.Physics.Arcade.Sprite;
+              if (b.active) {
+                const br = Math.floor(b.y / TILE_SIZE);
+                const bc = Math.floor(b.x / TILE_SIZE);
+                if (flareCrisis.flashIgniteBomb(br, bc)) {
+                  this.explodeBomb(b, br, bc);
+                }
+              }
+            });
+          }
+        }
+
         // Edge-triggered reward when crisis resolves
         if (activeCrisis.getStage() === CrisisStage.RESOLVED && !this.hasRewardedActiveCrisis) {
           this.hasRewardedActiveCrisis = true;
