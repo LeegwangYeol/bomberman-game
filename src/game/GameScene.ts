@@ -153,6 +153,7 @@ import {
   OrbitalCrisisAudio,
   SolarFlareCrisisAudio,
   LavaCrisisAudio,
+  RiftCrisisAudio,
 } from './crises/index.ts';
 import {
   DynamicHazard,
@@ -1312,6 +1313,7 @@ export default class GameScene extends Phaser.Scene {
     OrbitalCrisisAudio.resetInstance();
     SolarFlareCrisisAudio.resetInstance();
     LavaCrisisAudio.resetInstance();
+    RiftCrisisAudio.resetInstance();
     SteamToyTitanAudio.resetInstance();
     webAudioSynth.destroy();
     AudioVoicePool.resetInstance();

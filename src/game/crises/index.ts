@@ -13,5 +13,6 @@ export * from './ClockworkCrisisAudio.ts';
 export * from './OrbitalCrisisAudio.ts';
 export * from './SolarFlareCrisisAudio.ts';
 export * from './LavaCrisisAudio.ts';
+export * from './RiftCrisisAudio.ts';
 export * from './CrisisManager.ts';
 export * from './SituationLog.ts';

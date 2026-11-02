@@ -14,6 +14,8 @@ import { VoltHazardAudio } from '../../src/game/hazards/VoltHazardAudio.ts';
 import { SteamToyTitanAudio } from '../../src/game/bosses/SteamToyTitanAudio.ts';
 import { PsychicCrisisAudio } from '../../src/game/crises/PsychicCrisisAudio.ts';
 import { VoidCrisisAudio } from '../../src/game/crises/VoidCrisisAudio.ts';
+import { LavaCrisisAudio } from '../../src/game/crises/LavaCrisisAudio.ts';
+import { RiftCrisisAudio } from '../../src/game/crises/RiftCrisisAudio.ts';
 import { AudioVoicePool } from '../../src/game/pooling/AudioVoicePool.ts';
 
 /**
@@ -179,6 +181,8 @@ function resetAllSingletons() {
   if (typeof SteamToyTitanAudio.resetInstance === 'function') SteamToyTitanAudio.resetInstance();
   if (typeof PsychicCrisisAudio.resetInstance === 'function') PsychicCrisisAudio.resetInstance();
   if (typeof VoidCrisisAudio.resetInstance === 'function') VoidCrisisAudio.resetInstance();
+  if (typeof LavaCrisisAudio.resetInstance === 'function') LavaCrisisAudio.resetInstance();
+  if (typeof RiftCrisisAudio.resetInstance === 'function') RiftCrisisAudio.resetInstance();
 }
 
 // ============================================================================
@@ -523,6 +527,8 @@ test('Req 3: Zero crash when window is undefined (pure Node.js SSR)', () => {
       () => new SteamToyTitanAudio(),
       () => new PsychicCrisisAudio(),
       () => new VoidCrisisAudio(),
+      () => new LavaCrisisAudio(),
+      () => new RiftCrisisAudio(),
     ];
 
     for (const ctor of synthConstructors) {

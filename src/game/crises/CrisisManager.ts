@@ -356,6 +356,7 @@ export class CrisisManager {
     else if (type === CrisisType.ORBITAL_BOMBARDMENT) relic = RelicId.ORBITAL_TARGETING_CORE;
     else if (type === CrisisType.SOLAR_FLARES) relic = RelicId.SOLAR_CAPACITOR;
     else if (type === CrisisType.CREEPING_LAVA) relic = RelicId.PYROCLASTIC_PRISM;
+    else if (type === CrisisType.DIMENSIONAL_RIFTS) relic = RelicId.VOID_SINGULARITY_LENS;
     else if (type === CrisisType.PASTEL_VOID) relic = RelicId.VOID_SINGULARITY_LENS;
 
     return {

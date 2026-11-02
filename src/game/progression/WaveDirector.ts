@@ -174,6 +174,10 @@ export class WaveDirector {
     if (safeWave === 24) {
       return CrisisType.CREEPING_LAVA;
     }
+    // Specifically designate wave 28 to Dimensional Rift Inversion (Stellaris Crisis 6)
+    if (safeWave === 28) {
+      return CrisisType.DIMENSIONAL_RIFTS;
+    }
     const idx = Math.floor(safeWave / 4) % WaveDirector.CRISIS_ROTATION.length;
     return WaveDirector.CRISIS_ROTATION[idx] ?? CrisisType.PASTEL_VOID;
   }
