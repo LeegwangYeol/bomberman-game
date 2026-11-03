@@ -16,6 +16,10 @@ import { PsychicCrisisAudio } from '../../src/game/crises/PsychicCrisisAudio.ts'
 import { VoidCrisisAudio } from '../../src/game/crises/VoidCrisisAudio.ts';
 import { LavaCrisisAudio } from '../../src/game/crises/LavaCrisisAudio.ts';
 import { RiftCrisisAudio } from '../../src/game/crises/RiftCrisisAudio.ts';
+import { ClockworkCrisisAudio } from '../../src/game/crises/ClockworkCrisisAudio.ts';
+import { OrbitalCrisisAudio } from '../../src/game/crises/OrbitalCrisisAudio.ts';
+import { SolarFlareCrisisAudio } from '../../src/game/crises/SolarFlareCrisisAudio.ts';
+import { MutantFloraAudio } from '../../src/game/bosses/MutantFloraAudio.ts';
 import { AudioVoicePool } from '../../src/game/pooling/AudioVoicePool.ts';
 
 /**
@@ -183,6 +187,10 @@ function resetAllSingletons() {
   if (typeof VoidCrisisAudio.resetInstance === 'function') VoidCrisisAudio.resetInstance();
   if (typeof LavaCrisisAudio.resetInstance === 'function') LavaCrisisAudio.resetInstance();
   if (typeof RiftCrisisAudio.resetInstance === 'function') RiftCrisisAudio.resetInstance();
+  if (typeof ClockworkCrisisAudio.resetInstance === 'function') ClockworkCrisisAudio.resetInstance();
+  if (typeof OrbitalCrisisAudio.resetInstance === 'function') OrbitalCrisisAudio.resetInstance();
+  if (typeof SolarFlareCrisisAudio.resetInstance === 'function') SolarFlareCrisisAudio.resetInstance();
+  if (typeof MutantFloraAudio.resetInstance === 'function') MutantFloraAudio.resetInstance();
 }
 
 // ============================================================================
@@ -296,6 +304,50 @@ test('Req 1: Static cached white noise audio buffer reuse across repeated trigge
     }
     assert.strictEqual(mockCtx.buffersCreated, voidAfterFirst, 'VoidCrisis reuses static buffer permanently');
 
+    // 9. ClockworkCrisisAudio
+    const clockwork = new ClockworkCrisisAudio(mockCtx, pool);
+    const clockworkStartBuffers = mockCtx.buffersCreated;
+    clockwork.playFilteredNoiseBurst(0.1, 1800, 600, 0.15);
+    const clockworkAfterFirst = mockCtx.buffersCreated;
+    assert.strictEqual(clockworkAfterFirst - clockworkStartBuffers, 1, 'ClockworkCrisis allocates static buffer on first trigger');
+    for (let i = 0; i < 20; i++) {
+      clockwork.playFilteredNoiseBurst(0.1, 1800, 600, 0.15);
+    }
+    assert.strictEqual(mockCtx.buffersCreated, clockworkAfterFirst, 'ClockworkCrisis reuses static buffer permanently');
+
+    // 10. OrbitalCrisisAudio
+    const orbital = new OrbitalCrisisAudio(mockCtx, pool);
+    const orbitalStartBuffers = mockCtx.buffersCreated;
+    orbital.playFilteredNoiseBurst(0.1, 1800, 600, 0.15);
+    const orbitalAfterFirst = mockCtx.buffersCreated;
+    assert.strictEqual(orbitalAfterFirst - orbitalStartBuffers, 1, 'OrbitalCrisis allocates static buffer on first trigger');
+    for (let i = 0; i < 20; i++) {
+      orbital.playFilteredNoiseBurst(0.1, 1800, 600, 0.15);
+    }
+    assert.strictEqual(mockCtx.buffersCreated, orbitalAfterFirst, 'OrbitalCrisis reuses static buffer permanently');
+
+    // 11. SolarFlareCrisisAudio
+    const solar = new SolarFlareCrisisAudio(mockCtx, pool);
+    const solarStartBuffers = mockCtx.buffersCreated;
+    solar.playFilteredNoiseBurst(0.1, 1800, 600, 0.15);
+    const solarAfterFirst = mockCtx.buffersCreated;
+    assert.strictEqual(solarAfterFirst - solarStartBuffers, 1, 'SolarFlareCrisis allocates static buffer on first trigger');
+    for (let i = 0; i < 20; i++) {
+      solar.playFilteredNoiseBurst(0.1, 1800, 600, 0.15);
+    }
+    assert.strictEqual(mockCtx.buffersCreated, solarAfterFirst, 'SolarFlareCrisis reuses static buffer permanently');
+
+    // 12. MutantFloraAudio
+    const flora = new MutantFloraAudio(mockCtx, pool);
+    const floraStartBuffers = mockCtx.buffersCreated;
+    flora.playFilteredNoiseBurst(0.1, 1600, 400, 0.2);
+    const floraAfterFirst = mockCtx.buffersCreated;
+    assert.strictEqual(floraAfterFirst - floraStartBuffers, 1, 'MutantFlora allocates static buffer on first trigger');
+    for (let i = 0; i < 20; i++) {
+      flora.playFilteredNoiseBurst(0.1, 1600, 400, 0.2);
+    }
+    assert.strictEqual(mockCtx.buffersCreated, floraAfterFirst, 'MutantFlora reuses static buffer permanently');
+
     // Teardown
     dynamic.destroy();
     volt.destroy();
@@ -305,6 +357,10 @@ test('Req 1: Static cached white noise audio buffer reuse across repeated trigge
     titan.destroy();
     psychic.destroy();
     voidAudio.destroy();
+    clockwork.destroy();
+    orbital.destroy();
+    solar.destroy();
+    flora.destroy();
     pool.destroy();
   } finally {
     global.window = originalWindow;
@@ -345,6 +401,10 @@ test('Req 2: Dual-watchdog cleanup on primary playback end (onended)', () => {
       new SteamToyTitanAudio(mockCtx, pool),
       new PsychicCrisisAudio(mockCtx, pool),
       new VoidCrisisAudio(mockCtx, pool),
+      new ClockworkCrisisAudio(mockCtx, pool),
+      new OrbitalCrisisAudio(mockCtx, pool),
+      new SolarFlareCrisisAudio(mockCtx, pool),
+      new MutantFloraAudio(mockCtx, pool),
     ];
 
     // Trigger noise bursts
@@ -356,9 +416,13 @@ test('Req 2: Dual-watchdog cleanup on primary playback end (onended)', () => {
     instances[5].playProceduralNoiseBurst(0.1, 1800, 3200, 0.2);
     instances[6].playFilteredNoiseBurst(0.1, 1800, 600, 0.15);
     instances[7].playFilteredNoiseBurst(0.1, 1800, 600, 0.15);
+    instances[8].playFilteredNoiseBurst(0.1, 1800, 600, 0.15);
+    instances[9].playFilteredNoiseBurst(0.1, 1800, 600, 0.15);
+    instances[10].playFilteredNoiseBurst(0.1, 1800, 600, 0.15);
+    instances[11].playFilteredNoiseBurst(0.1, 1600, 400, 0.2);
 
     const bufferSources = mockCtx.nodes.filter((n) => n instanceof MockBufferSourceNode);
-    assert.ok(bufferSources.length >= 8, 'Expected at least 8 BufferSources created');
+    assert.ok(bufferSources.length >= 12, 'Expected at least 12 BufferSources created');
 
     // Simulate normal onended playback completion
     for (const bs of bufferSources) {
@@ -404,6 +468,10 @@ test('Req 2: Dual-watchdog cleanup on timeout fallback when onended fails/never 
     const titan = new SteamToyTitanAudio(mockCtx, pool);
     const psychic = new PsychicCrisisAudio(mockCtx, pool);
     const voidAudio = new VoidCrisisAudio(mockCtx, pool);
+    const clockwork = new ClockworkCrisisAudio(mockCtx, pool);
+    const orbital = new OrbitalCrisisAudio(mockCtx, pool);
+    const solar = new SolarFlareCrisisAudio(mockCtx, pool);
+    const flora = new MutantFloraAudio(mockCtx, pool);
 
     // Trigger sounds with very short duration (10ms)
     dynamic.playFilteredNoiseBurst(0.01, 800, 200, 0.2);
@@ -413,6 +481,10 @@ test('Req 2: Dual-watchdog cleanup on timeout fallback when onended fails/never 
     titan.playProceduralNoiseBurst(0.01, 1800, 3200, 0.2);
     psychic.playFilteredNoiseBurst(0.01, 1800, 600, 0.15);
     voidAudio.playFilteredNoiseBurst(0.01, 1800, 600, 0.15);
+    clockwork.playFilteredNoiseBurst(0.01, 1800, 600, 0.15);
+    orbital.playFilteredNoiseBurst(0.01, 1800, 600, 0.15);
+    solar.playFilteredNoiseBurst(0.01, 1800, 600, 0.15);
+    flora.playFilteredNoiseBurst(0.01, 1600, 400, 0.2);
 
     // Do NOT trigger onended! Wait for setTimeout watchdog (10ms + 50ms buffer = ~60ms)
     await new Promise((resolve) => setTimeout(resolve, 150));
@@ -434,6 +506,10 @@ test('Req 2: Dual-watchdog cleanup on timeout fallback when onended fails/never 
     titan.destroy();
     psychic.destroy();
     voidAudio.destroy();
+    clockwork.destroy();
+    orbital.destroy();
+    solar.destroy();
+    flora.destroy();
     pool.destroy();
   } finally {
     global.window = originalWindow;
@@ -462,20 +538,32 @@ test('Req 2: clearPendingNodes() and destroy() forcefully disconnect transient n
     const magma = new MagmaHazardAudio(mockCtx);
     const dynamic = new DynamicHazardAudio(mockCtx);
     const miasma = new MiasmaHazardAudio(mockCtx);
+    const clockwork = new ClockworkCrisisAudio(mockCtx);
+    const orbital = new OrbitalCrisisAudio(mockCtx);
+    const solar = new SolarFlareCrisisAudio(mockCtx);
+    const flora = new MutantFloraAudio(mockCtx);
 
     volt.playFilteredNoiseBurst(0.2, 1500, 300, 0.2);
     magma.playFilteredNoiseBurst(0.2, 1000, 200, 0.2);
     dynamic.playFilteredNoiseBurst(0.2, 800, 200, 0.2);
     miasma.playFilteredNoiseBurst(0.2, 1000, 200, 0.15);
+    clockwork.playFilteredNoiseBurst(0.2, 1800, 600, 0.15);
+    orbital.playFilteredNoiseBurst(0.2, 1800, 600, 0.15);
+    solar.playFilteredNoiseBurst(0.2, 1800, 600, 0.15);
+    flora.playFilteredNoiseBurst(0.2, 1600, 400, 0.2);
 
     const bufferSources = mockCtx.nodes.filter((n) => n instanceof MockBufferSourceNode);
-    assert.strictEqual(bufferSources.length, 4, '4 transient buffer sources scheduled');
+    assert.strictEqual(bufferSources.length, 8, '8 transient buffer sources scheduled');
 
     // Force clear without waiting for onended or timeout
     volt.clearPendingNodes();
     magma.clearPendingNodes();
     dynamic.clearPendingNodes();
     miasma.clearPendingNodes();
+    clockwork.clearPendingNodes();
+    orbital.clearPendingNodes();
+    solar.clearPendingNodes();
+    flora.clearPendingNodes();
 
     for (const bs of bufferSources) {
       assert.strictEqual(bs.disconnected, true, 'All buffer sources must be disconnected by clearPendingNodes');
@@ -485,6 +573,10 @@ test('Req 2: clearPendingNodes() and destroy() forcefully disconnect transient n
     magma.destroy();
     dynamic.destroy();
     miasma.destroy();
+    clockwork.destroy();
+    orbital.destroy();
+    solar.destroy();
+    flora.destroy();
   } finally {
     global.window = originalWindow;
     global.AudioContext = originalAudioContext;
@@ -529,6 +621,10 @@ test('Req 3: Zero crash when window is undefined (pure Node.js SSR)', () => {
       () => new VoidCrisisAudio(),
       () => new LavaCrisisAudio(),
       () => new RiftCrisisAudio(),
+      () => new ClockworkCrisisAudio(),
+      () => new OrbitalCrisisAudio(),
+      () => new SolarFlareCrisisAudio(),
+      () => new MutantFloraAudio(),
     ];
 
     for (const ctor of synthConstructors) {
@@ -546,6 +642,14 @@ test('Req 3: Zero crash when window is undefined (pure Node.js SSR)', () => {
         if (typeof inst.playGearWhine === 'function') inst.playGearWhine();
         if (typeof inst.playPsychicCrisisState === 'function') inst.playPsychicCrisisState(0, 0);
         if (typeof inst.playVoidCrisisState === 'function') inst.playVoidCrisisState(0, 0);
+        if (typeof inst.playFloraState === 'function') inst.playFloraState('IDLE', 0);
+        if (typeof inst.playSubterraneanRootEruption === 'function') inst.playSubterraneanRootEruption();
+        if (typeof inst.playRootCleansedSnap === 'function') inst.playRootCleansedSnap();
+        if (typeof inst.playSporeBurst === 'function') inst.playSporeBurst();
+        if (typeof inst.playVineWhip === 'function') inst.playVineWhip();
+        if (typeof inst.playBurrow === 'function') inst.playBurrow();
+        if (typeof inst.playEmerge === 'function') inst.playEmerge();
+        if (typeof inst.playPeacefulFloraRestoration === 'function') inst.playPeacefulFloraRestoration();
 
         if (typeof inst.stop === 'function') inst.stop();
         if (typeof inst.reset === 'function') inst.reset();

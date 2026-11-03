@@ -3,13 +3,14 @@
  *
  * Implements Subterranean Roots, Pollen Clouds, and Vine Whips.
  * Zero-GC pooling via ObjectPool, safe arena boundary collision clamping,
- * and strict NaN-velocity immunity.
+ * procedural Web Audio synthesis via MutantFloraAudio, and strict NaN-velocity immunity.
  */
 
 import { BaseBoss, type BossConfig } from './BaseBoss.ts';
 import { BossState, BossProjectileType } from './BossTypes.ts';
 import { ObjectPool } from '../pooling/ObjectPool.ts';
 import type { BossAttackManager } from './BossAttackManager.ts';
+import { MutantFloraAudio } from './MutantFloraAudio.ts';
 
 export interface FloraRootHazard {
   id: number;
@@ -40,6 +41,9 @@ export class MutantFloraBoss extends BaseBoss {
   // Zero-GC root hazard pool
   public readonly rootPool: ObjectPool<FloraRootHazard>;
 
+  // Dedicated procedural audio synthesizer
+  public readonly audio: MutantFloraAudio;
+
   // Optional connection to universal BossAttackManager
   public attackManager: BossAttackManager | null = null;
 
@@ -61,6 +65,8 @@ export class MutantFloraBoss extends BaseBoss {
     const safeY = Number.isFinite(startY) ? Math.max(60, Math.min(startY, 460)) : 260;
     super(config, safeX, safeY);
 
+    this.audio = MutantFloraAudio.getInstance();
+
     this.rootTimerMs = 4000;
     this.pollenTimerMs = 3000;
     this.vineWhipCooldownMs = 4000;
@@ -77,7 +83,7 @@ export class MutantFloraBoss extends BaseBoss {
         row: 0,
         radius: 20,
         timerMs: 0,
-        durationMs: 3000,
+        durationMs: 25000,
         damage: 1,
         isTelegraph: true,
       }),
@@ -94,10 +100,14 @@ export class MutantFloraBoss extends BaseBoss {
   }
 
   public override canTakeDamage(): boolean {
-    if (this.isUnderground) {
+    if (
+      this.bossState === BossState.DEFEATED ||
+      this.bossState === BossState.INTERMISSION ||
+      this.bossState === BossState.INTRO
+    ) {
       return false;
     }
-    if (this.bossState === BossState.INTERMISSION || this.bossState === BossState.INTRO) {
+    if (this.isUnderground) {
       return false;
     }
     if (this.isInvulnerable && this.comboBufferTimerMs <= 0) {
@@ -114,31 +124,47 @@ export class MutantFloraBoss extends BaseBoss {
       return null;
     }
 
-    const safeTargetX = Number.isFinite(targetX) ? Math.max(this.minArenaX, Math.min(this.maxArenaX, targetX)) : this.x;
-    const safeTargetY = Number.isFinite(targetY) ? Math.max(this.minArenaY, Math.min(this.maxArenaY, targetY)) : this.y;
+    const arenaMidX = (this.minArenaX + this.maxArenaX) / 2;
+    const arenaMidY = (this.minArenaY + this.maxArenaY) / 2;
+    const fallbackX = Number.isFinite(this.x)
+      ? Math.max(this.minArenaX, Math.min(this.maxArenaX, this.x))
+      : arenaMidX;
+    const fallbackY = Number.isFinite(this.y)
+      ? Math.max(this.minArenaY, Math.min(this.maxArenaY, this.y))
+      : arenaMidY;
+
+    const rawTargetX = typeof targetX === 'number' && Number.isFinite(targetX) ? targetX : fallbackX;
+    const rawTargetY = typeof targetY === 'number' && Number.isFinite(targetY) ? targetY : fallbackY;
+
+    const safeTargetX = Math.max(this.minArenaX, Math.min(this.maxArenaX, rawTargetX));
+    const safeTargetY = Math.max(this.minArenaY, Math.min(this.maxArenaY, rawTargetY));
+
+    const targetCol = Math.max(1, Math.min(13, Math.floor(safeTargetX / 40)));
+    const targetRow = Math.max(1, Math.min(11, Math.floor(safeTargetY / 40)));
 
     const root = this.rootPool.acquire();
-    if (root) {
-      root.active = true;
-      root.x = safeTargetX;
-      root.y = safeTargetY;
-      root.col = Math.max(1, Math.min(13, Math.floor(safeTargetX / 40)));
-      root.row = Math.max(1, Math.min(11, Math.floor(safeTargetY / 40)));
-      root.radius = 20;
-      root.durationMs = 3500;
-      root.timerMs = 3500;
-      root.damage = 1;
-      root.isTelegraph = true;
+    if (!root) {
+      return null;
     }
 
-    this.activeRoots++;
+    root.active = true;
+    root.x = safeTargetX;
+    root.y = safeTargetY;
+    root.col = targetCol;
+    root.row = targetRow;
+    root.radius = 20;
+    root.durationMs = 25000;
+    root.timerMs = 25000;
+    root.damage = 1;
+    root.isTelegraph = true;
 
-    // Synchronize with external BossAttackManager if available
+    this.activeRoots = this.rootPool.activeCount;
+
     if (this.attackManager) {
-      const col = Math.max(1, Math.min(13, Math.floor(safeTargetX / 40)));
-      const row = Math.max(1, Math.min(11, Math.floor(safeTargetY / 40)));
-      this.attackManager.addTelegraphTile(row, col, 2000);
+      this.attackManager.addTelegraphTile(targetRow, targetCol, 2000);
     }
+
+    this.audio.playRootEruption();
 
     return root;
   }
@@ -147,17 +173,24 @@ export class MutantFloraBoss extends BaseBoss {
    * Cleanses active subterranean roots caught in bomb blast with Zero-GC pool recycling.
    */
   public cleanseRootsAt(r: number, c: number, radius: number = 1): number {
+    if (!Number.isFinite(r) || !Number.isFinite(c)) return 0;
+    const safeRadius = Number.isFinite(radius) && radius >= 0 ? radius : 1;
+
     let cleansed = 0;
     this.rootPool.forEachActive((root) => {
       const dist = Math.max(Math.abs(root.row - r), Math.abs(root.col - c));
-      if (dist <= radius) {
+      if (dist <= safeRadius) {
         this.rootPool.release(root);
         cleansed++;
       }
     });
+
+    this.activeRoots = this.rootPool.activeCount;
+
     if (cleansed > 0) {
-      this.activeRoots = Math.max(0, this.activeRoots - cleansed);
+      this.audio.playRootCleansed();
     }
+
     return cleansed;
   }
 
@@ -167,11 +200,25 @@ export class MutantFloraBoss extends BaseBoss {
   public emitPollenCloud(targetX: number = this.x, targetY: number = this.y): void {
     if (!this.attackManager) return;
 
-    const safeTargetX = Number.isFinite(targetX) ? targetX : this.x;
-    const safeTargetY = Number.isFinite(targetY) ? targetY : this.y;
+    const arenaMidX = (this.minArenaX + this.maxArenaX) / 2;
+    const arenaMidY = (this.minArenaY + this.maxArenaY) / 2;
 
-    const dx = safeTargetX - this.x;
-    const dy = safeTargetY - this.y;
+    const safeOriginX = Number.isFinite(this.x)
+      ? Math.max(this.minArenaX, Math.min(this.maxArenaX, this.x))
+      : arenaMidX;
+    const safeOriginY = Number.isFinite(this.y)
+      ? Math.max(this.minArenaY, Math.min(this.maxArenaY, this.y))
+      : arenaMidY;
+
+    const safeTargetX = Number.isFinite(targetX)
+      ? Math.max(this.minArenaX, Math.min(this.maxArenaX, targetX))
+      : safeOriginX;
+    const safeTargetY = Number.isFinite(targetY)
+      ? Math.max(this.minArenaY, Math.min(this.maxArenaY, targetY))
+      : safeOriginY;
+
+    const dx = safeTargetX - safeOriginX;
+    const dy = safeTargetY - safeOriginY;
     const dist = Math.hypot(dx, dy);
     const speed = 120;
 
@@ -189,13 +236,15 @@ export class MutantFloraBoss extends BaseBoss {
 
     this.attackManager.spawnProjectile(
       BossProjectileType.POLLEN_POD,
-      this.x,
-      this.y,
+      safeOriginX,
+      safeOriginY,
       pVx,
       pVy,
       8,
       3000
     );
+
+    this.audio.playSporeBurst();
   }
 
   /**
@@ -204,19 +253,30 @@ export class MutantFloraBoss extends BaseBoss {
   public executeVineWhip(): void {
     this.isVineWhipping = true;
     if (this.attackManager) {
-      this.attackManager.spawnShockwave(this.x, this.y, 140, 220);
+      const safeOriginX = Number.isFinite(this.x)
+        ? Math.max(this.minArenaX, Math.min(this.maxArenaX, this.x))
+        : (this.minArenaX + this.maxArenaX) / 2;
+      const safeOriginY = Number.isFinite(this.y)
+        ? Math.max(this.minArenaY, Math.min(this.maxArenaY, this.y))
+        : (this.minArenaY + this.maxArenaY) / 2;
+
+      this.attackManager.spawnShockwave(safeOriginX, safeOriginY, 140, 220);
     }
+    this.audio.playVineWhip();
   }
 
   /**
    * Burrows underground, becoming invulnerable and clearing active surface roots.
    */
   public burrowUnderground(durationMs: number = 2000): void {
+    if (this.bossState === BossState.DEFEATED || this.bossState === BossState.INTRO) return;
+    const safeDuration = Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 2000;
     this.isUnderground = true;
     this.isInvulnerable = true;
     this.vx = 0;
     this.vy = 0;
-    this.undergroundTimerMs = durationMs;
+    this.undergroundTimerMs = safeDuration;
+    this.audio.playBurrow();
   }
 
   /**
@@ -224,31 +284,66 @@ export class MutantFloraBoss extends BaseBoss {
    */
   public emergeFromUnderground(): void {
     this.isUnderground = false;
-    this.isInvulnerable = false;
     this.undergroundTimerMs = 0;
+    if (
+      this.bossState !== BossState.DEFEATED &&
+      this.bossState !== BossState.INTRO &&
+      this.bossState !== BossState.INTERMISSION &&
+      this.iFrameTimerMs <= 0
+    ) {
+      this.isInvulnerable = false;
+    }
+    this.audio.playEmerge();
   }
 
   /**
    * Pure zero-GC movement update toward player target with distance threshold and wall clamping.
    */
   private updateMovement(dt: number, playerX: number, playerY: number): void {
+    if (this.isUnderground && this.bossState !== BossState.INTERMISSION) {
+      this.undergroundTimerMs = Math.max(0, this.undergroundTimerMs - dt);
+      if (this.undergroundTimerMs <= 0) {
+        this.emergeFromUnderground();
+      }
+    }
+
     if (this.isUnderground) {
       this.vx = 0;
       this.vy = 0;
       return;
     }
 
-    const safePlayerX = Number.isFinite(playerX) ? playerX : this.x;
-    const safePlayerY = Number.isFinite(playerY) ? playerY : this.y;
+    const safeDt = Number.isFinite(dt) && dt > 0 ? Math.min(dt, 250) : 0;
+    if (safeDt <= 0) {
+      this.vx = 0;
+      this.vy = 0;
+      return;
+    }
+
+    const arenaMidX = (this.minArenaX + this.maxArenaX) / 2;
+    const arenaMidY = (this.minArenaY + this.maxArenaY) / 2;
+    if (!Number.isFinite(this.x)) this.x = arenaMidX;
+    if (!Number.isFinite(this.y)) this.y = arenaMidY;
+
+    const safePlayerX = Number.isFinite(playerX)
+      ? Math.max(this.minArenaX, Math.min(this.maxArenaX, playerX))
+      : this.x;
+    const safePlayerY = Number.isFinite(playerY)
+      ? Math.max(this.minArenaY, Math.min(this.maxArenaY, playerY))
+      : this.y;
 
     const dx = safePlayerX - this.x;
     const dy = safePlayerY - this.y;
     const dist = Math.hypot(dx, dy);
 
+    const safeSpeed = Number.isFinite(this.currentSpeed) && this.currentSpeed >= 0
+      ? this.currentSpeed
+      : this.config.baseSpeed;
+
     // Keep distance: slow approach if beyond 40px, halt when close to avoid overlap jitter
     if (dist > 40) {
-      let vx = (dx / dist) * this.currentSpeed;
-      let vy = (dy / dist) * this.currentSpeed;
+      let vx = (dx / dist) * safeSpeed;
+      let vy = (dy / dist) * safeSpeed;
       if (Math.abs(vx) < 1e-15) vx = 0;
       if (Math.abs(vy) < 1e-15) vy = 0;
       this.vx = vx;
@@ -263,8 +358,8 @@ export class MutantFloraBoss extends BaseBoss {
     if (!Number.isFinite(this.vy)) this.vy = 0;
 
     // Movement integration
-    this.x += this.vx * (dt / 1000);
-    this.y += this.vy * (dt / 1000);
+    this.x += this.vx * (safeDt / 1000);
+    this.y += this.vy * (safeDt / 1000);
 
     // Boundary collision clamp
     this.clampPosition();
@@ -283,10 +378,9 @@ export class MutantFloraBoss extends BaseBoss {
         this.rootPool.release(root);
       }
     });
-    // Ensure activeRoots stays in sync with pool if pool was used
-    if (this.rootPool.activeCount > 0) {
-      this.activeRoots = this.rootPool.activeCount;
-    }
+
+    // Unconditionally synchronize activeRoots count with pool
+    this.activeRoots = this.rootPool.activeCount;
   }
 
   protected override updatePhase1(dt: number, playerX: number, playerY: number): void {
@@ -328,6 +422,8 @@ export class MutantFloraBoss extends BaseBoss {
     if (this.vineWhipCooldownMs <= 0) {
       this.executeVineWhip();
       this.vineWhipCooldownMs = 2500;
+    } else {
+      this.isVineWhipping = false;
     }
 
     this.pollenTimerMs -= dt;
@@ -349,18 +445,32 @@ export class MutantFloraBoss extends BaseBoss {
     // Defensive retaliatory root sprouted upon receiving bomb blast
     if (this.activeRoots < this.maxRoots) {
       this.spawnSubterraneanRoot(this.x, this.y);
-    } else {
-      this.activeRoots++;
     }
   }
 
   protected override onDamageBlocked(): void {
     // Sprout defensive root network and accelerate pollen spore emission when blast blocked
-    this.activeRoots = Math.min(this.maxRoots, this.activeRoots + 1);
+    if (this.activeRoots < this.maxRoots) {
+      this.spawnSubterraneanRoot(this.x, this.y);
+    }
     this.pollenTimerMs = Math.max(0, this.pollenTimerMs - 500);
   }
 
+  public takeDamage(damage: number = 1, _x: number = 0, _y: number = 0): boolean {
+    void _x;
+    void _y;
+    return this.takeBombDamage(damage);
+  }
+
   public override applyStun(durationSec: number): void {
+    if (!Number.isFinite(durationSec) || durationSec <= 0) return;
+    if (
+      this.bossState === BossState.INTERMISSION ||
+      this.bossState === BossState.INTRO ||
+      this.bossState === BossState.DEFEATED
+    ) {
+      return;
+    }
     if (this.isUnderground) {
       this.emergeFromUnderground();
     }
@@ -369,6 +479,8 @@ export class MutantFloraBoss extends BaseBoss {
 
   protected override onStateChanged(prevState: BossState, nextState: BossState): void {
     void prevState;
+    this.isVineWhipping = false;
+
     if (nextState === BossState.INTERMISSION) {
       this.burrowUnderground(this.intermissionDurationMs);
       this.activeRoots = 0;
@@ -378,16 +490,21 @@ export class MutantFloraBoss extends BaseBoss {
       this.undergroundTimerMs = 0;
       this.isInvulnerable = false;
       this.currentSpeed = this.config.baseSpeed * 1.5;
+      this.audio.playPhaseTransition(2);
     } else if (nextState === BossState.ENRAGED) {
       this.isUnderground = false;
       this.undergroundTimerMs = 0;
       this.isInvulnerable = false;
       this.currentSpeed = this.config.baseSpeed * 2.0;
+      this.audio.playPhaseTransition(3);
     } else if (nextState === BossState.STUNNED) {
       this.isUnderground = false;
       this.undergroundTimerMs = 0;
       this.vx = 0;
       this.vy = 0;
+    } else if (nextState === BossState.PHASE_1) {
+      this.isUnderground = false;
+      this.undergroundTimerMs = 0;
     }
   }
 
@@ -399,9 +516,12 @@ export class MutantFloraBoss extends BaseBoss {
     this.vx = 0;
     this.vy = 0;
     this.isInvulnerable = true;
+    this.isVineWhipping = false;
+    this.audio.playBossDefeated();
   }
 
   public destroy(): void {
+    this.audio.destroy();
     this.rootPool.destroy();
   }
 

@@ -136,6 +136,7 @@ import {
   HamsterBoss,
   QueenBeeBoss,
   MutantFloraBoss,
+  MutantFloraAudio,
   SteamToyTitanBoss,
   SteamToyTitanAudio,
   TelegraphEngine,

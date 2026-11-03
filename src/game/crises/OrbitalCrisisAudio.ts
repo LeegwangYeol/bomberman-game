@@ -923,11 +923,18 @@ export class OrbitalCrisisAudio {
       this.activeTransientNodes.add(filter);
       this.activeTransientNodes.add(gainNode);
 
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
       let cleanedUp = false;
       const cleanup = () => {
         if (cleanedUp) return;
         cleanedUp = true;
+        if (timeoutId !== null) {
+          clearTimeout(timeoutId);
+          this.activeTimeouts.delete(timeoutId);
+          timeoutId = null;
+        }
         try {
+          source.onended = null;
           source.disconnect();
           filter.disconnect();
           gainNode.disconnect();
@@ -941,7 +948,7 @@ export class OrbitalCrisisAudio {
       source.start(ctx.currentTime);
       source.stop(ctx.currentTime + duration);
 
-      const timeoutId = setTimeout(cleanup, Math.ceil(duration * 1000) + 100);
+      timeoutId = setTimeout(cleanup, Math.ceil(duration * 1000) + 100);
       this.activeTimeouts.add(timeoutId);
     } catch {}
   }

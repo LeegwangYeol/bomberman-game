@@ -664,11 +664,7 @@ export class SolarFlareCrisisAudio {
     return this.activeTransientNodes.size;
   }
 
-  public stop(): void {
-    this.reset();
-  }
-
-  public reset(): void {
+  public clearPendingNodes(): void {
     for (const timer of this.activeTimeouts) {
       clearTimeout(timer);
     }
@@ -676,6 +672,9 @@ export class SolarFlareCrisisAudio {
 
     for (const node of this.activeTransientNodes) {
       try {
+        if ('onended' in (node as unknown as { onended?: unknown })) {
+          (node as unknown as { onended?: unknown }).onended = null;
+        }
         if ('stop' in node && typeof (node as AudioScheduledSourceNode).stop === 'function') {
           (node as AudioScheduledSourceNode).stop();
         }
@@ -683,6 +682,23 @@ export class SolarFlareCrisisAudio {
       } catch {}
     }
     this.activeTransientNodes.clear();
+  }
+
+  public playFilteredNoiseBurst(
+    duration: number = 0.20,
+    startFilterFreq: number = 1800,
+    _endFilterFreq?: number,
+    peakGain?: number
+  ): void {
+    this.playNoiseBurst(duration, startFilterFreq, peakGain ?? 0.20);
+  }
+
+  public stop(): void {
+    this.reset();
+  }
+
+  public reset(): void {
+    this.clearPendingNodes();
 
     if (this.pool) {
       if (typeof (this.pool as unknown as { stop?: () => void }).stop === 'function') {

@@ -774,10 +774,13 @@ export class ClockworkCrisisAudio {
 
     for (const node of this.activeTransientNodes) {
       try {
-        if (node instanceof AudioBufferSourceNode || ('stop' in node && typeof (node as { stop?: unknown }).stop === 'function')) {
-          (node as AudioBufferSourceNode).onended = null;
+        const sourceNode = node as unknown as { onended?: unknown; stop?: () => void };
+        if ('onended' in sourceNode) {
+          sourceNode.onended = null;
+        }
+        if (typeof sourceNode.stop === 'function') {
           try {
-            (node as AudioBufferSourceNode).stop();
+            sourceNode.stop();
           } catch {}
         }
         node.disconnect();

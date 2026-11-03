@@ -2024,3 +2024,34 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+### 27) 일일 자율 진화 및 유지보수: 뮤턴트 플로라(MutantFloraBoss) 전용 100% 절차적 웹오디오 신디사이저(MutantFloraAudio), 뿌리 기아 버그 원천 해결 및 오디오 라이프사이클 워든 전수 감사 확장 (Daily Evolution Cycle: 2026-11-04 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 대규모 30+ 서브에이전트 스웜 기동.
+  - 5대 사단 편성 (정찰/컨텍스트 5, 아키텍트/Zero-GC 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결**:
+    - Apex 위기 보스 **'뮤턴트 플로라(Mutant Flora)' (`MutantFloraBoss.ts`)** 전용 **100% 절차적 웹오디오 신디사이저 (`MutantFloraAudio.ts`)** 신규 설계 및 완벽 구현.
+    - **식물성 사운드스케이프 및 전투 음향 합성**:
+      1. **지하 뿌리 분출 및 파열 스냅 (Subterranean Root Eruptions & Rupture Snaps)**: 58.0Hz $\to$ 24.0Hz 초저역 지반 충격음, 240Hz $\to$ 65Hz 목질 섬유 파열음, 130Hz 삼각파 비틀림음, 대역통과(420Hz $\to$ 140Hz) 흙 자갈 파쇄 노이즈.
+      2. **뿌리 정화 스냅 및 화음 방출 (Root Cleansed Snaps & Harmonic Bell)**: 폭탄 폭발로 뿌리 군집 파괴 시 1200Hz $\to$ 280Hz 바삭한 식물성 스냅음 및 880Hz $\to$ 1320Hz 하모닉 벨 차임.
+      3. **포자 캐비테이션 파열 및 고압 꽃가루 분사 (Spore Burst Pop & Pollen Hiss)**: 360Hz $\to$ 85Hz 캐비테이션 포자 팝, 620Hz 생체 공명 링, 대역통과(2200Hz $\to$ 600Hz) 고압 꽃가루 안개 분사 히스.
+      4. **초음속 덩굴 채찍 충격파 (Supersonic Vine Whip Slash)**: 980Hz $\to$ 140Hz 초음속 채찍 스냅(60ms), 75Hz $\to$ 28Hz 공기 변위 쿵 충격파, 2400Hz 고역통과 절단 노이즈.
+      5. **지하 잠행 및 급상승 출현 (Burrow & Emerge Drone/Slam)**: 110Hz $\to$ 38Hz 지하 하강 드론 vs 42Hz $\to$ 155Hz 폭력적 급상승 출현 서지와 흙 폭발 노이즈.
+      6. **페이즈 전환 및 솔페지오 528Hz 평화의 꽃 만개 (Phase Transitions & Peaceful Flora Restoration)**: 2페이즈 개화 삼화음 차임(F5, B5, C6) / 3페이즈 분노 포효(130Hz $\to$ 260Hz) 및 패배 시 비극적 시들기 지수 감쇠(320Hz $\to$ 32Hz, 1.5s)와 함께 솔페지오 528Hz 4성부 평화의 화음(F4, A4, C5, 528Hz) 연주.
+  - **스웜 하드닝 & 시스템 버그 핀포인트 픽스 완결 (Architect & Chaos QA Swarm)**:
+    - **MutantFloraBoss.ts [뿌리 카운터 영구 잠금(기아) 버그 수정]**: `updatePooledRoots`에서 풀의 활성 수가 0이 되었을 때 `activeRoots`가 0으로 리셋되지 않고 stale 카운터로 남아 새 뿌리가 영구적으로 생성되지 못하던 결함을 `this.activeRoots = this.rootPool.activeCount;`로 무조건 동기화하여 완벽 해결.
+    - **MutantFloraBoss.ts [뿌리 풀 고갈 가드 및 가짜 텔레그래프 차단]**: `spawnSubterraneanRoot`에서 `rootPool.acquire()`가 `null`을 반환했을 때도 카운터를 올리고 텔레그래프 타일을 추가하던 결함을 원천 차단.
+    - **MutantFloraBoss.ts [뿌리 지속시간 25,000ms 상향]**: 4초 스폰 주기에 비해 뿌리 수명이 3.5초로 너무 짧아 필드에 뿌리가 1개 이상 쌓이지 못하던 로직을 25초로 상향하여 최대 6개까지 위험한 뿌리 미로를 형성하도록 설계 의도 복원.
+    - **MutantFloraBoss.ts [좌표 NaN/Infinity 방어]**: 보스 및 플레이어 좌표에 경기장 중심 폴백을 적용하고, `canTakeDamage()`에서 `DEFEATED`, `INTERMISSION`, `INTRO` 상태를 철저히 차단.
+    - **ClockworkCrisisAudio.ts [헤드리스 Duck-Typing 방어]**: Node.js 헤드리스 환경에서 `AudioBufferSourceNode` 식별자 접근 시 발생하던 `ReferenceError`를 방지하기 위해 `'onended' in node` 및 `'stop' in node` 기반 덕타이핑으로 리팩토링.
+    - **OrbitalCrisisAudio.ts [워치독 완결성]**: 노드 정리 시 `source.onended = null;` 누락 및 타이머 ID 취소 누락을 보강.
+    - **SolarFlareCrisisAudio.ts [워든 인터페이스 구현]**: `clearPendingNodes()` 및 `playFilteredNoiseBurst()` 구현으로 전사 오디오 워든 감사에 완전 편입.
+    - **MutantFloraAudio.ts [소크 스캐너 -Infinity 차단]**: `comprehensive_1000_frame_soak` 스캐너의 유한수(Finite) 검증에 맞춰 디바운스 타임스탬프를 `-Infinity` 대신 유한수 `0`으로 초기화 및 리셋.
+  - **오디오 라이프사이클 워든 전수 감사 확장 (`tests/unit/audio_lifecycle_warden_audit.test.mjs`)**:
+    - 기존 12개 오디오 신디사이저에서 `ClockworkCrisisAudio`, `OrbitalCrisisAudio`, `SolarFlareCrisisAudio`, `MutantFloraAudio`를 추가하여 총 16대 전사 오디오 신디사이저를 100% 전수 감사 (버퍼 재사용, 이중 워치독, `clearPendingNodes()`, 헤드리스 SSR 100% 무결점 통과).
+  - **전수 검증 지표**:
+    - 신규 뮤턴트 플로라 전용 8티어 테스트 스위트: **10 / 10 PASS** (`tests/mutant_flora_audio.test.mjs`, 10,000 프레임 Zero-GC 소크 및 아키텍처 방어 검증).
+    - 전체 회귀 테스트 배터리: **2,110 / 2,110 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,100 $\to$ 2,110으로 10개 테스트 순증)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npx eslint --quiet` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
