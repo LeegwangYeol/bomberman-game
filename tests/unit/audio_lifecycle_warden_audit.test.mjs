@@ -20,6 +20,7 @@ import { ClockworkCrisisAudio } from '../../src/game/crises/ClockworkCrisisAudio
 import { OrbitalCrisisAudio } from '../../src/game/crises/OrbitalCrisisAudio.ts';
 import { SolarFlareCrisisAudio } from '../../src/game/crises/SolarFlareCrisisAudio.ts';
 import { MutantFloraAudio } from '../../src/game/bosses/MutantFloraAudio.ts';
+import { QueenBeeAudio } from '../../src/game/bosses/QueenBeeAudio.ts';
 import { AudioVoicePool } from '../../src/game/pooling/AudioVoicePool.ts';
 
 /**
@@ -191,6 +192,7 @@ function resetAllSingletons() {
   if (typeof OrbitalCrisisAudio.resetInstance === 'function') OrbitalCrisisAudio.resetInstance();
   if (typeof SolarFlareCrisisAudio.resetInstance === 'function') SolarFlareCrisisAudio.resetInstance();
   if (typeof MutantFloraAudio.resetInstance === 'function') MutantFloraAudio.resetInstance();
+  if (typeof QueenBeeAudio.resetInstance === 'function') QueenBeeAudio.resetInstance();
 }
 
 // ============================================================================
@@ -348,6 +350,17 @@ test('Req 1: Static cached white noise audio buffer reuse across repeated trigge
     }
     assert.strictEqual(mockCtx.buffersCreated, floraAfterFirst, 'MutantFlora reuses static buffer permanently');
 
+    // 13. QueenBeeAudio
+    const queenBee = new QueenBeeAudio(mockCtx, pool);
+    const queenBeeStartBuffers = mockCtx.buffersCreated;
+    queenBee.playFilteredNoiseBurst(0.1, 1600, 400, 0.2);
+    const queenBeeAfterFirst = mockCtx.buffersCreated;
+    assert.strictEqual(queenBeeAfterFirst - queenBeeStartBuffers, 1, 'QueenBee allocates static buffer on first trigger');
+    for (let i = 0; i < 20; i++) {
+      queenBee.playFilteredNoiseBurst(0.1, 1600, 400, 0.2);
+    }
+    assert.strictEqual(mockCtx.buffersCreated, queenBeeAfterFirst, 'QueenBee reuses static buffer permanently');
+
     // Teardown
     dynamic.destroy();
     volt.destroy();
@@ -361,6 +374,7 @@ test('Req 1: Static cached white noise audio buffer reuse across repeated trigge
     orbital.destroy();
     solar.destroy();
     flora.destroy();
+    queenBee.destroy();
     pool.destroy();
   } finally {
     global.window = originalWindow;
@@ -405,6 +419,7 @@ test('Req 2: Dual-watchdog cleanup on primary playback end (onended)', () => {
       new OrbitalCrisisAudio(mockCtx, pool),
       new SolarFlareCrisisAudio(mockCtx, pool),
       new MutantFloraAudio(mockCtx, pool),
+      new QueenBeeAudio(mockCtx, pool),
     ];
 
     // Trigger noise bursts
@@ -420,9 +435,10 @@ test('Req 2: Dual-watchdog cleanup on primary playback end (onended)', () => {
     instances[9].playFilteredNoiseBurst(0.1, 1800, 600, 0.15);
     instances[10].playFilteredNoiseBurst(0.1, 1800, 600, 0.15);
     instances[11].playFilteredNoiseBurst(0.1, 1600, 400, 0.2);
+    instances[12].playFilteredNoiseBurst(0.1, 1600, 400, 0.2);
 
     const bufferSources = mockCtx.nodes.filter((n) => n instanceof MockBufferSourceNode);
-    assert.ok(bufferSources.length >= 12, 'Expected at least 12 BufferSources created');
+    assert.ok(bufferSources.length >= 13, 'Expected at least 13 BufferSources created');
 
     // Simulate normal onended playback completion
     for (const bs of bufferSources) {
@@ -472,6 +488,7 @@ test('Req 2: Dual-watchdog cleanup on timeout fallback when onended fails/never 
     const orbital = new OrbitalCrisisAudio(mockCtx, pool);
     const solar = new SolarFlareCrisisAudio(mockCtx, pool);
     const flora = new MutantFloraAudio(mockCtx, pool);
+    const queenBee = new QueenBeeAudio(mockCtx, pool);
 
     // Trigger sounds with very short duration (10ms)
     dynamic.playFilteredNoiseBurst(0.01, 800, 200, 0.2);
@@ -485,6 +502,7 @@ test('Req 2: Dual-watchdog cleanup on timeout fallback when onended fails/never 
     orbital.playFilteredNoiseBurst(0.01, 1800, 600, 0.15);
     solar.playFilteredNoiseBurst(0.01, 1800, 600, 0.15);
     flora.playFilteredNoiseBurst(0.01, 1600, 400, 0.2);
+    queenBee.playFilteredNoiseBurst(0.01, 1600, 400, 0.2);
 
     // Do NOT trigger onended! Wait for setTimeout watchdog (10ms + 50ms buffer = ~60ms)
     await new Promise((resolve) => setTimeout(resolve, 150));
@@ -510,6 +528,7 @@ test('Req 2: Dual-watchdog cleanup on timeout fallback when onended fails/never 
     orbital.destroy();
     solar.destroy();
     flora.destroy();
+    queenBee.destroy();
     pool.destroy();
   } finally {
     global.window = originalWindow;
@@ -542,6 +561,7 @@ test('Req 2: clearPendingNodes() and destroy() forcefully disconnect transient n
     const orbital = new OrbitalCrisisAudio(mockCtx);
     const solar = new SolarFlareCrisisAudio(mockCtx);
     const flora = new MutantFloraAudio(mockCtx);
+    const queenBee = new QueenBeeAudio(mockCtx);
 
     volt.playFilteredNoiseBurst(0.2, 1500, 300, 0.2);
     magma.playFilteredNoiseBurst(0.2, 1000, 200, 0.2);
@@ -551,9 +571,10 @@ test('Req 2: clearPendingNodes() and destroy() forcefully disconnect transient n
     orbital.playFilteredNoiseBurst(0.2, 1800, 600, 0.15);
     solar.playFilteredNoiseBurst(0.2, 1800, 600, 0.15);
     flora.playFilteredNoiseBurst(0.2, 1600, 400, 0.2);
+    queenBee.playFilteredNoiseBurst(0.2, 1600, 400, 0.2);
 
     const bufferSources = mockCtx.nodes.filter((n) => n instanceof MockBufferSourceNode);
-    assert.strictEqual(bufferSources.length, 8, '8 transient buffer sources scheduled');
+    assert.strictEqual(bufferSources.length, 9, '9 transient buffer sources scheduled');
 
     // Force clear without waiting for onended or timeout
     volt.clearPendingNodes();
@@ -564,6 +585,7 @@ test('Req 2: clearPendingNodes() and destroy() forcefully disconnect transient n
     orbital.clearPendingNodes();
     solar.clearPendingNodes();
     flora.clearPendingNodes();
+    queenBee.clearPendingNodes();
 
     for (const bs of bufferSources) {
       assert.strictEqual(bs.disconnected, true, 'All buffer sources must be disconnected by clearPendingNodes');
@@ -577,6 +599,7 @@ test('Req 2: clearPendingNodes() and destroy() forcefully disconnect transient n
     orbital.destroy();
     solar.destroy();
     flora.destroy();
+    queenBee.destroy();
   } finally {
     global.window = originalWindow;
     global.AudioContext = originalAudioContext;
@@ -625,6 +648,7 @@ test('Req 3: Zero crash when window is undefined (pure Node.js SSR)', () => {
       () => new OrbitalCrisisAudio(),
       () => new SolarFlareCrisisAudio(),
       () => new MutantFloraAudio(),
+      () => new QueenBeeAudio(),
     ];
 
     for (const ctor of synthConstructors) {
@@ -650,6 +674,15 @@ test('Req 3: Zero crash when window is undefined (pure Node.js SSR)', () => {
         if (typeof inst.playBurrow === 'function') inst.playBurrow();
         if (typeof inst.playEmerge === 'function') inst.playEmerge();
         if (typeof inst.playPeacefulFloraRestoration === 'function') inst.playPeacefulFloraRestoration();
+        if (typeof inst.playFlightHum === 'function') inst.playFlightHum();
+        if (typeof inst.playShieldChime === 'function') inst.playShieldChime(4);
+        if (typeof inst.playShieldShatter === 'function') inst.playShieldShatter();
+        if (typeof inst.playHoneyCaramelization === 'function') inst.playHoneyCaramelization();
+        if (typeof inst.playStingerSalvo === 'function') inst.playStingerSalvo();
+        if (typeof inst.playRoyalDiveWhoosh === 'function') inst.playRoyalDiveWhoosh();
+        if (typeof inst.playCraterImpact === 'function') inst.playCraterImpact();
+        if (typeof inst.playDazedStars === 'function') inst.playDazedStars();
+        if (typeof inst.playDefeatPeaceNectar === 'function') inst.playDefeatPeaceNectar();
 
         if (typeof inst.stop === 'function') inst.stop();
         if (typeof inst.reset === 'function') inst.reset();

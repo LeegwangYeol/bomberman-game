@@ -209,15 +209,17 @@ export abstract class BaseBoss {
    */
   public update(dt: number, playerX: number = 0, playerY: number = 0): void {
     if (!Number.isFinite(dt) || dt <= 0) return;
-    if (!Number.isFinite(playerX)) playerX = this.x;
-    if (!Number.isFinite(playerY)) playerY = this.y;
 
-    // Sanitize physics state to prevent NaN propagation
+    // 1. First sanitize boss physics state to prevent NaN propagation
     if (!Number.isFinite(this.x)) this.x = (this.minArenaX + this.maxArenaX) / 2;
     if (!Number.isFinite(this.y)) this.y = (this.minArenaY + this.maxArenaY) / 2;
     if (!Number.isFinite(this.vx)) this.vx = 0;
     if (!Number.isFinite(this.vy)) this.vy = 0;
     if (!Number.isFinite(this.currentSpeed)) this.currentSpeed = this.config.baseSpeed;
+
+    // 2. Then safely use sanitized boss coordinates as fallback for invalid player coords
+    if (!Number.isFinite(playerX)) playerX = this.x;
+    if (!Number.isFinite(playerY)) playerY = this.y;
 
     if (this.bossState === BossState.DEFEATED) {
       if (!this.isDeathAnimationComplete) {

@@ -137,6 +137,7 @@ import {
   QueenBeeBoss,
   MutantFloraBoss,
   MutantFloraAudio,
+  QueenBeeAudio,
   SteamToyTitanBoss,
   SteamToyTitanAudio,
   TelegraphEngine,
@@ -1316,6 +1317,8 @@ export default class GameScene extends Phaser.Scene {
     LavaCrisisAudio.resetInstance();
     RiftCrisisAudio.resetInstance();
     SteamToyTitanAudio.resetInstance();
+    MutantFloraAudio.resetInstance();
+    QueenBeeAudio.resetInstance();
     webAudioSynth.destroy();
     AudioVoicePool.resetInstance();
 
@@ -3260,6 +3263,10 @@ export default class GameScene extends Phaser.Scene {
     // 11. Update Active Boss & Telegraphs
     if (this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED) {
       this.activeBoss.update(delta, this.player.x, this.player.y);
+
+      if (this.activeBoss instanceof QueenBeeBoss && this.activeBoss.isFlying) {
+        this.activeBoss.audio.playFlightBuzz(this.time?.now ?? Date.now());
+      }
 
       // Boss contact damage to player (AI-BOSS-01)
       const bossRadius = this.activeBoss.config.colliderRadius || 35;

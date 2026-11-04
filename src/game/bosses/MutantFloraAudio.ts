@@ -421,12 +421,22 @@ export class MutantFloraAudio {
   private lastPeaceBloomMs: number = 0;
 
   constructor(poolOrCtx?: AudioVoicePool | AudioContext | null, pool?: AudioVoicePool | null) {
-    if (poolOrCtx) {
-      if (poolOrCtx instanceof AudioVoicePool || ('acquireVoice' in poolOrCtx && 'playTone' in poolOrCtx)) {
-        this.bindPool(poolOrCtx as AudioVoicePool);
-      } else {
-        this.init(poolOrCtx as AudioContext, pool || undefined);
-      }
+    const isPool = Boolean(
+      poolOrCtx &&
+      typeof poolOrCtx === 'object' &&
+      'playTone' in poolOrCtx &&
+      typeof (poolOrCtx as { playTone?: unknown }).playTone === 'function'
+    );
+    const isCtx = Boolean(
+      poolOrCtx &&
+      typeof poolOrCtx === 'object' &&
+      ('createOscillator' in poolOrCtx || 'currentTime' in poolOrCtx || 'destination' in poolOrCtx)
+    );
+
+    if (isPool) {
+      this.bindPool(poolOrCtx as AudioVoicePool);
+    } else if (isCtx) {
+      this.init(poolOrCtx as AudioContext, pool || undefined);
     } else if (pool) {
       this.bindPool(pool);
     } else {
@@ -439,14 +449,24 @@ export class MutantFloraAudio {
   }
 
   public static getInstance(poolOrCtx?: AudioVoicePool | AudioContext | null): MutantFloraAudio {
+    const isPool = Boolean(
+      poolOrCtx &&
+      typeof poolOrCtx === 'object' &&
+      'playTone' in poolOrCtx &&
+      typeof (poolOrCtx as { playTone?: unknown }).playTone === 'function'
+    );
+    const isCtx = Boolean(
+      poolOrCtx &&
+      typeof poolOrCtx === 'object' &&
+      ('createOscillator' in poolOrCtx || 'currentTime' in poolOrCtx || 'destination' in poolOrCtx)
+    );
+
     if (!MutantFloraAudio.instance) {
       MutantFloraAudio.instance = new MutantFloraAudio(poolOrCtx);
-    } else if (poolOrCtx) {
-      if (poolOrCtx instanceof AudioVoicePool || ('acquireVoice' in poolOrCtx && 'playTone' in poolOrCtx)) {
-        MutantFloraAudio.instance.bindPool(poolOrCtx as AudioVoicePool);
-      } else if (!MutantFloraAudio.instance.audioContext) {
-        MutantFloraAudio.instance.init(poolOrCtx as AudioContext);
-      }
+    } else if (isPool) {
+      MutantFloraAudio.instance.bindPool(poolOrCtx as AudioVoicePool);
+    } else if (isCtx && !MutantFloraAudio.instance.audioContext) {
+      MutantFloraAudio.instance.init(poolOrCtx as AudioContext);
     }
     return MutantFloraAudio.instance;
   }
@@ -474,17 +494,28 @@ export class MutantFloraAudio {
     }
 
     if (ctx && ctx.state === 'suspended' && typeof ctx.resume === 'function') {
-      ctx.resume().catch(() => {});
+      try {
+        const res = ctx.resume();
+        if (res && typeof res.catch === 'function') {
+          res.catch(() => {});
+        }
+      } catch {
+        // Safe no-op on synchronous or mocked audio contexts
+      }
     }
   }
 
   public bindPool(pool: AudioVoicePool): void {
-    if (this.ownsPool && this.voicePool && this.voicePool !== pool) {
+    if (this.ownsPool && this.voicePool && this.voicePool !== pool && typeof this.voicePool.destroy === 'function') {
       this.voicePool.destroy();
     }
     this.voicePool = pool;
     this.ownsPool = false;
-    this.audioContext = pool.getAudioContext();
+    if (typeof pool.getAudioContext === 'function') {
+      this.audioContext = pool.getAudioContext();
+    } else if (typeof (pool as unknown as { getContext?: () => AudioContext | null }).getContext === 'function') {
+      this.audioContext = (pool as unknown as { getContext: () => AudioContext | null }).getContext();
+    }
   }
 
   public setVoicePool(pool: AudioVoicePool | null): void {
@@ -937,8 +968,14 @@ export class MutantFloraAudio {
 
     for (const node of this.activeTransientNodes) {
       try {
-        if ('stop' in node && typeof (node as unknown as { stop: () => void }).stop === 'function') {
-          (node as unknown as { stop: () => void }).stop();
+        const sourceNode = node as unknown as { onended?: unknown; stop?: () => void };
+        if ('onended' in sourceNode) {
+          sourceNode.onended = null;
+        }
+        if (typeof sourceNode.stop === 'function') {
+          try {
+            sourceNode.stop();
+          } catch {}
         }
         node.disconnect();
       } catch {}
@@ -965,6 +1002,8 @@ export class MutantFloraAudio {
   public destroy(): void {
     this.isDestroyed = true;
     this.clearPendingNodes();
+    MutantFloraAudio.cachedNoiseBuffer = null;
+    MutantFloraAudio.cachedNoiseSampleRate = 0;
     if (this.ownsPool && this.voicePool) {
       this.voicePool.destroy();
     }

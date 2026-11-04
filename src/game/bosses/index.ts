@@ -7,6 +7,7 @@ export * from './BaseBoss.ts';
 export * from './GummyBearBoss.ts';
 export * from './HamsterBoss.ts';
 export * from './QueenBeeBoss.ts';
+export * from './QueenBeeAudio.ts';
 export * from './MutantFloraBoss.ts';
 export * from './MutantFloraAudio.ts';
 export * from './SteamToyTitanBoss.ts';
