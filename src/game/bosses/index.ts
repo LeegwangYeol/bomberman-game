@@ -5,6 +5,7 @@
 export * from './BossTypes.ts';
 export * from './BaseBoss.ts';
 export * from './GummyBearBoss.ts';
+export * from './GummyBearAudio.ts';
 export * from './HamsterBoss.ts';
 export * from './QueenBeeBoss.ts';
 export * from './QueenBeeAudio.ts';

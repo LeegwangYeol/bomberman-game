@@ -323,6 +323,9 @@ test('Adversarial [Boss Lifecycle & Stun/Enrage Interruption]: Switching mode du
   assert.ok(scene.activeBoss);
   const boss = scene.activeBoss;
 
+  // Advance boss past INTRO state (1500ms intro duration)
+  boss.update(1600, 300, 300);
+
   // 2. Drive boss into STUNNED state
   boss.applyStun(2.5);
   assert.equal(boss.bossState, BossState.STUNNED);

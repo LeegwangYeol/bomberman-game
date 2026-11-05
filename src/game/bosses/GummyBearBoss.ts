@@ -3,10 +3,17 @@
  *
  * Implements Royal Jelly Bounce (Parabolic Leap), Sugar Crush shockwaves,
  * Gummy Minion Spawns, and Masterplay Lure Landing Stun (2.2s -> 4.0s).
+ *
+ * Hardened Architectural Invariants:
+ * - 100% Procedural Web Audio Synthesis integration via GummyBearAudio.
+ * - Strict arena boundary confinement ([60, 540] x [60, 460]) eliminating clipping breaches.
+ * - Finite float protections and non-overshooting leap interpolation.
+ * - Clean lifecycle disposal with complete audio and pool teardown.
  */
 
 import { BaseBoss, type BossConfig } from './BaseBoss.ts';
 import { BossState } from './BossTypes.ts';
+import { GummyBearAudio } from './GummyBearAudio.ts';
 
 export class GummyBearBoss extends BaseBoss {
   public isAirborne: boolean = false;
@@ -20,6 +27,9 @@ export class GummyBearBoss extends BaseBoss {
   public activeCubCount: number = 0;
   public readonly maxCubs: number = 4;
   public isSquashedPancake: boolean = false;
+  public stepTimerMs: number = 0;
+  public landingBombCheck?: () => boolean;
+  public audio: GummyBearAudio;
 
   constructor(startX: number = 300, startY: number = 260) {
     const config: BossConfig = {
@@ -35,7 +45,12 @@ export class GummyBearBoss extends BaseBoss {
       phase2HpThreshold: 0.7, // <= 6 HP
       phase3HpThreshold: 0.33, // <= 3 HP
     };
-    super(config, startX, startY);
+    const safeStartX = Number.isFinite(startX) ? Math.max(60, Math.min(startX, 540)) : 300;
+    const safeStartY = Number.isFinite(startY) ? Math.max(60, Math.min(startY, 460)) : 260;
+    super(config, safeStartX, safeStartY);
+    this.targetLandingX = safeStartX;
+    this.targetLandingY = safeStartY;
+    this.audio = GummyBearAudio.getInstance();
   }
 
   /**
@@ -43,7 +58,14 @@ export class GummyBearBoss extends BaseBoss {
    * While marching, his thick gelatin skin absorbs bomb blasts with 0 damage.
    */
   public override canTakeDamage(): boolean {
-    if (this.isAirborne) return false;
+    if (
+      this.bossState === BossState.DEFEATED ||
+      this.bossState === BossState.INTRO ||
+      this.bossState === BossState.INTERMISSION ||
+      this.isAirborne
+    ) {
+      return false;
+    }
     return this.bossState === BossState.STUNNED || this.isSquashedPancake;
   }
 
@@ -78,29 +100,48 @@ export class GummyBearBoss extends BaseBoss {
     leapDuration: number,
     cooldown: number
   ): void {
-    if (this.isAirborne) {
-      this.leapTimerMs -= dt;
-      const progress = 1.0 - this.leapTimerMs / this.leapDurationMs;
-      this.leapElevation = Math.sin(progress * Math.PI) * 64; // Peak at 64px
+    if (!Number.isFinite(dt) || dt <= 0) return;
+    const safeDt = Math.max(0, dt);
 
-      // Interpolate position toward landing target
-      this.x += (this.targetLandingX - this.x) * (dt / Math.max(16, this.leapTimerMs));
-      this.y += (this.targetLandingY - this.y) * (dt / Math.max(16, this.leapTimerMs));
+    if (this.isAirborne) {
+      if (!Number.isFinite(this.leapTimerMs)) {
+        this.leapTimerMs = 0;
+      }
+      this.leapTimerMs -= safeDt;
+      const progress = Math.min(
+        1.0,
+        Math.max(0.0, 1.0 - this.leapTimerMs / Math.max(1, this.leapDurationMs))
+      );
+      this.leapElevation = Math.max(0, Math.sin(progress * Math.PI) * 64); // Peak at 64px
 
       if (this.leapTimerMs <= 0) {
-        this.onTouchdown();
+        const hasBomb =
+          typeof this.landingBombCheck === 'function' ? this.landingBombCheck() : false;
+        this.onTouchdown(hasBomb);
+        return;
       }
+
+      // Safe fractional interpolation capped to [0, 1] to prevent lag-spike velocity overshoots
+      const remainingTime = Math.max(16, this.leapTimerMs + safeDt);
+      const stepFactor = Math.min(1.0, Math.max(0.0, safeDt / remainingTime));
+      this.x += (this.targetLandingX - this.x) * stepFactor;
+      this.y += (this.targetLandingY - this.y) * stepFactor;
+      this.clampPosition();
       return;
     }
 
-    this.attackCooldownMs -= dt;
+    this.attackCooldownMs -= safeDt;
     if (this.attackCooldownMs <= 0) {
-      this.initiateRoyalLeap(playerX, playerY, leapDuration);
+      const validPx = Number.isFinite(playerX) && playerX > 0 ? playerX : this.x;
+      const validPy = Number.isFinite(playerY) && playerY > 0 ? playerY : this.y;
+      this.initiateRoyalLeap(validPx, validPy, leapDuration);
       this.attackCooldownMs = cooldown;
     } else {
       // Ponderous march toward player quadrant
-      const dx = playerX - this.x;
-      const dy = playerY - this.y;
+      const validPx = Number.isFinite(playerX) ? playerX : this.x;
+      const validPy = Number.isFinite(playerY) ? playerY : this.y;
+      const dx = validPx - this.x;
+      const dy = validPy - this.y;
       const dist = Math.hypot(dx, dy);
       if (dist > 10) {
         let vx = (dx / dist) * this.currentSpeed;
@@ -109,8 +150,16 @@ export class GummyBearBoss extends BaseBoss {
         if (Math.abs(vy) < 1e-15) vy = 0;
         this.vx = vx;
         this.vy = vy;
-        this.x += this.vx * (dt / 1000);
-        this.y += this.vy * (dt / 1000);
+        this.x += this.vx * (safeDt / 1000);
+        this.y += this.vy * (safeDt / 1000);
+        this.clampPosition();
+
+        // Periodic ponderous march wobble sound
+        this.stepTimerMs += safeDt;
+        if (this.stepTimerMs >= 650) {
+          this.stepTimerMs = 0;
+          this.audio.playPonderousMarch();
+        }
       } else {
         this.vx = 0;
         this.vy = 0;
@@ -123,13 +172,16 @@ export class GummyBearBoss extends BaseBoss {
     targetY: number,
     durationMs: number = 1800
   ): void {
+    const safeX = Number.isFinite(targetX) ? targetX : (Number.isFinite(this.x) ? this.x : 300);
+    const safeY = Number.isFinite(targetY) ? targetY : (Number.isFinite(this.y) ? this.y : 260);
+    this.targetLandingX = Math.max(this.minArenaX, Math.min(this.maxArenaX, safeX));
+    this.targetLandingY = Math.max(this.minArenaY, Math.min(this.maxArenaY, safeY));
+    this.leapDurationMs = Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 1800;
+    this.leapTimerMs = this.leapDurationMs;
     this.isAirborne = true;
-    this.targetLandingX = targetX;
-    this.targetLandingY = targetY;
-    this.leapDurationMs = durationMs;
-    this.leapTimerMs = durationMs;
     this.isSquashedPancake = false;
     this.leapCount++;
+    this.audio.playRoyalJellyBounce();
   }
 
   /**
@@ -138,12 +190,15 @@ export class GummyBearBoss extends BaseBoss {
   public onTouchdown(hasBombOnLandingTile: boolean = false): void {
     this.isAirborne = false;
     this.leapElevation = 0;
-    this.x = this.targetLandingX;
-    this.y = this.targetLandingY;
+    this.x = Number.isFinite(this.targetLandingX) ? this.targetLandingX : 300;
+    this.y = Number.isFinite(this.targetLandingY) ? this.targetLandingY : 260;
+    this.clampPosition();
     this.vx = 0;
     this.vy = 0;
     this.isInvulnerable = false;
     this.iFrameTimerMs = 0;
+
+    this.audio.playSugarCrushSlam(hasBombOnLandingTile);
 
     // Masterplay Lure Check: Did he land on an active primed bomb?
     if (hasBombOnLandingTile) {
@@ -173,12 +228,31 @@ export class GummyBearBoss extends BaseBoss {
   }
 
   public spawnMinionCubs(count: number): void {
-    const toSpawn = Math.min(count, this.maxCubs - this.activeCubCount);
-    this.activeCubCount += toSpawn;
+    const safeCount = Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+    const toSpawn = Math.min(safeCount, this.maxCubs - this.activeCubCount);
+    if (toSpawn > 0) {
+      this.activeCubCount += toSpawn;
+      this.audio.playMinionCubPop();
+    }
   }
 
   public onMinionDefeated(): void {
     this.activeCubCount = Math.max(0, this.activeCubCount - 1);
+  }
+
+  public override applyStun(durationSec: number): void {
+    if (!Number.isFinite(durationSec) || durationSec <= 0) return;
+    if (
+      this.bossState === BossState.INTRO ||
+      this.bossState === BossState.INTERMISSION ||
+      this.bossState === BossState.DEFEATED
+    ) {
+      return;
+    }
+    this.isAirborne = false;
+    this.leapElevation = 0;
+    this.clampPosition();
+    super.applyStun(durationSec);
   }
 
   protected override onHitReceived(damage: number, isChained: boolean): void {
@@ -190,8 +264,10 @@ export class GummyBearBoss extends BaseBoss {
 
   protected override onDamageBlocked(): void {
     // Blast absorbed by thick gelatin skin; knock back 1 tile
+    this.audio.playGelatinSkinDeflection();
     this.x -= Math.sign(this.vx || 1) * 20;
     this.y -= Math.sign(this.vy || 1) * 20;
+    this.clampPosition();
   }
 
   protected override onStateChanged(
@@ -202,10 +278,22 @@ export class GummyBearBoss extends BaseBoss {
     if (nextState !== BossState.STUNNED) {
       this.isSquashedPancake = false;
     }
+    if (nextState === BossState.PHASE_2 || nextState === BossState.ENRAGED) {
+      this.audio.playPhaseTransition(this.phase);
+    }
   }
 
   protected override onDefeated(): void {
     this.isAirborne = false;
     this.isSquashedPancake = false;
+    this.clampPosition();
+    this.audio.playDefeatGelatinDissolution();
+  }
+
+  public override destroy(): void {
+    this.isAirborne = false;
+    this.isSquashedPancake = false;
+    this.audio.destroy();
+    super.destroy();
   }
 }

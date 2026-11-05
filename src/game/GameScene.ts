@@ -133,6 +133,7 @@ import {
   BossState,
   type BossId,
   GummyBearBoss,
+  GummyBearAudio,
   HamsterBoss,
   QueenBeeBoss,
   MutantFloraBoss,
@@ -1319,6 +1320,7 @@ export default class GameScene extends Phaser.Scene {
     SteamToyTitanAudio.resetInstance();
     MutantFloraAudio.resetInstance();
     QueenBeeAudio.resetInstance();
+    GummyBearAudio.resetInstance();
     webAudioSynth.destroy();
     AudioVoicePool.resetInstance();
 

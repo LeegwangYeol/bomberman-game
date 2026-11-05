@@ -580,6 +580,10 @@ export abstract class BaseBoss {
     return this.stunTimerMs;
   }
 
+  public get stunDurationSec(): number {
+    return this.stunDurationMs / 1000;
+  }
+
   public get isDismissible(): boolean {
     return this.bossState === BossState.DEFEATED && this.isDeathAnimationComplete;
   }

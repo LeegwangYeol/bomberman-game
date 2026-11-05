@@ -21,6 +21,7 @@ import { OrbitalCrisisAudio } from '../../src/game/crises/OrbitalCrisisAudio.ts'
 import { SolarFlareCrisisAudio } from '../../src/game/crises/SolarFlareCrisisAudio.ts';
 import { MutantFloraAudio } from '../../src/game/bosses/MutantFloraAudio.ts';
 import { QueenBeeAudio } from '../../src/game/bosses/QueenBeeAudio.ts';
+import { GummyBearAudio } from '../../src/game/bosses/GummyBearAudio.ts';
 import { AudioVoicePool } from '../../src/game/pooling/AudioVoicePool.ts';
 
 /**
@@ -193,6 +194,7 @@ function resetAllSingletons() {
   if (typeof SolarFlareCrisisAudio.resetInstance === 'function') SolarFlareCrisisAudio.resetInstance();
   if (typeof MutantFloraAudio.resetInstance === 'function') MutantFloraAudio.resetInstance();
   if (typeof QueenBeeAudio.resetInstance === 'function') QueenBeeAudio.resetInstance();
+  if (typeof GummyBearAudio.resetInstance === 'function') GummyBearAudio.resetInstance();
 }
 
 // ============================================================================
@@ -361,6 +363,17 @@ test('Req 1: Static cached white noise audio buffer reuse across repeated trigge
     }
     assert.strictEqual(mockCtx.buffersCreated, queenBeeAfterFirst, 'QueenBee reuses static buffer permanently');
 
+    // 14. GummyBearAudio
+    const gummy = new GummyBearAudio(mockCtx, pool);
+    const gummyStartBuffers = mockCtx.buffersCreated;
+    gummy.playFilteredNoiseBurst(0.1, 1200, 300, 0.2);
+    const gummyAfterFirst = mockCtx.buffersCreated;
+    assert.strictEqual(gummyAfterFirst - gummyStartBuffers, 1, 'GummyBear allocates static buffer on first trigger');
+    for (let i = 0; i < 20; i++) {
+      gummy.playFilteredNoiseBurst(0.1, 1200, 300, 0.2);
+    }
+    assert.strictEqual(mockCtx.buffersCreated, gummyAfterFirst, 'GummyBear reuses static buffer permanently');
+
     // Teardown
     dynamic.destroy();
     volt.destroy();
@@ -375,6 +388,7 @@ test('Req 1: Static cached white noise audio buffer reuse across repeated trigge
     solar.destroy();
     flora.destroy();
     queenBee.destroy();
+    gummy.destroy();
     pool.destroy();
   } finally {
     global.window = originalWindow;
@@ -420,6 +434,7 @@ test('Req 2: Dual-watchdog cleanup on primary playback end (onended)', () => {
       new SolarFlareCrisisAudio(mockCtx, pool),
       new MutantFloraAudio(mockCtx, pool),
       new QueenBeeAudio(mockCtx, pool),
+      new GummyBearAudio(mockCtx, pool),
     ];
 
     // Trigger noise bursts
@@ -436,9 +451,10 @@ test('Req 2: Dual-watchdog cleanup on primary playback end (onended)', () => {
     instances[10].playFilteredNoiseBurst(0.1, 1800, 600, 0.15);
     instances[11].playFilteredNoiseBurst(0.1, 1600, 400, 0.2);
     instances[12].playFilteredNoiseBurst(0.1, 1600, 400, 0.2);
+    instances[13].playFilteredNoiseBurst(0.1, 1200, 300, 0.2);
 
     const bufferSources = mockCtx.nodes.filter((n) => n instanceof MockBufferSourceNode);
-    assert.ok(bufferSources.length >= 13, 'Expected at least 13 BufferSources created');
+    assert.ok(bufferSources.length >= 14, 'Expected at least 14 BufferSources created');
 
     // Simulate normal onended playback completion
     for (const bs of bufferSources) {
@@ -489,6 +505,7 @@ test('Req 2: Dual-watchdog cleanup on timeout fallback when onended fails/never 
     const solar = new SolarFlareCrisisAudio(mockCtx, pool);
     const flora = new MutantFloraAudio(mockCtx, pool);
     const queenBee = new QueenBeeAudio(mockCtx, pool);
+    const gummy = new GummyBearAudio(mockCtx, pool);
 
     // Trigger sounds with very short duration (10ms)
     dynamic.playFilteredNoiseBurst(0.01, 800, 200, 0.2);
@@ -503,6 +520,7 @@ test('Req 2: Dual-watchdog cleanup on timeout fallback when onended fails/never 
     solar.playFilteredNoiseBurst(0.01, 1800, 600, 0.15);
     flora.playFilteredNoiseBurst(0.01, 1600, 400, 0.2);
     queenBee.playFilteredNoiseBurst(0.01, 1600, 400, 0.2);
+    gummy.playFilteredNoiseBurst(0.01, 1200, 300, 0.2);
 
     // Do NOT trigger onended! Wait for setTimeout watchdog (10ms + 50ms buffer = ~60ms)
     await new Promise((resolve) => setTimeout(resolve, 150));
@@ -529,6 +547,7 @@ test('Req 2: Dual-watchdog cleanup on timeout fallback when onended fails/never 
     solar.destroy();
     flora.destroy();
     queenBee.destroy();
+    gummy.destroy();
     pool.destroy();
   } finally {
     global.window = originalWindow;
@@ -562,6 +581,7 @@ test('Req 2: clearPendingNodes() and destroy() forcefully disconnect transient n
     const solar = new SolarFlareCrisisAudio(mockCtx);
     const flora = new MutantFloraAudio(mockCtx);
     const queenBee = new QueenBeeAudio(mockCtx);
+    const gummy = new GummyBearAudio(mockCtx);
 
     volt.playFilteredNoiseBurst(0.2, 1500, 300, 0.2);
     magma.playFilteredNoiseBurst(0.2, 1000, 200, 0.2);
@@ -572,9 +592,10 @@ test('Req 2: clearPendingNodes() and destroy() forcefully disconnect transient n
     solar.playFilteredNoiseBurst(0.2, 1800, 600, 0.15);
     flora.playFilteredNoiseBurst(0.2, 1600, 400, 0.2);
     queenBee.playFilteredNoiseBurst(0.2, 1600, 400, 0.2);
+    gummy.playFilteredNoiseBurst(0.2, 1200, 300, 0.2);
 
     const bufferSources = mockCtx.nodes.filter((n) => n instanceof MockBufferSourceNode);
-    assert.strictEqual(bufferSources.length, 9, '9 transient buffer sources scheduled');
+    assert.strictEqual(bufferSources.length, 10, '10 transient buffer sources scheduled');
 
     // Force clear without waiting for onended or timeout
     volt.clearPendingNodes();
@@ -586,6 +607,7 @@ test('Req 2: clearPendingNodes() and destroy() forcefully disconnect transient n
     solar.clearPendingNodes();
     flora.clearPendingNodes();
     queenBee.clearPendingNodes();
+    gummy.clearPendingNodes();
 
     for (const bs of bufferSources) {
       assert.strictEqual(bs.disconnected, true, 'All buffer sources must be disconnected by clearPendingNodes');
@@ -600,6 +622,7 @@ test('Req 2: clearPendingNodes() and destroy() forcefully disconnect transient n
     solar.destroy();
     flora.destroy();
     queenBee.destroy();
+    gummy.destroy();
   } finally {
     global.window = originalWindow;
     global.AudioContext = originalAudioContext;
@@ -649,6 +672,7 @@ test('Req 3: Zero crash when window is undefined (pure Node.js SSR)', () => {
       () => new SolarFlareCrisisAudio(),
       () => new MutantFloraAudio(),
       () => new QueenBeeAudio(),
+      () => new GummyBearAudio(),
     ];
 
     for (const ctor of synthConstructors) {
@@ -683,6 +707,14 @@ test('Req 3: Zero crash when window is undefined (pure Node.js SSR)', () => {
         if (typeof inst.playCraterImpact === 'function') inst.playCraterImpact();
         if (typeof inst.playDazedStars === 'function') inst.playDazedStars();
         if (typeof inst.playDefeatPeaceNectar === 'function') inst.playDefeatPeaceNectar();
+        if (typeof inst.playPonderousMarch === 'function') inst.playPonderousMarch();
+        if (typeof inst.playRoyalJellyBounce === 'function') inst.playRoyalJellyBounce();
+        if (typeof inst.playSugarCrushSlam === 'function') inst.playSugarCrushSlam();
+        if (typeof inst.playMasterplayLureStun === 'function') inst.playMasterplayLureStun();
+        if (typeof inst.playGelatinSkinDeflection === 'function') inst.playGelatinSkinDeflection();
+        if (typeof inst.playMinionCubPop === 'function') inst.playMinionCubPop();
+        if (typeof inst.playPhaseEnrageRoar === 'function') inst.playPhaseEnrageRoar();
+        if (typeof inst.playDefeatGelatinDissolution === 'function') inst.playDefeatGelatinDissolution();
 
         if (typeof inst.stop === 'function') inst.stop();
         if (typeof inst.reset === 'function') inst.reset();
