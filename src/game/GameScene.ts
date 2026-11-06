@@ -135,6 +135,7 @@ import {
   GummyBearBoss,
   GummyBearAudio,
   HamsterBoss,
+  HamsterAudio,
   QueenBeeBoss,
   MutantFloraBoss,
   MutantFloraAudio,
@@ -1321,6 +1322,7 @@ export default class GameScene extends Phaser.Scene {
     MutantFloraAudio.resetInstance();
     QueenBeeAudio.resetInstance();
     GummyBearAudio.resetInstance();
+    HamsterAudio.resetInstance();
     webAudioSynth.destroy();
     AudioVoicePool.resetInstance();
 

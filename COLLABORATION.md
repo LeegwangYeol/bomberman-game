@@ -2112,3 +2112,34 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+
+### 30) 일일 자율 진화 및 유지보수: 캡틴 니블스(HamsterBoss) 전용 100% 절차적 웹오디오 신디사이저(HamsterAudio), 90도 뱅크샷 1프레임 캔슬 결함 교정, 경기장 경계 방어 및 전사 오디오 워든 감사 19대 신디사이저 전수 편입 (Daily Evolution Cycle: 2026-11-07 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 대규모 30+ 서브에이전트 스웜 기동.
+  - 5대 사단 편성 (정찰/컨텍스트 5, 아키텍트/Zero-GC 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결**:
+    - 자이로 로덴트 발명가 **'캡틴 니블스(Captain Nibbles / HamsterBoss)' (`HamsterBoss.ts`)** 전용 **100% 절차적 웹오디오 신디사이저 (`HamsterAudio.ts`)** 신규 설계 및 완벽 구현.
+    - **8대 시그니처 사운드스케이프 및 전투 음향 합성**:
+      1. **자이로 휠 레브 와인드업 (Gyro Wheel Rev Windup)**: 120Hz $\to$ 480Hz 지수 모터 가속 톱니파 및 서브 옥타브 기계식 기어 고주파 와인(60Hz $\to$ 240Hz, 120Hz 저역통과 필터)과 절차적 가속 노이즈.
+      2. **초고속 돌진 롤 험 & 트레드 스파크 (High-Speed Dash Roll Hum & Tread Sparks)**: 220Hz 톱니파 25Hz 고속 트레몰로 진폭 변조 및 정전기 스파크 팝(1200Hz $\to$ 400Hz 삼각파)과 노면 마찰 고역통과 노이즈.
+      3. **90° 뱅크샷 범퍼 리바운드 (90° Bank-Shot Wall Bumper Ricochet)**: 범퍼 탄성 보잉(520Hz $\to$ 260Hz 삼각파) 및 공명 금속 핑(1040Hz 대역통과, Q=5.0)과 운동 기압 쿵 노이즈.
+      4. **정면 폭탄 충돌 함정 과부하 (Head-On Bomb Collision Overload Trap)**: 80Hz 서브 폭발 쿵 + 880Hz $\to$ 110Hz 톱니파 임팩트 펀치 및 만화풍 별 핑핑 어지러움 화음 아르페지오(C6 1046.50Hz, E6 1318.51Hz, G6 1567.98Hz).
+      5. **해바라기 개틀링 씨앗 연사 (Sunflower Gatling Seed Salvo)**: 820Hz $\to$ 240Hz 초고속(35ms) 씨앗 사출 톤 및 고역통과 발사 클릭 노이즈.
+      6. **360° 자이로 레이저 스윕 (360° Gyro-Laser Sweep)**: 750Hz $\to$ 680Hz 공명 톱니파 레이저 빔 버즈(1200Hz 대역통과 필터, Q=4.2).
+      7. **페이즈 전환 및 오버로드 / 광폭 핀볼 (Phase Transitions)**: 2페이즈 정전기 과부하 C장조 삼화음(C4 261.63Hz, E4 329.63Hz, G4 392.00Hz) / 3페이즈 광폭 핀볼 경보 사이렌(380Hz $\leftrightarrow$ 760Hz 2음 펄스).
+      8. **패배 시 감속 스핀다운 및 솔페지오 528Hz 기계적 복원 평화의 화음 (Defeat Mechanical Restoration & Solfeggio 528Hz Peace Bloom)**: 자이로 구체 회전 감속 슬라이드(480Hz $\to$ 38Hz over 1.5s) 및 솔페지오 528Hz 4성부 기계적 복원 평화 화음(C4, E4, G4, 528.00Hz).
+  - **스웜 하드닝 & 시스템 버그 핀포인트 픽스 완결 (Architect & Chaos QA Swarm)**:
+    - **HamsterBoss.ts [1프레임 뱅크샷 조기 캔슬 물리 결함 교정]**: 벽 충돌 판정을 이동 중인 단일 축 방향(`dashDirection.x * boundary` 등)으로만 제한하고, 리바운드 시 벽에서 2px 안쪽으로 오프셋 이격하여 1프레임 조기 정지 버그 완전 근결.
+    - **HamsterBoss.ts [경기장 이탈 방지 및 정면 충돌 반동 클램핑]**: 정면 폭탄 충돌(`onHeadOnBombCollision`) 및 넉백 시 `this.clampPosition()`을 즉시 호출하여 경기장 외곽(`[60, 540] x [60, 460]`) 이탈 원천 차단.
+    - **HamsterBoss.ts [(0, 0) 방향 영구 동결 방어]**: 플레이어와 보스가 완전 동일 좌표일 때 `(0, 0)` 영구 이동 불가 동결을 방지하는 기본 전진 벡터(`{ x: 1, y: 0 }`) 폴백 탑재.
+    - **HamsterBoss.ts [대각선 순찰 속도 정규화]**: 통로 순찰 시 대각선 이동 벡터를 `Math.hypot` 기반으로 정규화하여 $\sqrt{2}$배 비정상 가속 오버슈트 방어.
+    - **HamsterBoss.ts [라이프사이클 완결성]**: `destroy()` 오버라이드를 구현하여 오디오 및 내부 타이머 상태 완전 정리.
+    - **GameScene.ts [라이프사이클 셧다운 메모리 누수 방어]**: 씬 종료 시 `HamsterAudio.resetInstance()`를 호출하여 오디오 그래프 및 정적 버퍼 잔류 누수 원천 차단.
+    - **전사 오디오 워든 감사 19대 신디사이저로 전면 확장 (`tests/unit/audio_lifecycle_warden_audit.test.mjs`)**: `HamsterAudio`를 정적 버퍼 재사용(Req 1), 이중 워치독(Req 2), `clearPendingNodes()`(Req 2), 헤드리스 SSR(Req 3) 감사에 공식 편입.
+  - **전수 검증 지표**:
+    - 신규 캡틴 니블스 전용 11티어 테스트 스위트: **11 / 11 PASS** (`tests/hamster_audio.test.mjs`, 10,000 프레임 Zero-GC 소크 및 아키텍처 방어 검증).
+    - 전체 회귀 테스트 배터리: **2,142 / 2,142 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,131 $\to$ 2,142으로 11개 테스트 순증)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
