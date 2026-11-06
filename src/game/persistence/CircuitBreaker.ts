@@ -108,10 +108,7 @@ export class APIQuotaCircuitBreaker {
         void this.drainQueue();
       }
     }, delay);
-    const timerWithUnref = timer as unknown as { unref?: () => void };
-    if (typeof timerWithUnref.unref === 'function') {
-      timerWithUnref.unref();
-    }
+
     this.wakeupTimer = timer;
   }
 
@@ -371,10 +368,7 @@ export class APIQuotaCircuitBreaker {
                 this.retryTimer = null;
                 void this.drainQueue();
               }, retryDelay);
-              const timerWithUnref = timer as unknown as { unref?: () => void };
-              if (typeof timerWithUnref.unref === 'function') {
-                timerWithUnref.unref();
-              }
+
               this.retryTimer = timer;
             }
           }
