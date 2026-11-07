@@ -77,6 +77,7 @@ export type {
   GravityBombPullResult,
   GravityBombDetonationResult,
 } from './GravityHazard.ts';
+export * from './GravityHazardAudio.ts';
 export {
   FrostHazard,
   FrostLifecycleState,

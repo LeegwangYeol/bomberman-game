@@ -1365,4 +1365,12 @@ export class GravityHazard {
     this.scratchCenter.worldY = this.centerWorldY;
     return this.scratchCenter;
   }
+
+  public getCenterWorldX(): number {
+    return this.centerWorldX;
+  }
+
+  public getCenterWorldY(): number {
+    return this.centerWorldY;
+  }
 }

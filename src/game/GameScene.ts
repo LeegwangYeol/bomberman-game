@@ -174,6 +174,8 @@ import {
   ESCAPE_VELOCITY_INVULN_MS,
   ESCAPE_VELOCITY_SPEED_BURST_RATIO,
   FLOATING_TEXT_GRAVITATIONAL_ESCAPE,
+  BOSS_GRAVITY_DAMAGE_RATIO,
+  GravityHazardAudio,
   FrostHazard,
   FrostLifecycleState,
   HoarfrostPhase,
@@ -570,6 +572,7 @@ export default class GameScene extends Phaser.Scene {
   public lastSunstrokeFloatingTextMs: number = -9999;
   public lastCosmicDazeFloatingTextMs: number = -9999;
   public lastHydrostaticDragFloatingTextMs: number = -9999;
+  public gravityHazardAudio: GravityHazardAudio = GravityHazardAudio.getInstance();
   public frostHazardAudio: FrostHazardAudio = FrostHazardAudio.getInstance();
   public voltHazardAudio: VoltHazardAudio = VoltHazardAudio.getInstance();
   public magmaHazardAudio: MagmaHazardAudio = MagmaHazardAudio.getInstance();
@@ -804,6 +807,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.hazardGraphics) {
       this.hazardGraphics.clear();
     }
+    this.gravityHazardAudio?.stop();
     this.frostHazardAudio?.reset();
     this.voltHazardAudio?.stop();
     this.magmaHazardAudio?.stop();
@@ -1279,6 +1283,10 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // Teardown sound managers and hazard audio instances
+    if (this.gravityHazardAudio) {
+      this.gravityHazardAudio.destroy();
+      this.gravityHazardAudio = null as unknown as GravityHazardAudio;
+    }
     if (this.frostHazardAudio) {
       this.frostHazardAudio.destroy();
       this.frostHazardAudio = null as unknown as FrostHazardAudio;
@@ -1323,6 +1331,7 @@ export default class GameScene extends Phaser.Scene {
     QueenBeeAudio.resetInstance();
     GummyBearAudio.resetInstance();
     HamsterAudio.resetInstance();
+    GravityHazardAudio.resetInstance();
     webAudioSynth.destroy();
     AudioVoicePool.resetInstance();
 
@@ -2380,6 +2389,7 @@ export default class GameScene extends Phaser.Scene {
     this.crisisGraphics.setDepth(RENDER_DEPTH.CRISIS_HAZARDS);
 
     // Initialize Dynamic Hazard System (Quantum Spire Hazard & Frost Hazard)
+    this.gravityHazardAudio = GravityHazardAudio.getInstance();
     this.frostHazardAudio = FrostHazardAudio.getInstance();
     this.voltHazardAudio = VoltHazardAudio.getInstance();
     this.magmaHazardAudio = MagmaHazardAudio.getInstance();
@@ -3688,6 +3698,57 @@ export default class GameScene extends Phaser.Scene {
     // 13c. Update Gravity Hazard System (Gravitational Singularity)
     if (this.gravityHazard && this.gravityHazard.state !== GravityLifecycleState.DORMANT) {
       this.gravityHazard.update(delta);
+      if (this.gravityHazardAudio) {
+        GravityHazardAudio.playGravityHazardState(this.gravityHazard.state, this.gravityHazard.getAccretionPhase(), undefined, this.time?.now ?? Date.now());
+      }
+
+      if (this.gravityHazard.state === GravityLifecycleState.SINGULARITY_BURST && !this.isGameOver) {
+        const enemiesList = this.enemies.getChildren();
+        for (let i = 0; i < enemiesList.length; i++) {
+          const enemy = enemiesList[i] as BaseEntity;
+          if (enemy && enemy.active && !enemy.isDead) {
+            const er = Math.floor(enemy.y / TILE_SIZE);
+            const ec = Math.floor(enemy.x / TILE_SIZE);
+            const isBoss = enemy === (this.activeBoss as unknown as BaseEntity);
+            const enemyHit = this.gravityHazard.checkEnemyCollision(er, ec, isBoss);
+            if (enemyHit.hit) {
+              if (enemyHit.isSpaghettified || enemyHit.isCrushed) {
+                if (typeof enemy.takeDamage === 'function') {
+                  enemy.takeDamage(enemyHit.damage, 'hazard', this.time.now);
+                }
+                this.score += enemyHit.scoreBonus ?? 0;
+                this.addUltimateCharge(enemyHit.ultimateChargeBonus ?? 0);
+                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText || 'Spaghettified!', '#a855f7');
+                this.gravityHazardAudio?.playMinionSpaghettification();
+              } else if (enemyHit.isStunned && isBoss && this.activeBoss) {
+                this.handleBossHazardHit(enemy.x, enemy.y, BOSS_GRAVITY_DAMAGE_RATIO, enemyHit.stunDurationMs, enemyHit.floatingText || 'Gravitational Stasis!', '#a855f7', 'Gravitational Stasis!');
+                this.gravityHazardAudio?.playBossStasisGrounded();
+              }
+            }
+          }
+        }
+
+        // Dedicated active boss check
+        if (this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED && this.activeBoss.currentHp > 0) {
+          const br = Math.floor(this.activeBoss.y / TILE_SIZE);
+          const bc = Math.floor(this.activeBoss.x / TILE_SIZE);
+          const bossHit = this.gravityHazard.checkEnemyCollision(br, bc, true);
+          if (bossHit.hit && bossHit.isStunned) {
+            this.handleBossHazardHit(this.activeBoss.x, this.activeBoss.y, BOSS_GRAVITY_DAMAGE_RATIO, bossHit.stunDurationMs, bossHit.floatingText || 'Gravitational Stasis!', '#a855f7', 'Gravitational Stasis!');
+            this.gravityHazardAudio?.playBossStasisGrounded();
+          }
+        }
+      }
+
+      // Check Cosmic Fusion Super-Bomb Merger
+      const bombList = this.bombs.getChildren() as Array<Phaser.GameObjects.Sprite & { power?: number; id?: string | number }>;
+      if (bombList && bombList.length >= 2) {
+        const fusionRes = this.gravityHazard.evaluateBombFusion(bombList, this.time?.now ?? Date.now());
+        if (fusionRes.triggered) {
+          this.gravityHazardAudio?.playCosmicFusionSuperBomb();
+          this.spawnFloatingText(this.gravityHazard.getCenterWorldX(), this.gravityHazard.getCenterWorldY() - 20, fusionRes.floatingText || 'Cosmic Fusion!', '#c084fc');
+        }
+      }
     }
 
     // 13d. Update Volt Hazard System (Tesla Storm / Electro Surge)
@@ -4198,6 +4259,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.spawnFloatingText(this.player.x, this.player.y - 25, FLOATING_TEXT_GRAVITATIONAL_ESCAPE, '#fbbf24');
+    this.gravityHazardAudio?.playGravitationalEscapeChimes();
     if (this.cameras?.main) {
       this.cameras.main.flash(100, 251, 191, 36);
     }
