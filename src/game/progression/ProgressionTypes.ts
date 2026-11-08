@@ -218,6 +218,7 @@ export const RelicId = {
   VOID_SINGULARITY_LENS: 'void_singularity_lens',
   CLOCKWORK_SPRING: 'clockwork_spring',
   ORBITAL_TARGETING_CORE: 'orbital_targeting_core',
+  PSIONIC_FEEDBACK_CRYSTAL: 'psionic_feedback_crystal',
 } as const;
 
 export type RelicId = typeof RelicId[keyof typeof RelicId];

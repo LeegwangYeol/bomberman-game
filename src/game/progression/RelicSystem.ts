@@ -22,7 +22,7 @@ export const RELIC_CATALOG: Record<RelicId, RelicDefinition> = {
     description: 'Bends local time dilation when match pressure peaks.',
     mechanics: 'Slows all enemy velocities by 20% during the final 30 seconds of any match or crisis countdown.',
     internalCooldownMs: 500,
-    synergyPartners: [RelicId.MAGNETRON_DIAL],
+    synergyPartners: [RelicId.MAGNETRON_DIAL, RelicId.PSIONIC_FEEDBACK_CRYSTAL],
     synergyName: 'Chrono Attraction',
     synergyDescription: 'During the final 30 seconds, item magnet pull radius doubles from 4 to 8 tiles.',
   },
@@ -122,6 +122,18 @@ export const RELIC_CATALOG: Record<RelicId, RelicDefinition> = {
     synergyName: 'Orbital Ion Strike',
     synergyDescription: 'Micro-kinetic lance expands to a 3-tile cross pattern and draws items and star candies within 8 tiles.',
   },
+  [RelicId.PSIONIC_FEEDBACK_CRYSTAL]: {
+    id: RelicId.PSIONIC_FEEDBACK_CRYSTAL,
+    name: 'Psionic Feedback Crystal',
+    icon: '🔮🧠',
+    rarity: 'epic',
+    description: 'Resonates with telepathic frequencies, deflecting psychic distortions.',
+    mechanics: 'Bomb detonations emit a 2-tile psionic pulse dispelling illusions and confusing enemies for 1.5s.',
+    internalCooldownMs: 500,
+    synergyPartners: [RelicId.POCKET_CHRONOMETER],
+    synergyName: 'Precognitive Resonance',
+    synergyDescription: 'During final 30s or crises, psionic pulse radius expands to 3.5 tiles and stuns confused enemies.',
+  },
 };
 
 export const SYNERGY_DEFINITIONS: RelicSynergy[] = [
@@ -159,6 +171,13 @@ export const SYNERGY_DEFINITIONS: RelicSynergy[] = [
     name: 'Orbital Ion Strike',
     icon: '🧭🛰️',
     description: 'Micro-kinetic lance expands to a 3-tile cross pattern and draws items and star candies within 8 tiles.',
+  },
+  {
+    relicA: RelicId.PSIONIC_FEEDBACK_CRYSTAL,
+    relicB: RelicId.POCKET_CHRONOMETER,
+    name: 'Precognitive Resonance',
+    icon: '🧠⏱️',
+    description: 'During final 30s or crises, psionic pulse radius expands to 3.5 tiles and stuns confused enemies.',
   },
 ];
 
@@ -550,7 +569,86 @@ export class RelicManager {
     ) {
       return 8;
     }
+    // Synergy: Orbital Ion Strike draws items within 8 tiles
+    if (this.hasSynergy(RelicId.MAGNETRON_DIAL, RelicId.ORBITAL_TARGETING_CORE)) {
+      return 8;
+    }
     return 4;
+  }
+
+  /**
+   * On Bomb Detonation (Psionic Feedback Crystal)
+   * Emits a psionic pulse dispelling illusions and confusing enemies.
+   * If Precognitive Resonance is active, expands to 3.5 tiles and applies 1.0s stun.
+   */
+  public onBombDetonationPsionicPulse(
+    bombRow: number,
+    bombCol: number,
+    enemies: { id: string; r: number; c: number }[],
+    isCrisisActive: boolean,
+    matchSecondsRemaining: number,
+    nowMs: number
+  ): { affectedEnemyIds: string[]; pulseRadius: number; confusedDurationMs: number; isStunned: boolean } {
+    if (!this.isEquipped(RelicId.PSIONIC_FEEDBACK_CRYSTAL)) {
+      return { affectedEnemyIds: [], pulseRadius: 0, confusedDurationMs: 0, isStunned: false };
+    }
+
+    if (!this.checkAndSetIcd('psionic_feedback_crystal', nowMs)) {
+      return { affectedEnemyIds: [], pulseRadius: 0, confusedDurationMs: 0, isStunned: false };
+    }
+
+    const hasSynergy = this.hasSynergy(RelicId.PSIONIC_FEEDBACK_CRYSTAL, RelicId.POCKET_CHRONOMETER);
+    const isEmpowered = hasSynergy && (isCrisisActive || (matchSecondsRemaining <= 30 && matchSecondsRemaining > 0));
+    const radius = isEmpowered ? 3.5 : 2.0;
+    const confusedDurationMs = 1500;
+    const isStunned = isEmpowered;
+
+    const affectedEnemyIds: string[] = [];
+    for (const e of enemies) {
+      const dist = Math.hypot(e.r - bombRow, e.c - bombCol);
+      if (dist <= radius) {
+        affectedEnemyIds.push(e.id);
+      }
+    }
+
+    return { affectedEnemyIds, pulseRadius: radius, confusedDurationMs, isStunned };
+  }
+
+  /**
+   * On Bomb Detonation (Orbital Targeting Core)
+   * Calls a micro-kinetic lance striking after 1.2s dealing 150 damage.
+   * If Orbital Ion Strike is active, expands to a 3-tile cross pattern.
+   */
+  public onBombDetonationOrbitalTargeting(
+    bombRow: number,
+    bombCol: number,
+    nowMs: number
+  ): { targetTiles: { r: number; c: number }[]; damage: number; delayMs: number } {
+    if (!this.isEquipped(RelicId.ORBITAL_TARGETING_CORE)) {
+      return { targetTiles: [], damage: 0, delayMs: 0 };
+    }
+
+    if (!this.checkAndSetIcd('orbital_targeting_core', nowMs)) {
+      return { targetTiles: [], damage: 0, delayMs: 0 };
+    }
+
+    const hasSynergy = this.hasSynergy(RelicId.ORBITAL_TARGETING_CORE, RelicId.MAGNETRON_DIAL);
+    const targetTiles: { r: number; c: number }[] = [{ r: bombRow, c: bombCol }];
+
+    if (hasSynergy) {
+      targetTiles.push(
+        { r: bombRow - 1, c: bombCol },
+        { r: bombRow + 1, c: bombCol },
+        { r: bombRow, c: bombCol - 1 },
+        { r: bombRow, c: bombCol + 1 }
+      );
+    }
+
+    return {
+      targetTiles,
+      damage: 150,
+      delayMs: 1200,
+    };
   }
 
   /* ==============================================================================

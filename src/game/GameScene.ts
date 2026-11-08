@@ -161,6 +161,7 @@ import {
 } from './crises/index.ts';
 import {
   DynamicHazard,
+  DynamicHazardAudio,
   HazardSubtype,
   HYPER_FUSE_MS,
   HazardLifecycleState,
@@ -572,6 +573,7 @@ export default class GameScene extends Phaser.Scene {
   public lastSunstrokeFloatingTextMs: number = -9999;
   public lastCosmicDazeFloatingTextMs: number = -9999;
   public lastHydrostaticDragFloatingTextMs: number = -9999;
+  public dynamicHazardAudio: DynamicHazardAudio = DynamicHazardAudio.getInstance();
   public gravityHazardAudio: GravityHazardAudio = GravityHazardAudio.getInstance();
   public frostHazardAudio: FrostHazardAudio = FrostHazardAudio.getInstance();
   public voltHazardAudio: VoltHazardAudio = VoltHazardAudio.getInstance();
@@ -807,6 +809,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.hazardGraphics) {
       this.hazardGraphics.clear();
     }
+    this.dynamicHazardAudio?.stop();
     this.gravityHazardAudio?.stop();
     this.frostHazardAudio?.reset();
     this.voltHazardAudio?.stop();
@@ -1283,6 +1286,10 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // Teardown sound managers and hazard audio instances
+    if (this.dynamicHazardAudio) {
+      this.dynamicHazardAudio.destroy();
+      this.dynamicHazardAudio = null as unknown as DynamicHazardAudio;
+    }
     if (this.gravityHazardAudio) {
       this.gravityHazardAudio.destroy();
       this.gravityHazardAudio = null as unknown as GravityHazardAudio;
@@ -1331,6 +1338,15 @@ export default class GameScene extends Phaser.Scene {
     QueenBeeAudio.resetInstance();
     GummyBearAudio.resetInstance();
     HamsterAudio.resetInstance();
+    DynamicHazardAudio.resetInstance();
+    FrostHazardAudio.resetInstance();
+    VoltHazardAudio.resetInstance();
+    MagmaHazardAudio.resetInstance();
+    MiasmaHazardAudio.resetInstance();
+    ChronoHazardAudio.resetInstance();
+    SolarHazardAudio.resetInstance();
+    NebulaHazardAudio.resetInstance();
+    AbyssalHazardAudio.resetInstance();
     GravityHazardAudio.resetInstance();
     webAudioSynth.destroy();
     AudioVoicePool.resetInstance();
@@ -2389,6 +2405,7 @@ export default class GameScene extends Phaser.Scene {
     this.crisisGraphics.setDepth(RENDER_DEPTH.CRISIS_HAZARDS);
 
     // Initialize Dynamic Hazard System (Quantum Spire Hazard & Frost Hazard)
+    this.dynamicHazardAudio = DynamicHazardAudio.getInstance();
     this.gravityHazardAudio = GravityHazardAudio.getInstance();
     this.frostHazardAudio = FrostHazardAudio.getInstance();
     this.voltHazardAudio = VoltHazardAudio.getInstance();
@@ -3614,6 +3631,14 @@ export default class GameScene extends Phaser.Scene {
     // 13. Update Dynamic Hazard System (Quantum Spire Hazard)
     if (this.dynamicHazard && this.dynamicHazard.getState() !== HazardLifecycleState.INACTIVE) {
       this.dynamicHazard.update(delta);
+      if (this.dynamicHazardAudio) {
+        DynamicHazardAudio.playDynamicHazardState(
+          this.dynamicHazard.getState(),
+          this.dynamicHazard.getTelegraphPhase(),
+          undefined,
+          this.time?.now ?? Date.now()
+        );
+      }
 
       // Player Collision Check against active beam
       if (this.dynamicHazard.getState() === HazardLifecycleState.ACTIVE && !this.isGameOver) {
@@ -3653,6 +3678,7 @@ export default class GameScene extends Phaser.Scene {
                 if (typeof enemy.takeDamage === 'function') {
                   enemy.takeDamage(enemyHit.damage, 'hazard', this.time.now);
                 }
+                this.dynamicHazardAudio?.playMinionVaporization();
                 this.score += enemyHit.scoreBonus;
                 this.addUltimateCharge(5);
               } else if (enemyHit.isStunned && isBoss && this.activeBoss) {
@@ -4200,6 +4226,7 @@ export default class GameScene extends Phaser.Scene {
   grantQuantumPhaseShift(): void {
     if (this.isGameOver || !this.player || !this.player.active) return;
     const now = this.time?.now ?? Date.now();
+    this.dynamicHazardAudio?.playQuantumTunneling(now);
     this.isInvulnerable = true;
     this.shieldInvulnerableUntil = Math.max(this.shieldInvulnerableUntil, now + TUNNELING_INVULNERABILITY_MS);
     this.player.setAlpha(0.65);
@@ -5680,6 +5707,7 @@ export default class GameScene extends Phaser.Scene {
       // Subspace Hyper-Fuse: fuse compressed to 1500ms when placed on Spire anchor
       if (fuseDuration === HYPER_FUSE_MS) {
         bomb.setTint(0x38bdf8);
+        this.dynamicHazardAudio?.playHyperFuseTick();
         this.spawnFloatingText(centerX, centerY - 25, '⚡ HYPER-FUSE (1.5s)', '#38bdf8');
       }
 
@@ -6204,6 +6232,7 @@ export default class GameScene extends Phaser.Scene {
       if (detResult.overcharged) {
         effectivePower = detResult.modifiedPower;
         isPiercing = detResult.piercing;
+        this.dynamicHazardAudio?.playTachyonOvercharge();
         const cX = actualCol * TILE_SIZE + TILE_SIZE / 2;
         const cY = actualRow * TILE_SIZE + TILE_SIZE / 2;
         this.spawnFloatingText(cX, cY - 25, '⚡ TACHYON OVERCHARGE (+2)', '#38bdf8');
@@ -6426,6 +6455,7 @@ export default class GameScene extends Phaser.Scene {
         if (impact.polarized) {
           const px = c * TILE_SIZE + TILE_SIZE / 2;
           const py = r * TILE_SIZE + TILE_SIZE / 2;
+          this.dynamicHazardAudio?.playPolarizationStrike(this.time?.now ?? Date.now());
           this.spawnFloatingText(px, py - 20, '★ POLARIZATION STRIKE (8.0s)', '#facc15');
           this.score += 350;
           this.emitStatsUpdate();
@@ -6497,6 +6527,42 @@ export default class GameScene extends Phaser.Scene {
             }
           }
         }
+      }
+
+      // Relic proc on bomb exploded: Psionic Feedback Crystal & Precognitive Resonance
+      const activeEnemies: { id: string; r: number; c: number }[] = [];
+      this.enemies.getChildren().forEach((child) => {
+        const e = child as BaseEntity;
+        if (e && e.active && !e.isDead) {
+          activeEnemies.push({
+            id: (e as unknown as { id?: string }).id || `e_${e.x}_${e.y}`,
+            r: Math.floor(e.y / TILE_SIZE),
+            c: Math.floor(e.x / TILE_SIZE),
+          });
+        }
+      });
+      const psionicProc = this.relicManager.onBombDetonationPsionicPulse(
+        actualRow,
+        actualCol,
+        activeEnemies,
+        this.crisisManager ? this.crisisManager.isCrisisActive() : false,
+        60,
+        Date.now()
+      );
+      if (psionicProc && psionicProc.affectedEnemyIds.length > 0) {
+        const cX = actualCol * TILE_SIZE + TILE_SIZE / 2;
+        const cY = actualRow * TILE_SIZE + TILE_SIZE / 2;
+        this.spawnFloatingText(cX, cY - 25, psionicProc.isStunned ? '🧠 PRECOGNITIVE STUN!' : '🔮 PSIONIC PULSE!', '#c084fc');
+        this.enemies.getChildren().forEach((child) => {
+          const e = child as BaseEntity;
+          const eId = (e as unknown as { id?: string }).id || `e_${e.x}_${e.y}`;
+          if (psionicProc.affectedEnemyIds.includes(eId)) {
+            const stunTarget = e as unknown as { applyStun?: (ms: number) => void };
+            if (psionicProc.isStunned && typeof stunTarget.applyStun === 'function') {
+              stunTarget.applyStun(1000);
+            }
+          }
+        });
       }
     }
 

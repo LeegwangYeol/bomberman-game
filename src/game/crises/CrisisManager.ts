@@ -273,6 +273,10 @@ export class CrisisManager {
     return this.activeCrisis;
   }
 
+  public isCrisisActive(): boolean {
+    return this.activeCrisis !== null && this.activeCrisis.getStage() !== CrisisStage.INACTIVE;
+  }
+
   public getCurrentCrisisType(): CrisisType | null {
     return this.activeCrisis ? this.activeCrisis.id : null;
   }
@@ -358,6 +362,7 @@ export class CrisisManager {
     else if (type === CrisisType.CREEPING_LAVA) relic = RelicId.PYROCLASTIC_PRISM;
     else if (type === CrisisType.DIMENSIONAL_RIFTS) relic = RelicId.VOID_SINGULARITY_LENS;
     else if (type === CrisisType.PASTEL_VOID) relic = RelicId.VOID_SINGULARITY_LENS;
+    else if (type === CrisisType.PSYCHIC_INVASION) relic = RelicId.PSIONIC_FEEDBACK_CRYSTAL;
 
     return {
       crisisType: type,

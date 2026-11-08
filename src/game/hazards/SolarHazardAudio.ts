@@ -186,6 +186,13 @@ export class SolarHazardAudio {
     return SolarHazardAudio.instance;
   }
 
+  public static resetInstance(): void {
+    if (SolarHazardAudio.instance) {
+      SolarHazardAudio.instance.destroy();
+      SolarHazardAudio.instance = null;
+    }
+  }
+
   public static getAudioContext(): AudioContext | null {
     if (typeof window === 'undefined') return null;
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;

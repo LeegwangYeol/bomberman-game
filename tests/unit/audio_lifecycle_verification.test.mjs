@@ -806,6 +806,7 @@ test('ChronoHazardAudio: getAudioContext reuses cached context without leaking n
   };
 
   try {
+    AudioVoicePool.resetInstance();
     ChronoHazardAudio.resetInstance();
     const chronoAudio = ChronoHazardAudio.getInstance();
 

@@ -21,7 +21,7 @@
  */
 
 import { AudioVoicePool, type AudioVoiceToneParams } from '../pooling/AudioVoicePool.ts';
-import { TelegraphPhase } from './DynamicHazard.ts';
+import { TelegraphPhase, HazardLifecycleState } from './DynamicHazard.ts';
 
 interface ModulatableVoice {
   attachModulator?: (node: AudioNode) => void;
@@ -710,6 +710,8 @@ export const HAZARD_AUDIO_PRESETS = {
  * DynamicHazardAudio: Main Sound Synthesizer Engine for Dynamic Hazards
  */
 export class DynamicHazardAudio {
+  private static instance: DynamicHazardAudio | null = null;
+
   private pool: AudioVoicePool | null = null;
   private ctx: AudioContext | null = null;
   private ownsPool: boolean = false;
@@ -742,15 +744,74 @@ export class DynamicHazardAudio {
 
   constructor(poolOrCtx?: AudioVoicePool | AudioContext | null) {
     if (poolOrCtx) {
-      if (poolOrCtx instanceof AudioVoicePool || ('acquireVoice' in poolOrCtx && 'playTone' in poolOrCtx)) {
+      if (
+        poolOrCtx instanceof AudioVoicePool ||
+        ('acquireVoice' in poolOrCtx && 'playTone' in poolOrCtx) ||
+        ('playTone' in poolOrCtx)
+      ) {
         this.bindPool(poolOrCtx as AudioVoicePool);
       } else if (
-        'createOscillator' in poolOrCtx &&
-        'currentTime' in poolOrCtx
+        ('createOscillator' in poolOrCtx && 'currentTime' in poolOrCtx) ||
+        (typeof AudioContext !== 'undefined' && (poolOrCtx as unknown) instanceof AudioContext)
       ) {
         this.init(poolOrCtx as AudioContext);
       }
+    } else if (poolOrCtx === null) {
+      this.pool = null;
+    } else {
+      this.pool = AudioVoicePool.getInstance();
     }
+  }
+
+  public static getInstance(poolOrCtx?: AudioVoicePool | AudioContext | null): DynamicHazardAudio {
+    if (!DynamicHazardAudio.instance) {
+      DynamicHazardAudio.instance = new DynamicHazardAudio(poolOrCtx);
+    } else if (poolOrCtx) {
+      if (
+        poolOrCtx instanceof AudioVoicePool ||
+        ('acquireVoice' in poolOrCtx && 'playTone' in poolOrCtx) ||
+        ('playTone' in poolOrCtx)
+      ) {
+        DynamicHazardAudio.instance.bindPool(poolOrCtx as AudioVoicePool);
+      }
+    }
+    return DynamicHazardAudio.instance;
+  }
+
+  public static resetInstance(): void {
+    if (DynamicHazardAudio.instance) {
+      DynamicHazardAudio.instance.destroy();
+      DynamicHazardAudio.instance = null;
+    }
+  }
+
+  public playDynamicHazardState(
+    state: HazardLifecycleState | string,
+    telegraphPhase?: TelegraphPhase,
+    currentTimeMs: number = Date.now()
+  ): void {
+    const s = String(state).toUpperCase();
+    if (s.includes('TELEGRAPH')) {
+      if (telegraphPhase === TelegraphPhase.RED) {
+        this.playTelegraphPulse('RED', currentTimeMs);
+      } else if (telegraphPhase === TelegraphPhase.AMBER) {
+        this.playTelegraphPulse('AMBER', currentTimeMs);
+      } else {
+        this.playTelegraphPulse('YELLOW', currentTimeMs);
+      }
+    } else if (s.includes('ACTIVE')) {
+      this.playLaserDischarge(currentTimeMs);
+    }
+  }
+
+  public static playDynamicHazardState(
+    state: HazardLifecycleState | string,
+    telegraphPhase?: TelegraphPhase,
+    voicePool?: AudioVoicePool | null,
+    currentTimeMs: number = Date.now()
+  ): void {
+    const audio = DynamicHazardAudio.getInstance(voicePool);
+    audio.playDynamicHazardState(state, telegraphPhase, currentTimeMs);
   }
 
   /**
@@ -1648,5 +1709,8 @@ export class DynamicHazardAudio {
       try { void closeable.close().catch(() => {}); } catch {}
     }
     this.ctx = null;
+    if (DynamicHazardAudio.instance === this) {
+      DynamicHazardAudio.instance = null;
+    }
   }
 }

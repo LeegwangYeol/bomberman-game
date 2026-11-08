@@ -155,9 +155,9 @@ test('Chaos QA 9: RelicManager slot bounds enforcement under spam', () => {
   assert.equal(rm.getEquippedRelics().length, 1);
 });
 
-test('Chaos QA 9: All 36 Pairwise Relic Combinations evaluated for synergy accuracy', () => {
+test('Chaos QA 9: All 45 Pairwise Relic Combinations evaluated for synergy accuracy', () => {
   const allRelicIds = Object.keys(RELIC_CATALOG);
-  assert.equal(allRelicIds.length, 9);
+  assert.equal(allRelicIds.length, 10);
 
   let activeSynergyCount = 0;
   const discoveredSynergies = new Set();
@@ -179,14 +179,15 @@ test('Chaos QA 9: All 36 Pairwise Relic Combinations evaluated for synergy accur
     }
   }
 
-  // Exactly 5 synergies must be discovered across 36 pairs (C(9, 2) = 36)
-  assert.equal(activeSynergyCount, 5);
-  assert.equal(discoveredSynergies.size, 5);
+  // Exactly 6 synergies must be discovered across 45 pairs (C(10, 2) = 45)
+  assert.equal(activeSynergyCount, 6);
+  assert.equal(discoveredSynergies.size, 6);
   assert.ok(discoveredSynergies.has('Radiant Leech'));
   assert.ok(discoveredSynergies.has('Kinetic Pinball'));
   assert.ok(discoveredSynergies.has('Cosmic Supernova'));
   assert.ok(discoveredSynergies.has('Chrono Attraction'));
   assert.ok(discoveredSynergies.has('Orbital Ion Strike'));
+  assert.ok(discoveredSynergies.has('Precognitive Resonance'));
 });
 
 test('Chaos QA 9: Relic 500ms ICD loop protection and edge case with timestamp < 500ms', () => {

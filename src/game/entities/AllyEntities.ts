@@ -333,6 +333,14 @@ export class PetDroneAlly extends BaseEntity {
  * 5 HP, walks 1 tile ahead of player, periodic taunt aura (forces enemies within 5 tiles to target Aegis),
  * dome shield absorbing explosions near player.
  */
+const FACING_OFFSETS: Record<string, { readonly x: number; readonly y: number }> = Object.freeze({
+  up: Object.freeze({ x: 0, y: -1 }),
+  down: Object.freeze({ x: 0, y: 1 }),
+  left: Object.freeze({ x: -1, y: 0 }),
+  right: Object.freeze({ x: 1, y: 0 }),
+});
+const DEFAULT_FACING_OFFSET = Object.freeze({ x: 0, y: 1 });
+
 export class ShieldGuardAlly extends BaseEntity {
   public config = ALLY_ARCHETYPES.SHIELD_GUARD;
   private tauntTimer: number = 4000;
@@ -404,21 +412,7 @@ export class ShieldGuardAlly extends BaseEntity {
     }
 
     // 2. Vanguard march 1 tile ahead of player
-    let offsetDir = { x: 0, y: 1 };
-    switch (playerFacing) {
-      case 'up':
-        offsetDir = { x: 0, y: -1 };
-        break;
-      case 'down':
-        offsetDir = { x: 0, y: 1 };
-        break;
-      case 'left':
-        offsetDir = { x: -1, y: 0 };
-        break;
-      case 'right':
-        offsetDir = { x: 1, y: 0 };
-        break;
-    }
+    const offsetDir = FACING_OFFSETS[playerFacing] || DEFAULT_FACING_OFFSET;
 
     const targetX = player.x + offsetDir.x * TILE_SIZE;
     const targetY = player.y + offsetDir.y * TILE_SIZE;

@@ -126,9 +126,9 @@ test('Tier 1: Confectionery Perk Tree defines 16 perks across 4 distinct branche
   assert.equal(branches[PerkBranch.ALCHEMY], 4);
 });
 
-test('Tier 1: Relic Catalog defines 9 distinct artifacts with 500ms ICD', () => {
+test('Tier 1: Relic Catalog defines 10 distinct artifacts with 500ms ICD', () => {
   const allRelics = Object.values(RELIC_CATALOG);
-  assert.equal(allRelics.length, 9, 'Must define exactly 9 relics');
+  assert.equal(allRelics.length, 10, 'Must define exactly 10 relics');
 
   for (const r of allRelics) {
     assert.ok(r.id.length > 0);
@@ -141,10 +141,10 @@ test('Tier 1: Relic Catalog defines 9 distinct artifacts with 500ms ICD', () => 
   }
 });
 
-test('Tier 1: Synergy Catalog defines 5 unique pairwise synergies', () => {
-  assert.equal(SYNERGY_DEFINITIONS.length, 5, 'Must define 5 pairwise synergies');
+test('Tier 1: Synergy Catalog defines 6 unique pairwise synergies', () => {
+  assert.equal(SYNERGY_DEFINITIONS.length, 6, 'Must define 6 pairwise synergies');
 
-  const expected = ['Radiant Leech', 'Kinetic Pinball', 'Cosmic Supernova', 'Chrono Attraction', 'Orbital Ion Strike'];
+  const expected = ['Radiant Leech', 'Kinetic Pinball', 'Cosmic Supernova', 'Chrono Attraction', 'Orbital Ion Strike', 'Precognitive Resonance'];
   for (const s of SYNERGY_DEFINITIONS) {
     assert.ok(expected.includes(s.name));
     assert.ok(RELIC_CATALOG[s.relicA]);

@@ -465,6 +465,13 @@ export class AbyssalHazardAudio {
     return AbyssalHazardAudio.instance;
   }
 
+  public static resetInstance(): void {
+    if (AbyssalHazardAudio.instance) {
+      AbyssalHazardAudio.instance.destroy();
+      AbyssalHazardAudio.instance = null;
+    }
+  }
+
   /**
    * Safe AudioContext accessor with Headless SSR resilience
    */

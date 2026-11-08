@@ -272,6 +272,13 @@ export class NebulaHazardAudio {
     return NebulaHazardAudio.instance;
   }
 
+  public static resetInstance(): void {
+    if (NebulaHazardAudio.instance) {
+      NebulaHazardAudio.instance.destroy();
+      NebulaHazardAudio.instance = null;
+    }
+  }
+
   public static getAudioContext(): AudioContext | null {
     if (typeof window === 'undefined') return null;
     const AudioCtx =
