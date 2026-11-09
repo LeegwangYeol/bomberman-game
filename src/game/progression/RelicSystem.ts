@@ -10,7 +10,7 @@ import type {
 } from './ProgressionTypes.ts';
 
 /* ==============================================================================
- * 8 EQUIPPABLE RELIC DEFINITIONS
+ * 11 EQUIPPABLE RELIC DEFINITIONS
  * ============================================================================== */
 
 export const RELIC_CATALOG: Record<RelicId, RelicDefinition> = {
@@ -94,7 +94,7 @@ export const RELIC_CATALOG: Record<RelicId, RelicDefinition> = {
     description: 'Microscopic tear in reality condensed into a focusing monocle.',
     mechanics: 'Placed bombs generate a gravitational vortex, pulling nearby enemies 1 tile inward before detonating.',
     internalCooldownMs: 500,
-    synergyPartners: [RelicId.PYROCLASTIC_PRISM],
+    synergyPartners: [RelicId.PYROCLASTIC_PRISM, RelicId.QUANTUM_WARP_PRISM],
     synergyName: 'Cosmic Supernova',
     synergyDescription: 'Gravitational vortex range expanded to 2.5 tiles and briefly roots pulled enemies for 1.0s.',
   },
@@ -133,6 +133,18 @@ export const RELIC_CATALOG: Record<RelicId, RelicDefinition> = {
     synergyPartners: [RelicId.POCKET_CHRONOMETER],
     synergyName: 'Precognitive Resonance',
     synergyDescription: 'During final 30s or crises, psionic pulse radius expands to 3.5 tiles and stuns confused enemies.',
+  },
+  [RelicId.QUANTUM_WARP_PRISM]: {
+    id: RelicId.QUANTUM_WARP_PRISM,
+    name: 'Quantum Warp Prism',
+    icon: '🌌💎',
+    rarity: 'epic',
+    description: 'Extradimensional crystalline prism attuned to wormhole topology and quantum state superposition.',
+    mechanics: 'Bomb detonations open a micro quantum rift at the epicenter, damaging enemies within 2.0 tiles for 75 damage and phase-shifting them for 1.2s.',
+    internalCooldownMs: 500,
+    synergyPartners: [RelicId.VOID_SINGULARITY_LENS],
+    synergyName: 'Quantum Event Horizon',
+    synergyDescription: 'Rift radius expands to 3.5 tiles, damage doubles to 150, pulls enemies to epicenter, and extends phase-shift to 2.0s.',
   },
 };
 
@@ -178,6 +190,13 @@ export const SYNERGY_DEFINITIONS: RelicSynergy[] = [
     name: 'Precognitive Resonance',
     icon: '🧠⏱️',
     description: 'During final 30s or crises, psionic pulse radius expands to 3.5 tiles and stuns confused enemies.',
+  },
+  {
+    relicA: RelicId.QUANTUM_WARP_PRISM,
+    relicB: RelicId.VOID_SINGULARITY_LENS,
+    name: 'Quantum Event Horizon',
+    icon: '🌌🌀',
+    description: 'Quantum rifts expand from 2.0 to 3.5 tiles, pull enemies inward with singularity force, deal double damage (150), and extend phase-shift to 2.0s.',
   },
 ];
 
@@ -386,9 +405,10 @@ export class RelicManager {
 
     // 2. Solar Capacitor
     if (this.isEquipped(RelicId.SOLAR_CAPACITOR)) {
+      const validDelta = typeof deltaMs === 'number' && Number.isFinite(deltaMs) && deltaMs > 0 ? deltaMs : 0;
       if (isInOpenCorridor && !this.hasSolarShield) {
         const reqDuration = this.hasSynergy(RelicId.SOLAR_CAPACITOR, RelicId.VAMPIRIC_CONFECTION) ? 4000 : 8000;
-        this.solarChargeElapsedMs += deltaMs;
+        this.solarChargeElapsedMs += validDelta;
         if (this.solarChargeElapsedMs >= reqDuration) {
           if (this.checkAndSetIcd('solar_shield_charge', nowMs)) {
             this.hasSolarShield = true;
@@ -398,7 +418,7 @@ export class RelicManager {
         }
       } else if (!isInOpenCorridor) {
         // Slowly lose charge if hiding in tight corners
-        this.solarChargeElapsedMs = Math.max(0, this.solarChargeElapsedMs - deltaMs * 0.5);
+        this.solarChargeElapsedMs = Math.max(0, this.solarChargeElapsedMs - validDelta * 0.5);
       }
     }
 
@@ -453,6 +473,10 @@ export class RelicManager {
       return { pulledEnemyIds: [], pullRadius: 0 };
     }
 
+    if (!bombTile || !Number.isFinite(bombTile.r) || !Number.isFinite(bombTile.c) || !Array.isArray(enemies)) {
+      return { pulledEnemyIds: [], pullRadius: 0 };
+    }
+
     if (!this.checkAndSetIcd('void_singularity_pull', nowMs)) {
       return { pulledEnemyIds: [], pullRadius: 0 };
     }
@@ -461,6 +485,7 @@ export class RelicManager {
     const pulledEnemyIds: string[] = [];
 
     for (const enemy of enemies) {
+      if (!enemy || typeof enemy.r !== 'number' || typeof enemy.c !== 'number') continue;
       const dr = enemy.r - bombTile.r;
       const dc = enemy.c - bombTile.c;
       const dist = Math.hypot(dr, dc);
@@ -484,6 +509,10 @@ export class RelicManager {
     shards: { dr: number; dc: number; maxDist: number }[];
   } {
     if (!this.isEquipped(RelicId.PYROCLASTIC_PRISM)) {
+      return { spawnDiagonalShards: false, shards: [] };
+    }
+
+    if (!bombTile || !Number.isFinite(bombTile.r) || !Number.isFinite(bombTile.c)) {
       return { spawnDiagonalShards: false, shards: [] };
     }
 
@@ -515,6 +544,10 @@ export class RelicManager {
       return { stunnedEnemyIds: [], stunDurationMs: 0 };
     }
 
+    if (!playerTile || !Number.isFinite(playerTile.r) || !Number.isFinite(playerTile.c) || !Array.isArray(enemies)) {
+      return { stunnedEnemyIds: [], stunDurationMs: 0 };
+    }
+
     if (!this.checkAndSetIcd('gelatinous_core_stun', nowMs)) {
       return { stunnedEnemyIds: [], stunDurationMs: 0 };
     }
@@ -523,6 +556,7 @@ export class RelicManager {
     const stunnedEnemyIds: string[] = [];
 
     for (const enemy of enemies) {
+      if (!enemy || typeof enemy.r !== 'number' || typeof enemy.c !== 'number') continue;
       const dr = enemy.r - playerTile.r;
       const dc = enemy.c - playerTile.c;
       const dist = Math.hypot(dr, dc);
@@ -593,6 +627,10 @@ export class RelicManager {
       return { affectedEnemyIds: [], pulseRadius: 0, confusedDurationMs: 0, isStunned: false };
     }
 
+    if (!Number.isFinite(bombRow) || !Number.isFinite(bombCol) || !Array.isArray(enemies)) {
+      return { affectedEnemyIds: [], pulseRadius: 0, confusedDurationMs: 0, isStunned: false };
+    }
+
     if (!this.checkAndSetIcd('psionic_feedback_crystal', nowMs)) {
       return { affectedEnemyIds: [], pulseRadius: 0, confusedDurationMs: 0, isStunned: false };
     }
@@ -605,6 +643,7 @@ export class RelicManager {
 
     const affectedEnemyIds: string[] = [];
     for (const e of enemies) {
+      if (!e || typeof e.r !== 'number' || typeof e.c !== 'number') continue;
       const dist = Math.hypot(e.r - bombRow, e.c - bombCol);
       if (dist <= radius) {
         affectedEnemyIds.push(e.id);
@@ -628,6 +667,10 @@ export class RelicManager {
       return { targetTiles: [], damage: 0, delayMs: 0 };
     }
 
+    if (!Number.isFinite(bombRow) || !Number.isFinite(bombCol)) {
+      return { targetTiles: [], damage: 0, delayMs: 0 };
+    }
+
     if (!this.checkAndSetIcd('orbital_targeting_core', nowMs)) {
       return { targetTiles: [], damage: 0, delayMs: 0 };
     }
@@ -648,6 +691,60 @@ export class RelicManager {
       targetTiles,
       damage: 150,
       delayMs: 1200,
+    };
+  }
+
+  /**
+   * On Bomb Detonation (Quantum Warp Prism)
+   * Opens a micro quantum rift at the epicenter, damaging enemies within 2.0 tiles (or 3.5 tiles with synergy)
+   * and phase-shifting / slowing them.
+   */
+  public onBombDetonationQuantumWarp(
+    bombRow: number,
+    bombCol: number,
+    enemies: { id: string; r: number; c: number }[],
+    nowMs: number
+  ): {
+    warpedEnemyIds: string[];
+    warpRadius: number;
+    damage: number;
+    phaseDurationMs: number;
+    singularityPull: boolean;
+    isEmpowered: boolean;
+  } {
+    if (!this.isEquipped(RelicId.QUANTUM_WARP_PRISM)) {
+      return { warpedEnemyIds: [], warpRadius: 0, damage: 0, phaseDurationMs: 0, singularityPull: false, isEmpowered: false };
+    }
+
+    if (!this.checkAndSetIcd('quantum_warp_prism', nowMs)) {
+      return { warpedEnemyIds: [], warpRadius: 0, damage: 0, phaseDurationMs: 0, singularityPull: false, isEmpowered: false };
+    }
+
+    const hasSynergy = this.hasSynergy(RelicId.QUANTUM_WARP_PRISM, RelicId.VOID_SINGULARITY_LENS);
+    const warpRadius = hasSynergy ? 3.5 : 2.0;
+    const damage = hasSynergy ? 150 : 75;
+    const phaseDurationMs = hasSynergy ? 2000 : 1200;
+    const singularityPull = hasSynergy;
+    const isEmpowered = hasSynergy;
+
+    const warpedEnemyIds: string[] = [];
+    if (Array.isArray(enemies) && Number.isFinite(bombRow) && Number.isFinite(bombCol)) {
+      for (const e of enemies) {
+        if (!e || !Number.isFinite(e.r) || !Number.isFinite(e.c)) continue;
+        const dist = Math.hypot(e.r - bombRow, e.c - bombCol);
+        if (dist <= warpRadius) {
+          warpedEnemyIds.push(e.id);
+        }
+      }
+    }
+
+    return {
+      warpedEnemyIds,
+      warpRadius,
+      damage,
+      phaseDurationMs,
+      singularityPull,
+      isEmpowered,
     };
   }
 

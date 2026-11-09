@@ -155,9 +155,9 @@ test('Chaos QA 9: RelicManager slot bounds enforcement under spam', () => {
   assert.equal(rm.getEquippedRelics().length, 1);
 });
 
-test('Chaos QA 9: All 45 Pairwise Relic Combinations evaluated for synergy accuracy', () => {
+test('Chaos QA 9: All 55 Pairwise Relic Combinations evaluated for synergy accuracy', () => {
   const allRelicIds = Object.keys(RELIC_CATALOG);
-  assert.equal(allRelicIds.length, 10);
+  assert.equal(allRelicIds.length, 11);
 
   let activeSynergyCount = 0;
   const discoveredSynergies = new Set();
@@ -179,15 +179,16 @@ test('Chaos QA 9: All 45 Pairwise Relic Combinations evaluated for synergy accur
     }
   }
 
-  // Exactly 6 synergies must be discovered across 45 pairs (C(10, 2) = 45)
-  assert.equal(activeSynergyCount, 6);
-  assert.equal(discoveredSynergies.size, 6);
+  // Exactly 7 synergies must be discovered across 55 pairs (C(11, 2) = 55)
+  assert.equal(activeSynergyCount, 7);
+  assert.equal(discoveredSynergies.size, 7);
   assert.ok(discoveredSynergies.has('Radiant Leech'));
   assert.ok(discoveredSynergies.has('Kinetic Pinball'));
   assert.ok(discoveredSynergies.has('Cosmic Supernova'));
   assert.ok(discoveredSynergies.has('Chrono Attraction'));
   assert.ok(discoveredSynergies.has('Orbital Ion Strike'));
   assert.ok(discoveredSynergies.has('Precognitive Resonance'));
+  assert.ok(discoveredSynergies.has('Quantum Event Horizon'));
 });
 
 test('Chaos QA 9: Relic 500ms ICD loop protection and edge case with timestamp < 500ms', () => {

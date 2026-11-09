@@ -2209,3 +2209,43 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+### 33) 일일 자율 진화 및 유지보수: 제11호 유물 양자 워프 프리즘(Quantum Warp Prism) 및 제7호 시너지 양자 사건의 지평선(Quantum Event Horizon) 구현, 적/중립 엔티티 Zero-GC 불변 벡터 최적화, AudioVoicePool 우선순위 선점 및 런타임 유물 훅 완결 (Daily Evolution Cycle: 2026-11-10 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 대규모 35개 서브에이전트 스웜 기동 (정찰 5, 아키텍트 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결**:
+    - **제11호 장착형 유물 '양자 워프 프리즘(Quantum Warp Prism)' (`RelicSystem.ts`, `ProgressionTypes.ts`, `CrisisManager.ts`) 신규 설계 및 구현**:
+      - `CrisisManager.ts`의 `CrisisType.DIMENSIONAL_RIFTS` 클리어 시 전용 보상 유물로 `RelicId.QUANTUM_WARP_PRISM`을 지정하여 7대 위기와 11대 유물 간의 1:1 완벽 전단사(Bijective) 매핑 구조를 완성.
+      - 폭탄 폭발 시 진원지에 미세 양자 균열을 생성하여 2.0타일 반경 내 적군에게 75 데미지 및 1.2초 위상 변이(Phase-Shift)를 부여 (500ms ICD 가드 엄격 적용).
+    - **제7호 시너지 '양자 사건의 지평선(Quantum Event Horizon)' 신규 설계 및 구현**:
+      - `QUANTUM_WARP_PRISM` + `VOID_SINGULARITY_LENS` 결합 시너지.
+      - 양자 균열 반경을 3.5타일로 확장하고, 데미지를 2배(150)로 증가시키며, 위상 변이를 2.0초로 연장하고, 사상의 지평선 중력 흡인력(`singularityPull: true`)을 가동하여 범위 내 적군을 폭발 진원지로 강제 견인.
+    - **GameScene.ts 런타임 유물 훅 전면 연동 완결**:
+      - `explodeBomb()` 내 `onBombDetonationQuantumWarp` 및 `onBombDetonationOrbitalTargeting` 연동: 양자 균열 플로팅 텍스트 (`🌌 QUANTUM WARP!` / `🌀 EVENT HORIZON!`), 궤도 폭격 지연 타격 지원.
+      - `tryKickBomb()` 내 `onBombKicked` 연동: 태엽 스프링(`CLOCKWORK_SPRING`) 장착 시 폭탄 슬라이드 속도를 450 px/s로 가속(`⚙️ CLOCKWORK KICK!`).
+      - 벽 충돌 콜라이더 내 `onWallBounce` 연동: 젤라틴 코어(`GELATINOUS_CORE`) 장착 시 주변 적군 스턴(`🍮 GELATINOUS STUN!`).
+      - 적군 처치 시 `onEnemyKilled` 연동: 흡혈 과자(`VAMPIRIC_CONFECTION`) 킬 스트릭 쉴드 충전(`🛡️ VAMPIRIC SHIELD!`).
+  - **아키텍처 및 Zero-GC 성능 최적화 (Architect & Zero-GC Division)**:
+    - **EnemyEntities.ts Zero-GC 최적화**:
+      - `TankEnemy.updateAI`의 매 프레임 불도저 타일 탐색 배열 할당을 모듈 레벨의 불변 상수 `TANK_BULLDOZE_DELTAS`로 교체.
+      - `ChaserEnemy` 및 `BomberEnemy`의 막다른 골목 탈출 순찰 배열 할당을 모듈 레벨 `CARDINAL_PATROL_DIRS`로 교체.
+    - **NeutralEntities.ts Zero-GC 최적화**:
+      - `MerchantNPC` 및 `CritterNPC`의 이동/방향 선택 배열 할당을 모듈 레벨 `CARDINAL_STEP_DIRS`로 교체하여 프레임당 객체 할당 0(Zero-GC) 완벽 달성.
+    - **ProceduralTextures.ts 메모리 누수 방어 & Zero-GC 고속 경로**:
+      - 24개 아이템 정의를 모듈 레벨 `ITEM_DEFS`로 분리 동결(`Object.freeze`), 씬 재시작 시 0-alloc 고속 검증 경로 구축, `try ... finally { g?.destroy(); }`로 그래픽스 객체 영구 누수 원천 차단.
+    - **AudioVoicePool.ts 우선순위 선점(Priority Preemption) 탑재**:
+      - 보이스 풀 고밀도 폭발 시 최저 우선순위 보이스 선점 반환 및 디지퍼링(de-zippering) 마이크로 페이드 적용으로 보이스 기아 현상 완전 해소.
+  - **카오스 QA 및 회귀 테스트 완결 (Chaos QA Division)**:
+    - 신규 `tests/quantum_warp_prism_synergy_regression.test.mjs` 작성 (11개 테스트 통과, 10,000 프레임 소크 검증).
+    - `tests/chaos_bomb_kicking_sliding_ricochet_corner_snapping.test.mjs` (24개 스위트 통과).
+    - `tests/relic_icd_buff_stacking_fuzz.test.mjs` (20개 티어 통과, 500ms ICD 퍼징 및 10,000회 폭발 검증).
+    - `tests/chaos_qa_pathfinding_evasion_audit.test.mjs` (11개 테스트 통과).
+    - `tests/unit/audio_voice_pool_exhaustion_stress.test.mjs` (4개 테스트 통과).
+    - `tests/unit/procedural_textures_lifecycle.test.mjs` (6개 테스트 통과).
+    - `tests/fuzz_buff_stacking.test.mjs` (11개 유물 55개 전수 페어링 조합 갱신 통과).
+    - `tests/progression.test.mjs` (11개 유물 및 7대 시너지 갱신 통과).
+  - **전수 검증 지표**:
+    - 전체 회귀 테스트 배터리: **2,255 / 2,255 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,157 $\to$ 2,255로 98개 테스트 순증)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.

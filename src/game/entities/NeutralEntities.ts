@@ -15,6 +15,16 @@ import {
 import type { ItemType } from '../gameplay_mechanics.ts';
 
 /**
+ * Static frozen cardinal direction vectors for Zero-GC movement decisions
+ */
+const CARDINAL_STEP_DIRS = Object.freeze([
+  Object.freeze({ x: 1, y: 0 }),
+  Object.freeze({ x: -1, y: 0 }),
+  Object.freeze({ x: 0, y: 1 }),
+  Object.freeze({ x: 0, y: -1 }),
+]);
+
+/**
  * 1. Wandering Merchant ("Pops"):
  * 3 HP, peaceful walk, flees ticking bombs, pauses at intersections for trade cart (`[E] Trade`),
  * drops 2 protected power-ups on death.
@@ -159,13 +169,7 @@ export class MerchantNPC extends BaseEntity {
 
     // Count open orthogonal corridor directions, strictly filtering out any active blast hazard tiles
     const openDirs: Array<{ x: number; y: number }> = [];
-    const dirs = [
-      { x: 1, y: 0 },
-      { x: -1, y: 0 },
-      { x: 0, y: 1 },
-      { x: 0, y: -1 },
-    ];
-    for (const d of dirs) {
+    for (const d of CARDINAL_STEP_DIRS) {
       const nr = mr + d.y;
       const nc = mc + d.x;
       if (
@@ -275,13 +279,7 @@ export class CritterNPC extends BaseEntity {
         // Pick random open direction
         const cr = Math.floor(this.y / TILE_SIZE);
         const cc = Math.floor(this.x / TILE_SIZE);
-        const dirs = [
-          { x: 1, y: 0 },
-          { x: -1, y: 0 },
-          { x: 0, y: 1 },
-          { x: 0, y: -1 },
-        ];
-        const openDirs = dirs.filter((d) => {
+        const openDirs = CARDINAL_STEP_DIRS.filter((d) => {
           const nr = cr + d.y;
           const nc = cc + d.x;
           return nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && map[nr][nc] === TILE_EMPTY;

@@ -498,7 +498,8 @@ export default function BombermanGame() {
       }
 
       if (!window.mobileInput) return;
-      const key = e.key.toLowerCase();
+      if (e.repeat) return; // Prevent OS key-repeat spam for action triggers and redundant state re-writes
+      const key = (e.key || '').toLowerCase();
       if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'shift', 'e', 'r', 'q'].includes(key) || e.code === 'Space') {
         e.preventDefault();
       }
@@ -509,13 +510,19 @@ export default function BombermanGame() {
       if (key === 'd' || key === 'arrowright') window.mobileInput.right = true;
       resolveContradictoryDirections(window.mobileInput);
       if (key === ' ' || e.code === 'Space') {
-        window.mobileInput.bomb = true;
+        if (pointerTrackerRef.current.getDebouncer().tryTrigger('bomb')) {
+          window.mobileInput.bomb = true;
+        }
       }
       if (key === 'shift' || key === 'e') {
-        window.mobileInput.dash = true;
+        if (pointerTrackerRef.current.getDebouncer().tryTrigger('dash')) {
+          window.mobileInput.dash = true;
+        }
       }
       if (key === 'r' || key === 'q') {
-        window.mobileInput.ultimate = true;
+        if (pointerTrackerRef.current.getDebouncer().tryTrigger('ultimate')) {
+          window.mobileInput.ultimate = true;
+        }
       }
     };
 
@@ -529,7 +536,7 @@ export default function BombermanGame() {
         return;
       }
       if (!window.mobileInput) return;
-      const key = e.key.toLowerCase();
+      const key = (e.key || '').toLowerCase();
       if (key === 'w' || key === 'arrowup') window.mobileInput.up = false;
       if (key === 's' || key === 'arrowdown') window.mobileInput.down = false;
       if (key === 'a' || key === 'arrowleft') window.mobileInput.left = false;

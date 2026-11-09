@@ -286,7 +286,15 @@ export function triggerMobileAction(
 
   schedule(() => {
     schedule(() => {
-      if (!shouldKeepActive || !shouldKeepActive()) {
+      let keep = false;
+      if (typeof shouldKeepActive === 'function') {
+        try {
+          keep = Boolean(shouldKeepActive());
+        } catch {
+          keep = false;
+        }
+      }
+      if (!keep) {
         state[action] = false;
       }
     });
@@ -316,7 +324,15 @@ export function releaseMobileAction(
   const schedule = scheduler ?? (typeof requestAnimationFrame === 'function' ? requestAnimationFrame : defaultFallbackScheduler);
 
   schedule(() => {
-    if (!shouldKeepActive || !shouldKeepActive()) {
+    let keep = false;
+    if (typeof shouldKeepActive === 'function') {
+      try {
+        keep = Boolean(shouldKeepActive());
+      } catch {
+        keep = false;
+      }
+    }
+    if (!keep) {
       state[action] = false;
     }
   });

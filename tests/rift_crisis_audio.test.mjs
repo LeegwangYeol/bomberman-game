@@ -483,7 +483,7 @@ test('Tier 8: RiftCrisis Game Logic Integration & Audio Hooks', () => {
   RiftCrisisAudio.resetInstance();
 });
 
-test('Tier 9: WaveDirector Wave 28 Progression & Relic Award (VOID_SINGULARITY_LENS)', () => {
+test('Tier 9: WaveDirector Wave 28 Progression & Relic Award (QUANTUM_WARP_PRISM)', () => {
   // Wave 28 classification
   assert.equal(WaveDirector.determineWaveType(28), WaveType.CRISIS);
   assert.equal(WaveDirector.isCrisisWave(28), true);
@@ -494,7 +494,7 @@ test('Tier 9: WaveDirector Wave 28 Progression & Relic Award (VOID_SINGULARITY_L
   const manager = new CrisisManager();
   const reward = manager.getCrisisReward(CrisisType.DIMENSIONAL_RIFTS);
   assert.equal(reward.crisisType, CrisisType.DIMENSIONAL_RIFTS);
-  assert.equal(reward.relicReward, RelicId.VOID_SINGULARITY_LENS);
+  assert.equal(reward.relicReward, RelicId.QUANTUM_WARP_PRISM);
   assert.equal(reward.scoreAwarded, 5000);
   assert.equal(reward.starCandies, 35);
   assert.equal(reward.cosmicEssence, 15);

@@ -26,6 +26,7 @@ export interface AudioVoiceToneParams {
     rampTarget?: number;
     rampDuration?: number;
   };
+  priority?: number; // Preemption priority (higher values = higher importance; default 0)
 }
 
 export class AudioVoice {
@@ -37,6 +38,7 @@ export class AudioVoice {
   public startTime: number = 0;
   public endTime: number = 0;
   public allocSeq: number = 0;
+  public priority: number = 0;
   private readonly modulators: Set<AudioNode> = new Set();
 
   constructor(id: number, ctx: AudioContext | null, masterBus?: AudioNode | null) {
@@ -191,6 +193,7 @@ export class AudioVoice {
     this.isBusy = true;
     this.startTime = now;
     this.endTime = totalEnd;
+    this.priority = (params.priority !== undefined && Number.isFinite(params.priority)) ? params.priority : this.priority;
   }
 
   public forceSilence(ctx: AudioContext): void {
@@ -222,6 +225,7 @@ export class AudioVoice {
       this.startTime = 0;
       this.endTime = 0;
       this.allocSeq = 0;
+      this.priority = 0;
     }
   }
 
@@ -250,6 +254,7 @@ export class AudioVoice {
     this.startTime = 0;
     this.endTime = 0;
     this.allocSeq = 0;
+    this.priority = 0;
   }
 }
 
@@ -324,12 +329,13 @@ export class AudioVoicePool {
     this.init(ctx);
   }
 
-  public acquireVoice(): AudioVoice | null {
+  public acquireVoice(priority: number = 0): AudioVoice | null {
     if (!this.ctx || this.voices.length === 0) return null;
     if (this.ctx.state === 'suspended' && typeof this.ctx.resume === 'function') {
       this.ctx.resume().catch(() => {});
     }
     const now = this.ctx.currentTime;
+    const reqPriority = Number.isFinite(priority) ? priority : 0;
 
     // 1. Find an idle or expired voice
     for (let i = 0; i < this.voices.length; i++) {
@@ -337,27 +343,42 @@ export class AudioVoicePool {
       if (!voice.isBusy || !Number.isFinite(voice.endTime) || now >= voice.endTime) {
         voice.isBusy = true;
         voice.allocSeq = ++this.sequence;
+        voice.priority = reqPriority;
         return voice;
       }
     }
 
-    // 2. All voices active -> Hybrid Voice Stealing:
-    // If durations differ by > 0.05s, prioritize smallest remaining duration.
-    // If durations are similar or tied (burst/stress), prioritize oldest voice (FIFO lowest allocSeq) to avoid voice-0 starvation.
+    // 2. All voices active -> Priority Preemption & Hybrid Voice Stealing:
+    // Determine the minimum priority among currently active voices
+    let minActivePriority = Infinity;
+    for (let i = 0; i < this.voices.length; i++) {
+      if (this.voices[i].priority < minActivePriority) {
+        minActivePriority = this.voices[i].priority;
+      }
+    }
+
+    // If incoming sound has strictly lower priority than all active channels, reject gracefully (no preemption)
+    if (reqPriority < minActivePriority) {
+      return null;
+    }
+
+    // Filter candidate voices strictly to active channels with the lowest priority
     let minRemaining = Infinity;
     let maxRemaining = -Infinity;
     for (let i = 0; i < this.voices.length; i++) {
+      if (this.voices[i].priority !== minActivePriority) continue;
       const rRaw = this.voices[i].endTime - now;
       const r = Math.abs(rRaw) < 1e-15 || rRaw < 0 ? 0 : rRaw;
       if (r < minRemaining) minRemaining = r;
       if (r > maxRemaining) maxRemaining = r;
     }
 
-    let bestIdx = 0;
+    let bestIdx = -1;
     if (maxRemaining - minRemaining > 0.05) {
       let minR = Infinity;
       let minSeq = Infinity;
       for (let i = 0; i < this.voices.length; i++) {
+        if (this.voices[i].priority !== minActivePriority) continue;
         const rRaw = this.voices[i].endTime - now;
         const r = Math.abs(rRaw) < 1e-15 || rRaw < 0 ? 0 : rRaw;
         if (r < minR - 0.01) {
@@ -372,6 +393,7 @@ export class AudioVoicePool {
     } else {
       let minSeq = Infinity;
       for (let i = 0; i < this.voices.length; i++) {
+        if (this.voices[i].priority !== minActivePriority) continue;
         if (this.voices[i].allocSeq < minSeq) {
           minSeq = this.voices[i].allocSeq;
           bestIdx = i;
@@ -379,9 +401,14 @@ export class AudioVoicePool {
       }
     }
 
+    if (bestIdx === -1) {
+      return null;
+    }
+
     const stolenVoice = this.voices[bestIdx];
     stolenVoice.forceSilence(this.ctx);
     stolenVoice.allocSeq = ++this.sequence;
+    stolenVoice.priority = reqPriority;
     stolenVoice.isBusy = true;
     return stolenVoice;
   }
@@ -392,7 +419,8 @@ export class AudioVoicePool {
     if (params.gain !== undefined && Number.isFinite(params.gain) && Math.abs(params.gain) < 1e-15) {
       return null;
     }
-    const voice = this.acquireVoice();
+    const priority = (params.priority !== undefined && Number.isFinite(params.priority)) ? params.priority : 0;
+    const voice = this.acquireVoice(priority);
     if (!voice) return null;
     voice.play(params, this.ctx);
     return voice;

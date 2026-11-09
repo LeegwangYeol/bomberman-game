@@ -39,6 +39,24 @@ export const EnemyState = {
 export type EnemyState = typeof EnemyState[keyof typeof EnemyState];
 
 /**
+ * Static frozen directional offsets for Zero-GC patrol and bulldozing
+ */
+const CARDINAL_PATROL_DIRS = Object.freeze([
+  Object.freeze({ dr: -1, dc: 0 }),
+  Object.freeze({ dr: 1, dc: 0 }),
+  Object.freeze({ dr: 0, dc: -1 }),
+  Object.freeze({ dr: 0, dc: 1 }),
+]);
+
+const TANK_BULLDOZE_DELTAS = Object.freeze([
+  Object.freeze({ dr: 0, dc: 0 }),
+  Object.freeze({ dr: -1, dc: 0 }),
+  Object.freeze({ dr: 1, dc: 0 }),
+  Object.freeze({ dr: 0, dc: -1 }),
+  Object.freeze({ dr: 0, dc: 1 }),
+]);
+
+/**
  * 1. ChaserEnemy: High speed, 350ms telegraph windup before 240 px/s corridor dash, 900ms stun on wall impact.
  */
 export class ChaserEnemy extends BaseEntity {
@@ -363,14 +381,8 @@ export class ChaserEnemy extends BaseEntity {
             }
           } else {
             // Anti-freeze fallback patrol: wander/patrol to an adjacent open tile
-            const patrolDirs = [
-              { dr: -1, dc: 0 },
-              { dr: 1, dc: 0 },
-              { dr: 0, dc: -1 },
-              { dr: 0, dc: 1 },
-            ];
             let moved = false;
-            for (const pd of patrolDirs) {
+            for (const pd of CARDINAL_PATROL_DIRS) {
               const nr = er + pd.dr;
               const nc = ec + pd.dc;
               if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && map[nr][nc] === TILE_EMPTY) {
@@ -731,14 +743,8 @@ export class BomberEnemy extends BaseEntity {
         }
       } else {
         // Anti-freeze fallback patrol: wander/patrol to an adjacent open tile
-        const patrolDirs = [
-          { dr: -1, dc: 0 },
-          { dr: 1, dc: 0 },
-          { dr: 0, dc: -1 },
-          { dr: 0, dc: 1 },
-        ];
         let moved = false;
-        for (const pd of patrolDirs) {
+        for (const pd of CARDINAL_PATROL_DIRS) {
           const nr = er + pd.dr;
           const nc = ec + pd.dc;
           if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && map[nr][nc] === TILE_EMPTY) {
@@ -820,27 +826,21 @@ export class TankEnemy extends BaseEntity {
     const ec = Math.floor(this.x / TILE_SIZE);
 
     // Bulldoze soft blocks upon walking onto/touching them
-    const checkNeighbors = [
-      { r: er, c: ec },
-      { r: er - 1, c: ec },
-      { r: er + 1, c: ec },
-      { r: er, c: ec - 1 },
-      { r: er, c: ec + 1 },
-    ];
-
-    for (const n of checkNeighbors) {
-      if (n.r >= 0 && n.r < ROWS && n.c >= 0 && n.c < COLS) {
-        if (map[n.r][n.c] === TILE_BLOCK) {
+    for (const d of TANK_BULLDOZE_DELTAS) {
+      const nr = er + d.dr;
+      const nc = ec + d.dc;
+      if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
+        if (map[nr][nc] === TILE_BLOCK) {
           const distPx = Phaser.Math.Distance.Between(
             this.x,
             this.y,
-            n.c * TILE_SIZE + TILE_SIZE / 2,
-            n.r * TILE_SIZE + TILE_SIZE / 2
+            nc * TILE_SIZE + TILE_SIZE / 2,
+            nr * TILE_SIZE + TILE_SIZE / 2
           );
           if (distPx < 28) {
-            map[n.r][n.c] = TILE_EMPTY;
+            map[nr][nc] = TILE_EMPTY;
             if (destroyBlockCallback) {
-              destroyBlockCallback(n.r, n.c);
+              destroyBlockCallback(nr, nc);
             }
           }
         }

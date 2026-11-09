@@ -1831,7 +1831,37 @@ export default class GameScene extends Phaser.Scene {
     this.spawnAllies(1);
 
     // Collisions
-    this.physics.add.collider(this.player, this.walls);
+    this.physics.add.collider(this.player, this.walls, () => {
+      if (this.relicManager) {
+        const pr = Math.floor(this.player.y / TILE_SIZE);
+        const pc = Math.floor(this.player.x / TILE_SIZE);
+        const activeEnemies: { id: string; r: number; c: number }[] = [];
+        this.enemies.getChildren().forEach((child) => {
+          const e = child as BaseEntity;
+          if (e && e.active && !e.isDead) {
+            activeEnemies.push({
+              id: (e as unknown as { id?: string }).id || `e_${e.x}_${e.y}`,
+              r: Math.floor(e.y / TILE_SIZE),
+              c: Math.floor(e.x / TILE_SIZE),
+            });
+          }
+        });
+        const bounceRes = this.relicManager.onWallBounce({ r: pr, c: pc }, activeEnemies, Date.now());
+        if (bounceRes.stunnedEnemyIds.length > 0) {
+          this.spawnFloatingText(this.player.x, this.player.y - 20, '🍮 GELATINOUS STUN!', '#10b981');
+          this.enemies.getChildren().forEach((child) => {
+            const e = child as BaseEntity;
+            const eId = (e as unknown as { id?: string }).id || `e_${e.x}_${e.y}`;
+            if (bounceRes.stunnedEnemyIds.includes(eId)) {
+              const stunTarget = e as unknown as { applyStun?: (ms: number) => void };
+              if (typeof stunTarget.applyStun === 'function') {
+                stunTarget.applyStun(bounceRes.stunDurationMs);
+              }
+            }
+          });
+        }
+      }
+    });
     this.physics.add.collider(this.player, this.blocks, undefined, () => !this.hasWallPass);
     this.physics.add.collider(this.player, this.bombs, (playerObj, bombObj) => {
       if (this.hasKick) {
@@ -2095,11 +2125,23 @@ export default class GameScene extends Phaser.Scene {
             const targetEntity = target as unknown as { isTracker?: boolean; archetype?: string };
             const isTracker = Boolean(targetEntity.isTracker || targetEntity.archetype === 'TANK');
             this.addUltimateCharge(isTracker ? CHARGE_VALUES.TRACKER_DEFEATED : CHARGE_VALUES.ENEMY_DEFEATED);
+            if (this.relicManager) {
+              const killRes = this.relicManager.onEnemyKilled(Date.now());
+              if (killRes.shieldGranted) {
+                this.spawnFloatingText(this.player.x, this.player.y - 20, '🛡️ VAMPIRIC SHIELD!', '#ec4899');
+              }
+            }
           }
         } else {
           if (target.active) { target['disableBody'](true, true); }
           if (owner === 'player') {
             this.addUltimateCharge(CHARGE_VALUES.ENEMY_DEFEATED);
+            if (this.relicManager) {
+              const killRes = this.relicManager.onEnemyKilled(Date.now());
+              if (killRes.shieldGranted) {
+                this.spawnFloatingText(this.player.x, this.player.y - 20, '🛡️ VAMPIRIC SHIELD!', '#ec4899');
+              }
+            }
           }
         }
       }
@@ -6564,6 +6606,54 @@ export default class GameScene extends Phaser.Scene {
           }
         });
       }
+
+      // Relic proc: Quantum Warp Prism & Quantum Event Horizon
+      const warpProc = this.relicManager.onBombDetonationQuantumWarp(
+        actualRow,
+        actualCol,
+        activeEnemies,
+        Date.now()
+      );
+      if (warpProc && warpProc.warpedEnemyIds.length > 0) {
+        const cX = actualCol * TILE_SIZE + TILE_SIZE / 2;
+        const cY = actualRow * TILE_SIZE + TILE_SIZE / 2;
+        this.spawnFloatingText(
+          cX,
+          cY - 40,
+          warpProc.isEmpowered ? '🌀 EVENT HORIZON!' : '🌌 QUANTUM WARP!',
+          warpProc.isEmpowered ? '#a855f7' : '#38bdf8'
+        );
+        this.enemies.getChildren().forEach((child) => {
+          const e = child as BaseEntity;
+          const eId = (e as unknown as { id?: string }).id || `e_${e.x}_${e.y}`;
+          if (warpProc.warpedEnemyIds.includes(eId)) {
+            if (typeof e.takeDamage === 'function') {
+              e.takeDamage(warpProc.damage, 'player', this.time.now);
+            }
+            if (warpProc.singularityPull) {
+              const angle = Phaser.Math.Angle.Between(e.x, e.y, cX, cY);
+              e.setVelocity(Math.cos(angle) * 180, Math.sin(angle) * 180);
+            }
+          }
+        });
+      }
+
+      // Relic proc: Orbital Targeting Core
+      const orbitalProc = this.relicManager.onBombDetonationOrbitalTargeting(
+        actualRow,
+        actualCol,
+        Date.now()
+      );
+      if (orbitalProc && orbitalProc.targetTiles.length > 0) {
+        this.time.delayedCall(orbitalProc.delayMs, () => {
+          if (!this.scene.isActive()) return;
+          for (const tile of orbitalProc.targetTiles) {
+            if (tile.r >= 0 && tile.r < ROWS && tile.c >= 0 && tile.c < COLS) {
+              this.spawnExplosion(tile.r, tile.c, false, 'player', bombId, true);
+            }
+          }
+        });
+      }
     }
 
     // 1. Tactile Camera Trauma & Debounced Hit-Stop (Juice M3)
@@ -7722,6 +7812,13 @@ export default class GameScene extends Phaser.Scene {
 
     // Initiate sliding bomb
     let kickSpeed = BOMB_KICK_SPEED;
+    if (this.relicManager) {
+      const relicKick = this.relicManager.onBombKicked(Date.now());
+      if (relicKick.velocityPxPerSec > kickSpeed) {
+        kickSpeed = relicKick.velocityPxPerSec;
+        this.spawnFloatingText(bomb.x, bomb.y - 20, '⚙️ CLOCKWORK KICK!', '#fbbf24');
+      }
+    }
     if (this.miasmaHazard && this.miasmaHazard.state !== MiasmaLifecycleState.DORMANT) {
       const kickRes = this.miasmaHazard.onBombKicked(bomb.getData('id') || 'bomb', bRow, bCol, BOMB_KICK_SPEED);
       if (kickRes.isBioSlick) {

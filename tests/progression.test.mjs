@@ -126,9 +126,9 @@ test('Tier 1: Confectionery Perk Tree defines 16 perks across 4 distinct branche
   assert.equal(branches[PerkBranch.ALCHEMY], 4);
 });
 
-test('Tier 1: Relic Catalog defines 10 distinct artifacts with 500ms ICD', () => {
+test('Tier 1: Relic Catalog defines 11 distinct artifacts with 500ms ICD', () => {
   const allRelics = Object.values(RELIC_CATALOG);
-  assert.equal(allRelics.length, 10, 'Must define exactly 10 relics');
+  assert.equal(allRelics.length, 11, 'Must define exactly 11 relics');
 
   for (const r of allRelics) {
     assert.ok(r.id.length > 0);
@@ -141,10 +141,10 @@ test('Tier 1: Relic Catalog defines 10 distinct artifacts with 500ms ICD', () =>
   }
 });
 
-test('Tier 1: Synergy Catalog defines 6 unique pairwise synergies', () => {
-  assert.equal(SYNERGY_DEFINITIONS.length, 6, 'Must define 6 pairwise synergies');
+test('Tier 1: Synergy Catalog defines 7 unique pairwise synergies', () => {
+  assert.equal(SYNERGY_DEFINITIONS.length, 7, 'Must define 7 pairwise synergies');
 
-  const expected = ['Radiant Leech', 'Kinetic Pinball', 'Cosmic Supernova', 'Chrono Attraction', 'Orbital Ion Strike', 'Precognitive Resonance'];
+  const expected = ['Radiant Leech', 'Kinetic Pinball', 'Cosmic Supernova', 'Chrono Attraction', 'Orbital Ion Strike', 'Precognitive Resonance', 'Quantum Event Horizon'];
   for (const s of SYNERGY_DEFINITIONS) {
     assert.ok(expected.includes(s.name));
     assert.ok(RELIC_CATALOG[s.relicA]);
@@ -524,6 +524,42 @@ test('Tier 4: Relic Triggers: Clockwork Spring kick speed and soft block pierce'
   rm.equipRelic(RelicId.GELATINOUS_CORE);
   const synergyKick = rm.onBombKicked(2000);
   assert.equal(synergyKick.softBlockPierceCount, 2);
+});
+
+test('Tier 4: Relic Triggers: Quantum Warp Prism and Quantum Event Horizon synergy', () => {
+  const rm = new RelicManager([RelicId.QUANTUM_WARP_PRISM], 1);
+  const enemies = [
+    { id: 'near_1', r: 5, c: 6 }, // dist 1.0
+    { id: 'near_2', r: 6, c: 6 }, // dist 1.414
+    { id: 'far_1', r: 5, c: 8 },  // dist 3.0
+  ];
+
+  // 1. Standalone: 2.0 tile radius, 75 damage, phase duration 1200ms
+  const standalone = rm.onBombDetonationQuantumWarp(5, 5, enemies, 1000);
+  assert.equal(standalone.warpRadius, 2.0);
+  assert.equal(standalone.damage, 75);
+  assert.equal(standalone.phaseDurationMs, 1200);
+  assert.equal(standalone.singularityPull, false);
+  assert.equal(standalone.isEmpowered, false);
+  assert.deepEqual(standalone.warpedEnemyIds.sort(), ['near_1', 'near_2']);
+
+  // 2. 500ms ICD suppression (<500ms)
+  const suppressed = rm.onBombDetonationQuantumWarp(5, 5, enemies, 1200);
+  assert.equal(suppressed.warpRadius, 0);
+  assert.equal(suppressed.warpedEnemyIds.length, 0);
+
+  // 3. With Quantum Event Horizon synergy (QUANTUM_WARP_PRISM + VOID_SINGULARITY_LENS)
+  rm.setMaxSlots(2);
+  rm.equipRelic(RelicId.VOID_SINGULARITY_LENS);
+  assert.equal(rm.hasSynergy(RelicId.QUANTUM_WARP_PRISM, RelicId.VOID_SINGULARITY_LENS), true);
+
+  const empowered = rm.onBombDetonationQuantumWarp(5, 5, enemies, 2000);
+  assert.equal(empowered.warpRadius, 3.5);
+  assert.equal(empowered.damage, 150);
+  assert.equal(empowered.phaseDurationMs, 2000);
+  assert.equal(empowered.singularityPull, true);
+  assert.equal(empowered.isEmpowered, true);
+  assert.deepEqual(empowered.warpedEnemyIds.sort(), ['far_1', 'near_1', 'near_2']);
 });
 
 test('Tier 4: Relic Drop Generator: Boss guarantee and chest drop chances', () => {
