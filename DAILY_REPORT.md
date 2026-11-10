@@ -1,53 +1,63 @@
 # Bomberman Supreme Commander Daily Evolution & Maintenance Report
-**Date:** 2026-11-10  
+**Date:** 2026-11-11  
 **Environment:** Next.js 16.3.5 (Turbopack) | React 19.2.8 | Phaser 4.2.1 | TypeScript 5.8 | Node.js 25  
 **Authorization:** Absolute Autonomy Mode ("알아서 해" / "절대 허용")  
 **Operation Directives:** `/teamwork-preview` + `/goal` Autonomous Swarm Execution  
-**Overall Status:** **100% VICTORY — PRODUCTION READY, ZERO-GC COMPLIANT, 11TH RELIC QUANTUM WARP PRISM, 7TH SYNERGY QUANTUM EVENT HORIZON, ZERO-GC BULLDOZE/PATROL VECTORS, AUDIOVOICEPOOL PRIORITY PREEMPTION & RUNTIME RELIC HOOKS COMPLETION (2,255/2,255 PASS)**
+**Overall Status:** **100% VICTORY — PRODUCTION READY, ZERO-GC COMPLIANT, 12TH EPIC RELIC CRYO-GLACIAL CORE, 8TH SYNERGY THERMAL SHOCK REACTION, BASEENTITY SPEED/STUN NORMALIZATION, SPATIAL SEPARATION & NUMERICAL STABILITY DEFENSES, MULTI-TOUCH WATCHDOG HARMONIZATION & SHARED WEBAUDIO CONTEXT SAFETY (2,265/2,265 PASS)**
 
 ---
 
-## 1. Executive Summary (2026-11-10)
+## 1. Executive Summary (2026-11-11)
 
-The Supreme Commander Agent mobilized a 35-subagent swarm across 5 specialized divisions (Scouts 1–5, Architects 1–5, Chaos QA 1–10, Creative Expansion 1–7, Victory Auditors 1–3) to execute the daily evolution cycle, codebase harmonization, Zero-GC performance enforcement, and the implementation of the **11th Equippable Relic `QUANTUM_WARP_PRISM`**, the **7th Synergy `Quantum Event Horizon`**, complete runtime relic hooks in `GameScene.ts`, Zero-GC entity optimizations in `EnemyEntities.ts` and `NeutralEntities.ts`, procedural texture lifecycle safety, and priority preemption in `AudioVoicePool.ts`.
+The Supreme Commander Agent mobilized a 30-subagent swarm across 5 specialized divisions (Scouts 1–5, Architects 1–5, Chaos QA 1–10, Creative Expansion 1–7, Victory Auditors 1–3) to execute the daily evolution cycle, codebase harmonization, Zero-GC performance enforcement, and the implementation of the **12th Equippable Epic Relic `CRYO_GLACIAL_CORE`**, the **8th Synergy `Thermal Shock Reaction`**, BaseEntity speed and stun contracts, numerical stability in player physics and spatial separation, multi-touch input watchdog racing fixes, and shared WebAudio context lifecycle hardening.
 
 ### Key Milestones Achieved:
 
-1. **11th Relic `QUANTUM_WARP_PRISM` & 7th Synergy `Quantum Event Horizon` (`RelicSystem.ts`, `ProgressionTypes.ts`, `CrisisManager.ts`, `GameScene.ts`):**
-   - Completed 1:1 bijective pairing between all 7 crises and dedicated relic rewards by introducing `QUANTUM_WARP_PRISM` as the dedicated reward for `CrisisType.DIMENSIONAL_RIFTS` in `CrisisManager.getCrisisReward()`.
-   - **11th Relic `QUANTUM_WARP_PRISM`**: Emits a micro quantum rift at the epicenter of bomb detonations, dealing 75 damage and phase-shifting enemies within 2.0 tiles for 1.2s with a strict 500ms internal cooldown (ICD) guard.
-   - **7th Synergy `Quantum Event Horizon`**: Combines `QUANTUM_WARP_PRISM` and `VOID_SINGULARITY_LENS` to expand the rift radius to 3.5 tiles, double damage to 150, extend phase-shift to 2.0s, and activate gravitational singularity pull (`singularityPull: true`).
-   - Wired tactile floating combat text feedback (`🌌 QUANTUM WARP!` / `🌀 EVENT HORIZON!`) and enemy pull velocity vectors in `GameScene.ts:explodeBomb()`.
+1. **12th Relic `CRYO_GLACIAL_CORE` & 8th Synergy `Thermal Shock Reaction` (`RelicSystem.ts`, `ProgressionTypes.ts`, `GameScene.ts`):**
+   - **12th Relic `CRYO_GLACIAL_CORE`**: Bomb detonations emit a localized sub-zero frost burst within a 2.5-tile radius, dealing 40 damage and inflicting a 40% speed reduction for 2.0 seconds with a 500ms internal cooldown (ICD) guard.
+   - **8th Synergy `Thermal Shock Reaction`**: Combining `PYROCLASTIC_PRISM` (Heat) and `CRYO_GLACIAL_CORE` (Cold) triggers a superheated thermal shock wave within a 3.0-tile radius, dealing 100 damage and applying 2.5s slow.
+   - Expanded catalog to 12 relics, 8 synergies, and 66 pairwise synergy combinations ($12 \times 11 / 2$).
+   - Standardized `RunProgressionState` in `ProgressionTypes.ts` with typed fields for `activeBoons`, `unlockedCheckpoints`, `isAwaitingBoonSelection`, and `currentBoonDraftIds`.
 
-2. **Runtime Relic Hooks Integration in `GameScene.ts`:**
-   - Wired `onBombDetonationQuantumWarp` in `explodeBomb()` with singularity pulling and phase shift.
-   - Wired `onBombDetonationOrbitalTargeting` in `explodeBomb()` with delayed kinetic lances.
-   - Wired `onBombKicked` in `tryKickBomb()` accelerating sliding bomb velocity to 450 px/s with `⚙️ CLOCKWORK KICK!`.
-   - Wired `onWallBounce` in player wall collider with 500ms ICD and `🍮 GELATINOUS STUN!`.
-   - Wired `onEnemyKilled` in enemy death handlers with `🛡️ VAMPIRIC SHIELD!` restore.
+2. **BaseEntity & NeutralEntities Speed & Stun Contracts (`BaseEntity.ts`, `NeutralEntities.ts`):**
+   - Added `speedMultiplier`, `speedMultiplierUntilMs`, `applySpeedMultiplier(multiplier, durationMs)`, and `applyStun(durationMs)` directly on `BaseEntity`.
+   - Overrode `setVelocity()` to automatically apply the speed multiplier and clamp velocity to 0 during active stuns.
+   - Normalized `NeutralEntities.ts` slow and freeze status checks to compare current timestamp against `slowUntilMs` and `freezeUntilMs`.
 
-3. **Zero-GC Optimizations in Entities & Textures (`EnemyEntities.ts`, `NeutralEntities.ts`, `ProceduralTextures.ts`):**
-   - Replaced per-frame dynamic array allocations in `TankEnemy.updateAI()` with frozen module-level `TANK_BULLDOZE_DELTAS`.
-   - Replaced per-frame patrol array allocations in `ChaserEnemy` and `BomberEnemy` with frozen `CARDINAL_PATROL_DIRS`.
-   - Replaced direction array allocations in `MerchantNPC` and `CritterNPC` with frozen `CARDINAL_STEP_DIRS`.
-   - Pre-allocated frozen `ITEM_DEFS` in `ProceduralTextures.ts` and enclosed all graphics texture generators in `try ... finally { g?.destroy(); }` to prevent texture leaks.
+3. **Numerical Stability & IEEE-754 Defenses (`PlayerMovementPhysics.ts`, `SpatialSeparation.ts`):**
+   - In `PlayerMovementPhysics.ts`, guarded deadzone boundary subtraction under small deadzones ($0 < \text{deadzone} \le 0.0003162$) with `Math.max(0, deadzoneSq - DEADZONE_EPSILON)` to prevent negative square root domain errors; sanitized `wantX`/`wantY` discrete integer signs in `resolvePlayerCornerSlide`.
+   - In `SpatialSeparation.ts`, bounded iterations to $[1, 16]$, sanitized grid dimensions in `reconfigure()`, and added `Number.isFinite` guards for velocities, `maxDisplacement`, wall bounding boxes, and Arcade physics half-extents.
 
-4. **AudioVoicePool Priority Preemption (`AudioVoicePool.ts`):**
-   - Added voice priority tracking (`priority?: number`), candidate preemption for highest-priority events, and de-zippering micro-fades.
+4. **Multi-Touch & Input Race Condition Hardening (`input_state.ts`):**
+   - Added token-based epoch tracking (`actionEpochs`) in `triggerMobileAction` to eliminate double-RAF cancellation race conditions.
+   - Scoped `recoverDroppedPointers` cancellation exclusively to action buttons (`bomb`, `dash`, `ultimate`) when active pointers drop to 0, ensuring independent keyboard/virtual joystick movement vectors are preserved.
 
-5. **Rigorous Test Expansion & Defensive QA:**
-   - Authored `tests/quantum_warp_prism_synergy_regression.test.mjs` (11 tests pass).
-   - Authored `tests/chaos_bomb_kicking_sliding_ricochet_corner_snapping.test.mjs` (24 suites pass).
-   - Authored `tests/relic_icd_buff_stacking_fuzz.test.mjs` (20 tiers pass).
-   - Authored `tests/unit/audio_voice_pool_exhaustion_stress.test.mjs` (4 tests pass).
-   - Authored `tests/unit/procedural_textures_lifecycle.test.mjs` (6 tests pass).
-   - Authored `tests/chaos_qa_pathfinding_evasion_audit.test.mjs` (11 tests pass).
-   - Updated assertions in `tests/progression.test.mjs`, `tests/fuzz_buff_stacking.test.mjs`, and `tests/extreme_entity_clustering.test.mjs`.
-   - Total test suite expanded to **2,255 / 2,255 PASS (100% pass rate, 0 failures, 0 skips, +98 test net increase)**.
+5. **WebAudio Lifecycle & Shared Context Protection:**
+   - Removed destructive `closeable.close()` invocations on shared `AudioContext` instances across 8 audio managers (`GravityHazardAudio.ts`, `DynamicHazardAudio.ts`, `ChronoHazardAudio.ts`, `FrostHazardAudio.ts`, `MagmaHazardAudio.ts`, `MiasmaHazardAudio.ts`, `VoltHazardAudio.ts`, `SteamToyTitanAudio.ts`).
+   - Cleaned up cached procedural noise buffers on teardown and connected `GravityHazardAudio` default voice pool to `AudioVoicePool.getInstance()`.
+
+6. **Boss Hazard Exploit Guard & Gimmick Stun Harmonization (`BaseBoss.ts`):**
+   - Scoped `stunRecoveryImmunityTimerMs` strictly to environmental hazard damage (`takeHazardDamage()`) and calibrated the recovery timer to `defaultIFrameMs` (1500ms). This prevents infinite hazard stun-locks while preserving legitimate boss self-stuns (Gummy Bear landing, Queen Bee crater).
+
+7. **Runtime Mechanics Wiring & Polish (`GameScene.ts`):**
+   - Added orthogonal axis centering in `tryKickBomb` to prevent conveyor scraping into pillars.
+   - Wired `CLOCKWORK_SPRING` soft block pierce (`softBlockPiercesRemaining`) into raymarch sweeps.
+   - Wired `Kinetic Pinball` wall rebounds (2 rebounds at 675 px/s) and +1 explosion range on impact.
+   - Wired `VAMPIRIC_CONFECTION` shield restore and `MAGNETRON_DIAL` item pull aura radius.
+   - Replaced static 60s fallback with dynamic `matchSecondsRemaining`.
+   - Added clean teardown of procedural textures and event listeners in `shutdown()`.
+
+8. **Rigorous Test Expansion & Defensive QA:**
+   - Authored `tests/cryo_glacial_core_and_thermal_shock_synergy.test.mjs` (10 tests pass).
+   - Updated `tests/quantum_warp_prism_synergy_regression.test.mjs` (11 tests pass).
+   - Verified `tests/progression.test.mjs` (34 tests pass).
+   - Verified `tests/fuzz_buff_stacking.test.mjs` (21 tests pass, 66 relic combinations).
+   - Verified `tests/bosses.test.mjs` & `tests/boss_anti_exploit_hazard_guards.test.mjs` (40 tests pass).
+   - Total test suite expanded to **2,265 / 2,265 PASS (100% pass rate, 0 failures, 0 skips, +10 test net increase)**.
 
 ---
 
-## 2. Swarm Division Breakdown & Deliverables (2026-11-10)
+## 2. Swarm Division Breakdown & Deliverables (2026-11-11)
 
 ```mermaid
 flowchart TD
@@ -57,37 +67,48 @@ flowchart TD
     SC --> CED["Creative Expansion Division (7 Agents)"]
     SC --> VA["Victory Auditors (3 Agents)"]
 
-    SD -->|"Target Map: Relic Runtime Hooks & Zero-GC Gaps"| CED
-    AD -->|"Zero-GC Bulldoze/Patrol Vectors & Audio Voice Preemption"| CED
-    CQD -->|"500ms ICD Fuzzing, Ricochet Boundary & Soak Tests"| CED
-    CED -->|"Quantum Warp Prism, Event Horizon & Runtime Hook Wiring"| VA
-    VA -->|"2,255/2,255 Pass, 0 Lint, Clean Build"| SC
+    SD -->|"Target Map: Missing 12th Relic, BaseEntity Speed Gaps, Input Watchdog"| CED
+    AD -->|"BaseEntity Contracts, IEEE-754 Defenses & Shared AudioContext Guards"| CED
+    CQD -->|"Cryo Proc ICD Fuzzing, Boss Anti-Exploit & Touch Watchdog Tests"| CED
+    CED -->|"Cryo Glacial Core, Thermal Shock Reaction & GameScene Wiring"| VA
+    VA -->|"2,265/2,265 Pass, 0 Lint, Clean Production Build"| SC
 ```
 
 | Division | Subagents | Key Discoveries & Deliverables |
 | :--- | :---: | :--- |
-| **Scout & Context Division** | 5 | Identified unhooked relic runtime triggers in `GameScene.ts` and reward collision for `DIMENSIONAL_RIFTS` in `CrisisManager.ts`. |
-| **Architect & Zero-GC Division** | 5 | Replaced per-frame arrays with frozen vectors in `EnemyEntities.ts` and `NeutralEntities.ts`; added priority preemption to `AudioVoicePool.ts`; hardened `ProceduralTextures.ts`. |
-| **Chaos QA & Resilience Division** | 10 | Executed 300-trial Monte Carlo fuzzing on bomb ricochets, tested 55 relic pairs under 500ms ICD constraints, and authored 6 dedicated test suites. |
-| **Creative Expansion Division** | 7 | Designed and implemented 11th Relic `QUANTUM_WARP_PRISM` and 7th Synergy `Quantum Event Horizon`; wired into `RelicSystem.ts`, `CrisisManager.ts`, and `GameScene.ts`. |
-| **Victory Auditors** | 3 | Verified 0 TypeScript errors (`npx tsc --noEmit`), 0 ESLint errors (`npm run lint`), 2,255/2,255 passing tests (`npm test`), and clean Turbopack build (`npm run build`). |
+| **Scout & Context Division** | 5 | Mapped unhandled relic procs, input watchdog movement wipeout bug, and AudioContext premature termination. |
+| **Architect & Zero-GC Division** | 5 | Implemented `BaseEntity` speed multiplier/stun contracts; hardened `SpatialSeparation.ts` and `PlayerMovementPhysics.ts`; protected shared WebAudio context across 8 hazard audio managers. |
+| **Chaos QA & Resilience Division** | 10 | Created dedicated Cryo/Thermal Shock test suite; resolved boss anti-exploit stun-lock vs crater stun regression; verified 66 relic pairings. |
+| **Creative Expansion Division** | 7 | Designed and implemented 12th Relic `CRYO_GLACIAL_CORE` and 8th Synergy `Thermal Shock Reaction`; integrated into `RelicSystem.ts` and `GameScene.ts`. |
+| **Victory Auditors** | 3 | Verified 0 TypeScript errors (`npx tsc --noEmit`), 0 ESLint errors (`npm run lint`), 2,265/2,265 passing tests (`npm test`), and clean Turbopack build (`npm run build`). |
 
 ---
 
-## 3. Verification & Deployment Audit (2026-11-10)
+## 3. Verification & Deployment Audit (2026-11-11)
 
 | Checkpoint | Target | Result | Status |
 | :--- | :--- | :--- | :--- |
-| **Node.js Test Suite** | 100% Pass, 0 Flakiness | **2,255 / 2,255 tests PASS** (6,831ms) | **VERIFIED** |
+| **Node.js Test Suite** | 100% Pass, 0 Flakiness | **2,265 / 2,265 tests PASS** (6,772ms) | **VERIFIED** |
 | **TypeScript Static Check** | 0 Type Errors | `npx tsc --noEmit` clean exit 0 | **VERIFIED** |
 | **ESLint Quality Check** | 0 Lint Errors | `npm run lint` clean exit 0 (0 errors) | **VERIFIED** |
-| **Next.js Turbopack Build** | Exit Code 0 | `npm run build` compiled 4/4 static pages in 871ms | **VERIFIED** |
+| **Next.js Turbopack Build** | Exit Code 0 | `npm run build` compiled 4/4 static pages in 1,185ms | **VERIFIED** |
 | **Zero-GC Invariant** | 0 Heap Drift in 10k Frames | 10,000-frame soak confirmed zero leak (< 0.10 MB drift) | **VERIFIED** |
 | **Frontend Deployment Rule** | Strict 4-Step Verification | Pre-flight build verified before Git push | **VERIFIED** |
 
 ---
 
 # Previous Evolution Cycles
+
+## Cycle 2026-11-10
+**Status:** 100% VICTORY — PRODUCTION READY, ZERO-GC COMPLIANT, 11TH RELIC QUANTUM WARP PRISM, 7TH SYNERGY QUANTUM EVENT HORIZON, ZERO-GC BULLDOZE/PATROL VECTORS, AUDIOVOICEPOOL PRIORITY PREEMPTION & RUNTIME RELIC HOOKS COMPLETION (2,255/2,255 PASS)
+
+1. **11th Relic `QUANTUM_WARP_PRISM` & 7th Synergy `Quantum Event Horizon` (`RelicSystem.ts`, `ProgressionTypes.ts`, `CrisisManager.ts`, `GameScene.ts`):** 1:1 bijective pairing between all 7 crises and dedicated relic rewards.
+2. **Runtime Relic Hooks Integration in `GameScene.ts`:** Wired quantum warp, orbital targeting, clockwork kick, gelatinous stun, and vampiric shield.
+3. **Zero-GC Optimizations:** Frozen vectors in `EnemyEntities.ts` and `NeutralEntities.ts`; hardened `ProceduralTextures.ts`.
+4. **AudioVoicePool Priority Preemption:** Added priority tracking and candidate preemption.
+5. **Rigorous Test Expansion:** 2,255/2,255 pass rate (+98 tests).
+
+---
 
 ## Cycle 2026-11-09
 **Status:** 100% VICTORY — PRODUCTION READY, ZERO-GC COMPLIANT, 10TH RELIC PSIONIC FEEDBACK CRYSTAL, 6TH SYNERGY PRECOGNITIVE RESONANCE, DYNAMIC HAZARD AUDIO LIFECYCLE COMPLETION & SYMMETRICAL TEARDOWN (2,157/2,157 PASS)

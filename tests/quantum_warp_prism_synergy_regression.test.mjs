@@ -48,7 +48,7 @@ test('Tier 1.2: All 7 Crises have unique, dedicated 1:1 bijective relic rewards'
  * ============================================================================== */
 
 test('Tier 2.1: Relic Catalog includes QUANTUM_WARP_PRISM with valid configuration', () => {
-  assert.equal(Object.keys(RELIC_CATALOG).length, 11, 'Catalog must contain exactly 11 relics');
+  assert.equal(Object.keys(RELIC_CATALOG).length, 12, 'Catalog must contain exactly 12 relics');
   const def = RELIC_CATALOG[RelicId.QUANTUM_WARP_PRISM];
   assert.ok(def, 'QUANTUM_WARP_PRISM must be registered in RELIC_CATALOG');
   assert.equal(def.id, RelicId.QUANTUM_WARP_PRISM);
@@ -62,8 +62,8 @@ test('Tier 2.2: Reciprocal synergy partnership with VOID_SINGULARITY_LENS', () =
   assert.ok(voidDef.synergyPartners.includes(RelicId.QUANTUM_WARP_PRISM), 'VOID_SINGULARITY_LENS must reciprocally partner with QUANTUM_WARP_PRISM');
 });
 
-test('Tier 2.3: 7th Synergy "Quantum Event Horizon" registered in SYNERGY_DEFINITIONS', () => {
-  assert.equal(SYNERGY_DEFINITIONS.length, 7, 'Must have exactly 7 active synergy definitions');
+test('Tier 2.3: 8 Synergy definitions in SYNERGY_DEFINITIONS including Quantum Event Horizon', () => {
+  assert.equal(SYNERGY_DEFINITIONS.length, 8, 'Must have exactly 8 active synergy definitions');
   const synergy = SYNERGY_DEFINITIONS.find((s) => s.name === 'Quantum Event Horizon');
   assert.ok(synergy, 'Quantum Event Horizon must be registered');
   assert.ok(

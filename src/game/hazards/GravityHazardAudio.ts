@@ -381,6 +381,8 @@ export class GravityHazardAudio {
       if (pool) this.voicePool = pool;
     } else if (pool) {
       this.voicePool = pool;
+    } else {
+      this.voicePool = AudioVoicePool.getInstance();
     }
   }
 
@@ -431,13 +433,15 @@ export class GravityHazardAudio {
       return this.customAudioContext;
     }
     if (this.voicePool) {
-      return this.voicePool.getContext();
+      const pCtx = this.voicePool.getContext();
+      if (pCtx) return pCtx;
     }
     try {
       if (typeof window !== 'undefined') {
         const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
         if (AudioCtxClass) {
-          return new AudioCtxClass();
+          this.customAudioContext = new AudioCtxClass();
+          return this.customAudioContext;
         }
       }
       return null;
@@ -995,5 +999,9 @@ export class GravityHazardAudio {
   public destroy(): void {
     this.clearPendingNodes();
     this.voicePool = null;
+    this.customAudioContext = null;
+    if (GravityHazardAudio.instance === this) {
+      GravityHazardAudio.instance = null;
+    }
   }
 }

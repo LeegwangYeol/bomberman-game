@@ -573,11 +573,8 @@ export class ChronoHazardAudio {
       }
       this.voicePool = null;
     }
-    const closeable = this.ctx as unknown as { close?: () => Promise<void> } | null;
-    if (closeable && typeof closeable.close === 'function') {
-      try { void closeable.close().catch(() => {}); } catch {}
-    }
     this.ctx = null;
+    ChronoHazardAudio.cachedNoiseBuffer = null;
     if (ChronoHazardAudio.instance === this) {
       ChronoHazardAudio.instance = null;
     }

@@ -13,6 +13,7 @@ import type {
   MetaProfile,
   AppliedPerkBonuses,
   WaveMutator,
+  AppliedBoonBonuses,
 } from './ProgressionTypes.ts';
 import { WAVE_MUTATOR_CATALOG } from './ScalingEngine.ts';
 import { PerkTreeManager } from './PerkTree.ts';
@@ -143,6 +144,32 @@ export function sanitizeRunProgressionState(input: unknown): RunProgressionState
   const nextDropPodCountdownMs = safeFloat(p.nextDropPodCountdownMs, 45000, 0);
   const crisesPurifiedCount = safeInt(p.crisesPurifiedCount, 0);
 
+  // 7. Gauntlet boons & draft state
+  let activeBoons: AppliedBoonBonuses | undefined;
+  if (p.activeBoons && typeof p.activeBoons === 'object') {
+    const b = p.activeBoons as Record<string, unknown>;
+    activeBoons = {
+      extraBombs: safeInt(b.extraBombs, 0),
+      extraSpeed: safeFloat(b.extraSpeed, 0),
+      extraShield: safeInt(b.extraShield, 0),
+      extraDamage: safeInt(b.extraDamage, 0),
+      bonusCandies: safeInt(b.bonusCandies, 0),
+      ultChargeMultiplier: safeFloat(b.ultChargeMultiplier, 1.0, 0.1),
+    };
+  }
+
+  let unlockedCheckpoints: number[] | undefined;
+  if (Array.isArray(p.unlockedCheckpoints)) {
+    unlockedCheckpoints = p.unlockedCheckpoints
+      .filter((n) => typeof n === 'number' && Number.isFinite(n) && n >= 1)
+      .map((n) => Math.floor(n as number));
+  }
+
+  const isAwaitingBoonSelection = p.isAwaitingBoonSelection !== undefined ? Boolean(p.isAwaitingBoonSelection) : undefined;
+  const currentBoonDraftIds = Array.isArray(p.currentBoonDraftIds)
+    ? (p.currentBoonDraftIds.filter((id) => typeof id === 'string') as string[])
+    : undefined;
+
   return {
     mode,
     wave,
@@ -161,6 +188,10 @@ export function sanitizeRunProgressionState(input: unknown): RunProgressionState
     nextCrisisCountdownMs,
     nextDropPodCountdownMs,
     crisesPurifiedCount,
+    ...(activeBoons ? { activeBoons } : {}),
+    ...(unlockedCheckpoints ? { unlockedCheckpoints } : {}),
+    ...(isAwaitingBoonSelection !== undefined ? { isAwaitingBoonSelection } : {}),
+    ...(currentBoonDraftIds ? { currentBoonDraftIds } : {}),
   };
 }
 

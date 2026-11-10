@@ -387,6 +387,9 @@ export abstract class BaseBoss {
     if (this.isInvulnerable && this.iFrameTimerMs > 0) {
       return res;
     }
+    if (this.stunRecoveryImmunityTimerMs > 0) {
+      return res;
+    }
     if (safeTimeMs - this.lastHazardHitTimestampMs < this.minHazardHitCooldownMs) {
       return res;
     }
@@ -547,7 +550,7 @@ export abstract class BaseBoss {
               : BossState.PHASE_1;
 
       this.transitionTo(resumeState);
-      this.stunRecoveryImmunityTimerMs = 2000;
+      this.stunRecoveryImmunityTimerMs = this.defaultIFrameMs;
       this.iFrameTimerMs = this.defaultIFrameMs;
       this.isInvulnerable = true;
     }

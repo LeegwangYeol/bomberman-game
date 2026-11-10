@@ -343,7 +343,8 @@ export class GameModeManager {
     const catalog = [...ROGUELITE_BOONS_CATALOG];
     const draft: BoonOption[] = [];
 
-    let s = (seed || Date.now()) % 100000;
+    const safeSeed = typeof seed === 'number' && Number.isFinite(seed) ? Math.abs(Math.floor(seed)) : Date.now();
+    let s = safeSeed % 100000;
     while (draft.length < 3 && catalog.length > 0) {
       s = (s * 9301 + 49297) % 233280;
       const idx = Math.floor((s / 233280) * catalog.length);
@@ -392,6 +393,10 @@ export class GameModeManager {
       nextCrisisCountdownMs: this.nextCrisisCountdownMs,
       nextDropPodCountdownMs: this.nextDropPodCountdownMs,
       crisesPurifiedCount: this.crisesPurifiedCount,
+      activeBoons: { ...this.activeBoons },
+      unlockedCheckpoints: [...this.unlockedCheckpoints],
+      isAwaitingBoonSelection: this.isAwaitingBoonSelection,
+      currentBoonDraftIds: this.currentBoonDraft.map((b) => b.id),
     };
   }
 
@@ -406,7 +411,7 @@ export class GameModeManager {
       typeof val === 'number' && Number.isFinite(val) ? Math.max(0, Math.floor(val)) : fallback;
 
     this.wave = safeInt(saved.wave, 1);
-    this.chamberNumber = safeInt(saved.chamberNumber, 1);
+    this.chamberNumber = Math.max(1, safeInt(saved.chamberNumber, 1));
     this.score = safeInt(saved.score, 0);
     this.starCandies = safeInt(saved.starCandiesEarned, 0);
     this.cosmicEssence = safeInt(saved.cosmicEssenceEarned, 0);
@@ -420,6 +425,30 @@ export class GameModeManager {
     this.crisesPurifiedCount = safeInt(saved.crisesPurifiedCount, 0);
     this.bossRushIndex = safeInt(saved.bossRushCurrentIndex, 0);
     this.bossRushElapsedMs = safeInt(saved.bossRushElapsedMs, 0);
+
+    if (saved.activeBoons && typeof saved.activeBoons === 'object') {
+      const b = saved.activeBoons;
+      this.activeBoons = {
+        extraBombs: safeInt(b.extraBombs, 0),
+        extraSpeed: typeof b.extraSpeed === 'number' && Number.isFinite(b.extraSpeed) ? b.extraSpeed : 0,
+        extraShield: safeInt(b.extraShield, 0),
+        extraDamage: safeInt(b.extraDamage, 0),
+        bonusCandies: safeInt(b.bonusCandies, 0),
+        ultChargeMultiplier: typeof b.ultChargeMultiplier === 'number' && Number.isFinite(b.ultChargeMultiplier) ? b.ultChargeMultiplier : 1.0,
+      };
+    }
+    if (Array.isArray(saved.unlockedCheckpoints)) {
+      this.unlockedCheckpoints = saved.unlockedCheckpoints
+        .filter((n) => typeof n === 'number' && Number.isFinite(n) && n >= 1)
+        .map((n) => Math.floor(n as number));
+      if (!this.unlockedCheckpoints.includes(1)) {
+        this.unlockedCheckpoints.unshift(1);
+      }
+    }
+    if (saved.isAwaitingBoonSelection) {
+      this.isAwaitingBoonSelection = true;
+      this.currentBoonDraft = this.generateBoonDraft(this.chamberNumber);
+    }
 
     return true;
   }

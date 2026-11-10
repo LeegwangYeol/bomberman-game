@@ -175,17 +175,21 @@ export class AudioVoice {
     }
 
     const attackEnd = now + (wasActive ? 0.002 + attack : attack);
-    const totalEnd = now + duration;
+    const totalEnd = Math.max(attackEnd + 0.005, now + duration);
 
     if (params.decayTime && Number.isFinite(params.decayTime) && params.decayTime > 1e-4 &&
         params.sustainLevel !== undefined && Number.isFinite(params.sustainLevel)) {
-      const decayEnd = attackEnd + params.decayTime;
-      const sustainGain = Math.max(0.0001, peakGain * Math.max(0, params.sustainLevel));
-      this.gain.gain.linearRampToValueAtTime(sustainGain, decayEnd);
       const rawRelease = (params.releaseTime && Number.isFinite(params.releaseTime) && params.releaseTime > 0) ? params.releaseTime : 0.05;
       const release = rawRelease <= 1e-4 ? 0.001 : rawRelease;
-      const releaseStart = Math.max(decayEnd, totalEnd - release);
-      this.gain.gain.setValueAtTime(sustainGain, releaseStart);
+      const decayEnd = Math.min(totalEnd - release, attackEnd + params.decayTime);
+      if (decayEnd > attackEnd) {
+        const sustainGain = Math.max(0.0001, peakGain * Math.max(0, params.sustainLevel));
+        this.gain.gain.linearRampToValueAtTime(sustainGain, decayEnd);
+        const releaseStart = Math.min(totalEnd - release, Math.max(decayEnd, totalEnd - release));
+        if (releaseStart > decayEnd && releaseStart < totalEnd) {
+          this.gain.gain.setValueAtTime(sustainGain, releaseStart);
+        }
+      }
     }
 
     this.gain.gain.exponentialRampToValueAtTime(0.0001, Math.max(attackEnd + 0.001, totalEnd));
@@ -280,6 +284,7 @@ export class AudioVoicePool {
   private ctx: AudioContext | null = null;
   private masterBus: GainNode | null = null;
   private sequence: number = 0;
+  private isResuming: boolean = false;
 
   constructor(capacity: number = 16, ctx?: AudioContext | null) {
     this.capacity = capacity;
@@ -331,8 +336,11 @@ export class AudioVoicePool {
 
   public acquireVoice(priority: number = 0): AudioVoice | null {
     if (!this.ctx || this.voices.length === 0) return null;
-    if (this.ctx.state === 'suspended' && typeof this.ctx.resume === 'function') {
-      this.ctx.resume().catch(() => {});
+    if (this.ctx.state === 'suspended' && !this.isResuming && typeof this.ctx.resume === 'function') {
+      this.isResuming = true;
+      this.ctx.resume().catch(() => {}).finally(() => {
+        this.isResuming = false;
+      });
     }
     const now = this.ctx.currentTime;
     const reqPriority = Number.isFinite(priority) ? priority : 0;

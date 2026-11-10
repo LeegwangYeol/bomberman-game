@@ -2249,3 +2249,53 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+### 34) 일일 자율 진화 및 유지보수: 제12호 에픽 유물 빙하의 핵(Cryo-Glacial Core) 및 제8호 시너지 열충격 반응(Thermal Shock Reaction) 구현, BaseEntity 속도 배율·스턴 정규화, SpatialSeparation·물리 수치 안정성 강화, 입력 워치독 조화 및 WebAudio 공유 컨텍스트 보호 완결 (Daily Evolution Cycle: 2026-11-11 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 30개 서브에이전트 스웜 기동 (정찰 5, 아키텍트 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결 (Creative Expansion Division)**:
+    - **제12호 장착형 에픽 유물 '빙하의 핵 (Cryo-Glacial Core)' (`RelicSystem.ts`, `ProgressionTypes.ts`) 신규 설계 및 구현**:
+      - 폭탄 폭발 시 2.5타일 반경 내 적군에게 40 데미지와 40% 감속(Slow)을 2.0초간 부여하는 빙결 폭발 방출 (500ms 내부 쿨다운 ICD 가드 엄격 적용).
+      - `ProgressionTypes.ts`의 `RelicId`에 `CRYO_GLACIAL_CORE: 'cryo_glacial_core'` 정식 추가.
+      - `RunProgressionState`에 `activeBoons`, `unlockedCheckpoints`, `isAwaitingBoonSelection`, `currentBoonDraftIds` 필드 확장 및 정규화.
+    - **제8호 시너지 '열충격 반응 (Thermal Shock Reaction)' 신규 설계 및 구현**:
+      - `PYROCLASTIC_PRISM` (열) + `CRYO_GLACIAL_CORE` (냉) 결합 시너지.
+      - 폭탄 폭발 시 3.0타일 반경의 초열 열충격파를 방출하여 100 데미지와 2.5초 감속 부여 (`shockwaveRadius: 3.0`, `damage: 100`, `slowDurationMs: 2500`).
+      - 유물 시스템 내 12개 유물, 8개 시너지, 66개 전수 페어링 조합($12 \times 11 / 2$) 무결성 확립.
+    - **BaseEntity & NeutralEntities 상태 계약 일원화 (`BaseEntity.ts`, `NeutralEntities.ts`)**:
+      - `BaseEntity`에 `speedMultiplier`, `speedMultiplierUntilMs`, `applySpeedMultiplier(multiplier, durationMs)`, `applyStun(durationMs)` 추가.
+      - `setVelocity()` 오버라이드로 속도 배율 및 스턴 시 0 속도 강제를 자동 반영.
+      - `NeutralEntities.ts`의 `isSlowed` 및 `isFrozen` 검사를 `now < this.slowUntilMs`, `now < this.freezeUntilMs`로 정규화.
+  - **아키텍처 및 시스템 하드닝 완결 (Architect & Zero-GC Division)**:
+    - **수치 안정성 및 IEEE-754 비정상값 방어 (`PlayerMovementPhysics.ts`, `SpatialSeparation.ts`)**:
+      - `PlayerMovementPhysics.ts`: 미세 데드존($0 < \text{deadzone} \le 0.0003162$) 입력 시 음수 제곱근 방지를 위해 `Math.max(0, deadzoneSq - DEADZONE_EPSILON)` 적용; `resolvePlayerCornerSlide` 내 `wantX`/`wantY` 이산 정수 부호 정규화.
+      - `SpatialSeparation.ts`: `reconfigure()` 내 `cellSize`, `width`, `height` 유효성 검증 및 반복 횟수 [1, 16] 클램핑; 단일 엔티티 속도, `maxDisplacement`, 벽 바운딩 박스, Arcade physics `halfWidth`/`halfHeight`에 대한 `Number.isFinite` 가드 탑재.
+    - **입력 워치독 및 멀티터치 레이스 컨디션 방어 (`input_state.ts`)**:
+      - `triggerMobileAction` 내 `actionEpochs` 토큰 추적으로 이중 RAF 레이스 취소 방지.
+      - `recoverDroppedPointers`에서 모든 포인터가 해제될 때 조이스틱 이동 벡터를 리셋하지 않고 액션 버튼(`bomb`, `dash`, `ultimate`)만 정밀 취소하도록 개선하여 연속 이동 중단 현상 방지.
+    - **WebAudio 수명주기 및 공유 AudioContext 보호**:
+      - 8개 오디오 모듈(`GravityHazardAudio.ts`, `DynamicHazardAudio.ts`, `ChronoHazardAudio.ts`, `FrostHazardAudio.ts`, `MagmaHazardAudio.ts`, `MiasmaHazardAudio.ts`, `VoltHazardAudio.ts`, `SteamToyTitanAudio.ts`)에서 공유 `AudioContext`에 대한 `closeable.close()` 호출 제거 및 `cachedNoiseBuffer = null` 메모리 해제 정리.
+      - `GravityHazardAudio.ts`에서 보이스 풀 기본값을 `AudioVoicePool.getInstance()`로 연결.
+    - **로그라이트 챔버 및 영속성 동기화 (`GameModes.ts`, `ProgressionPersistence.ts`)**:
+      - `generateBoonDraft` 내 PRNG 시드 정규화; 무한 건틀릿(Endless Gauntlet) 상태의 `activeBoons`, `unlockedCheckpoints`, 분기 선택 상태 직렬화/역직렬화 완벽 지원.
+    - **GameScene.ts 런타임 유물 및 물리 연동 완성**:
+      - `tryKickBomb`에 직교 축 센터링 추가로 컨베이어/기둥 긁힘 방지.
+      - `CLOCKWORK_SPRING` 소프트 블록 관통(`softBlockPiercesRemaining`) 레이마치 연동.
+      - `Kinetic Pinball` 벽 리바운드(`reboundsLeft = 2`, 675 px/s) 및 적 충돌 시 폭발 반경 +1 연동.
+      - `VAMPIRIC_CONFECTION` 및 아이템 `hasVampiric` 쉴드 회복 로직 연동.
+      - `MAGNETRON_DIAL` 자석 반경 및 `POCKET_CHRONOMETER` 아이템 풀 속도 배율 연동.
+      - 하드코딩된 60초 타이머를 `this.matchSecondsRemaining ?? 60`으로 교체.
+      - `shutdown()` 시 `destroyProceduralTextures()` 및 `this.events.removeAllListeners()` 호출.
+    - **보스 안티 익스플로잇 vs 기믹 스턴 조화 (`BaseBoss.ts`)**:
+      - `stunRecoveryImmunityTimerMs` 검사를 환경 해저드 데미지(`takeHazardDamage()`)로 한정하여, 곰인형 폭탄 착지나 여왕벌 크레이터 등 정상적인 보스 기믹 자가 스턴을 보장하면서 환경 무한 스턴 락만 방어.
+  - **카오스 QA 및 방어적 회귀 테스트 완결 (Chaos QA Division)**:
+    - `tests/cryo_glacial_core_and_thermal_shock_synergy.test.mjs` 신규 작성 (10개 테스트 전수 통과).
+    - `tests/quantum_warp_prism_synergy_regression.test.mjs` 갱신 (11개 테스트 전수 통과).
+    - `tests/progression.test.mjs` (34개 테스트 전수 통과).
+    - `tests/fuzz_buff_stacking.test.mjs` (21개 테스트, 12개 유물 66개 전수 페어링 조합 통과).
+    - `tests/bosses.test.mjs` 및 `tests/boss_anti_exploit_hazard_guards.test.mjs` (40개 테스트 전수 통과).
+  - **전수 검증 지표**:
+    - 전체 회귀 테스트 배터리: **2,265 / 2,265 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,255 $\to$ 2,265로 10개 테스트 순증)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.

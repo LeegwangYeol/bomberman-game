@@ -46,7 +46,7 @@ export const RELIC_CATALOG: Record<RelicId, RelicDefinition> = {
     description: 'Refracts explosive flames into concentrated crystalline fire shards.',
     mechanics: 'Bomb detonations cast 4 diagonal spark shards traveling 2 tiles outward, igniting secondary explosions.',
     internalCooldownMs: 500,
-    synergyPartners: [RelicId.VOID_SINGULARITY_LENS],
+    synergyPartners: [RelicId.VOID_SINGULARITY_LENS, RelicId.CRYO_GLACIAL_CORE],
     synergyName: 'Cosmic Supernova',
     synergyDescription: 'Diagonal shards bend toward enemies pulled into void vortexes, dealing double damage.',
   },
@@ -146,6 +146,18 @@ export const RELIC_CATALOG: Record<RelicId, RelicDefinition> = {
     synergyName: 'Quantum Event Horizon',
     synergyDescription: 'Rift radius expands to 3.5 tiles, damage doubles to 150, pulls enemies to epicenter, and extends phase-shift to 2.0s.',
   },
+  [RelicId.CRYO_GLACIAL_CORE]: {
+    id: RelicId.CRYO_GLACIAL_CORE,
+    name: 'Cryo Glacial Core',
+    icon: '❄️🧊',
+    rarity: 'epic',
+    description: 'Sub-zero cryo containment core pulsing with absolute zero hoarfrost.',
+    mechanics: 'Bomb detonations emit a 2.5-tile cryogenic frost burst, inflicting 40 frost damage and a 40% Glacial Chill slow for 2.0s.',
+    internalCooldownMs: 500,
+    synergyPartners: [RelicId.PYROCLASTIC_PRISM],
+    synergyName: 'Thermal Shock Reaction',
+    synergyDescription: 'Detonating bombs triggers a rapid thermal shock reaction: chilled enemies struck by Pyroclastic flame shards suffer Thermal Shatter (+150% damage) and detonate in a 3.0-tile flash-freeze secondary frost explosion!',
+  },
 };
 
 export const SYNERGY_DEFINITIONS: RelicSynergy[] = [
@@ -197,6 +209,13 @@ export const SYNERGY_DEFINITIONS: RelicSynergy[] = [
     name: 'Quantum Event Horizon',
     icon: '🌌🌀',
     description: 'Quantum rifts expand from 2.0 to 3.5 tiles, pull enemies inward with singularity force, deal double damage (150), and extend phase-shift to 2.0s.',
+  },
+  {
+    relicA: RelicId.PYROCLASTIC_PRISM,
+    relicB: RelicId.CRYO_GLACIAL_CORE,
+    name: 'Thermal Shock Reaction',
+    icon: '🔥❄️',
+    description: 'Opposing thermodynamic extremes collide: chilled enemies struck by Pyroclastic flame shards suffer Thermal Shatter (+150% damage) and detonate in a 3.0-tile flash-freeze secondary frost explosion!',
   },
 ];
 
@@ -745,6 +764,63 @@ export class RelicManager {
       phaseDurationMs,
       singularityPull,
       isEmpowered,
+    };
+  }
+
+  /**
+   * On Bomb Detonation (Cryo Glacial Core)
+   * Releases a cryogenic frost burst within 2.5 tiles (3.0 tiles with Thermal Shock Reaction synergy),
+   * dealing frost damage (40 base, 100 with synergy) and applying a 40% Glacial Chill slow for 2.0s.
+   * If Thermal Shock Reaction synergy is active with Pyroclastic Prism, triggers Thermal Shatter.
+   */
+  public onBombDetonationCryoGlacial(
+    bombRow: number,
+    bombCol: number,
+    enemies: { id: string; r: number; c: number }[],
+    nowMs: number
+  ): {
+    triggered: boolean;
+    chilledEnemyIds: string[];
+    frostRadius: number;
+    damage: number;
+    chillDurationMs: number;
+    slowRatio: number;
+    isThermalShock: boolean;
+  } {
+    if (!this.isEquipped(RelicId.CRYO_GLACIAL_CORE)) {
+      return { triggered: false, chilledEnemyIds: [], frostRadius: 0, damage: 0, chillDurationMs: 0, slowRatio: 0, isThermalShock: false };
+    }
+
+    if (!this.checkAndSetIcd('cryo_glacial_core', nowMs)) {
+      return { triggered: false, chilledEnemyIds: [], frostRadius: 0, damage: 0, chillDurationMs: 0, slowRatio: 0, isThermalShock: false };
+    }
+
+    const hasSynergy = this.hasSynergy(RelicId.CRYO_GLACIAL_CORE, RelicId.PYROCLASTIC_PRISM);
+    const frostRadius = hasSynergy ? 3.0 : 2.5;
+    const damage = hasSynergy ? 100 : 40;
+    const chillDurationMs = hasSynergy ? 2500 : 2000;
+    const slowRatio = 0.40;
+    const isThermalShock = hasSynergy;
+
+    const chilledEnemyIds: string[] = [];
+    if (Array.isArray(enemies) && Number.isFinite(bombRow) && Number.isFinite(bombCol)) {
+      for (const e of enemies) {
+        if (!e || !Number.isFinite(e.r) || !Number.isFinite(e.c)) continue;
+        const dist = Math.hypot(e.r - bombRow, e.c - bombCol);
+        if (dist <= frostRadius) {
+          chilledEnemyIds.push(e.id);
+        }
+      }
+    }
+
+    return {
+      triggered: true,
+      chilledEnemyIds,
+      frostRadius,
+      damage,
+      chillDurationMs,
+      slowRatio,
+      isThermalShock,
     };
   }
 

@@ -617,11 +617,8 @@ export class VoltHazardAudio {
       }
       this.pool = null;
     }
-    const closeable = this.ctx as unknown as { close?: () => Promise<void> } | null;
-    if (closeable && typeof closeable.close === 'function') {
-      try { void closeable.close().catch(() => {}); } catch {}
-    }
     this.ctx = null;
+    VoltHazardAudio.cachedNoiseBuffer = null;
     VoltHazardAudio.instance = null;
   }
 }

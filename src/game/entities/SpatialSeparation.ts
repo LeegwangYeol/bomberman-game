@@ -126,9 +126,12 @@ export class SpatialSeparationGrid {
   }
 
   public reconfigure(cellSize: number, width: number, height: number): void {
-    this.cellSize = Math.max(16, cellSize);
-    this.cols = Math.max(1, Math.ceil(width / this.cellSize));
-    this.rows = Math.max(1, Math.ceil(height / this.cellSize));
+    const safeCellSize = typeof cellSize === 'number' && Number.isFinite(cellSize) ? Math.max(16, Math.min(256, cellSize)) : 40;
+    const safeW = typeof width === 'number' && Number.isFinite(width) ? Math.max(100, Math.min(10000, width)) : 800;
+    const safeH = typeof height === 'number' && Number.isFinite(height) ? Math.max(100, Math.min(10000, height)) : 800;
+    this.cellSize = safeCellSize;
+    this.cols = Math.max(1, Math.ceil(safeW / this.cellSize));
+    this.rows = Math.max(1, Math.ceil(safeH / this.cellSize));
     this.numCells = this.cols * this.rows;
 
     if (this.cellHead.length < this.numCells) {
@@ -194,7 +197,7 @@ export class SpatialSeparationGrid {
     const startTs = Date.now();
 
     const safeIterations = typeof options.iterations === 'number' && Number.isFinite(options.iterations) ? Math.floor(options.iterations) : 2;
-    const iterations = Math.max(1, safeIterations);
+    const iterations = Math.min(16, Math.max(1, safeIterations));
     const rawSep = typeof options.separationFactor === 'number' && Number.isFinite(options.separationFactor) ? options.separationFactor : 0.5;
     const separationFactor = Math.min(1.0, Math.max(0.05, rawSep));
     const defaultRadius = typeof options.defaultRadius === 'number' && Number.isFinite(options.defaultRadius) && options.defaultRadius > 0 ? options.defaultRadius : 12;
@@ -221,9 +224,9 @@ export class SpatialSeparationGrid {
     this.curApplyVelocityNudges = applyVelocityNudges;
 
     // Dynamic grid reconfigure if custom cellSize or bounds exceed current grid geometry
-    const targetCellSize = options.cellSize ?? this.cellSize;
-    const targetWidth = bounds ? Math.max(bounds.maxX, 800) : 800;
-    const targetHeight = bounds ? Math.max(bounds.maxY, 800) : 800;
+    const targetCellSize = typeof options.cellSize === 'number' && Number.isFinite(options.cellSize) ? options.cellSize : this.cellSize;
+    const targetWidth = bounds && Number.isFinite(bounds.maxX) ? Math.max(bounds.maxX, 800) : 800;
+    const targetHeight = bounds && Number.isFinite(bounds.maxY) ? Math.max(bounds.maxY, 800) : 800;
     if (
       targetCellSize !== this.cellSize ||
       targetWidth > this.cols * this.cellSize ||
@@ -250,8 +253,14 @@ export class SpatialSeparationGrid {
         // Enforce finite coordinate guards before processing
         if (!Number.isFinite(e.x) || !Number.isFinite(e.y)) {
           stats.nanGuardsTriggered++;
-          e.x = bounds ? (bounds.minX + bounds.maxX) / 2 : 200;
-          e.y = bounds ? (bounds.minY + bounds.maxY) / 2 : 200;
+          const centerX = bounds && Number.isFinite(bounds.minX) && Number.isFinite(bounds.maxX)
+            ? (bounds.minX + bounds.maxX) / 2
+            : 200;
+          const centerY = bounds && Number.isFinite(bounds.minY) && Number.isFinite(bounds.maxY)
+            ? (bounds.minY + bounds.maxY) / 2
+            : 200;
+          e.x = centerX;
+          e.y = centerY;
         } else {
           // Mathematical defense against subnormal floats in position
           if (Math.abs(e.x) < 1e-15) e.x = 0;
@@ -276,9 +285,18 @@ export class SpatialSeparationGrid {
         this.radius[0] = r;
 
         if (e.body && e.body.velocity) {
-          this.hasVel[0] = 1;
-          this.velX[0] = Math.abs(e.body.velocity.x) < 1e-15 ? 0 : e.body.velocity.x;
-          this.velY[0] = Math.abs(e.body.velocity.y) < 1e-15 ? 0 : e.body.velocity.y;
+          const vx = e.body.velocity.x;
+          const vy = e.body.velocity.y;
+          if (!Number.isFinite(vx) || !Number.isFinite(vy)) {
+            stats.nanGuardsTriggered++;
+            this.hasVel[0] = 0;
+            this.velX[0] = 0;
+            this.velY[0] = 0;
+          } else {
+            this.hasVel[0] = 1;
+            this.velX[0] = Math.abs(vx) < 1e-15 ? 0 : vx;
+            this.velY[0] = Math.abs(vy) < 1e-15 ? 0 : vy;
+          }
         } else {
           this.hasVel[0] = 0;
           this.velX[0] = 0;
@@ -524,7 +542,10 @@ export class SpatialSeparationGrid {
     // RUNAWAY WARPING & EXPLOSIVE IMPULSE DEFENSE:
     // Under extreme entity clustering (e.g. 120+ entities stacked or compressed),
     // clamp cumulative displacement per step to prevent entities exploding outward
-    const maxDisplacement = Math.max(8.0, options.maxDisplacement ?? 32.0);
+    const rawMaxDisp = options.maxDisplacement;
+    const maxDisplacement = typeof rawMaxDisp === 'number' && Number.isFinite(rawMaxDisp)
+      ? Math.max(8.0, rawMaxDisp)
+      : 32.0;
     const maxDispSq = maxDisplacement * maxDisplacement;
     for (let i = 0; i < activeCount; i++) {
       const ddx = posX[i] - initX[i];
@@ -851,6 +872,9 @@ export class SpatialSeparationGrid {
       const wTop = wall.y;
       const wBottom = wall.y + wall.height;
 
+      if (!Number.isFinite(wLeft) || !Number.isFinite(wRight) || !Number.isFinite(wTop) || !Number.isFinite(wBottom)) {
+        continue;
+      }
       if (right <= wLeft || left >= wRight || bottom <= wTop || top >= wBottom) {
         continue;
       }
@@ -1067,8 +1091,16 @@ export class SpatialSeparationGrid {
       if (typeof e.body.updateFromGameObject === 'function') {
         e.body.updateFromGameObject();
       } else if (e.body.position) {
-        const halfW = e.body.halfWidth ?? ((e.body.width ?? 24) / 2);
-        const halfH = e.body.halfHeight ?? ((e.body.height ?? 24) / 2);
+        const rawHW = e.body.halfWidth;
+        const rawW = e.body.width;
+        const rawHH = e.body.halfHeight;
+        const rawH = e.body.height;
+        const halfW = typeof rawHW === 'number' && Number.isFinite(rawHW)
+          ? rawHW
+          : (typeof rawW === 'number' && Number.isFinite(rawW) ? rawW / 2 : 12);
+        const halfH = typeof rawHH === 'number' && Number.isFinite(rawHH)
+          ? rawHH
+          : (typeof rawH === 'number' && Number.isFinite(rawH) ? rawH / 2 : 12);
         e.body.position.x = e.x - halfW;
         e.body.position.y = e.y - halfH;
         if (typeof e.body.updateCenter === 'function') {

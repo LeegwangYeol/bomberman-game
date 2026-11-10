@@ -846,11 +846,8 @@ export class MiasmaHazardAudio {
       }
       this.pool = null;
     }
-    const closeable = this.ctx as unknown as { close?: () => Promise<void> } | null;
-    if (closeable && typeof closeable.close === 'function') {
-      try { void closeable.close().catch(() => {}); } catch {}
-    }
     this.ctx = null;
+    MiasmaHazardAudio.cachedNoiseBuffer = null;
     if (MiasmaHazardAudio.instance === this) {
       MiasmaHazardAudio.instance = null;
     }

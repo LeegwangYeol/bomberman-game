@@ -270,6 +270,12 @@ const defaultFallbackScheduler: (cb: () => void) => void =
     ? requestAnimationFrame
     : (cb: () => void) => { setTimeout(cb, 16); };
 
+const actionEpochs: Record<'bomb' | 'dash' | 'ultimate', number> = {
+  bomb: 0,
+  dash: 0,
+  ultimate: 0,
+};
+
 /**
  * High-reliability action button activation with frame-synchronized double-RAF fallback.
  * Prevents input drops and eliminates permanent "sticky button" state if pointer events are dropped.
@@ -281,11 +287,16 @@ export function triggerMobileAction(
   shouldKeepActive?: () => boolean
 ): void {
   if (!state || (action !== 'bomb' && action !== 'dash' && action !== 'ultimate')) return;
+  actionEpochs[action]++;
+  const currentToken = actionEpochs[action];
   state[action] = true;
   const schedule = scheduler ?? (typeof requestAnimationFrame === 'function' ? requestAnimationFrame : defaultFallbackScheduler);
 
   schedule(() => {
     schedule(() => {
+      if (actionEpochs[action] !== currentToken) {
+        return;
+      }
       let keep = false;
       if (typeof shouldKeepActive === 'function') {
         try {
@@ -879,8 +890,10 @@ export class MultiTouchPointerTracker {
       }
     }
 
-    if (recoveredCount > 0 && this.activePointers.size === 0) {
-      resetAllMobileInputs(state);
+    if (this.activePointers.size === 0) {
+      cancelMobileAction(state, 'bomb');
+      cancelMobileAction(state, 'dash');
+      cancelMobileAction(state, 'ultimate');
     }
 
     return recoveredCount;

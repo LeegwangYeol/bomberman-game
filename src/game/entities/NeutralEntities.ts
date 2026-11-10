@@ -24,6 +24,12 @@ const CARDINAL_STEP_DIRS = Object.freeze([
   Object.freeze({ x: 0, y: -1 }),
 ]);
 
+// Shared scratch containers for Zero-GC Merchant AI updates
+const sharedMerchantBlastMask = new FlatHazardMask(ROWS * COLS);
+const sharedMerchantPosScratch: GridCoord = { r: 0, c: 0 };
+const sharedBombScratch: GridCoord = { r: 0, c: 0 };
+const sharedOpenDirs: Array<{ x: number; y: number }> = [];
+
 /**
  * 1. Wandering Merchant ("Pops"):
  * 3 HP, peaceful walk, flees ticking bombs, pauses at intersections for trade cart (`[E] Trade`),
@@ -96,20 +102,49 @@ export class MerchantNPC extends BaseEntity {
 
     // 1. Danger check: Flee if ticking bomb is within blast range
     let nearBomb = false;
-    const allBlastTiles = new Set<string>();
-    const bombSet = cloneBombTilesAsSet(bombTiles);
-    for (const bKey of bombSet) {
-      const [br, bc] = bKey.split(',').map(Number);
-      if (Math.abs(mr - br) + Math.abs(mc - bc) <= 4) {
-        nearBomb = true;
+    sharedMerchantBlastMask.clear();
+
+    if (bombTiles instanceof FlatHazardMask) {
+      bombTiles.forEachHazard((br, bc) => {
+        if (Math.abs(mr - br) + Math.abs(mc - bc) <= 4) {
+          nearBomb = true;
+        }
+        sharedBombScratch.r = br;
+        sharedBombScratch.c = bc;
+        getBlastTiles(sharedBombScratch, 3, map, sharedMerchantBlastMask);
+      });
+    } else if (bombTiles instanceof Uint8Array) {
+      for (let i = 0; i < bombTiles.length; i++) {
+        if (bombTiles[i] !== 0) {
+          const br = (i / COLS) | 0;
+          const bc = i % COLS;
+          if (Math.abs(mr - br) + Math.abs(mc - bc) <= 4) {
+            nearBomb = true;
+          }
+          sharedBombScratch.r = br;
+          sharedBombScratch.c = bc;
+          getBlastTiles(sharedBombScratch, 3, map, sharedMerchantBlastMask);
+        }
       }
-      const blast = getBlastTiles({ r: br, c: bc }, 3, map);
-      for (const tile of blast) {
-        allBlastTiles.add(tile);
+    } else if (bombTiles instanceof Set) {
+      for (const bKey of bombTiles) {
+        const comma = bKey.indexOf(',');
+        if (comma !== -1) {
+          const br = Number(bKey.slice(0, comma));
+          const bc = Number(bKey.slice(comma + 1));
+          if (Number.isFinite(br) && Number.isFinite(bc)) {
+            if (Math.abs(mr - br) + Math.abs(mc - bc) <= 4) {
+              nearBomb = true;
+            }
+            sharedBombScratch.r = br;
+            sharedBombScratch.c = bc;
+            getBlastTiles(sharedBombScratch, 3, map, sharedMerchantBlastMask);
+          }
+        }
       }
     }
 
-    if (allBlastTiles.has(`${mr},${mc}`)) {
+    if (sharedMerchantBlastMask.has(mr * COLS + mc)) {
       nearBomb = true;
     }
 
@@ -117,10 +152,12 @@ export class MerchantNPC extends BaseEntity {
       this.overheadUI.setIntent('😱', true);
       // Re-evaluate escape path if current path is empty OR if current destination is within active blast tiles
       const currentDest = this.fleePath.length > 0 ? this.fleePath[this.fleePath.length - 1] : null;
-      const isDestDangerous = currentDest ? allBlastTiles.has(`${currentDest.r},${currentDest.c}`) : true;
+      const isDestDangerous = currentDest ? sharedMerchantBlastMask.has(currentDest.r * COLS + currentDest.c) : true;
 
       if (this.fleePath.length === 0 || isDestDangerous) {
-        const escape = findEscapePathBFS({ r: mr, c: mc }, allBlastTiles, map, bombTiles, 8);
+        sharedMerchantPosScratch.r = mr;
+        sharedMerchantPosScratch.c = mc;
+        const escape = findEscapePathBFS(sharedMerchantPosScratch, sharedMerchantBlastMask, map, bombTiles, 8);
         if (escape && escape.length > 0) this.fleePath = escape;
       }
 
@@ -168,7 +205,7 @@ export class MerchantNPC extends BaseEntity {
     }
 
     // Count open orthogonal corridor directions, strictly filtering out any active blast hazard tiles
-    const openDirs: Array<{ x: number; y: number }> = [];
+    sharedOpenDirs.length = 0;
     for (const d of CARDINAL_STEP_DIRS) {
       const nr = mr + d.y;
       const nc = mc + d.x;
@@ -178,9 +215,9 @@ export class MerchantNPC extends BaseEntity {
         nc >= 0 &&
         nc < COLS &&
         map[nr][nc] === TILE_EMPTY &&
-        !allBlastTiles.has(`${nr},${nc}`)
+        !sharedMerchantBlastMask.has(nr * COLS + nc)
       ) {
-        openDirs.push(d);
+        sharedOpenDirs.push(d);
       }
     }
 
@@ -189,7 +226,7 @@ export class MerchantNPC extends BaseEntity {
       Math.abs(this.x - (mc * TILE_SIZE + TILE_SIZE / 2)) < 4 &&
       Math.abs(this.y - (mr * TILE_SIZE + TILE_SIZE / 2)) < 4;
 
-    if (openDirs.length >= 3 && isAtTileCenter && Math.random() < 0.05) {
+    if (sharedOpenDirs.length >= 3 && isAtTileCenter && Math.random() < 0.05) {
       this.pauseTimer = 2500;
       this.setVelocity(0, 0);
       this.overheadUI.setIntent('🛒', true);
@@ -205,11 +242,11 @@ export class MerchantNPC extends BaseEntity {
       forwardC < 0 ||
       forwardC >= COLS ||
       map[forwardR][forwardC] !== TILE_EMPTY ||
-      allBlastTiles.has(`${forwardR},${forwardC}`);
+      sharedMerchantBlastMask.has(forwardR * COLS + forwardC);
 
-    if (isForwardBlocked && openDirs.length > 0) {
-      this.currentDirection = openDirs[Math.floor(Math.random() * openDirs.length)];
-    } else if (isForwardBlocked && openDirs.length === 0) {
+    if (isForwardBlocked && sharedOpenDirs.length > 0) {
+      this.currentDirection = sharedOpenDirs[Math.floor(Math.random() * sharedOpenDirs.length)];
+    } else if (isForwardBlocked && sharedOpenDirs.length === 0) {
       // If trapped with no safe direction, stop instead of walking into blast
       this.setVelocity(0, 0);
       this.overheadUI.setIntent('😱', true);

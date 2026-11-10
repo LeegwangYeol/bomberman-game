@@ -86,6 +86,8 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
   public iFrameDurationMs: number = 800;
   public isStunned: boolean = false;
   public stunUntil: number = 0;
+  public speedMultiplier: number = 1.0;
+  public speedMultiplierUntilMs: number = 0;
   public isDead: boolean = false;
   public moveSpeed: number = 70;
   public collisionRadius: number = 12;
@@ -100,6 +102,34 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
   public baseScaleY: number = 1.0;
   private _isSquashStretching: boolean = false;
   public dropShadow?: Phaser.GameObjects.Sprite;
+
+  public override setVelocity(x?: number, y?: number): this {
+    if (this.isStunned) {
+      return super.setVelocity(0, 0);
+    }
+    const mult = (this.speedMultiplierUntilMs > 0 && this.speedMultiplier > 0) ? this.speedMultiplier : 1.0;
+    const sx = (x ?? 0) * mult;
+    const sy = (y ?? 0) * mult;
+    return super.setVelocity(sx, sy);
+  }
+
+  public applyStun(durationMs: number): void {
+    if (!Number.isFinite(durationMs) || durationMs <= 0 || this.isDead) return;
+    this.isStunned = true;
+    const now = this.scene?.time?.now ?? Date.now();
+    this.stunUntil = Math.max(this.stunUntil, now + durationMs);
+    super.setVelocity(0, 0);
+    if (this.overheadUI) {
+      this.overheadUI.setIntent('💫', true);
+    }
+  }
+
+  public applySpeedMultiplier(multiplier: number, durationMs: number): void {
+    if (!Number.isFinite(multiplier) || multiplier <= 0 || !Number.isFinite(durationMs) || durationMs <= 0 || this.isDead) return;
+    this.speedMultiplier = Math.min(this.speedMultiplier, multiplier);
+    const now = this.scene?.time?.now ?? Date.now();
+    this.speedMultiplierUntilMs = Math.max(this.speedMultiplierUntilMs, now + durationMs);
+  }
 
   public override setScale(x?: number, y?: number): this {
     super.setScale(x, y);
@@ -296,6 +326,11 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
     if (this.isStunned && currentTime >= this.stunUntil) {
       this.isStunned = false;
       this.overheadUI.setIntent('', false);
+    }
+
+    if (this.speedMultiplierUntilMs > 0 && currentTime >= this.speedMultiplierUntilMs) {
+      this.speedMultiplier = 1.0;
+      this.speedMultiplierUntilMs = 0;
     }
 
     const body = this.body as Phaser.Physics.Arcade.Body | undefined;

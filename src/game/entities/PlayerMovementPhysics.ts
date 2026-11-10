@@ -193,10 +193,9 @@ export function resolveJoystickDeadzone(
 
   // Zero-division & Sub-deadzone check with IEEE-754 tolerance
   const deadzoneSq = effectiveDeadzone * effectiveDeadzone;
-  if (effectiveDeadzone > 0 ? distSq < deadzoneSq - DEADZONE_EPSILON : distSq <= 1e-12) {
-    if (distSq <= 1e-12) {
-      result.distance = 0;
-    }
+  const threshold = Math.max(0, deadzoneSq - DEADZONE_EPSILON);
+  if (distSq <= 1e-12 || distSq < threshold) {
+    result.distance = 0;
     return result;
   }
 
@@ -276,6 +275,9 @@ export function resolvePlayerCornerSlide(params: CornerSlideParams): CornerSlide
   const safeSpeed = Number.isFinite(speed) && speed > 0 ? speed : BASE_PLAYER_SPEED;
   const safeSlideSpeed = Number.isFinite(slideSpeed) && slideSpeed > 0 ? slideSpeed : safeSpeed;
   const safeTol = Number.isFinite(tolerance) && tolerance >= 0 ? tolerance : DEFAULT_CORNER_SLIDE_TOLERANCE;
+  const safeWantX = Number.isFinite(wantX) && Math.abs(wantX) >= FLOAT_EPSILON ? Math.sign(wantX) : 0;
+  const safeWantY = Number.isFinite(wantY) && Math.abs(wantY) >= FLOAT_EPSILON ? Math.sign(wantY) : 0;
+  const safeAxis = primaryAxis === 'x' ? 'x' : 'y';
 
   const col = Math.floor(safePx / safeTileSize);
   const row = Math.floor(safePy / safeTileSize);
@@ -294,11 +296,11 @@ export function resolvePlayerCornerSlide(params: CornerSlideParams): CornerSlide
   let snappedY: number | undefined;
   let facing: 'up' | 'down' | 'left' | 'right' = 'down';
 
-  if (primaryAxis === 'x') {
-    vx = wantX * safeSpeed;
-    facing = wantX < 0 ? 'left' : 'right';
+  if (safeAxis === 'x') {
+    vx = safeWantX * safeSpeed;
+    facing = safeWantX < 0 ? 'left' : 'right';
 
-    const nextCol = col + wantX;
+    const nextCol = col + safeWantX;
     const directOpen = isPassable(row, nextCol);
 
     if (directOpen) {
@@ -331,10 +333,10 @@ export function resolvePlayerCornerSlide(params: CornerSlideParams): CornerSlide
       }
     }
   } else {
-    vy = wantY * safeSpeed;
-    facing = wantY < 0 ? 'up' : 'down';
+    vy = safeWantY * safeSpeed;
+    facing = safeWantY < 0 ? 'up' : 'down';
 
-    const nextRow = row + wantY;
+    const nextRow = row + safeWantY;
     const directOpen = isPassable(nextRow, col);
 
     if (directOpen) {

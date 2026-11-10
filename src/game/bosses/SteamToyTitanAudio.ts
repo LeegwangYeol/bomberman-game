@@ -226,6 +226,8 @@ export class SteamToyTitanAudio {
       SteamToyTitanAudio.instance.destroy();
       SteamToyTitanAudio.instance = null;
     }
+    SteamToyTitanAudio.cachedNoiseBuffer = null;
+    SteamToyTitanAudio.cachedNoiseSampleRate = 0;
   }
 
   public init(ctx: AudioContext, pool?: AudioVoicePool): void {
@@ -592,6 +594,8 @@ export class SteamToyTitanAudio {
     }
     this.voicePool = null;
     this.audioContext = null;
+    SteamToyTitanAudio.cachedNoiseBuffer = null;
+    SteamToyTitanAudio.cachedNoiseSampleRate = 0;
     if (SteamToyTitanAudio.instance === this) {
       SteamToyTitanAudio.instance = null;
     }

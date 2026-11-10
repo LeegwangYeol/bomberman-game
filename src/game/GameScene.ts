@@ -323,7 +323,7 @@ import {
   HazardRenderer,
   type HazardRendererContext,
 } from './hazards/index.ts';
-import { PerkTreeManager, RelicManager, WaveDirector, type RelicId, type AppliedPerkBonuses, type WaveMutator } from './progression/index.ts';
+import { PerkTreeManager, RelicManager, WaveDirector, RelicId, type AppliedPerkBonuses, type WaveMutator } from './progression/index.ts';
 
 import { decompressGrid, compressGrid } from './persistence/GameStatePersistence.ts';
 import type {
@@ -342,6 +342,7 @@ interface PooledEnemySprite extends BaseEntity {
 import {
   generateItemTextures as generateProceduralItemTextures,
   ensureJuiceTextures as ensureProceduralJuiceTextures,
+  destroyProceduralTextures,
 } from './graphics/index.ts';
 
 export { RENDER_DEPTH };
@@ -446,6 +447,7 @@ export default class GameScene extends Phaser.Scene {
   public cameraTrauma: CameraTraumaSimulator = new CameraTraumaSimulator();
   public persistentHazardMask: FlatHazardMask = new FlatHazardMask();
   public lastSurvivalTickMs: number = 0;
+  public matchSecondsRemaining: number = 60;
   public isAegisOverdriveActive: boolean = false;
   public aegisDurationMs: number = 0;
   private aegisDomeVisual: { update: (remainingMs: number) => void; destroy: () => void } | null = null;
@@ -1479,6 +1481,11 @@ export default class GameScene extends Phaser.Scene {
     this.spritePool = null as unknown as Pooling.ObjectPool<Phaser.GameObjects.Sprite>;
     this.shadowPool = null as unknown as Pooling.ObjectPool<Phaser.GameObjects.Sprite>;
     this.floatingTextPool = null as unknown as Pooling.ObjectPool<Phaser.GameObjects.Text>;
+
+    destroyProceduralTextures(this);
+    if (this.events) {
+      this.events.removeAllListeners();
+    }
   }
 
   constructor() {
@@ -2000,6 +2007,11 @@ export default class GameScene extends Phaser.Scene {
       const bomb = bombObj as Phaser.Physics.Arcade.Sprite;
       const enemy = enemyObj as BaseEntity;
       if (bomb.active && bomb.getData('isSliding') && enemy.active) {
+        if (bomb.getData('kineticPinballEnemyBonus')) {
+          const curPower = (bomb.getData('power') as number) || this.bombPower;
+          bomb.setData('power', curPower + 1);
+          this.spawnFloatingText(bomb.x, bomb.y - 20, '🎯 KINETIC PINBALL (+1 RANGE)!', '#fbbf24');
+        }
         const bCol = Math.floor(bomb.x / TILE_SIZE);
         const bRow = Math.floor(bomb.y / TILE_SIZE);
         this.explodeBomb(bomb, bRow, bCol);
@@ -2128,8 +2140,17 @@ export default class GameScene extends Phaser.Scene {
             if (this.relicManager) {
               const killRes = this.relicManager.onEnemyKilled(Date.now());
               if (killRes.shieldGranted) {
+                this.shieldCharges = Math.min(3, this.shieldCharges + 1);
+                this.hasShield = true;
+                this.emitStatsUpdate();
                 this.spawnFloatingText(this.player.x, this.player.y - 20, '🛡️ VAMPIRIC SHIELD!', '#ec4899');
               }
+            }
+            if (this.hasVampiric && Math.random() < 0.35) {
+              this.shieldCharges = Math.min(3, this.shieldCharges + 1);
+              this.hasShield = true;
+              this.emitStatsUpdate();
+              this.spawnFloatingText(this.player.x, this.player.y - 20, '🧛 VAMPIRIC SIPHON!', '#a855f7');
             }
           }
         } else {
@@ -2139,8 +2160,17 @@ export default class GameScene extends Phaser.Scene {
             if (this.relicManager) {
               const killRes = this.relicManager.onEnemyKilled(Date.now());
               if (killRes.shieldGranted) {
+                this.shieldCharges = Math.min(3, this.shieldCharges + 1);
+                this.hasShield = true;
+                this.emitStatsUpdate();
                 this.spawnFloatingText(this.player.x, this.player.y - 20, '🛡️ VAMPIRIC SHIELD!', '#ec4899');
               }
+            }
+            if (this.hasVampiric && Math.random() < 0.35) {
+              this.shieldCharges = Math.min(3, this.shieldCharges + 1);
+              this.hasShield = true;
+              this.emitStatsUpdate();
+              this.spawnFloatingText(this.player.x, this.player.y - 20, '🧛 VAMPIRIC SIPHON!', '#a855f7');
             }
           }
         }
@@ -2676,10 +2706,17 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    // 1c. Item magnet attraction aura (3 tiles = 120px on desktop, 140px on mobile)
-    if (this.hasMagnet && this.player && this.player.active) {
-      const pullDist = this.isMobileDevice() ? 140 : 120;
-      const pullSpeed = 160 * (delta / 1000);
+    // 1c. Item magnet attraction aura (3 tiles = 120px on desktop, 140px on mobile, or boosted by MAGNETRON_DIAL relic)
+    const relicMagnetTiles = this.relicManager
+      ? this.relicManager.getMagnetRadiusTiles(this.matchSecondsRemaining ?? 60)
+      : 0;
+    if ((this.hasMagnet || relicMagnetTiles > 0) && this.player && this.player.active) {
+      const baseDist = this.isMobileDevice() ? 140 : 120;
+      const pullDist = Math.max(baseDist, relicMagnetTiles * TILE_SIZE);
+      let pullSpeed = 160 * (delta / 1000);
+      if (this.relicManager?.hasSynergy(RelicId.MAGNETRON_DIAL, RelicId.POCKET_CHRONOMETER)) {
+        pullSpeed *= 2.0;
+      }
       const itemsList = this.items.getChildren();
       for (let i = 0; i < itemsList.length; i++) {
         const it = itemsList[i] as Phaser.Physics.Arcade.Sprite;
@@ -2913,6 +2950,13 @@ export default class GameScene extends Phaser.Scene {
               stopRow = bRow + dRow * (s - 1);
               break;
             } else if (this.map[checkR][checkC] !== TILE_EMPTY) {
+              const pierces = (bomb.getData('softBlockPiercesRemaining') as number) || 0;
+              if (this.map[checkR][checkC] === TILE_BLOCK && pierces > 0) {
+                bomb.setData('softBlockPiercesRemaining', pierces - 1);
+                this.destroyBlock(checkR, checkC);
+                this.spawnFloatingText(checkC * TILE_SIZE + 20, checkR * TILE_SIZE + 20, '⚙️ PIERCED!', '#fbbf24');
+                continue;
+              }
               blocked = true;
               stopCol = bCol + dCol * (s - 1);
               stopRow = bRow + dRow * (s - 1);
@@ -2954,6 +2998,11 @@ export default class GameScene extends Phaser.Scene {
                 }
               }
               if (enemyHitTile) {
+                if (bomb.getData('kineticPinballEnemyBonus')) {
+                  const curPower = (bomb.getData('power') as number) || this.bombPower;
+                  bomb.setData('power', curPower + 1);
+                  this.spawnFloatingText(bomb.x, bomb.y - 20, '🎯 KINETIC PINBALL (+1 RANGE)!', '#fbbf24');
+                }
                 this.explodeBomb(bomb, checkR, checkC);
                 break;
               }
@@ -3325,11 +3374,20 @@ export default class GameScene extends Phaser.Scene {
       const east = pCol < COLS - 1 && this.map[pRow]?.[pCol + 1] === TILE_EMPTY;
       const isOpenCorridor = (north && south) || (west && east);
 
-      const relicRes = this.relicManager.update(delta, Date.now(), 60, isOpenCorridor);
+      const relicRes = this.relicManager.update(delta, Date.now(), this.matchSecondsRemaining ?? 60, isOpenCorridor);
       if (relicRes.solarShieldGranted) {
         this.shieldCharges = Math.min(3, this.shieldCharges + 1);
         this.hasShield = true;
         this.emitStatsUpdate();
+      }
+      if (relicRes.applyEnemySlow && this.enemies) {
+        const eChildren = this.enemies.getChildren();
+        for (let ei = 0; ei < eChildren.length; ei++) {
+          const enemy = eChildren[ei] as BaseEntity;
+          if (enemy && enemy.active && !enemy.isDead && typeof enemy.applySpeedMultiplier === 'function') {
+            enemy.applySpeedMultiplier(relicRes.slowRatio, 200);
+          }
+        }
       }
     }
 
@@ -6588,7 +6646,7 @@ export default class GameScene extends Phaser.Scene {
         actualCol,
         activeEnemies,
         this.crisisManager ? this.crisisManager.isCrisisActive() : false,
-        60,
+        this.matchSecondsRemaining ?? 60,
         Date.now()
       );
       if (psionicProc && psionicProc.affectedEnemyIds.length > 0) {
@@ -6599,9 +6657,14 @@ export default class GameScene extends Phaser.Scene {
           const e = child as BaseEntity;
           const eId = (e as unknown as { id?: string }).id || `e_${e.x}_${e.y}`;
           if (psionicProc.affectedEnemyIds.includes(eId)) {
-            const stunTarget = e as unknown as { applyStun?: (ms: number) => void };
-            if (psionicProc.isStunned && typeof stunTarget.applyStun === 'function') {
-              stunTarget.applyStun(1000);
+            if (psionicProc.isStunned) {
+              if (typeof e.applyStun === 'function') {
+                e.applyStun(1000);
+              }
+            } else {
+              if (typeof e.applySpeedMultiplier === 'function') {
+                e.applySpeedMultiplier(0.5, 1500);
+              }
             }
           }
         });
@@ -6633,6 +6696,37 @@ export default class GameScene extends Phaser.Scene {
             if (warpProc.singularityPull) {
               const angle = Phaser.Math.Angle.Between(e.x, e.y, cX, cY);
               e.setVelocity(Math.cos(angle) * 180, Math.sin(angle) * 180);
+            }
+          }
+        });
+      }
+
+      // Relic proc: Cryo Glacial Core & Thermal Shock Reaction
+      const cryoProc = this.relicManager.onBombDetonationCryoGlacial(
+        actualRow,
+        actualCol,
+        activeEnemies,
+        Date.now()
+      );
+      if (cryoProc && cryoProc.chilledEnemyIds.length > 0) {
+        const cX = actualCol * TILE_SIZE + TILE_SIZE / 2;
+        const cY = actualRow * TILE_SIZE + TILE_SIZE / 2;
+        this.spawnFloatingText(
+          cX,
+          cY - 55,
+          cryoProc.isThermalShock ? '🔥❄️ THERMAL SHATTER!' : '❄️ CRYO GLACIAL BURST!',
+          cryoProc.isThermalShock ? '#f97316' : '#38bdf8'
+        );
+        this.enemies.getChildren().forEach((child) => {
+          const e = child as BaseEntity;
+          const eId = (e as unknown as { id?: string }).id || `e_${e.x}_${e.y}`;
+          if (cryoProc.chilledEnemyIds.includes(eId)) {
+            if (typeof e.takeDamage === 'function') {
+              e.takeDamage(cryoProc.damage, 'player', this.time.now);
+            }
+            const slowable = e as unknown as { applySpeedMultiplier?: (ratio: number, durationMs: number) => void };
+            if (typeof slowable.applySpeedMultiplier === 'function') {
+              slowable.applySpeedMultiplier(1.0 - cryoProc.slowRatio, cryoProc.chillDurationMs);
             }
           }
         });
@@ -7810,15 +7904,35 @@ export default class GameScene extends Phaser.Scene {
     });
     if (hasOtherBomb) return;
 
+    // Snap orthogonal axis to tile center to prevent conveyor scraping into pillars
+    if (dirX !== 0) {
+      bomb.y = bRow * TILE_SIZE + TILE_SIZE / 2;
+    } else if (dirY !== 0) {
+      bomb.x = bCol * TILE_SIZE + TILE_SIZE / 2;
+    }
+
     // Initiate sliding bomb
     let kickSpeed = BOMB_KICK_SPEED;
+    let softBlockPierces = 0;
+    let rebounds = bomb.getData('reboundsLeft') as number | undefined;
+    if (rebounds === undefined) {
+      const bombType = bomb.getData('type') || this.activeBombType;
+      rebounds = bombType === 'RICOCHET_BOMB' ? 3 : 0;
+    }
     if (this.relicManager) {
       const relicKick = this.relicManager.onBombKicked(Date.now());
       if (relicKick.velocityPxPerSec > kickSpeed) {
         kickSpeed = relicKick.velocityPxPerSec;
+        softBlockPierces = relicKick.softBlockPierceCount;
         this.spawnFloatingText(bomb.x, bomb.y - 20, '⚙️ CLOCKWORK KICK!', '#fbbf24');
       }
+      if (this.relicManager.hasSynergy(RelicId.CLOCKWORK_SPRING, RelicId.GELATINOUS_CORE)) {
+        rebounds = Math.max(rebounds ?? 0, 2);
+        kickSpeed = Math.max(kickSpeed, 675);
+        bomb.setData('kineticPinballEnemyBonus', true);
+      }
     }
+    bomb.setData('softBlockPiercesRemaining', softBlockPierces);
     if (this.miasmaHazard && this.miasmaHazard.state !== MiasmaLifecycleState.DORMANT) {
       const kickRes = this.miasmaHazard.onBombKicked(bomb.getData('id') || 'bomb', bRow, bCol, BOMB_KICK_SPEED);
       if (kickRes.isBioSlick) {
@@ -7874,16 +7988,7 @@ export default class GameScene extends Phaser.Scene {
         }
       }
     }
-    let rebounds = bomb.getData('reboundsLeft') as number | undefined;
-    if (rebounds === undefined) {
-      const bombType = bomb.getData('type') || this.activeBombType;
-      if (bombType === 'RICOCHET_BOMB') {
-        rebounds = 3;
-      } else {
-        rebounds = 0;
-      }
-      bomb.setData('reboundsLeft', rebounds);
-    }
+    bomb.setData('reboundsLeft', rebounds);
 
     bomb.setData('isSliding', true);
     bomb.setData('slideSpeed', kickSpeed);

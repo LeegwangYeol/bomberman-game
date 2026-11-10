@@ -302,10 +302,6 @@ export class FrostHazardAudio {
       this.pool.destroy();
     }
     this.pool = null;
-    const closeable = this.ctx as unknown as { close?: () => Promise<void> } | null;
-    if (closeable && typeof closeable.close === 'function') {
-      try { void closeable.close().catch(() => {}); } catch {}
-    }
     this.ctx = null;
     if (FrostHazardAudio.instance === this) {
       FrostHazardAudio.instance = null;

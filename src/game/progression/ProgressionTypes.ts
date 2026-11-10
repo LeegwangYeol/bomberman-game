@@ -220,6 +220,7 @@ export const RelicId = {
   ORBITAL_TARGETING_CORE: 'orbital_targeting_core',
   PSIONIC_FEEDBACK_CRYSTAL: 'psionic_feedback_crystal',
   QUANTUM_WARP_PRISM: 'quantum_warp_prism',
+  CRYO_GLACIAL_CORE: 'cryo_glacial_core',
 } as const;
 
 export type RelicId = typeof RelicId[keyof typeof RelicId];
@@ -315,4 +316,8 @@ export interface RunProgressionState {
   nextCrisisCountdownMs: number;
   nextDropPodCountdownMs: number;
   crisesPurifiedCount: number;
+  activeBoons?: AppliedBoonBonuses;
+  unlockedCheckpoints?: number[];
+  isAwaitingBoonSelection?: boolean;
+  currentBoonDraftIds?: string[];
 }
