@@ -205,7 +205,7 @@ export interface AppliedPerkBonuses {
 }
 
 /* ==============================================================================
- * EQUIPPABLE RELICS (11 ARTIFACTS)
+ * EQUIPPABLE RELICS (13 ARTIFACTS)
  * ============================================================================== */
 
 export const RelicId = {
@@ -221,6 +221,7 @@ export const RelicId = {
   PSIONIC_FEEDBACK_CRYSTAL: 'psionic_feedback_crystal',
   QUANTUM_WARP_PRISM: 'quantum_warp_prism',
   CRYO_GLACIAL_CORE: 'cryo_glacial_core',
+  TESLA_OVERCHARGE_COIL: 'tesla_overcharge_coil',
 } as const;
 
 export type RelicId = typeof RelicId[keyof typeof RelicId];

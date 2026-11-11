@@ -154,9 +154,21 @@ export const RELIC_CATALOG: Record<RelicId, RelicDefinition> = {
     description: 'Sub-zero cryo containment core pulsing with absolute zero hoarfrost.',
     mechanics: 'Bomb detonations emit a 2.5-tile cryogenic frost burst, inflicting 40 frost damage and a 40% Glacial Chill slow for 2.0s.',
     internalCooldownMs: 500,
-    synergyPartners: [RelicId.PYROCLASTIC_PRISM],
+    synergyPartners: [RelicId.PYROCLASTIC_PRISM, RelicId.TESLA_OVERCHARGE_COIL],
     synergyName: 'Thermal Shock Reaction',
     synergyDescription: 'Detonating bombs triggers a rapid thermal shock reaction: chilled enemies struck by Pyroclastic flame shards suffer Thermal Shatter (+150% damage) and detonate in a 3.0-tile flash-freeze secondary frost explosion!',
+  },
+  [RelicId.TESLA_OVERCHARGE_COIL]: {
+    id: RelicId.TESLA_OVERCHARGE_COIL,
+    name: 'Tesla Overcharge Coil',
+    icon: '⚡🔋',
+    rarity: 'epic',
+    description: 'High-voltage conductive coil that overcharges cosmic discharge upon bomb detonation.',
+    mechanics: 'Bomb detonations emit chain lightning arcing to 3 targets within 3.0 tiles for 50 damage each, inflicting a 1.0s EMP shock and 50% slow, protected by a 500ms ICD guard.',
+    internalCooldownMs: 500,
+    synergyPartners: [RelicId.CRYO_GLACIAL_CORE],
+    synergyName: 'Electro-Cryo Superconductor',
+    synergyDescription: 'Chilled enemies struck by chain lightning suffer a superconductive flash overload (3.5 tile radius, 120 damage, shield shatter, 2.0s stasis freeze).',
   },
 };
 
@@ -216,6 +228,13 @@ export const SYNERGY_DEFINITIONS: RelicSynergy[] = [
     name: 'Thermal Shock Reaction',
     icon: '🔥❄️',
     description: 'Opposing thermodynamic extremes collide: chilled enemies struck by Pyroclastic flame shards suffer Thermal Shatter (+150% damage) and detonate in a 3.0-tile flash-freeze secondary frost explosion!',
+  },
+  {
+    relicA: RelicId.TESLA_OVERCHARGE_COIL,
+    relicB: RelicId.CRYO_GLACIAL_CORE,
+    name: 'Electro-Cryo Superconductor',
+    icon: '⚡❄️',
+    description: 'Opposing elements achieve superconductivity: chilled enemies struck by chain lightning suffer Superconductive Overload (+140% damage, 120 damage, 3.5-tile blast) and shatter shields!',
   },
 ];
 
@@ -821,6 +840,70 @@ export class RelicManager {
       chillDurationMs,
       slowRatio,
       isThermalShock,
+    };
+  }
+
+  /**
+   * On Bomb Detonation (Tesla Overcharge Coil)
+   * Emits high-voltage chain lightning to up to 3 non-defeated targets within 3.0 tiles
+   * (3.5 tiles with Electro-Cryo Superconductor synergy), dealing 50 damage (120 with synergy)
+   * and inflicting a 1.0s EMP shock/stun (2.0s with synergy) and 50% slow.
+   * If Electro-Cryo Superconductor synergy is active with Cryo Glacial Core, triggers Superconductive Overload.
+   */
+  public onBombDetonationTeslaCoil(
+    bombRow: number,
+    bombCol: number,
+    enemies: { id: string; r: number; c: number }[],
+    nowMs: number
+  ): {
+    triggered: boolean;
+    shockedEnemyIds: string[];
+    shockRadius: number;
+    damage: number;
+    shockDurationMs: number;
+    slowRatio: number;
+    isSuperconductor: boolean;
+  } {
+    if (!this.isEquipped(RelicId.TESLA_OVERCHARGE_COIL)) {
+      return { triggered: false, shockedEnemyIds: [], shockRadius: 0, damage: 0, shockDurationMs: 0, slowRatio: 0, isSuperconductor: false };
+    }
+
+    if (!this.checkAndSetIcd('tesla_overcharge_coil', nowMs)) {
+      return { triggered: false, shockedEnemyIds: [], shockRadius: 0, damage: 0, shockDurationMs: 0, slowRatio: 0, isSuperconductor: false };
+    }
+
+    const hasSynergy = this.hasSynergy(RelicId.TESLA_OVERCHARGE_COIL, RelicId.CRYO_GLACIAL_CORE);
+    const shockRadius = hasSynergy ? 3.5 : 3.0;
+    const damage = hasSynergy ? 120 : 50;
+    const shockDurationMs = hasSynergy ? 2000 : 1000;
+    const slowRatio = 0.50;
+    const isSuperconductor = hasSynergy;
+
+    const shockedEnemyIds: string[] = [];
+    if (Array.isArray(enemies) && Number.isFinite(bombRow) && Number.isFinite(bombCol)) {
+      const candidates: { id: string; dist: number }[] = [];
+      for (const e of enemies) {
+        if (!e || !Number.isFinite(e.r) || !Number.isFinite(e.c)) continue;
+        const dist = Math.hypot(e.r - bombRow, e.c - bombCol);
+        if (dist <= shockRadius) {
+          candidates.push({ id: e.id, dist });
+        }
+      }
+      candidates.sort((a, b) => a.dist - b.dist);
+      const targetCount = Math.min(3, candidates.length);
+      for (let i = 0; i < targetCount; i++) {
+        shockedEnemyIds.push(candidates[i].id);
+      }
+    }
+
+    return {
+      triggered: true,
+      shockedEnemyIds,
+      shockRadius,
+      damage,
+      shockDurationMs,
+      slowRatio,
+      isSuperconductor,
     };
   }
 

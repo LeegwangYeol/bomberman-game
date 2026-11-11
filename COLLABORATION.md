@@ -1740,6 +1740,36 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
 
+### 35) 일일 자율 진화 및 유지보수: 제13호 에픽 유물 테슬라 과충전 코일(Tesla Overcharge Coil) 및 제9호 시너지 전자-빙결 초전도체(Electro-Cryo Superconductor) 구현, NeutralEntities Zero-GC charCodeAt 정수 파싱, BaseEntity 속도 히스테리시스 필터, 45° 대각선 킥 조향 보정 및 입력 RAF 에포크 토큰 방어 완결 (Daily Evolution Cycle: 2026-11-12 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 30개 서브에이전트 스웜 기동 (정찰 5, 아키텍트 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결 (Creative Expansion Division)**:
+    - **제13호 장착형 에픽 유물 '테슬라 과충전 코일 (Tesla Overcharge Coil)' (`RelicSystem.ts`, `ProgressionTypes.ts`, `GameScene.ts`) 신규 설계 및 구현**:
+      - 폭탄 폭발 시 3.0타일 반경 내 최대 3명의 적군에게 50 데미지와 1.0초 EMP 스턴/감속(50%)을 연쇄 부여하는 고전압 체인 라이트닝 방출 (500ms 내부 쿨다운 ICD 가드 엄격 적용).
+      - `ProgressionTypes.ts`의 `RelicId`에 `TESLA_OVERCHARGE_COIL: 'tesla_overcharge_coil'` 정식 추가.
+    - **제9호 시너지 '전자-빙결 초전도체 (Electro-Cryo Superconductor)' 신규 설계 및 구현**:
+      - `TESLA_OVERCHARGE_COIL` (전기) + `CRYO_GLACIAL_CORE` (냉기) 결합 시너지.
+      - 빙결 상태의 적에게 연쇄 번개가 적중 시 초전도 플래시 오버로드가 발동되어 3.5타일 반경 120 데미지, 쉴드/아머 즉각 파괴, 2.0초 완전 동결 스턴 부여 (+350점, 궁극기 게이지 충전).
+      - 유물 시스템 내 13개 유물, 9개 시너지, 78개 전수 페어링 조합($13 \times 12 / 2$) 무결성 확립.
+  - **아키텍처 및 시스템 하드닝 완결 (Architect & Zero-GC Division)**:
+    - **NeutralEntities.ts Zero-GC charCodeAt 정수 파싱**:
+      - `MerchantNPC.updateAI()`의 `bombTiles instanceof Set<string>` 순회 루프에서 매 프레임 발생하던 `bKey.slice()` 및 `Number()` 부분 문자열 할당을 `charCodeAt` 기반 정수 누산기로 전면 교체하여 가비지 컬렉션(GC) 압력 원천 차단.
+    - **BaseEntity.ts 속도 히스테리시스 필터 탑재**:
+      - `updateEntity()` 내 애니메이션 이동 상태 판정에 `_isMovingAnimation` 히스테리시스 적용: 정지 $\to$ 이동 시 속도 > 2.5 px/s, 이동 $\to$ 정지 시 속도 < 1.2 px/s 임계값 분리로 모퉁이 충돌이나 감속 시의 1프레임 스프라이트 떨림(flicker) 완벽 해소.
+    - **GameScene.ts 45° 대각선 킥 조향 보정**:
+      - `tryKickBomb()` 내 `Math.abs(dx) === Math.abs(dy)` 대각선 접촉 시 기존 무조건 수직 우선 편향을 제거하고, 플레이어의 현재 진행 방향(`playerFacing`)을 결정적 타이브레이커로 활용하여 대각선 이동 중 자연스러운 의도 킥 구현.
+  - **카오스 QA 및 방어적 회귀 테스트 완결 (Chaos QA Division)**:
+    - `tests/tesla_coil_and_superconductor_synergy.test.mjs` 신규 작성 (11개 테스트 전수 통과, 78개 전수 페어링, 500ms ICD 퍼징, 10,000 프레임 소크 검증).
+    - `tests/chaos_input_raf_epoch_and_target_migration.test.mjs` 신규 작성 (7개 테스트 전수 통과, RAF 에포크 토큰 불일치 방어, 버튼 간 고속 포인터 타겟 마이그레이션, 워치독 조이스틱 격리 검증).
+    - `tests/progression.test.mjs` (35개 테스트 전수 통과, 13개 유물 및 9대 시너지 갱신).
+    - `tests/fuzz_buff_stacking.test.mjs` (21개 테스트, 13개 유물 78개 전수 페어링 조합 통과).
+    - `tests/cryo_glacial_core_and_thermal_shock_synergy.test.mjs` 및 `tests/quantum_warp_prism_synergy_regression.test.mjs` 동기화 갱신 통과.
+  - **전수 검증 지표**:
+    - 전체 회귀 테스트 배터리: **2,284 / 2,284 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,265 $\to$ 2,284로 19개 테스트 순증)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
 
 ### 23) 일일 자율 진화 및 유지보수: 제3대 행성 위기 '궤도 폭격(Orbital Bombardment)' 전용 절차적 웹오디오 신디사이저(OrbitalCrisisAudio), Wave 16 공식 프로그레션, 에픽 유물 '궤도 타겟팅 코어(Orbital Targeting Core)' 및 듀얼 시너지(Orbital Ion Strike) 완결 (Daily Evolution Cycle: 2026-10-31 — 100% COMPLETE & VERIFIED)
 - **작업 개요 및 목적**:
@@ -1770,6 +1800,36 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - 유물 및 시너지 전수 테스트: **33 / 33 PASS** (`tests/progression.test.mjs`, 9종 유물 & 5종 시너지).
     - 카오스 버프 스태킹 및 36종 페어와이즈 시너지 테스트: **21 / 21 PASS** (`tests/fuzz_buff_stacking.test.mjs`, $\binom{9}{2} = 36$ 전수 검증).
     - 전체 회귀 테스트 배터리: **2,066 / 2,066 PASS (100% 무결점 통과, 0 실패, 0 스킵)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+### 35) 일일 자율 진화 및 유지보수: 제13호 에픽 유물 테슬라 과충전 코일(Tesla Overcharge Coil) 및 제9호 시너지 전자-빙결 초전도체(Electro-Cryo Superconductor) 구현, NeutralEntities Zero-GC charCodeAt 정수 파싱, BaseEntity 속도 히스테리시스 필터, 45° 대각선 킥 조향 보정 및 입력 RAF 에포크 토큰 방어 완결 (Daily Evolution Cycle: 2026-11-12 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 30개 서브에이전트 스웜 기동 (정찰 5, 아키텍트 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결 (Creative Expansion Division)**:
+    - **제13호 장착형 에픽 유물 '테슬라 과충전 코일 (Tesla Overcharge Coil)' (`RelicSystem.ts`, `ProgressionTypes.ts`, `GameScene.ts`) 신규 설계 및 구현**:
+      - 폭탄 폭발 시 3.0타일 반경 내 최대 3명의 적군에게 50 데미지와 1.0초 EMP 스턴/감속(50%)을 연쇄 부여하는 고전압 체인 라이트닝 방출 (500ms 내부 쿨다운 ICD 가드 엄격 적용).
+      - `ProgressionTypes.ts`의 `RelicId`에 `TESLA_OVERCHARGE_COIL: 'tesla_overcharge_coil'` 정식 추가.
+    - **제9호 시너지 '전자-빙결 초전도체 (Electro-Cryo Superconductor)' 신규 설계 및 구현**:
+      - `TESLA_OVERCHARGE_COIL` (전기) + `CRYO_GLACIAL_CORE` (냉기) 결합 시너지.
+      - 빙결 상태의 적에게 연쇄 번개가 적중 시 초전도 플래시 오버로드가 발동되어 3.5타일 반경 120 데미지, 쉴드/아머 즉각 파괴, 2.0초 완전 동결 스턴 부여 (+350점, 궁극기 게이지 충전).
+      - 유물 시스템 내 13개 유물, 9개 시너지, 78개 전수 페어링 조합($13 \times 12 / 2$) 무결성 확립.
+  - **아키텍처 및 시스템 하드닝 완결 (Architect & Zero-GC Division)**:
+    - **NeutralEntities.ts Zero-GC charCodeAt 정수 파싱**:
+      - `MerchantNPC.updateAI()`의 `bombTiles instanceof Set<string>` 순회 루프에서 매 프레임 발생하던 `bKey.slice()` 및 `Number()` 부분 문자열 할당을 `charCodeAt` 기반 정수 누산기로 전면 교체하여 가비지 컬렉션(GC) 압력 원천 차단.
+    - **BaseEntity.ts 속도 히스테리시스 필터 탑재**:
+      - `updateEntity()` 내 애니메이션 이동 상태 판정에 `_isMovingAnimation` 히스테리시스 적용: 정지 $\to$ 이동 시 속도 > 2.5 px/s, 이동 $\to$ 정지 시 속도 < 1.2 px/s 임계값 분리로 모퉁이 충돌이나 감속 시의 1프레임 스프라이트 떨림(flicker) 완벽 해소.
+    - **GameScene.ts 45° 대각선 킥 조향 보정**:
+      - `tryKickBomb()` 내 `Math.abs(dx) === Math.abs(dy)` 대각선 접촉 시 기존 무조건 수직 우선 편향을 제거하고, 플레이어의 현재 진행 방향(`playerFacing`)을 결정적 타이브레이커로 활용하여 대각선 이동 중 자연스러운 의도 킥 구현.
+  - **카오스 QA 및 방어적 회귀 테스트 완결 (Chaos QA Division)**:
+    - `tests/tesla_coil_and_superconductor_synergy.test.mjs` 신규 작성 (11개 테스트 전수 통과, 78개 전수 페어링, 500ms ICD 퍼징, 10,000 프레임 소크 검증).
+    - `tests/chaos_input_raf_epoch_and_target_migration.test.mjs` 신규 작성 (7개 테스트 전수 통과, RAF 에포크 토큰 불일치 방어, 버튼 간 고속 포인터 타겟 마이그레이션, 워치독 조이스틱 격리 검증).
+    - `tests/progression.test.mjs` (35개 테스트 전수 통과, 13개 유물 및 9대 시너지 갱신).
+    - `tests/fuzz_buff_stacking.test.mjs` (21개 테스트, 13개 유물 78개 전수 페어링 조합 통과).
+    - `tests/cryo_glacial_core_and_thermal_shock_synergy.test.mjs` 및 `tests/quantum_warp_prism_synergy_regression.test.mjs` 동기화 갱신 통과.
+  - **전수 검증 지표**:
+    - 전체 회귀 테스트 배터리: **2,284 / 2,284 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,265 $\to$ 2,284로 19개 테스트 순증)**.
     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
@@ -1806,6 +1866,36 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
   - **전수 검증 지표**:
     - 신규 태양 플레어 오디오 및 아키텍처 방어 전용 11티어 테스트 스위트: **11 / 11 PASS** (`tests/solar_flare_crisis_audio.test.mjs`, 10,000 프레임 Zero-GC 소크 및 아키텍처 결함 7종 방어 검증).
     - 전체 회귀 테스트 배터리: **2,077 / 2,077 PASS (100% 무결점 통과, 0 실패, 0 스킵)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+### 35) 일일 자율 진화 및 유지보수: 제13호 에픽 유물 테슬라 과충전 코일(Tesla Overcharge Coil) 및 제9호 시너지 전자-빙결 초전도체(Electro-Cryo Superconductor) 구현, NeutralEntities Zero-GC charCodeAt 정수 파싱, BaseEntity 속도 히스테리시스 필터, 45° 대각선 킥 조향 보정 및 입력 RAF 에포크 토큰 방어 완결 (Daily Evolution Cycle: 2026-11-12 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 30개 서브에이전트 스웜 기동 (정찰 5, 아키텍트 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결 (Creative Expansion Division)**:
+    - **제13호 장착형 에픽 유물 '테슬라 과충전 코일 (Tesla Overcharge Coil)' (`RelicSystem.ts`, `ProgressionTypes.ts`, `GameScene.ts`) 신규 설계 및 구현**:
+      - 폭탄 폭발 시 3.0타일 반경 내 최대 3명의 적군에게 50 데미지와 1.0초 EMP 스턴/감속(50%)을 연쇄 부여하는 고전압 체인 라이트닝 방출 (500ms 내부 쿨다운 ICD 가드 엄격 적용).
+      - `ProgressionTypes.ts`의 `RelicId`에 `TESLA_OVERCHARGE_COIL: 'tesla_overcharge_coil'` 정식 추가.
+    - **제9호 시너지 '전자-빙결 초전도체 (Electro-Cryo Superconductor)' 신규 설계 및 구현**:
+      - `TESLA_OVERCHARGE_COIL` (전기) + `CRYO_GLACIAL_CORE` (냉기) 결합 시너지.
+      - 빙결 상태의 적에게 연쇄 번개가 적중 시 초전도 플래시 오버로드가 발동되어 3.5타일 반경 120 데미지, 쉴드/아머 즉각 파괴, 2.0초 완전 동결 스턴 부여 (+350점, 궁극기 게이지 충전).
+      - 유물 시스템 내 13개 유물, 9개 시너지, 78개 전수 페어링 조합($13 \times 12 / 2$) 무결성 확립.
+  - **아키텍처 및 시스템 하드닝 완결 (Architect & Zero-GC Division)**:
+    - **NeutralEntities.ts Zero-GC charCodeAt 정수 파싱**:
+      - `MerchantNPC.updateAI()`의 `bombTiles instanceof Set<string>` 순회 루프에서 매 프레임 발생하던 `bKey.slice()` 및 `Number()` 부분 문자열 할당을 `charCodeAt` 기반 정수 누산기로 전면 교체하여 가비지 컬렉션(GC) 압력 원천 차단.
+    - **BaseEntity.ts 속도 히스테리시스 필터 탑재**:
+      - `updateEntity()` 내 애니메이션 이동 상태 판정에 `_isMovingAnimation` 히스테리시스 적용: 정지 $\to$ 이동 시 속도 > 2.5 px/s, 이동 $\to$ 정지 시 속도 < 1.2 px/s 임계값 분리로 모퉁이 충돌이나 감속 시의 1프레임 스프라이트 떨림(flicker) 완벽 해소.
+    - **GameScene.ts 45° 대각선 킥 조향 보정**:
+      - `tryKickBomb()` 내 `Math.abs(dx) === Math.abs(dy)` 대각선 접촉 시 기존 무조건 수직 우선 편향을 제거하고, 플레이어의 현재 진행 방향(`playerFacing`)을 결정적 타이브레이커로 활용하여 대각선 이동 중 자연스러운 의도 킥 구현.
+  - **카오스 QA 및 방어적 회귀 테스트 완결 (Chaos QA Division)**:
+    - `tests/tesla_coil_and_superconductor_synergy.test.mjs` 신규 작성 (11개 테스트 전수 통과, 78개 전수 페어링, 500ms ICD 퍼징, 10,000 프레임 소크 검증).
+    - `tests/chaos_input_raf_epoch_and_target_migration.test.mjs` 신규 작성 (7개 테스트 전수 통과, RAF 에포크 토큰 불일치 방어, 버튼 간 고속 포인터 타겟 마이그레이션, 워치독 조이스틱 격리 검증).
+    - `tests/progression.test.mjs` (35개 테스트 전수 통과, 13개 유물 및 9대 시너지 갱신).
+    - `tests/fuzz_buff_stacking.test.mjs` (21개 테스트, 13개 유물 78개 전수 페어링 조합 통과).
+    - `tests/cryo_glacial_core_and_thermal_shock_synergy.test.mjs` 및 `tests/quantum_warp_prism_synergy_regression.test.mjs` 동기화 갱신 통과.
+  - **전수 검증 지표**:
+    - 전체 회귀 테스트 배터리: **2,284 / 2,284 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,265 $\to$ 2,284로 19개 테스트 순증)**.
     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
@@ -1892,6 +1982,36 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
 
+### 35) 일일 자율 진화 및 유지보수: 제13호 에픽 유물 테슬라 과충전 코일(Tesla Overcharge Coil) 및 제9호 시너지 전자-빙결 초전도체(Electro-Cryo Superconductor) 구현, NeutralEntities Zero-GC charCodeAt 정수 파싱, BaseEntity 속도 히스테리시스 필터, 45° 대각선 킥 조향 보정 및 입력 RAF 에포크 토큰 방어 완결 (Daily Evolution Cycle: 2026-11-12 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 30개 서브에이전트 스웜 기동 (정찰 5, 아키텍트 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결 (Creative Expansion Division)**:
+    - **제13호 장착형 에픽 유물 '테슬라 과충전 코일 (Tesla Overcharge Coil)' (`RelicSystem.ts`, `ProgressionTypes.ts`, `GameScene.ts`) 신규 설계 및 구현**:
+      - 폭탄 폭발 시 3.0타일 반경 내 최대 3명의 적군에게 50 데미지와 1.0초 EMP 스턴/감속(50%)을 연쇄 부여하는 고전압 체인 라이트닝 방출 (500ms 내부 쿨다운 ICD 가드 엄격 적용).
+      - `ProgressionTypes.ts`의 `RelicId`에 `TESLA_OVERCHARGE_COIL: 'tesla_overcharge_coil'` 정식 추가.
+    - **제9호 시너지 '전자-빙결 초전도체 (Electro-Cryo Superconductor)' 신규 설계 및 구현**:
+      - `TESLA_OVERCHARGE_COIL` (전기) + `CRYO_GLACIAL_CORE` (냉기) 결합 시너지.
+      - 빙결 상태의 적에게 연쇄 번개가 적중 시 초전도 플래시 오버로드가 발동되어 3.5타일 반경 120 데미지, 쉴드/아머 즉각 파괴, 2.0초 완전 동결 스턴 부여 (+350점, 궁극기 게이지 충전).
+      - 유물 시스템 내 13개 유물, 9개 시너지, 78개 전수 페어링 조합($13 \times 12 / 2$) 무결성 확립.
+  - **아키텍처 및 시스템 하드닝 완결 (Architect & Zero-GC Division)**:
+    - **NeutralEntities.ts Zero-GC charCodeAt 정수 파싱**:
+      - `MerchantNPC.updateAI()`의 `bombTiles instanceof Set<string>` 순회 루프에서 매 프레임 발생하던 `bKey.slice()` 및 `Number()` 부분 문자열 할당을 `charCodeAt` 기반 정수 누산기로 전면 교체하여 가비지 컬렉션(GC) 압력 원천 차단.
+    - **BaseEntity.ts 속도 히스테리시스 필터 탑재**:
+      - `updateEntity()` 내 애니메이션 이동 상태 판정에 `_isMovingAnimation` 히스테리시스 적용: 정지 $\to$ 이동 시 속도 > 2.5 px/s, 이동 $\to$ 정지 시 속도 < 1.2 px/s 임계값 분리로 모퉁이 충돌이나 감속 시의 1프레임 스프라이트 떨림(flicker) 완벽 해소.
+    - **GameScene.ts 45° 대각선 킥 조향 보정**:
+      - `tryKickBomb()` 내 `Math.abs(dx) === Math.abs(dy)` 대각선 접촉 시 기존 무조건 수직 우선 편향을 제거하고, 플레이어의 현재 진행 방향(`playerFacing`)을 결정적 타이브레이커로 활용하여 대각선 이동 중 자연스러운 의도 킥 구현.
+  - **카오스 QA 및 방어적 회귀 테스트 완결 (Chaos QA Division)**:
+    - `tests/tesla_coil_and_superconductor_synergy.test.mjs` 신규 작성 (11개 테스트 전수 통과, 78개 전수 페어링, 500ms ICD 퍼징, 10,000 프레임 소크 검증).
+    - `tests/chaos_input_raf_epoch_and_target_migration.test.mjs` 신규 작성 (7개 테스트 전수 통과, RAF 에포크 토큰 불일치 방어, 버튼 간 고속 포인터 타겟 마이그레이션, 워치독 조이스틱 격리 검증).
+    - `tests/progression.test.mjs` (35개 테스트 전수 통과, 13개 유물 및 9대 시너지 갱신).
+    - `tests/fuzz_buff_stacking.test.mjs` (21개 테스트, 13개 유물 78개 전수 페어링 조합 통과).
+    - `tests/cryo_glacial_core_and_thermal_shock_synergy.test.mjs` 및 `tests/quantum_warp_prism_synergy_regression.test.mjs` 동기화 갱신 통과.
+  - **전수 검증 지표**:
+    - 전체 회귀 테스트 배터리: **2,284 / 2,284 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,265 $\to$ 2,284로 19개 테스트 순증)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
 
 ### 23) 일일 자율 진화 및 유지보수: 제3대 행성 위기 '궤도 폭격(Orbital Bombardment)' 전용 절차적 웹오디오 신디사이저(OrbitalCrisisAudio), Wave 16 공식 프로그레션, 에픽 유물 '궤도 타겟팅 코어(Orbital Targeting Core)' 및 듀얼 시너지(Orbital Ion Strike) 완결 (Daily Evolution Cycle: 2026-10-31 — 100% COMPLETE & VERIFIED)
 - **작업 개요 및 목적**:
@@ -1922,6 +2042,36 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - 유물 및 시너지 전수 테스트: **33 / 33 PASS** (`tests/progression.test.mjs`, 9종 유물 & 5종 시너지).
     - 카오스 버프 스태킹 및 36종 페어와이즈 시너지 테스트: **21 / 21 PASS** (`tests/fuzz_buff_stacking.test.mjs`, $\binom{9}{2} = 36$ 전수 검증).
     - 전체 회귀 테스트 배터리: **2,066 / 2,066 PASS (100% 무결점 통과, 0 실패, 0 스킵)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+### 35) 일일 자율 진화 및 유지보수: 제13호 에픽 유물 테슬라 과충전 코일(Tesla Overcharge Coil) 및 제9호 시너지 전자-빙결 초전도체(Electro-Cryo Superconductor) 구현, NeutralEntities Zero-GC charCodeAt 정수 파싱, BaseEntity 속도 히스테리시스 필터, 45° 대각선 킥 조향 보정 및 입력 RAF 에포크 토큰 방어 완결 (Daily Evolution Cycle: 2026-11-12 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 30개 서브에이전트 스웜 기동 (정찰 5, 아키텍트 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결 (Creative Expansion Division)**:
+    - **제13호 장착형 에픽 유물 '테슬라 과충전 코일 (Tesla Overcharge Coil)' (`RelicSystem.ts`, `ProgressionTypes.ts`, `GameScene.ts`) 신규 설계 및 구현**:
+      - 폭탄 폭발 시 3.0타일 반경 내 최대 3명의 적군에게 50 데미지와 1.0초 EMP 스턴/감속(50%)을 연쇄 부여하는 고전압 체인 라이트닝 방출 (500ms 내부 쿨다운 ICD 가드 엄격 적용).
+      - `ProgressionTypes.ts`의 `RelicId`에 `TESLA_OVERCHARGE_COIL: 'tesla_overcharge_coil'` 정식 추가.
+    - **제9호 시너지 '전자-빙결 초전도체 (Electro-Cryo Superconductor)' 신규 설계 및 구현**:
+      - `TESLA_OVERCHARGE_COIL` (전기) + `CRYO_GLACIAL_CORE` (냉기) 결합 시너지.
+      - 빙결 상태의 적에게 연쇄 번개가 적중 시 초전도 플래시 오버로드가 발동되어 3.5타일 반경 120 데미지, 쉴드/아머 즉각 파괴, 2.0초 완전 동결 스턴 부여 (+350점, 궁극기 게이지 충전).
+      - 유물 시스템 내 13개 유물, 9개 시너지, 78개 전수 페어링 조합($13 \times 12 / 2$) 무결성 확립.
+  - **아키텍처 및 시스템 하드닝 완결 (Architect & Zero-GC Division)**:
+    - **NeutralEntities.ts Zero-GC charCodeAt 정수 파싱**:
+      - `MerchantNPC.updateAI()`의 `bombTiles instanceof Set<string>` 순회 루프에서 매 프레임 발생하던 `bKey.slice()` 및 `Number()` 부분 문자열 할당을 `charCodeAt` 기반 정수 누산기로 전면 교체하여 가비지 컬렉션(GC) 압력 원천 차단.
+    - **BaseEntity.ts 속도 히스테리시스 필터 탑재**:
+      - `updateEntity()` 내 애니메이션 이동 상태 판정에 `_isMovingAnimation` 히스테리시스 적용: 정지 $\to$ 이동 시 속도 > 2.5 px/s, 이동 $\to$ 정지 시 속도 < 1.2 px/s 임계값 분리로 모퉁이 충돌이나 감속 시의 1프레임 스프라이트 떨림(flicker) 완벽 해소.
+    - **GameScene.ts 45° 대각선 킥 조향 보정**:
+      - `tryKickBomb()` 내 `Math.abs(dx) === Math.abs(dy)` 대각선 접촉 시 기존 무조건 수직 우선 편향을 제거하고, 플레이어의 현재 진행 방향(`playerFacing`)을 결정적 타이브레이커로 활용하여 대각선 이동 중 자연스러운 의도 킥 구현.
+  - **카오스 QA 및 방어적 회귀 테스트 완결 (Chaos QA Division)**:
+    - `tests/tesla_coil_and_superconductor_synergy.test.mjs` 신규 작성 (11개 테스트 전수 통과, 78개 전수 페어링, 500ms ICD 퍼징, 10,000 프레임 소크 검증).
+    - `tests/chaos_input_raf_epoch_and_target_migration.test.mjs` 신규 작성 (7개 테스트 전수 통과, RAF 에포크 토큰 불일치 방어, 버튼 간 고속 포인터 타겟 마이그레이션, 워치독 조이스틱 격리 검증).
+    - `tests/progression.test.mjs` (35개 테스트 전수 통과, 13개 유물 및 9대 시너지 갱신).
+    - `tests/fuzz_buff_stacking.test.mjs` (21개 테스트, 13개 유물 78개 전수 페어링 조합 통과).
+    - `tests/cryo_glacial_core_and_thermal_shock_synergy.test.mjs` 및 `tests/quantum_warp_prism_synergy_regression.test.mjs` 동기화 갱신 통과.
+  - **전수 검증 지표**:
+    - 전체 회귀 테스트 배터리: **2,284 / 2,284 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,265 $\to$ 2,284로 19개 테스트 순증)**.
     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
@@ -1962,6 +2112,36 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
 
+### 35) 일일 자율 진화 및 유지보수: 제13호 에픽 유물 테슬라 과충전 코일(Tesla Overcharge Coil) 및 제9호 시너지 전자-빙결 초전도체(Electro-Cryo Superconductor) 구현, NeutralEntities Zero-GC charCodeAt 정수 파싱, BaseEntity 속도 히스테리시스 필터, 45° 대각선 킥 조향 보정 및 입력 RAF 에포크 토큰 방어 완결 (Daily Evolution Cycle: 2026-11-12 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 30개 서브에이전트 스웜 기동 (정찰 5, 아키텍트 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결 (Creative Expansion Division)**:
+    - **제13호 장착형 에픽 유물 '테슬라 과충전 코일 (Tesla Overcharge Coil)' (`RelicSystem.ts`, `ProgressionTypes.ts`, `GameScene.ts`) 신규 설계 및 구현**:
+      - 폭탄 폭발 시 3.0타일 반경 내 최대 3명의 적군에게 50 데미지와 1.0초 EMP 스턴/감속(50%)을 연쇄 부여하는 고전압 체인 라이트닝 방출 (500ms 내부 쿨다운 ICD 가드 엄격 적용).
+      - `ProgressionTypes.ts`의 `RelicId`에 `TESLA_OVERCHARGE_COIL: 'tesla_overcharge_coil'` 정식 추가.
+    - **제9호 시너지 '전자-빙결 초전도체 (Electro-Cryo Superconductor)' 신규 설계 및 구현**:
+      - `TESLA_OVERCHARGE_COIL` (전기) + `CRYO_GLACIAL_CORE` (냉기) 결합 시너지.
+      - 빙결 상태의 적에게 연쇄 번개가 적중 시 초전도 플래시 오버로드가 발동되어 3.5타일 반경 120 데미지, 쉴드/아머 즉각 파괴, 2.0초 완전 동결 스턴 부여 (+350점, 궁극기 게이지 충전).
+      - 유물 시스템 내 13개 유물, 9개 시너지, 78개 전수 페어링 조합($13 \times 12 / 2$) 무결성 확립.
+  - **아키텍처 및 시스템 하드닝 완결 (Architect & Zero-GC Division)**:
+    - **NeutralEntities.ts Zero-GC charCodeAt 정수 파싱**:
+      - `MerchantNPC.updateAI()`의 `bombTiles instanceof Set<string>` 순회 루프에서 매 프레임 발생하던 `bKey.slice()` 및 `Number()` 부분 문자열 할당을 `charCodeAt` 기반 정수 누산기로 전면 교체하여 가비지 컬렉션(GC) 압력 원천 차단.
+    - **BaseEntity.ts 속도 히스테리시스 필터 탑재**:
+      - `updateEntity()` 내 애니메이션 이동 상태 판정에 `_isMovingAnimation` 히스테리시스 적용: 정지 $\to$ 이동 시 속도 > 2.5 px/s, 이동 $\to$ 정지 시 속도 < 1.2 px/s 임계값 분리로 모퉁이 충돌이나 감속 시의 1프레임 스프라이트 떨림(flicker) 완벽 해소.
+    - **GameScene.ts 45° 대각선 킥 조향 보정**:
+      - `tryKickBomb()` 내 `Math.abs(dx) === Math.abs(dy)` 대각선 접촉 시 기존 무조건 수직 우선 편향을 제거하고, 플레이어의 현재 진행 방향(`playerFacing`)을 결정적 타이브레이커로 활용하여 대각선 이동 중 자연스러운 의도 킥 구현.
+  - **카오스 QA 및 방어적 회귀 테스트 완결 (Chaos QA Division)**:
+    - `tests/tesla_coil_and_superconductor_synergy.test.mjs` 신규 작성 (11개 테스트 전수 통과, 78개 전수 페어링, 500ms ICD 퍼징, 10,000 프레임 소크 검증).
+    - `tests/chaos_input_raf_epoch_and_target_migration.test.mjs` 신규 작성 (7개 테스트 전수 통과, RAF 에포크 토큰 불일치 방어, 버튼 간 고속 포인터 타겟 마이그레이션, 워치독 조이스틱 격리 검증).
+    - `tests/progression.test.mjs` (35개 테스트 전수 통과, 13개 유물 및 9대 시너지 갱신).
+    - `tests/fuzz_buff_stacking.test.mjs` (21개 테스트, 13개 유물 78개 전수 페어링 조합 통과).
+    - `tests/cryo_glacial_core_and_thermal_shock_synergy.test.mjs` 및 `tests/quantum_warp_prism_synergy_regression.test.mjs` 동기화 갱신 통과.
+  - **전수 검증 지표**:
+    - 전체 회귀 테스트 배터리: **2,284 / 2,284 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,265 $\to$ 2,284로 19개 테스트 순증)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
 
 
 
@@ -1994,6 +2174,36 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
 
+### 35) 일일 자율 진화 및 유지보수: 제13호 에픽 유물 테슬라 과충전 코일(Tesla Overcharge Coil) 및 제9호 시너지 전자-빙결 초전도체(Electro-Cryo Superconductor) 구현, NeutralEntities Zero-GC charCodeAt 정수 파싱, BaseEntity 속도 히스테리시스 필터, 45° 대각선 킥 조향 보정 및 입력 RAF 에포크 토큰 방어 완결 (Daily Evolution Cycle: 2026-11-12 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 30개 서브에이전트 스웜 기동 (정찰 5, 아키텍트 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결 (Creative Expansion Division)**:
+    - **제13호 장착형 에픽 유물 '테슬라 과충전 코일 (Tesla Overcharge Coil)' (`RelicSystem.ts`, `ProgressionTypes.ts`, `GameScene.ts`) 신규 설계 및 구현**:
+      - 폭탄 폭발 시 3.0타일 반경 내 최대 3명의 적군에게 50 데미지와 1.0초 EMP 스턴/감속(50%)을 연쇄 부여하는 고전압 체인 라이트닝 방출 (500ms 내부 쿨다운 ICD 가드 엄격 적용).
+      - `ProgressionTypes.ts`의 `RelicId`에 `TESLA_OVERCHARGE_COIL: 'tesla_overcharge_coil'` 정식 추가.
+    - **제9호 시너지 '전자-빙결 초전도체 (Electro-Cryo Superconductor)' 신규 설계 및 구현**:
+      - `TESLA_OVERCHARGE_COIL` (전기) + `CRYO_GLACIAL_CORE` (냉기) 결합 시너지.
+      - 빙결 상태의 적에게 연쇄 번개가 적중 시 초전도 플래시 오버로드가 발동되어 3.5타일 반경 120 데미지, 쉴드/아머 즉각 파괴, 2.0초 완전 동결 스턴 부여 (+350점, 궁극기 게이지 충전).
+      - 유물 시스템 내 13개 유물, 9개 시너지, 78개 전수 페어링 조합($13 \times 12 / 2$) 무결성 확립.
+  - **아키텍처 및 시스템 하드닝 완결 (Architect & Zero-GC Division)**:
+    - **NeutralEntities.ts Zero-GC charCodeAt 정수 파싱**:
+      - `MerchantNPC.updateAI()`의 `bombTiles instanceof Set<string>` 순회 루프에서 매 프레임 발생하던 `bKey.slice()` 및 `Number()` 부분 문자열 할당을 `charCodeAt` 기반 정수 누산기로 전면 교체하여 가비지 컬렉션(GC) 압력 원천 차단.
+    - **BaseEntity.ts 속도 히스테리시스 필터 탑재**:
+      - `updateEntity()` 내 애니메이션 이동 상태 판정에 `_isMovingAnimation` 히스테리시스 적용: 정지 $\to$ 이동 시 속도 > 2.5 px/s, 이동 $\to$ 정지 시 속도 < 1.2 px/s 임계값 분리로 모퉁이 충돌이나 감속 시의 1프레임 스프라이트 떨림(flicker) 완벽 해소.
+    - **GameScene.ts 45° 대각선 킥 조향 보정**:
+      - `tryKickBomb()` 내 `Math.abs(dx) === Math.abs(dy)` 대각선 접촉 시 기존 무조건 수직 우선 편향을 제거하고, 플레이어의 현재 진행 방향(`playerFacing`)을 결정적 타이브레이커로 활용하여 대각선 이동 중 자연스러운 의도 킥 구현.
+  - **카오스 QA 및 방어적 회귀 테스트 완결 (Chaos QA Division)**:
+    - `tests/tesla_coil_and_superconductor_synergy.test.mjs` 신규 작성 (11개 테스트 전수 통과, 78개 전수 페어링, 500ms ICD 퍼징, 10,000 프레임 소크 검증).
+    - `tests/chaos_input_raf_epoch_and_target_migration.test.mjs` 신규 작성 (7개 테스트 전수 통과, RAF 에포크 토큰 불일치 방어, 버튼 간 고속 포인터 타겟 마이그레이션, 워치독 조이스틱 격리 검증).
+    - `tests/progression.test.mjs` (35개 테스트 전수 통과, 13개 유물 및 9대 시너지 갱신).
+    - `tests/fuzz_buff_stacking.test.mjs` (21개 테스트, 13개 유물 78개 전수 페어링 조합 통과).
+    - `tests/cryo_glacial_core_and_thermal_shock_synergy.test.mjs` 및 `tests/quantum_warp_prism_synergy_regression.test.mjs` 동기화 갱신 통과.
+  - **전수 검증 지표**:
+    - 전체 회귀 테스트 배터리: **2,284 / 2,284 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,265 $\to$ 2,284로 19개 테스트 순증)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
 
 ### 26) 일일 자율 진화 및 유지보수: 제6대 행성 위기 '차원 균열 전도(Dimensional Rift Inversion)' 전용 절차적 웹오디오 신디사이저(RiftCrisisAudio), Wave 28 위기 진행 및 양자 동기화 첨탑/공간 왜곡 완성 (Daily Evolution Cycle: 2026-11-03 — 100% COMPLETE & VERIFIED)
 - **작업 개요 및 목적**:
@@ -2021,6 +2231,36 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
   - **전수 검증 지표**:
     - 신규 차원 균열 오디오 및 아키텍처 방어 전용 11티어 테스트 스위트: **11 / 11 PASS** (`tests/rift_crisis_audio.test.mjs`, 10,000 프레임 Zero-GC 소크 및 아키텍처 결함 방어 검증).
     - 전체 회귀 테스트 배터리: **2,100+ / 2,100+ PASS (100% 무결점 통과, 0 실패, 0 스킵)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+### 35) 일일 자율 진화 및 유지보수: 제13호 에픽 유물 테슬라 과충전 코일(Tesla Overcharge Coil) 및 제9호 시너지 전자-빙결 초전도체(Electro-Cryo Superconductor) 구현, NeutralEntities Zero-GC charCodeAt 정수 파싱, BaseEntity 속도 히스테리시스 필터, 45° 대각선 킥 조향 보정 및 입력 RAF 에포크 토큰 방어 완결 (Daily Evolution Cycle: 2026-11-12 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 30개 서브에이전트 스웜 기동 (정찰 5, 아키텍트 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결 (Creative Expansion Division)**:
+    - **제13호 장착형 에픽 유물 '테슬라 과충전 코일 (Tesla Overcharge Coil)' (`RelicSystem.ts`, `ProgressionTypes.ts`, `GameScene.ts`) 신규 설계 및 구현**:
+      - 폭탄 폭발 시 3.0타일 반경 내 최대 3명의 적군에게 50 데미지와 1.0초 EMP 스턴/감속(50%)을 연쇄 부여하는 고전압 체인 라이트닝 방출 (500ms 내부 쿨다운 ICD 가드 엄격 적용).
+      - `ProgressionTypes.ts`의 `RelicId`에 `TESLA_OVERCHARGE_COIL: 'tesla_overcharge_coil'` 정식 추가.
+    - **제9호 시너지 '전자-빙결 초전도체 (Electro-Cryo Superconductor)' 신규 설계 및 구현**:
+      - `TESLA_OVERCHARGE_COIL` (전기) + `CRYO_GLACIAL_CORE` (냉기) 결합 시너지.
+      - 빙결 상태의 적에게 연쇄 번개가 적중 시 초전도 플래시 오버로드가 발동되어 3.5타일 반경 120 데미지, 쉴드/아머 즉각 파괴, 2.0초 완전 동결 스턴 부여 (+350점, 궁극기 게이지 충전).
+      - 유물 시스템 내 13개 유물, 9개 시너지, 78개 전수 페어링 조합($13 \times 12 / 2$) 무결성 확립.
+  - **아키텍처 및 시스템 하드닝 완결 (Architect & Zero-GC Division)**:
+    - **NeutralEntities.ts Zero-GC charCodeAt 정수 파싱**:
+      - `MerchantNPC.updateAI()`의 `bombTiles instanceof Set<string>` 순회 루프에서 매 프레임 발생하던 `bKey.slice()` 및 `Number()` 부분 문자열 할당을 `charCodeAt` 기반 정수 누산기로 전면 교체하여 가비지 컬렉션(GC) 압력 원천 차단.
+    - **BaseEntity.ts 속도 히스테리시스 필터 탑재**:
+      - `updateEntity()` 내 애니메이션 이동 상태 판정에 `_isMovingAnimation` 히스테리시스 적용: 정지 $\to$ 이동 시 속도 > 2.5 px/s, 이동 $\to$ 정지 시 속도 < 1.2 px/s 임계값 분리로 모퉁이 충돌이나 감속 시의 1프레임 스프라이트 떨림(flicker) 완벽 해소.
+    - **GameScene.ts 45° 대각선 킥 조향 보정**:
+      - `tryKickBomb()` 내 `Math.abs(dx) === Math.abs(dy)` 대각선 접촉 시 기존 무조건 수직 우선 편향을 제거하고, 플레이어의 현재 진행 방향(`playerFacing`)을 결정적 타이브레이커로 활용하여 대각선 이동 중 자연스러운 의도 킥 구현.
+  - **카오스 QA 및 방어적 회귀 테스트 완결 (Chaos QA Division)**:
+    - `tests/tesla_coil_and_superconductor_synergy.test.mjs` 신규 작성 (11개 테스트 전수 통과, 78개 전수 페어링, 500ms ICD 퍼징, 10,000 프레임 소크 검증).
+    - `tests/chaos_input_raf_epoch_and_target_migration.test.mjs` 신규 작성 (7개 테스트 전수 통과, RAF 에포크 토큰 불일치 방어, 버튼 간 고속 포인터 타겟 마이그레이션, 워치독 조이스틱 격리 검증).
+    - `tests/progression.test.mjs` (35개 테스트 전수 통과, 13개 유물 및 9대 시너지 갱신).
+    - `tests/fuzz_buff_stacking.test.mjs` (21개 테스트, 13개 유물 78개 전수 페어링 조합 통과).
+    - `tests/cryo_glacial_core_and_thermal_shock_synergy.test.mjs` 및 `tests/quantum_warp_prism_synergy_regression.test.mjs` 동기화 갱신 통과.
+  - **전수 검증 지표**:
+    - 전체 회귀 테스트 배터리: **2,284 / 2,284 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,265 $\to$ 2,284로 19개 테스트 순증)**.
     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
@@ -2083,6 +2323,36 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
 
+### 35) 일일 자율 진화 및 유지보수: 제13호 에픽 유물 테슬라 과충전 코일(Tesla Overcharge Coil) 및 제9호 시너지 전자-빙결 초전도체(Electro-Cryo Superconductor) 구현, NeutralEntities Zero-GC charCodeAt 정수 파싱, BaseEntity 속도 히스테리시스 필터, 45° 대각선 킥 조향 보정 및 입력 RAF 에포크 토큰 방어 완결 (Daily Evolution Cycle: 2026-11-12 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 30개 서브에이전트 스웜 기동 (정찰 5, 아키텍트 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결 (Creative Expansion Division)**:
+    - **제13호 장착형 에픽 유물 '테슬라 과충전 코일 (Tesla Overcharge Coil)' (`RelicSystem.ts`, `ProgressionTypes.ts`, `GameScene.ts`) 신규 설계 및 구현**:
+      - 폭탄 폭발 시 3.0타일 반경 내 최대 3명의 적군에게 50 데미지와 1.0초 EMP 스턴/감속(50%)을 연쇄 부여하는 고전압 체인 라이트닝 방출 (500ms 내부 쿨다운 ICD 가드 엄격 적용).
+      - `ProgressionTypes.ts`의 `RelicId`에 `TESLA_OVERCHARGE_COIL: 'tesla_overcharge_coil'` 정식 추가.
+    - **제9호 시너지 '전자-빙결 초전도체 (Electro-Cryo Superconductor)' 신규 설계 및 구현**:
+      - `TESLA_OVERCHARGE_COIL` (전기) + `CRYO_GLACIAL_CORE` (냉기) 결합 시너지.
+      - 빙결 상태의 적에게 연쇄 번개가 적중 시 초전도 플래시 오버로드가 발동되어 3.5타일 반경 120 데미지, 쉴드/아머 즉각 파괴, 2.0초 완전 동결 스턴 부여 (+350점, 궁극기 게이지 충전).
+      - 유물 시스템 내 13개 유물, 9개 시너지, 78개 전수 페어링 조합($13 \times 12 / 2$) 무결성 확립.
+  - **아키텍처 및 시스템 하드닝 완결 (Architect & Zero-GC Division)**:
+    - **NeutralEntities.ts Zero-GC charCodeAt 정수 파싱**:
+      - `MerchantNPC.updateAI()`의 `bombTiles instanceof Set<string>` 순회 루프에서 매 프레임 발생하던 `bKey.slice()` 및 `Number()` 부분 문자열 할당을 `charCodeAt` 기반 정수 누산기로 전면 교체하여 가비지 컬렉션(GC) 압력 원천 차단.
+    - **BaseEntity.ts 속도 히스테리시스 필터 탑재**:
+      - `updateEntity()` 내 애니메이션 이동 상태 판정에 `_isMovingAnimation` 히스테리시스 적용: 정지 $\to$ 이동 시 속도 > 2.5 px/s, 이동 $\to$ 정지 시 속도 < 1.2 px/s 임계값 분리로 모퉁이 충돌이나 감속 시의 1프레임 스프라이트 떨림(flicker) 완벽 해소.
+    - **GameScene.ts 45° 대각선 킥 조향 보정**:
+      - `tryKickBomb()` 내 `Math.abs(dx) === Math.abs(dy)` 대각선 접촉 시 기존 무조건 수직 우선 편향을 제거하고, 플레이어의 현재 진행 방향(`playerFacing`)을 결정적 타이브레이커로 활용하여 대각선 이동 중 자연스러운 의도 킥 구현.
+  - **카오스 QA 및 방어적 회귀 테스트 완결 (Chaos QA Division)**:
+    - `tests/tesla_coil_and_superconductor_synergy.test.mjs` 신규 작성 (11개 테스트 전수 통과, 78개 전수 페어링, 500ms ICD 퍼징, 10,000 프레임 소크 검증).
+    - `tests/chaos_input_raf_epoch_and_target_migration.test.mjs` 신규 작성 (7개 테스트 전수 통과, RAF 에포크 토큰 불일치 방어, 버튼 간 고속 포인터 타겟 마이그레이션, 워치독 조이스틱 격리 검증).
+    - `tests/progression.test.mjs` (35개 테스트 전수 통과, 13개 유물 및 9대 시너지 갱신).
+    - `tests/fuzz_buff_stacking.test.mjs` (21개 테스트, 13개 유물 78개 전수 페어링 조합 통과).
+    - `tests/cryo_glacial_core_and_thermal_shock_synergy.test.mjs` 및 `tests/quantum_warp_prism_synergy_regression.test.mjs` 동기화 갱신 통과.
+  - **전수 검증 지표**:
+    - 전체 회귀 테스트 배터리: **2,284 / 2,284 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,265 $\to$ 2,284로 19개 테스트 순증)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
 
 ### 29) 일일 자율 진화 및 유지보수: 킹 구미 베어(GummyBearBoss) 전용 100% 절차적 웹오디오 신디사이저(GummyBearAudio), 젤라틴 물리 방어 하드닝 및 오디오 라이프사이클 워든 전수 감사 확장 (Daily Evolution Cycle: 2026-11-06 — 100% COMPLETE & VERIFIED)
 - **작업 개요 및 목적**:
@@ -2109,6 +2379,36 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
   - **전수 검증 지표**:
     - 신규 킹 구미 베어 전용 11티어 테스트 스위트: **11 / 11 PASS** (`tests/gummy_bear_audio.test.mjs`, 10,000 프레임 Zero-GC 소크 및 아키텍처 방어 검증).
     - 전체 회귀 테스트 배터리: **2,131 / 2,131 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,120 $\to$ 2,131으로 11개 테스트 순증)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+### 35) 일일 자율 진화 및 유지보수: 제13호 에픽 유물 테슬라 과충전 코일(Tesla Overcharge Coil) 및 제9호 시너지 전자-빙결 초전도체(Electro-Cryo Superconductor) 구현, NeutralEntities Zero-GC charCodeAt 정수 파싱, BaseEntity 속도 히스테리시스 필터, 45° 대각선 킥 조향 보정 및 입력 RAF 에포크 토큰 방어 완결 (Daily Evolution Cycle: 2026-11-12 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 30개 서브에이전트 스웜 기동 (정찰 5, 아키텍트 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결 (Creative Expansion Division)**:
+    - **제13호 장착형 에픽 유물 '테슬라 과충전 코일 (Tesla Overcharge Coil)' (`RelicSystem.ts`, `ProgressionTypes.ts`, `GameScene.ts`) 신규 설계 및 구현**:
+      - 폭탄 폭발 시 3.0타일 반경 내 최대 3명의 적군에게 50 데미지와 1.0초 EMP 스턴/감속(50%)을 연쇄 부여하는 고전압 체인 라이트닝 방출 (500ms 내부 쿨다운 ICD 가드 엄격 적용).
+      - `ProgressionTypes.ts`의 `RelicId`에 `TESLA_OVERCHARGE_COIL: 'tesla_overcharge_coil'` 정식 추가.
+    - **제9호 시너지 '전자-빙결 초전도체 (Electro-Cryo Superconductor)' 신규 설계 및 구현**:
+      - `TESLA_OVERCHARGE_COIL` (전기) + `CRYO_GLACIAL_CORE` (냉기) 결합 시너지.
+      - 빙결 상태의 적에게 연쇄 번개가 적중 시 초전도 플래시 오버로드가 발동되어 3.5타일 반경 120 데미지, 쉴드/아머 즉각 파괴, 2.0초 완전 동결 스턴 부여 (+350점, 궁극기 게이지 충전).
+      - 유물 시스템 내 13개 유물, 9개 시너지, 78개 전수 페어링 조합($13 \times 12 / 2$) 무결성 확립.
+  - **아키텍처 및 시스템 하드닝 완결 (Architect & Zero-GC Division)**:
+    - **NeutralEntities.ts Zero-GC charCodeAt 정수 파싱**:
+      - `MerchantNPC.updateAI()`의 `bombTiles instanceof Set<string>` 순회 루프에서 매 프레임 발생하던 `bKey.slice()` 및 `Number()` 부분 문자열 할당을 `charCodeAt` 기반 정수 누산기로 전면 교체하여 가비지 컬렉션(GC) 압력 원천 차단.
+    - **BaseEntity.ts 속도 히스테리시스 필터 탑재**:
+      - `updateEntity()` 내 애니메이션 이동 상태 판정에 `_isMovingAnimation` 히스테리시스 적용: 정지 $\to$ 이동 시 속도 > 2.5 px/s, 이동 $\to$ 정지 시 속도 < 1.2 px/s 임계값 분리로 모퉁이 충돌이나 감속 시의 1프레임 스프라이트 떨림(flicker) 완벽 해소.
+    - **GameScene.ts 45° 대각선 킥 조향 보정**:
+      - `tryKickBomb()` 내 `Math.abs(dx) === Math.abs(dy)` 대각선 접촉 시 기존 무조건 수직 우선 편향을 제거하고, 플레이어의 현재 진행 방향(`playerFacing`)을 결정적 타이브레이커로 활용하여 대각선 이동 중 자연스러운 의도 킥 구현.
+  - **카오스 QA 및 방어적 회귀 테스트 완결 (Chaos QA Division)**:
+    - `tests/tesla_coil_and_superconductor_synergy.test.mjs` 신규 작성 (11개 테스트 전수 통과, 78개 전수 페어링, 500ms ICD 퍼징, 10,000 프레임 소크 검증).
+    - `tests/chaos_input_raf_epoch_and_target_migration.test.mjs` 신규 작성 (7개 테스트 전수 통과, RAF 에포크 토큰 불일치 방어, 버튼 간 고속 포인터 타겟 마이그레이션, 워치독 조이스틱 격리 검증).
+    - `tests/progression.test.mjs` (35개 테스트 전수 통과, 13개 유물 및 9대 시너지 갱신).
+    - `tests/fuzz_buff_stacking.test.mjs` (21개 테스트, 13개 유물 78개 전수 페어링 조합 통과).
+    - `tests/cryo_glacial_core_and_thermal_shock_synergy.test.mjs` 및 `tests/quantum_warp_prism_synergy_regression.test.mjs` 동기화 갱신 통과.
+  - **전수 검증 지표**:
+    - 전체 회귀 테스트 배터리: **2,284 / 2,284 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,265 $\to$ 2,284로 19개 테스트 순증)**.
     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
@@ -2144,6 +2444,36 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
 
+### 35) 일일 자율 진화 및 유지보수: 제13호 에픽 유물 테슬라 과충전 코일(Tesla Overcharge Coil) 및 제9호 시너지 전자-빙결 초전도체(Electro-Cryo Superconductor) 구현, NeutralEntities Zero-GC charCodeAt 정수 파싱, BaseEntity 속도 히스테리시스 필터, 45° 대각선 킥 조향 보정 및 입력 RAF 에포크 토큰 방어 완결 (Daily Evolution Cycle: 2026-11-12 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 30개 서브에이전트 스웜 기동 (정찰 5, 아키텍트 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결 (Creative Expansion Division)**:
+    - **제13호 장착형 에픽 유물 '테슬라 과충전 코일 (Tesla Overcharge Coil)' (`RelicSystem.ts`, `ProgressionTypes.ts`, `GameScene.ts`) 신규 설계 및 구현**:
+      - 폭탄 폭발 시 3.0타일 반경 내 최대 3명의 적군에게 50 데미지와 1.0초 EMP 스턴/감속(50%)을 연쇄 부여하는 고전압 체인 라이트닝 방출 (500ms 내부 쿨다운 ICD 가드 엄격 적용).
+      - `ProgressionTypes.ts`의 `RelicId`에 `TESLA_OVERCHARGE_COIL: 'tesla_overcharge_coil'` 정식 추가.
+    - **제9호 시너지 '전자-빙결 초전도체 (Electro-Cryo Superconductor)' 신규 설계 및 구현**:
+      - `TESLA_OVERCHARGE_COIL` (전기) + `CRYO_GLACIAL_CORE` (냉기) 결합 시너지.
+      - 빙결 상태의 적에게 연쇄 번개가 적중 시 초전도 플래시 오버로드가 발동되어 3.5타일 반경 120 데미지, 쉴드/아머 즉각 파괴, 2.0초 완전 동결 스턴 부여 (+350점, 궁극기 게이지 충전).
+      - 유물 시스템 내 13개 유물, 9개 시너지, 78개 전수 페어링 조합($13 \times 12 / 2$) 무결성 확립.
+  - **아키텍처 및 시스템 하드닝 완결 (Architect & Zero-GC Division)**:
+    - **NeutralEntities.ts Zero-GC charCodeAt 정수 파싱**:
+      - `MerchantNPC.updateAI()`의 `bombTiles instanceof Set<string>` 순회 루프에서 매 프레임 발생하던 `bKey.slice()` 및 `Number()` 부분 문자열 할당을 `charCodeAt` 기반 정수 누산기로 전면 교체하여 가비지 컬렉션(GC) 압력 원천 차단.
+    - **BaseEntity.ts 속도 히스테리시스 필터 탑재**:
+      - `updateEntity()` 내 애니메이션 이동 상태 판정에 `_isMovingAnimation` 히스테리시스 적용: 정지 $\to$ 이동 시 속도 > 2.5 px/s, 이동 $\to$ 정지 시 속도 < 1.2 px/s 임계값 분리로 모퉁이 충돌이나 감속 시의 1프레임 스프라이트 떨림(flicker) 완벽 해소.
+    - **GameScene.ts 45° 대각선 킥 조향 보정**:
+      - `tryKickBomb()` 내 `Math.abs(dx) === Math.abs(dy)` 대각선 접촉 시 기존 무조건 수직 우선 편향을 제거하고, 플레이어의 현재 진행 방향(`playerFacing`)을 결정적 타이브레이커로 활용하여 대각선 이동 중 자연스러운 의도 킥 구현.
+  - **카오스 QA 및 방어적 회귀 테스트 완결 (Chaos QA Division)**:
+    - `tests/tesla_coil_and_superconductor_synergy.test.mjs` 신규 작성 (11개 테스트 전수 통과, 78개 전수 페어링, 500ms ICD 퍼징, 10,000 프레임 소크 검증).
+    - `tests/chaos_input_raf_epoch_and_target_migration.test.mjs` 신규 작성 (7개 테스트 전수 통과, RAF 에포크 토큰 불일치 방어, 버튼 간 고속 포인터 타겟 마이그레이션, 워치독 조이스틱 격리 검증).
+    - `tests/progression.test.mjs` (35개 테스트 전수 통과, 13개 유물 및 9대 시너지 갱신).
+    - `tests/fuzz_buff_stacking.test.mjs` (21개 테스트, 13개 유물 78개 전수 페어링 조합 통과).
+    - `tests/cryo_glacial_core_and_thermal_shock_synergy.test.mjs` 및 `tests/quantum_warp_prism_synergy_regression.test.mjs` 동기화 갱신 통과.
+  - **전수 검증 지표**:
+    - 전체 회귀 테스트 배터리: **2,284 / 2,284 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,265 $\to$ 2,284로 19개 테스트 순증)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
 
 ### 31) 일일 자율 진화 및 유지보수: 중력 특이점(GravityHazard) 전용 100% 절차적 웹오디오 신디사이저(GravityHazardAudio) 개발, 전사 오디오 워든 감사 22대 신디사이저 전수 편입 및 10대 해저드 전수 오디오화 완결 (Daily Evolution Cycle: 2026-11-08 — 100% COMPLETE & VERIFIED)
 - **작업 개요 및 목적**:
@@ -2168,6 +2498,36 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
   - **전수 검증 지표**:
     - 신규 중력 특이점 전용 11티어 테스트 스위트: **11 / 11 PASS** (`tests/gravity_hazard_audio.test.mjs`, 10,000 프레임 Zero-GC 소크 및 아키텍처 방어 검증).
     - 전체 회귀 테스트 배터리: **2,153 / 2,153 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,142 $\to$ 2,153으로 11개 테스트 순증)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+### 35) 일일 자율 진화 및 유지보수: 제13호 에픽 유물 테슬라 과충전 코일(Tesla Overcharge Coil) 및 제9호 시너지 전자-빙결 초전도체(Electro-Cryo Superconductor) 구현, NeutralEntities Zero-GC charCodeAt 정수 파싱, BaseEntity 속도 히스테리시스 필터, 45° 대각선 킥 조향 보정 및 입력 RAF 에포크 토큰 방어 완결 (Daily Evolution Cycle: 2026-11-12 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 30개 서브에이전트 스웜 기동 (정찰 5, 아키텍트 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결 (Creative Expansion Division)**:
+    - **제13호 장착형 에픽 유물 '테슬라 과충전 코일 (Tesla Overcharge Coil)' (`RelicSystem.ts`, `ProgressionTypes.ts`, `GameScene.ts`) 신규 설계 및 구현**:
+      - 폭탄 폭발 시 3.0타일 반경 내 최대 3명의 적군에게 50 데미지와 1.0초 EMP 스턴/감속(50%)을 연쇄 부여하는 고전압 체인 라이트닝 방출 (500ms 내부 쿨다운 ICD 가드 엄격 적용).
+      - `ProgressionTypes.ts`의 `RelicId`에 `TESLA_OVERCHARGE_COIL: 'tesla_overcharge_coil'` 정식 추가.
+    - **제9호 시너지 '전자-빙결 초전도체 (Electro-Cryo Superconductor)' 신규 설계 및 구현**:
+      - `TESLA_OVERCHARGE_COIL` (전기) + `CRYO_GLACIAL_CORE` (냉기) 결합 시너지.
+      - 빙결 상태의 적에게 연쇄 번개가 적중 시 초전도 플래시 오버로드가 발동되어 3.5타일 반경 120 데미지, 쉴드/아머 즉각 파괴, 2.0초 완전 동결 스턴 부여 (+350점, 궁극기 게이지 충전).
+      - 유물 시스템 내 13개 유물, 9개 시너지, 78개 전수 페어링 조합($13 \times 12 / 2$) 무결성 확립.
+  - **아키텍처 및 시스템 하드닝 완결 (Architect & Zero-GC Division)**:
+    - **NeutralEntities.ts Zero-GC charCodeAt 정수 파싱**:
+      - `MerchantNPC.updateAI()`의 `bombTiles instanceof Set<string>` 순회 루프에서 매 프레임 발생하던 `bKey.slice()` 및 `Number()` 부분 문자열 할당을 `charCodeAt` 기반 정수 누산기로 전면 교체하여 가비지 컬렉션(GC) 압력 원천 차단.
+    - **BaseEntity.ts 속도 히스테리시스 필터 탑재**:
+      - `updateEntity()` 내 애니메이션 이동 상태 판정에 `_isMovingAnimation` 히스테리시스 적용: 정지 $\to$ 이동 시 속도 > 2.5 px/s, 이동 $\to$ 정지 시 속도 < 1.2 px/s 임계값 분리로 모퉁이 충돌이나 감속 시의 1프레임 스프라이트 떨림(flicker) 완벽 해소.
+    - **GameScene.ts 45° 대각선 킥 조향 보정**:
+      - `tryKickBomb()` 내 `Math.abs(dx) === Math.abs(dy)` 대각선 접촉 시 기존 무조건 수직 우선 편향을 제거하고, 플레이어의 현재 진행 방향(`playerFacing`)을 결정적 타이브레이커로 활용하여 대각선 이동 중 자연스러운 의도 킥 구현.
+  - **카오스 QA 및 방어적 회귀 테스트 완결 (Chaos QA Division)**:
+    - `tests/tesla_coil_and_superconductor_synergy.test.mjs` 신규 작성 (11개 테스트 전수 통과, 78개 전수 페어링, 500ms ICD 퍼징, 10,000 프레임 소크 검증).
+    - `tests/chaos_input_raf_epoch_and_target_migration.test.mjs` 신규 작성 (7개 테스트 전수 통과, RAF 에포크 토큰 불일치 방어, 버튼 간 고속 포인터 타겟 마이그레이션, 워치독 조이스틱 격리 검증).
+    - `tests/progression.test.mjs` (35개 테스트 전수 통과, 13개 유물 및 9대 시너지 갱신).
+    - `tests/fuzz_buff_stacking.test.mjs` (21개 테스트, 13개 유물 78개 전수 페어링 조합 통과).
+    - `tests/cryo_glacial_core_and_thermal_shock_synergy.test.mjs` 및 `tests/quantum_warp_prism_synergy_regression.test.mjs` 동기화 갱신 통과.
+  - **전수 검증 지표**:
+    - 전체 회귀 테스트 배터리: **2,284 / 2,284 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,265 $\to$ 2,284로 19개 테스트 순증)**.
     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
@@ -2210,6 +2570,36 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
 
+### 35) 일일 자율 진화 및 유지보수: 제13호 에픽 유물 테슬라 과충전 코일(Tesla Overcharge Coil) 및 제9호 시너지 전자-빙결 초전도체(Electro-Cryo Superconductor) 구현, NeutralEntities Zero-GC charCodeAt 정수 파싱, BaseEntity 속도 히스테리시스 필터, 45° 대각선 킥 조향 보정 및 입력 RAF 에포크 토큰 방어 완결 (Daily Evolution Cycle: 2026-11-12 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 30개 서브에이전트 스웜 기동 (정찰 5, 아키텍트 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결 (Creative Expansion Division)**:
+    - **제13호 장착형 에픽 유물 '테슬라 과충전 코일 (Tesla Overcharge Coil)' (`RelicSystem.ts`, `ProgressionTypes.ts`, `GameScene.ts`) 신규 설계 및 구현**:
+      - 폭탄 폭발 시 3.0타일 반경 내 최대 3명의 적군에게 50 데미지와 1.0초 EMP 스턴/감속(50%)을 연쇄 부여하는 고전압 체인 라이트닝 방출 (500ms 내부 쿨다운 ICD 가드 엄격 적용).
+      - `ProgressionTypes.ts`의 `RelicId`에 `TESLA_OVERCHARGE_COIL: 'tesla_overcharge_coil'` 정식 추가.
+    - **제9호 시너지 '전자-빙결 초전도체 (Electro-Cryo Superconductor)' 신규 설계 및 구현**:
+      - `TESLA_OVERCHARGE_COIL` (전기) + `CRYO_GLACIAL_CORE` (냉기) 결합 시너지.
+      - 빙결 상태의 적에게 연쇄 번개가 적중 시 초전도 플래시 오버로드가 발동되어 3.5타일 반경 120 데미지, 쉴드/아머 즉각 파괴, 2.0초 완전 동결 스턴 부여 (+350점, 궁극기 게이지 충전).
+      - 유물 시스템 내 13개 유물, 9개 시너지, 78개 전수 페어링 조합($13 \times 12 / 2$) 무결성 확립.
+  - **아키텍처 및 시스템 하드닝 완결 (Architect & Zero-GC Division)**:
+    - **NeutralEntities.ts Zero-GC charCodeAt 정수 파싱**:
+      - `MerchantNPC.updateAI()`의 `bombTiles instanceof Set<string>` 순회 루프에서 매 프레임 발생하던 `bKey.slice()` 및 `Number()` 부분 문자열 할당을 `charCodeAt` 기반 정수 누산기로 전면 교체하여 가비지 컬렉션(GC) 압력 원천 차단.
+    - **BaseEntity.ts 속도 히스테리시스 필터 탑재**:
+      - `updateEntity()` 내 애니메이션 이동 상태 판정에 `_isMovingAnimation` 히스테리시스 적용: 정지 $\to$ 이동 시 속도 > 2.5 px/s, 이동 $\to$ 정지 시 속도 < 1.2 px/s 임계값 분리로 모퉁이 충돌이나 감속 시의 1프레임 스프라이트 떨림(flicker) 완벽 해소.
+    - **GameScene.ts 45° 대각선 킥 조향 보정**:
+      - `tryKickBomb()` 내 `Math.abs(dx) === Math.abs(dy)` 대각선 접촉 시 기존 무조건 수직 우선 편향을 제거하고, 플레이어의 현재 진행 방향(`playerFacing`)을 결정적 타이브레이커로 활용하여 대각선 이동 중 자연스러운 의도 킥 구현.
+  - **카오스 QA 및 방어적 회귀 테스트 완결 (Chaos QA Division)**:
+    - `tests/tesla_coil_and_superconductor_synergy.test.mjs` 신규 작성 (11개 테스트 전수 통과, 78개 전수 페어링, 500ms ICD 퍼징, 10,000 프레임 소크 검증).
+    - `tests/chaos_input_raf_epoch_and_target_migration.test.mjs` 신규 작성 (7개 테스트 전수 통과, RAF 에포크 토큰 불일치 방어, 버튼 간 고속 포인터 타겟 마이그레이션, 워치독 조이스틱 격리 검증).
+    - `tests/progression.test.mjs` (35개 테스트 전수 통과, 13개 유물 및 9대 시너지 갱신).
+    - `tests/fuzz_buff_stacking.test.mjs` (21개 테스트, 13개 유물 78개 전수 페어링 조합 통과).
+    - `tests/cryo_glacial_core_and_thermal_shock_synergy.test.mjs` 및 `tests/quantum_warp_prism_synergy_regression.test.mjs` 동기화 갱신 통과.
+  - **전수 검증 지표**:
+    - 전체 회귀 테스트 배터리: **2,284 / 2,284 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,265 $\to$ 2,284로 19개 테스트 순증)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
 ### 33) 일일 자율 진화 및 유지보수: 제11호 유물 양자 워프 프리즘(Quantum Warp Prism) 및 제7호 시너지 양자 사건의 지평선(Quantum Event Horizon) 구현, 적/중립 엔티티 Zero-GC 불변 벡터 최적화, AudioVoicePool 우선순위 선점 및 런타임 유물 훅 완결 (Daily Evolution Cycle: 2026-11-10 — 100% COMPLETE & VERIFIED)
 - **작업 개요 및 목적**:
   - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 대규모 35개 서브에이전트 스웜 기동 (정찰 5, 아키텍트 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
@@ -2246,6 +2636,36 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - `tests/progression.test.mjs` (11개 유물 및 7대 시너지 갱신 통과).
   - **전수 검증 지표**:
     - 전체 회귀 테스트 배터리: **2,255 / 2,255 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,157 $\to$ 2,255로 98개 테스트 순증)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+### 35) 일일 자율 진화 및 유지보수: 제13호 에픽 유물 테슬라 과충전 코일(Tesla Overcharge Coil) 및 제9호 시너지 전자-빙결 초전도체(Electro-Cryo Superconductor) 구현, NeutralEntities Zero-GC charCodeAt 정수 파싱, BaseEntity 속도 히스테리시스 필터, 45° 대각선 킥 조향 보정 및 입력 RAF 에포크 토큰 방어 완결 (Daily Evolution Cycle: 2026-11-12 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 30개 서브에이전트 스웜 기동 (정찰 5, 아키텍트 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결 (Creative Expansion Division)**:
+    - **제13호 장착형 에픽 유물 '테슬라 과충전 코일 (Tesla Overcharge Coil)' (`RelicSystem.ts`, `ProgressionTypes.ts`, `GameScene.ts`) 신규 설계 및 구현**:
+      - 폭탄 폭발 시 3.0타일 반경 내 최대 3명의 적군에게 50 데미지와 1.0초 EMP 스턴/감속(50%)을 연쇄 부여하는 고전압 체인 라이트닝 방출 (500ms 내부 쿨다운 ICD 가드 엄격 적용).
+      - `ProgressionTypes.ts`의 `RelicId`에 `TESLA_OVERCHARGE_COIL: 'tesla_overcharge_coil'` 정식 추가.
+    - **제9호 시너지 '전자-빙결 초전도체 (Electro-Cryo Superconductor)' 신규 설계 및 구현**:
+      - `TESLA_OVERCHARGE_COIL` (전기) + `CRYO_GLACIAL_CORE` (냉기) 결합 시너지.
+      - 빙결 상태의 적에게 연쇄 번개가 적중 시 초전도 플래시 오버로드가 발동되어 3.5타일 반경 120 데미지, 쉴드/아머 즉각 파괴, 2.0초 완전 동결 스턴 부여 (+350점, 궁극기 게이지 충전).
+      - 유물 시스템 내 13개 유물, 9개 시너지, 78개 전수 페어링 조합($13 \times 12 / 2$) 무결성 확립.
+  - **아키텍처 및 시스템 하드닝 완결 (Architect & Zero-GC Division)**:
+    - **NeutralEntities.ts Zero-GC charCodeAt 정수 파싱**:
+      - `MerchantNPC.updateAI()`의 `bombTiles instanceof Set<string>` 순회 루프에서 매 프레임 발생하던 `bKey.slice()` 및 `Number()` 부분 문자열 할당을 `charCodeAt` 기반 정수 누산기로 전면 교체하여 가비지 컬렉션(GC) 압력 원천 차단.
+    - **BaseEntity.ts 속도 히스테리시스 필터 탑재**:
+      - `updateEntity()` 내 애니메이션 이동 상태 판정에 `_isMovingAnimation` 히스테리시스 적용: 정지 $\to$ 이동 시 속도 > 2.5 px/s, 이동 $\to$ 정지 시 속도 < 1.2 px/s 임계값 분리로 모퉁이 충돌이나 감속 시의 1프레임 스프라이트 떨림(flicker) 완벽 해소.
+    - **GameScene.ts 45° 대각선 킥 조향 보정**:
+      - `tryKickBomb()` 내 `Math.abs(dx) === Math.abs(dy)` 대각선 접촉 시 기존 무조건 수직 우선 편향을 제거하고, 플레이어의 현재 진행 방향(`playerFacing`)을 결정적 타이브레이커로 활용하여 대각선 이동 중 자연스러운 의도 킥 구현.
+  - **카오스 QA 및 방어적 회귀 테스트 완결 (Chaos QA Division)**:
+    - `tests/tesla_coil_and_superconductor_synergy.test.mjs` 신규 작성 (11개 테스트 전수 통과, 78개 전수 페어링, 500ms ICD 퍼징, 10,000 프레임 소크 검증).
+    - `tests/chaos_input_raf_epoch_and_target_migration.test.mjs` 신규 작성 (7개 테스트 전수 통과, RAF 에포크 토큰 불일치 방어, 버튼 간 고속 포인터 타겟 마이그레이션, 워치독 조이스틱 격리 검증).
+    - `tests/progression.test.mjs` (35개 테스트 전수 통과, 13개 유물 및 9대 시너지 갱신).
+    - `tests/fuzz_buff_stacking.test.mjs` (21개 테스트, 13개 유물 78개 전수 페어링 조합 통과).
+    - `tests/cryo_glacial_core_and_thermal_shock_synergy.test.mjs` 및 `tests/quantum_warp_prism_synergy_regression.test.mjs` 동기화 갱신 통과.
+  - **전수 검증 지표**:
+    - 전체 회귀 테스트 배터리: **2,284 / 2,284 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,265 $\to$ 2,284로 19개 테스트 순증)**.
     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
@@ -2296,6 +2716,36 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - `tests/bosses.test.mjs` 및 `tests/boss_anti_exploit_hazard_guards.test.mjs` (40개 테스트 전수 통과).
   - **전수 검증 지표**:
     - 전체 회귀 테스트 배터리: **2,265 / 2,265 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,255 $\to$ 2,265로 10개 테스트 순증)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+### 35) 일일 자율 진화 및 유지보수: 제13호 에픽 유물 테슬라 과충전 코일(Tesla Overcharge Coil) 및 제9호 시너지 전자-빙결 초전도체(Electro-Cryo Superconductor) 구현, NeutralEntities Zero-GC charCodeAt 정수 파싱, BaseEntity 속도 히스테리시스 필터, 45° 대각선 킥 조향 보정 및 입력 RAF 에포크 토큰 방어 완결 (Daily Evolution Cycle: 2026-11-12 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 30개 서브에이전트 스웜 기동 (정찰 5, 아키텍트 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결 (Creative Expansion Division)**:
+    - **제13호 장착형 에픽 유물 '테슬라 과충전 코일 (Tesla Overcharge Coil)' (`RelicSystem.ts`, `ProgressionTypes.ts`, `GameScene.ts`) 신규 설계 및 구현**:
+      - 폭탄 폭발 시 3.0타일 반경 내 최대 3명의 적군에게 50 데미지와 1.0초 EMP 스턴/감속(50%)을 연쇄 부여하는 고전압 체인 라이트닝 방출 (500ms 내부 쿨다운 ICD 가드 엄격 적용).
+      - `ProgressionTypes.ts`의 `RelicId`에 `TESLA_OVERCHARGE_COIL: 'tesla_overcharge_coil'` 정식 추가.
+    - **제9호 시너지 '전자-빙결 초전도체 (Electro-Cryo Superconductor)' 신규 설계 및 구현**:
+      - `TESLA_OVERCHARGE_COIL` (전기) + `CRYO_GLACIAL_CORE` (냉기) 결합 시너지.
+      - 빙결 상태의 적에게 연쇄 번개가 적중 시 초전도 플래시 오버로드가 발동되어 3.5타일 반경 120 데미지, 쉴드/아머 즉각 파괴, 2.0초 완전 동결 스턴 부여 (+350점, 궁극기 게이지 충전).
+      - 유물 시스템 내 13개 유물, 9개 시너지, 78개 전수 페어링 조합($13 \times 12 / 2$) 무결성 확립.
+  - **아키텍처 및 시스템 하드닝 완결 (Architect & Zero-GC Division)**:
+    - **NeutralEntities.ts Zero-GC charCodeAt 정수 파싱**:
+      - `MerchantNPC.updateAI()`의 `bombTiles instanceof Set<string>` 순회 루프에서 매 프레임 발생하던 `bKey.slice()` 및 `Number()` 부분 문자열 할당을 `charCodeAt` 기반 정수 누산기로 전면 교체하여 가비지 컬렉션(GC) 압력 원천 차단.
+    - **BaseEntity.ts 속도 히스테리시스 필터 탑재**:
+      - `updateEntity()` 내 애니메이션 이동 상태 판정에 `_isMovingAnimation` 히스테리시스 적용: 정지 $\to$ 이동 시 속도 > 2.5 px/s, 이동 $\to$ 정지 시 속도 < 1.2 px/s 임계값 분리로 모퉁이 충돌이나 감속 시의 1프레임 스프라이트 떨림(flicker) 완벽 해소.
+    - **GameScene.ts 45° 대각선 킥 조향 보정**:
+      - `tryKickBomb()` 내 `Math.abs(dx) === Math.abs(dy)` 대각선 접촉 시 기존 무조건 수직 우선 편향을 제거하고, 플레이어의 현재 진행 방향(`playerFacing`)을 결정적 타이브레이커로 활용하여 대각선 이동 중 자연스러운 의도 킥 구현.
+  - **카오스 QA 및 방어적 회귀 테스트 완결 (Chaos QA Division)**:
+    - `tests/tesla_coil_and_superconductor_synergy.test.mjs` 신규 작성 (11개 테스트 전수 통과, 78개 전수 페어링, 500ms ICD 퍼징, 10,000 프레임 소크 검증).
+    - `tests/chaos_input_raf_epoch_and_target_migration.test.mjs` 신규 작성 (7개 테스트 전수 통과, RAF 에포크 토큰 불일치 방어, 버튼 간 고속 포인터 타겟 마이그레이션, 워치독 조이스틱 격리 검증).
+    - `tests/progression.test.mjs` (35개 테스트 전수 통과, 13개 유물 및 9대 시너지 갱신).
+    - `tests/fuzz_buff_stacking.test.mjs` (21개 테스트, 13개 유물 78개 전수 페어링 조합 통과).
+    - `tests/cryo_glacial_core_and_thermal_shock_synergy.test.mjs` 및 `tests/quantum_warp_prism_synergy_regression.test.mjs` 동기화 갱신 통과.
+  - **전수 검증 지표**:
+    - 전체 회귀 테스트 배터리: **2,284 / 2,284 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,265 $\to$ 2,284로 19개 테스트 순증)**.
     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.

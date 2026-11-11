@@ -126,9 +126,9 @@ test('Tier 1: Confectionery Perk Tree defines 16 perks across 4 distinct branche
   assert.equal(branches[PerkBranch.ALCHEMY], 4);
 });
 
-test('Tier 1: Relic Catalog defines 12 distinct artifacts with 500ms ICD', () => {
+test('Tier 1: Relic Catalog defines 13 distinct artifacts with 500ms ICD', () => {
   const allRelics = Object.values(RELIC_CATALOG);
-  assert.equal(allRelics.length, 12, 'Must define exactly 12 relics');
+  assert.equal(allRelics.length, 13, 'Must define exactly 13 relics');
 
   for (const r of allRelics) {
     assert.ok(r.id.length > 0);
@@ -141,8 +141,8 @@ test('Tier 1: Relic Catalog defines 12 distinct artifacts with 500ms ICD', () =>
   }
 });
 
-test('Tier 1: Synergy Catalog defines 8 unique pairwise synergies', () => {
-  assert.equal(SYNERGY_DEFINITIONS.length, 8, 'Must define 8 pairwise synergies');
+test('Tier 1: Synergy Catalog defines 9 unique pairwise synergies', () => {
+  assert.equal(SYNERGY_DEFINITIONS.length, 9, 'Must define 9 pairwise synergies');
 
   const expected = [
     'Radiant Leech',
@@ -153,6 +153,7 @@ test('Tier 1: Synergy Catalog defines 8 unique pairwise synergies', () => {
     'Precognitive Resonance',
     'Quantum Event Horizon',
     'Thermal Shock Reaction',
+    'Electro-Cryo Superconductor',
   ];
   for (const s of SYNERGY_DEFINITIONS) {
     assert.ok(expected.includes(s.name));
@@ -569,6 +570,46 @@ test('Tier 4: Relic Triggers: Quantum Warp Prism and Quantum Event Horizon syner
   assert.equal(empowered.singularityPull, true);
   assert.equal(empowered.isEmpowered, true);
   assert.deepEqual(empowered.warpedEnemyIds.sort(), ['far_1', 'near_1', 'near_2']);
+});
+
+test('Tier 4: Relic Triggers: Tesla Overcharge Coil and Electro-Cryo Superconductor synergy', () => {
+  const rm = new RelicManager([RelicId.TESLA_OVERCHARGE_COIL], 1);
+  const enemies = [
+    { id: 'near_1', r: 5, c: 6 }, // dist 1.0
+    { id: 'near_2', r: 6, c: 6 }, // dist 1.414
+    { id: 'mid_1', r: 5, c: 7.5 }, // dist 2.5
+    { id: 'far_1', r: 5, c: 9 },  // dist 4.0
+  ];
+
+  // 1. Standalone: 3.0 tile radius, 50 damage, up to 3 targets, 1000ms shock
+  const standalone = rm.onBombDetonationTeslaCoil(5, 5, enemies, 1000);
+  assert.equal(standalone.triggered, true);
+  assert.equal(standalone.shockRadius, 3.0);
+  assert.equal(standalone.damage, 50);
+  assert.equal(standalone.shockDurationMs, 1000);
+  assert.equal(standalone.slowRatio, 0.50);
+  assert.equal(standalone.isSuperconductor, false);
+  assert.equal(standalone.shockedEnemyIds.length, 3);
+  assert.deepEqual(standalone.shockedEnemyIds, ['near_1', 'near_2', 'mid_1']);
+
+  // 2. 500ms ICD suppression (<500ms)
+  const suppressed = rm.onBombDetonationTeslaCoil(5, 5, enemies, 1200);
+  assert.equal(suppressed.triggered, false);
+  assert.equal(suppressed.shockedEnemyIds.length, 0);
+
+  // 3. With Electro-Cryo Superconductor synergy (TESLA_OVERCHARGE_COIL + CRYO_GLACIAL_CORE)
+  rm.setMaxSlots(2);
+  rm.equipRelic(RelicId.CRYO_GLACIAL_CORE);
+  assert.equal(rm.hasSynergy(RelicId.TESLA_OVERCHARGE_COIL, RelicId.CRYO_GLACIAL_CORE), true);
+
+  const superconductor = rm.onBombDetonationTeslaCoil(5, 5, enemies, 2000);
+  assert.equal(superconductor.triggered, true);
+  assert.equal(superconductor.shockRadius, 3.5);
+  assert.equal(superconductor.damage, 120);
+  assert.equal(superconductor.shockDurationMs, 2000);
+  assert.equal(superconductor.slowRatio, 0.50);
+  assert.equal(superconductor.isSuperconductor, true);
+  assert.deepEqual(superconductor.shockedEnemyIds, ['near_1', 'near_2', 'mid_1']);
 });
 
 test('Tier 4: Relic Drop Generator: Boss guarantee and chest drop chances', () => {

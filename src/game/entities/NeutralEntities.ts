@@ -130,9 +130,26 @@ export class MerchantNPC extends BaseEntity {
       for (const bKey of bombTiles) {
         const comma = bKey.indexOf(',');
         if (comma !== -1) {
-          const br = Number(bKey.slice(0, comma));
-          const bc = Number(bKey.slice(comma + 1));
-          if (Number.isFinite(br) && Number.isFinite(bc)) {
+          // Zero-GC parsing: accumulator without substring allocations
+          let br = 0;
+          let validR = false;
+          for (let i = 0; i < comma; i++) {
+            const code = bKey.charCodeAt(i);
+            if (code >= 48 && code <= 57) {
+              br = br * 10 + (code - 48);
+              validR = true;
+            }
+          }
+          let bc = 0;
+          let validC = false;
+          for (let i = comma + 1; i < bKey.length; i++) {
+            const code = bKey.charCodeAt(i);
+            if (code >= 48 && code <= 57) {
+              bc = bc * 10 + (code - 48);
+              validC = true;
+            }
+          }
+          if (validR && validC) {
             if (Math.abs(mr - br) + Math.abs(mc - bc) <= 4) {
               nearBomb = true;
             }

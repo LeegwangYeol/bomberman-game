@@ -101,6 +101,7 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
   public baseScaleX: number = 1.0;
   public baseScaleY: number = 1.0;
   private _isSquashStretching: boolean = false;
+  protected _isMovingAnimation: boolean = false;
   public dropShadow?: Phaser.GameObjects.Sprite;
 
   public override setVelocity(x?: number, y?: number): this {
@@ -359,7 +360,17 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
     }
     const vx = body ? body.velocity.x : 0;
     const vy = body ? body.velocity.y : 0;
-    const isMoving = Math.abs(vx) > 1 || Math.abs(vy) > 1;
+    const currentSpeed = Math.hypot(vx, vy);
+    if (this._isMovingAnimation) {
+      if (currentSpeed < 1.2) {
+        this._isMovingAnimation = false;
+      }
+    } else {
+      if (currentSpeed > 2.5) {
+        this._isMovingAnimation = true;
+      }
+    }
+    const isMoving = this._isMovingAnimation;
 
     const typeLower = this.normalizedEntityType;
     if (typeLower === 'ghost') {

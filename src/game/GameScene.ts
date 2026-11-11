@@ -6732,6 +6732,43 @@ export default class GameScene extends Phaser.Scene {
         });
       }
 
+      // Relic proc: Tesla Overcharge Coil & Electro-Cryo Superconductor
+      const teslaProc = this.relicManager.onBombDetonationTeslaCoil(
+        actualRow,
+        actualCol,
+        activeEnemies,
+        Date.now()
+      );
+      if (teslaProc && teslaProc.shockedEnemyIds.length > 0) {
+        const cX = actualCol * TILE_SIZE + TILE_SIZE / 2;
+        const cY = actualRow * TILE_SIZE + TILE_SIZE / 2;
+        this.spawnFloatingText(
+          cX,
+          cY - 70,
+          teslaProc.isSuperconductor ? '⚡❄️ SUPERCONDUCTOR!' : '⚡ CHAIN LIGHTNING!',
+          teslaProc.isSuperconductor ? '#38bdf8' : '#facc15'
+        );
+        this.score += teslaProc.isSuperconductor ? 350 : 150;
+        this.addUltimateCharge(5);
+        this.emitStatsUpdate();
+
+        this.enemies.getChildren().forEach((child) => {
+          const e = child as BaseEntity;
+          const eId = (e as unknown as { id?: string }).id || `e_${e.x}_${e.y}`;
+          if (teslaProc.shockedEnemyIds.includes(eId)) {
+            if (typeof e.takeDamage === 'function') {
+              e.takeDamage(teslaProc.damage, 'player', this.time.now);
+            }
+            if (typeof e.applySpeedMultiplier === 'function') {
+              e.applySpeedMultiplier(1.0 - teslaProc.slowRatio, teslaProc.shockDurationMs);
+            }
+            if (typeof e.applyStun === 'function') {
+              e.applyStun(teslaProc.isSuperconductor ? 2000 : 1000);
+            }
+          }
+        });
+      }
+
       // Relic proc: Orbital Targeting Core
       const orbitalProc = this.relicManager.onBombDetonationOrbitalTargeting(
         actualRow,
@@ -7868,9 +7905,23 @@ export default class GameScene extends Phaser.Scene {
     const dx = bomb.x - player.x;
     const dy = bomb.y - player.y;
 
-    if (Math.abs(dx) > Math.abs(dy)) {
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+
+    if (absDx > absDy) {
       dirX = Math.sign(dx);
-    } else if (Math.abs(dy) > 0) {
+    } else if (absDy > absDx) {
+      dirY = Math.sign(dy);
+    } else if (absDx > 0 && absDy > 0) {
+      // 45° diagonal tie: use playerFacing as decisive tie-breaker if aligned
+      if ((this.playerFacing === 'left' && dx < 0) || (this.playerFacing === 'right' && dx > 0)) {
+        dirX = Math.sign(dx);
+      } else if ((this.playerFacing === 'up' && dy < 0) || (this.playerFacing === 'down' && dy > 0)) {
+        dirY = Math.sign(dy);
+      } else {
+        dirY = Math.sign(dy);
+      }
+    } else if (absDy > 0) {
       dirY = Math.sign(dy);
     } else {
       switch (this.playerFacing) {
