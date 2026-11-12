@@ -6769,6 +6769,43 @@ export default class GameScene extends Phaser.Scene {
         });
       }
 
+      // Relic proc: Corrosive Miasmic Flask & Bio-Electric Neuro-Overload
+      const miasmaProc = this.relicManager.onBombDetonationMiasmicFlask(
+        actualRow,
+        actualCol,
+        activeEnemies,
+        Date.now()
+      );
+      if (miasmaProc && miasmaProc.poisonedEnemyIds.length > 0) {
+        const cX = actualCol * TILE_SIZE + TILE_SIZE / 2;
+        const cY = actualRow * TILE_SIZE + TILE_SIZE / 2;
+        this.spawnFloatingText(
+          cX,
+          cY - 85,
+          miasmaProc.isNeuroOverload ? '⚡☣️ NEURO-OVERLOAD!' : '☣️ MIASMIC CORROSION!',
+          miasmaProc.isNeuroOverload ? '#a855f7' : '#10b981'
+        );
+        this.score += miasmaProc.isNeuroOverload ? 350 : 150;
+        this.addUltimateCharge(5);
+        this.emitStatsUpdate();
+
+        this.enemies.getChildren().forEach((child) => {
+          const e = child as BaseEntity;
+          const eId = (e as unknown as { id?: string }).id || `e_${e.x}_${e.y}`;
+          if (miasmaProc.poisonedEnemyIds.includes(eId)) {
+            if (typeof e.takeDamage === 'function') {
+              e.takeDamage(miasmaProc.damage, 'player', this.time.now);
+            }
+            if (typeof e.applySpeedMultiplier === 'function') {
+              e.applySpeedMultiplier(1.0 - miasmaProc.slowRatio, miasmaProc.poisonDurationMs);
+            }
+            if (miasmaProc.isNeuroOverload && typeof e.applyStun === 'function') {
+              e.applyStun(2000);
+            }
+          }
+        });
+      }
+
       // Relic proc: Orbital Targeting Core
       const orbitalProc = this.relicManager.onBombDetonationOrbitalTargeting(
         actualRow,

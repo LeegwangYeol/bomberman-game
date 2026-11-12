@@ -1000,6 +1000,7 @@ export class GravityHazardAudio {
     this.clearPendingNodes();
     this.voicePool = null;
     this.customAudioContext = null;
+    GravityHazardAudio.sharedNoiseBuffer = null;
     if (GravityHazardAudio.instance === this) {
       GravityHazardAudio.instance = null;
     }

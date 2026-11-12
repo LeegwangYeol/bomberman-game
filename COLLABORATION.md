@@ -2749,3 +2749,39 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+
+### 36) 일일 자율 진화 및 유지보수: 제14호 에픽 유물 부식성 독기 플라스크(Corrosive Miasmic Flask) 및 제10호 시너지 생체-전기 신경 과부하(Bio-Electric Neuro-Overload) 구현, Pathfinding FlatHazardMask charCodeAt 무할당 고속 파싱, NeutralEntities Zero-GC 순회, SpatialSeparation scratchActive 누수 차단, PsychicCrisis 원격 폭탄 악용 방지 완결 (Daily Evolution Cycle: 2026-11-13 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 사용자 지침: 절대 자율 모드("알아서 해" / "절대 허용"), `/teamwork-preview` + `/goal` 30개 서브에이전트 스웜 기동 (정찰 5, 아키텍트 5, 카오스 QA 10, 크리에이티브 확장 7, 승리 감사관 3).
+  - **크리에이티브 확장 핵심 과제 완결 (Creative Expansion Division)**:
+    - **제14호 장착형 에픽 유물 '부식성 독기 플라스크 (Corrosive Miasmic Flask)' (`RelicSystem.ts`, `ProgressionTypes.ts`, `GameScene.ts`) 신규 설계 및 구현**:
+      - 폭탄 폭발 시 2.5타일 반경 내 최대 3명의 적군에게 45의 독기 부식 데미지와 2.0초간 35% 감속 디버프를 부여하는 산성 부식 구름 방출 (500ms 내부 쿨다운 ICD 가드 엄격 적용).
+      - `ProgressionTypes.ts`의 `RelicId`에 `CORROSIVE_MIASMIC_FLASK: 'corrosive_miasmic_flask'` 정식 추가.
+    - **제10호 시너지 '생체-전기 신경 과부하 (Bio-Electric Neuro-Overload)' 신규 설계 및 구현**:
+      - `TESLA_OVERCHARGE_COIL` (전기) + `CORROSIVE_MIASMIC_FLASK` (독기) 결합 시너지.
+      - 폭탄 폭발 시 반경이 3.5타일로 확장되며 130의 극대 신경 마비 데미지, 3.0초간 50% 슬로우, 및 2.0초 EMP 스턴 부여 (+350점, 궁극기 게이지 충전).
+      - 유물 시스템 내 14개 유물, 10개 시너지, 91개 전수 페어링 조합($14 \times 13 / 2 = 91$) 무결성 확립.
+  - **아키텍처 및 시스템 하드닝 완결 (Architect & Zero-GC Division)**:
+    - **pathfinding.ts FlatHazardMask charCodeAt 무할당 고속 키 파싱 (`parseGridKeyFast`)**:
+      - `FlatHazardMask.has()`, `add()`, `delete()`에서 문자열 그리드 키(`"r,c"`) 파싱 시 매 호출마다 발생하던 `key.slice()` 및 `.trim()` 문자열 객체 생성을 `charCodeAt` 기반 정수 누산기로 전면 교체하여 제로-GC 달성.
+    - **NeutralEntities.ts Zero-GC 마스크 직접 순회 및 방향 필터링 제거**:
+      - `MerchantNPC.updateAI()` 내 매 프레임 화살표 함수 클로저가 생성되던 `forEachHazard`를 `Uint8Array` 직접 순회로 교체.
+      - `CritterNPC.updateAI()`의 홉마다 호출되던 `CARDINAL_STEP_DIRS.filter()` 클로저/배열 할당을 싱글톤 `sharedOpenDirs` 인덱스 기반 순회로 전환.
+    - **SpatialSeparation.ts 엔티티 참조 누수 차단 및 그리드 안전성 강화**:
+      - `resolveSeparation()` 종료 시점(`activeCount <= 1` 조기 반환 및 최종 종료점)에 `this.scratchActive.length = 0;`을 추가하여 프레임 간 엔티티 물리 객체 잔류 메모리 누수를 원천 차단.
+    - **WebAudio 라이프사이클 메모리 누수 방어**:
+      - `GravityHazardAudio.ts`의 `destroy()`에 procedural noise buffer 해제(`GravityHazardAudio.sharedNoiseBuffer = null;`) 추가.
+      - `MiasmaHazardAudio.ts`에서 전역 브라우저 오디오 디바이스를 강제 차단할 수 있는 미관리 `AudioContext.close()` 호출 제거.
+  - **카오스 QA 및 방어적 회귀 테스트 완결 (Chaos QA Division)**:
+    - **PsychicCrisis.ts 원격 폭탄 악용 취약점 수정**:
+      - 폭탄 폭발 시 거리에 관계없이 원격의 사념체(Manifestation)가 자동 파괴되던 P0 폴백 루프를 제거하여, 폭탄의 실제 폭발 타일 반경 내에 위치할 때만 사념체가 파괴되도록 보정.
+    - `tests/miasma_flask_and_neuro_overload_synergy.test.mjs` 신규 작성 (10개 계층 테스트 전수 통과: 카탈로그, 시너지 매트릭스, 91개 전수 페어링, ICD 가드, 비정상 좌표 가드, 소크 10,000 프레임).
+    - `tests/progression.test.mjs` (35개 테스트 전수 통과, 14개 유물 및 10대 시너지 동기화).
+    - `tests/fuzz_buff_stacking.test.mjs` (21개 테스트, 14개 유물 91개 전수 페어링 조합 통과).
+    - `tests/tesla_coil_and_superconductor_synergy.test.mjs` 및 `tests/boss_harmonization_zerogc_boundary_nan.test.mjs` 동기화 갱신 통과.
+  - **전수 검증 지표**:
+    - 전체 회귀 테스트 배터리: **2,299 / 2,299 PASS (100% 무결점 통과, 0 실패, 0 스킵, 2,284 $\to$ 2,299로 15개 테스트 순증)**.
+    - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
+    - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
+    - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.

@@ -348,6 +348,7 @@ export class SpatialSeparationGrid {
         }
         this.syncPhysicsBody(e, stats);
       }
+      this.scratchActive.length = 0;
       stats.durationMs = Date.now() - startTs;
       return stats;
     }
@@ -635,6 +636,7 @@ export class SpatialSeparationGrid {
       this.syncPhysicsBody(e, stats);
     }
 
+    this.scratchActive.length = 0;
     stats.durationMs = Date.now() - startTs;
     return stats;
   }

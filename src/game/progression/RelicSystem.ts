@@ -166,9 +166,21 @@ export const RELIC_CATALOG: Record<RelicId, RelicDefinition> = {
     description: 'High-voltage conductive coil that overcharges cosmic discharge upon bomb detonation.',
     mechanics: 'Bomb detonations emit chain lightning arcing to 3 targets within 3.0 tiles for 50 damage each, inflicting a 1.0s EMP shock and 50% slow, protected by a 500ms ICD guard.',
     internalCooldownMs: 500,
-    synergyPartners: [RelicId.CRYO_GLACIAL_CORE],
+    synergyPartners: [RelicId.CRYO_GLACIAL_CORE, RelicId.CORROSIVE_MIASMIC_FLASK],
     synergyName: 'Electro-Cryo Superconductor',
     synergyDescription: 'Chilled enemies struck by chain lightning suffer a superconductive flash overload (3.5 tile radius, 120 damage, shield shatter, 2.0s stasis freeze).',
+  },
+  [RelicId.CORROSIVE_MIASMIC_FLASK]: {
+    id: RelicId.CORROSIVE_MIASMIC_FLASK,
+    name: 'Corrosive Miasmic Flask',
+    icon: '🧪☣️',
+    rarity: 'epic',
+    description: 'Pressurized alchemical flask distilling concentrated neurotoxic spore miasma.',
+    mechanics: 'Bomb detonations vent a 2.5-tile neurotoxic miasma cloud lasting 3.0s, inflicting 45 corrosive poison damage and a 35% acid slow for 2.0s with a 500ms ICD guard.',
+    internalCooldownMs: 500,
+    synergyPartners: [RelicId.TESLA_OVERCHARGE_COIL],
+    synergyName: 'Bio-Electric Neuro-Overload',
+    synergyDescription: 'High-voltage chain lightning passing through miasmic spore clouds ignites a bio-electric storm: arcing to up to 4 targets for 130 damage, causing a 2.0s EMP paralysis, shield shatter, and neurotoxic detonation (+350 score)!',
   },
 };
 
@@ -235,6 +247,13 @@ export const SYNERGY_DEFINITIONS: RelicSynergy[] = [
     name: 'Electro-Cryo Superconductor',
     icon: '⚡❄️',
     description: 'Opposing elements achieve superconductivity: chilled enemies struck by chain lightning suffer Superconductive Overload (+140% damage, 120 damage, 3.5-tile blast) and shatter shields!',
+  },
+  {
+    relicA: RelicId.TESLA_OVERCHARGE_COIL,
+    relicB: RelicId.CORROSIVE_MIASMIC_FLASK,
+    name: 'Bio-Electric Neuro-Overload',
+    icon: '⚡☣️',
+    description: 'High-voltage chain lightning passing through miasmic spore clouds ignites a bio-electric storm: arcing to up to 4 targets within 3.5 tiles for 130 damage, causing 2.0s EMP paralysis, shield shatter, and neurotoxic detonation (+350 score)!',
   },
 ];
 
@@ -904,6 +923,72 @@ export class RelicManager {
       shockDurationMs,
       slowRatio,
       isSuperconductor,
+    };
+  }
+
+  /**
+   * 14th Relic Hook: Corrosive Miasmic Flask (RelicId.CORROSIVE_MIASMIC_FLASK)
+   * Bomb detonations vent a 2.5-tile neurotoxic miasma cloud (3.5 with synergy),
+   * dealing 45 corrosive acid damage (130 with synergy) and 35% slow for 2.0s (50% slow & 2.0s EMP stun with synergy).
+   */
+  public onBombDetonationMiasmicFlask(
+    bombRow: number,
+    bombCol: number,
+    enemies: { id: string; r: number; c: number }[],
+    nowMs: number
+  ): {
+    triggered: boolean;
+    poisonedEnemyIds: string[];
+    cloudRadius: number;
+    damage: number;
+    poisonDurationMs: number;
+    slowRatio: number;
+    isNeuroOverload: boolean;
+  } {
+    if (!this.isEquipped(RelicId.CORROSIVE_MIASMIC_FLASK)) {
+      return { triggered: false, poisonedEnemyIds: [], cloudRadius: 0, damage: 0, poisonDurationMs: 0, slowRatio: 0, isNeuroOverload: false };
+    }
+
+    if (!Number.isFinite(bombRow) || !Number.isFinite(bombCol)) {
+      return { triggered: false, poisonedEnemyIds: [], cloudRadius: 0, damage: 0, poisonDurationMs: 0, slowRatio: 0, isNeuroOverload: false };
+    }
+
+    if (!this.checkAndSetIcd('corrosive_miasmic_flask', nowMs)) {
+      return { triggered: false, poisonedEnemyIds: [], cloudRadius: 0, damage: 0, poisonDurationMs: 0, slowRatio: 0, isNeuroOverload: false };
+    }
+
+    const hasSynergy = this.hasSynergy(RelicId.CORROSIVE_MIASMIC_FLASK, RelicId.TESLA_OVERCHARGE_COIL);
+    const cloudRadius = hasSynergy ? 3.5 : 2.5;
+    const damage = hasSynergy ? 130 : 45;
+    const poisonDurationMs = hasSynergy ? 3000 : 2000;
+    const slowRatio = hasSynergy ? 0.50 : 0.35;
+    const isNeuroOverload = hasSynergy;
+
+    const poisonedEnemyIds: string[] = [];
+    if (Array.isArray(enemies) && Number.isFinite(bombRow) && Number.isFinite(bombCol)) {
+      const candidates: { id: string; dist: number }[] = [];
+      for (const e of enemies) {
+        if (!e || !Number.isFinite(e.r) || !Number.isFinite(e.c)) continue;
+        const dist = Math.hypot(e.r - bombRow, e.c - bombCol);
+        if (dist <= cloudRadius) {
+          candidates.push({ id: e.id, dist });
+        }
+      }
+      candidates.sort((a, b) => a.dist - b.dist);
+      const targetCount = hasSynergy ? Math.min(4, candidates.length) : Math.min(3, candidates.length);
+      for (let i = 0; i < targetCount; i++) {
+        poisonedEnemyIds.push(candidates[i].id);
+      }
+    }
+
+    return {
+      triggered: true,
+      poisonedEnemyIds,
+      cloudRadius,
+      damage,
+      poisonDurationMs,
+      slowRatio,
+      isNeuroOverload,
     };
   }
 

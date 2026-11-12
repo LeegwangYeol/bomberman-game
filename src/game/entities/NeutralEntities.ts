@@ -10,7 +10,6 @@ import {
   findEscapePathBFS,
   getBlastTiles,
   FlatHazardMask,
-  cloneBombTilesAsSet,
 } from '../pathfinding.ts';
 import type { ItemType } from '../gameplay_mechanics.ts';
 
@@ -104,18 +103,10 @@ export class MerchantNPC extends BaseEntity {
     let nearBomb = false;
     sharedMerchantBlastMask.clear();
 
-    if (bombTiles instanceof FlatHazardMask) {
-      bombTiles.forEachHazard((br, bc) => {
-        if (Math.abs(mr - br) + Math.abs(mc - bc) <= 4) {
-          nearBomb = true;
-        }
-        sharedBombScratch.r = br;
-        sharedBombScratch.c = bc;
-        getBlastTiles(sharedBombScratch, 3, map, sharedMerchantBlastMask);
-      });
-    } else if (bombTiles instanceof Uint8Array) {
-      for (let i = 0; i < bombTiles.length; i++) {
-        if (bombTiles[i] !== 0) {
+    if (bombTiles instanceof FlatHazardMask || bombTiles instanceof Uint8Array) {
+      const mask = bombTiles instanceof FlatHazardMask ? bombTiles.mask : bombTiles;
+      for (let i = 0; i < mask.length; i++) {
+        if (mask[i] !== 0) {
           const br = (i / COLS) | 0;
           const bc = i % COLS;
           if (Math.abs(mr - br) + Math.abs(mc - bc) <= 4) {
@@ -330,17 +321,21 @@ export class CritterNPC extends BaseEntity {
         this.hopTimer = 900; // Hop duration
         this.overheadUI.setIntent('🐾', true);
 
-        // Pick random open direction
+        // Pick random open direction without per-hop array/closure allocations
         const cr = Math.floor(this.y / TILE_SIZE);
         const cc = Math.floor(this.x / TILE_SIZE);
-        const openDirs = CARDINAL_STEP_DIRS.filter((d) => {
+        sharedOpenDirs.length = 0;
+        for (let i = 0; i < 4; i++) {
+          const d = CARDINAL_STEP_DIRS[i];
           const nr = cr + d.y;
           const nc = cc + d.x;
-          return nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && map[nr][nc] === TILE_EMPTY;
-        });
+          if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && map[nr][nc] === TILE_EMPTY) {
+            sharedOpenDirs.push(d);
+          }
+        }
 
-        if (openDirs.length > 0) {
-          this.hopDirection = openDirs[Math.floor(Math.random() * openDirs.length)];
+        if (sharedOpenDirs.length > 0) {
+          this.hopDirection = sharedOpenDirs[Math.floor(Math.random() * sharedOpenDirs.length)];
           this.setVelocity(
             this.hopDirection.x * this.config.hopSpeed,
             this.hopDirection.y * this.config.hopSpeed

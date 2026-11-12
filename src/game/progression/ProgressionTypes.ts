@@ -222,6 +222,7 @@ export const RelicId = {
   QUANTUM_WARP_PRISM: 'quantum_warp_prism',
   CRYO_GLACIAL_CORE: 'cryo_glacial_core',
   TESLA_OVERCHARGE_COIL: 'tesla_overcharge_coil',
+  CORROSIVE_MIASMIC_FLASK: 'corrosive_miasmic_flask',
 } as const;
 
 export type RelicId = typeof RelicId[keyof typeof RelicId];

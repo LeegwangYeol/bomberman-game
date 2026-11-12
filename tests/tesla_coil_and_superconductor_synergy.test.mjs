@@ -52,8 +52,8 @@ test('Tier 1.2: Reciprocal synergy partnership between TESLA_OVERCHARGE_COIL and
   );
 });
 
-test('Tier 1.3: 9th Synergy Electro-Cryo Superconductor registered in SYNERGY_DEFINITIONS', () => {
-  assert.equal(SYNERGY_DEFINITIONS.length, 9, 'Must have exactly 9 synergies registered');
+test('Tier 1.3: Synergy Electro-Cryo Superconductor registered in SYNERGY_DEFINITIONS', () => {
+  assert.ok(SYNERGY_DEFINITIONS.length >= 9, 'Must have at least 9 synergies registered');
   const superconductor = SYNERGY_DEFINITIONS.find((s) => s.name === 'Electro-Cryo Superconductor');
   assert.ok(superconductor, 'Electro-Cryo Superconductor synergy must exist in SYNERGY_DEFINITIONS');
   assert.ok(
@@ -68,9 +68,9 @@ test('Tier 1.3: 9th Synergy Electro-Cryo Superconductor registered in SYNERGY_DE
  * TIER 2: EXHAUSTIVE 78 PAIRWISE COMBINATIONS MATRIX
  * ============================================================================== */
 
-test('Tier 2.1: Exhaustive evaluation of all 78 pairwise relic combinations', () => {
+test('Tier 2.1: Exhaustive evaluation of all 91 pairwise relic combinations', () => {
   const allRelics = Object.keys(RELIC_CATALOG);
-  assert.equal(allRelics.length, 13, 'Must have exactly 13 relics');
+  assert.equal(allRelics.length, 14, 'Must have exactly 14 relics');
 
   let pairsEvaluated = 0;
   let activeSynergyPairs = 0;
@@ -93,13 +93,14 @@ test('Tier 2.1: Exhaustive evaluation of all 78 pairwise relic combinations', ()
     }
   }
 
-  // C(13, 2) = 13 * 12 / 2 = 78
-  assert.equal(pairsEvaluated, 78, 'Must evaluate exactly 78 pairwise combinations');
-  assert.equal(activeSynergyPairs, 9, 'Must trigger exactly 9 active synergy pairs');
-  assert.equal(foundSynergyNames.size, 9, 'Must discover all 9 distinct synergies');
+  // C(14, 2) = 14 * 13 / 2 = 91
+  assert.equal(pairsEvaluated, 91, 'Must evaluate exactly 91 pairwise combinations');
+  assert.equal(activeSynergyPairs, 10, 'Must trigger exactly 10 active synergy pairs');
+  assert.equal(foundSynergyNames.size, 10, 'Must discover all 10 distinct synergies');
   assert.ok(foundSynergyNames.has('Electro-Cryo Superconductor'));
   assert.ok(foundSynergyNames.has('Thermal Shock Reaction'));
   assert.ok(foundSynergyNames.has('Quantum Event Horizon'));
+  assert.ok(foundSynergyNames.has('Bio-Electric Neuro-Overload'));
 });
 
 /* ==============================================================================

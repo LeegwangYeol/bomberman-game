@@ -10,7 +10,7 @@
 
 import { BaseCrisis } from './BaseCrisis.ts';
 import { CrisisType, CrisisStage, HazardType } from './CrisisTypes.ts';
-import { ROWS, COLS, TOTAL_TILES } from '../pathfinding.ts';
+import { TOTAL_TILES } from '../pathfinding.ts';
 import { PsychicCrisisAudio } from './PsychicCrisisAudio.ts';
 
 export interface PsionicManifestation {
@@ -325,23 +325,11 @@ export class PsychicCrisis extends BaseCrisis {
     if (this.stage === CrisisStage.OUTBREAK || this.stage === CrisisStage.CLIMAX) {
       let hitManifestation = false;
 
-      // Check undestroyed manifestations within blast radius (or proximate fallback)
+      // Check undestroyed manifestations within blast radius
       for (const m of this.manifestations) {
         if (!m.isDestroyed) {
           const dist = Math.max(Math.abs(m.r - r), Math.abs(m.c - c));
-          if (dist <= radius || dist <= 4) {
-            m.isDestroyed = true;
-            hitManifestation = true;
-            this.clearHazardTile(m.r, m.c);
-            break;
-          }
-        }
-      }
-
-      // If no direct proximate manifestation, resolve one available manifestation
-      if (!hitManifestation) {
-        for (const m of this.manifestations) {
-          if (!m.isDestroyed) {
+          if (dist <= radius) {
             m.isDestroyed = true;
             hitManifestation = true;
             this.clearHazardTile(m.r, m.c);

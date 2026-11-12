@@ -82,6 +82,60 @@ export function idxToCol(idx: number): number {
 }
 
 /**
+ * Zero-GC helper to parse "r,c" grid coordinate keys without substring/trim allocations.
+ * Returns r * COLS + c if valid and within bounds, or -1 if invalid.
+ */
+export function parseGridKeyFast(key: string): number {
+  const len = key.length;
+  let r = 0;
+  let c = 0;
+  let i = 0;
+  while (i < len && key.charCodeAt(i) <= 32) i++;
+  if (i >= len) return -1;
+  let hasR = false;
+  while (i < len) {
+    const code = key.charCodeAt(i);
+    if (code === 44) {
+      i++;
+      break;
+    }
+    if (code >= 48 && code <= 57) {
+      r = r * 10 + (code - 48);
+      hasR = true;
+      i++;
+    } else if (code <= 32) {
+      while (i < len && key.charCodeAt(i) <= 32) i++;
+      if (i < len && key.charCodeAt(i) === 44) {
+        i++;
+        break;
+      }
+      return -1;
+    } else {
+      return -1;
+    }
+  }
+  if (!hasR) return -1;
+  while (i < len && key.charCodeAt(i) <= 32) i++;
+  let hasC = false;
+  while (i < len) {
+    const code = key.charCodeAt(i);
+    if (code >= 48 && code <= 57) {
+      c = c * 10 + (code - 48);
+      hasC = true;
+      i++;
+    } else if (code <= 32) {
+      while (i < len && key.charCodeAt(i) <= 32) i++;
+      if (i === len) break;
+      return -1;
+    } else {
+      return -1;
+    }
+  }
+  if (!hasC || r < 0 || r >= ROWS || c < 0 || c >= COLS) return -1;
+  return r * COLS + c;
+}
+
+/**
  * FlatHazardMask: 1D Uint8Array(195) wrapper with Set<string> duck-typing compatibility.
  * Eliminates per-frame new Set<string>() allocations in the 60 FPS update loop.
  */
@@ -105,17 +159,8 @@ export class FlatHazardMask implements Iterable<string> {
       return Number.isInteger(key) && key >= 0 && key < this.length && this.mask[key] !== 0;
     }
     if (typeof key !== 'string') return false;
-    const comma = key.indexOf(',');
-    if (comma === -1) return false;
-    const rStr = key.slice(0, comma).trim();
-    const cStr = key.slice(comma + 1).trim();
-    if (rStr === '' || cStr === '') return false;
-    const r = Number(rStr);
-    const c = Number(cStr);
-    if (!Number.isInteger(r) || !Number.isInteger(c) || r < 0 || r >= ROWS || c < 0 || c >= COLS) {
-      return false;
-    }
-    return this.mask[r * COLS + c] !== 0;
+    const idx = parseGridKeyFast(key);
+    return idx >= 0 && idx < this.length && this.mask[idx] !== 0;
   }
 
   public add(key: string | number): this {
@@ -129,15 +174,8 @@ export class FlatHazardMask implements Iterable<string> {
       return this;
     }
     if (typeof key !== 'string') return this;
-    const comma = key.indexOf(',');
-    if (comma === -1) return this;
-    const rStr = key.slice(0, comma).trim();
-    const cStr = key.slice(comma + 1).trim();
-    if (rStr === '' || cStr === '') return this;
-    const r = Number(rStr);
-    const c = Number(cStr);
-    if (Number.isInteger(r) && Number.isInteger(c) && r >= 0 && r < ROWS && c >= 0 && c < COLS) {
-      const idx = r * COLS + c;
+    const idx = parseGridKeyFast(key);
+    if (idx >= 0 && idx < this.length) {
       if (this.mask[idx] === 0) {
         this.mask[idx] = 1;
         this._size++;
@@ -148,30 +186,19 @@ export class FlatHazardMask implements Iterable<string> {
 
   public delete(key: string | number): boolean {
     if (typeof key === 'number') {
-      if (Number.isInteger(key) && key >= 0 && key < this.length) {
-        if (this.mask[key] !== 0) {
-          this.mask[key] = 0;
-          this._size--;
-          return true;
-        }
+      if (Number.isInteger(key) && key >= 0 && key < this.length && this.mask[key] !== 0) {
+        this.mask[key] = 0;
+        this._size--;
+        return true;
       }
       return false;
     }
     if (typeof key !== 'string') return false;
-    const comma = key.indexOf(',');
-    if (comma === -1) return false;
-    const rStr = key.slice(0, comma).trim();
-    const cStr = key.slice(comma + 1).trim();
-    if (rStr === '' || cStr === '') return false;
-    const r = Number(rStr);
-    const c = Number(cStr);
-    if (Number.isInteger(r) && Number.isInteger(c) && r >= 0 && r < ROWS && c >= 0 && c < COLS) {
-      const idx = r * COLS + c;
-      if (this.mask[idx] !== 0) {
-        this.mask[idx] = 0;
-        this._size--;
-        return true;
-      }
+    const idx = parseGridKeyFast(key);
+    if (idx >= 0 && idx < this.length && this.mask[idx] !== 0) {
+      this.mask[idx] = 0;
+      this._size--;
+      return true;
     }
     return false;
   }
