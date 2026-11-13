@@ -132,9 +132,7 @@ import {
   BaseBoss,
   BossState,
   type BossId,
-  GummyBearBoss,
   GummyBearAudio,
-  HamsterBoss,
   HamsterAudio,
   QueenBeeBoss,
   MutantFloraBoss,
@@ -162,10 +160,8 @@ import {
 import {
   DynamicHazard,
   DynamicHazardAudio,
-  HazardSubtype,
   HYPER_FUSE_MS,
   HazardLifecycleState,
-  TelegraphPhase,
   PHASE_JITTER_DURATION_MS,
   TUNNELING_INVULNERABILITY_MS,
   FLOATING_TEXT_QUANTUM_PHASED,
@@ -179,7 +175,6 @@ import {
   GravityHazardAudio,
   FrostHazard,
   FrostLifecycleState,
-  HoarfrostPhase,
   THERMAL_BREAK_INVULN_MS,
   THERMAL_BREAK_SPEED_BURST_RATIO,
   FLOATING_TEXT_THERMAL_BREAK,
@@ -190,7 +185,6 @@ import {
   FrostHazardAudio,
   VoltHazard,
   VoltLifecycleState,
-  VoltTelegraphPhase,
   SUPERCONDUCTOR_DASH_INVULN_MS,
   SUPERCONDUCTOR_SPEED_BURST_RATIO,
   FLOATING_TEXT_SUPERCONDUCTOR_DASH,
@@ -201,7 +195,6 @@ import {
   VoltHazardAudio,
   MagmaHazard,
   MagmaLifecycleState,
-  MagmaTelegraphPhase,
   MAGMA_SURF_INVULN_MS,
   MAGMA_SURF_SPEED_BURST_RATIO,
   FLOATING_TEXT_MAGMA_SURF,
@@ -212,7 +205,6 @@ import {
   MagmaHazardAudio,
   MiasmaHazard,
   MiasmaLifecycleState,
-  MiasmaTelegraphPhase,
   SPORE_SURGE_INVULN_MS,
   SPORE_SURGE_SPEED_BURST_RATIO,
   FLOATING_TEXT_SPORE_SURGE,
@@ -228,7 +220,6 @@ import {
   FLOATING_TEXT_BIO_SLICK_GLIDE,
   ChronoHazard,
   ChronoLifecycleState,
-  ChronoTelegraphPhase,
   CHRONO_SURGE_INVULN_MS,
   CHRONO_SURGE_SPEED_BURST_RATIO,
   FLOATING_TEXT_CHRONO_SURGE,
@@ -242,10 +233,8 @@ import {
   FLOATING_TEXT_TEMPORAL_IMPLOSION,
   BOMB_KICK_CHRONO_SPEED,
   FLOATING_TEXT_CHRONO_SLIPSTREAM,
-  FLOATING_TEXT_TIMELINE_STABILIZED,
   SolarHazard,
   SolarLifecycleState,
-  SolarTelegraphPhase,
   SOLAR_SURF_INVULN_MS,
   SOLAR_SURF_SPEED_BURST_RATIO,
   FLOATING_TEXT_SOLAR_SURF,
@@ -253,19 +242,14 @@ import {
   SUNSTROKE_SLOW_RATIO,
   FLOATING_TEXT_SUNSTROKE,
   BOSS_SOLAR_DAMAGE_RATIO,
-  BOSS_SOLAR_STASIS_STUN_MS,
   SolarHazardAudio,
   SOLAR_SUPER_BOMB_TINT,
   FLOATING_TEXT_SOLAR_FUSED,
   FLOATING_TEXT_SUPERNOVA,
   BOMB_KICK_SOLAR_SPEED,
   FLOATING_TEXT_SOLAR_SLIPSTREAM,
-  FLOATING_TEXT_SOLAR_CALM,
-  FLOATING_TEXT_PLASMA_VAPORIZED,
-  FLOATING_TEXT_SOLAR_BLINDNESS,
   NebulaHazard,
   NebulaLifecycleState,
-  NebulaTelegraphPhase,
   ASTRAL_GLIDE_INVULN_MS,
   ASTRAL_GLIDE_SPEED_BURST_RATIO,
   FLOATING_TEXT_ASTRAL_GLIDE,
@@ -273,53 +257,27 @@ import {
   COSMIC_DAZE_SLOW_RATIO,
   FLOATING_TEXT_COSMIC_DAZE,
   BOSS_NEBULA_DAMAGE_RATIO,
-  BOSS_NEBULA_STASIS_STUN_MS,
   NebulaHazardAudio,
   NEBULA_SUPER_BOMB_TINT,
   FLOATING_TEXT_NEBULA_FUSED,
   FLOATING_TEXT_SINGULARITY_BURST,
   BOMB_KICK_NEBULA_SPEED,
   FLOATING_TEXT_ASTRAL_SLIPSTREAM,
-  FLOATING_TEXT_STARDUST_CALM,
-  FLOATING_TEXT_COSMIC_VAPORIZED,
-  FLOATING_TEXT_ECLIPSE_STASIS,
   AbyssalHazard,
   AbyssalLifecycleState,
-  AbyssalTelegraphPhase,
-  ABYSSAL_GLIDE_INVULN_MS,
-  ABYSSAL_GLIDE_SPEED_BURST_RATIO,
   AQUA_GLIDE_INVULN_MS,
   AQUA_GLIDE_SPEED_BURST_RATIO,
-  FLOATING_TEXT_ABYSSAL_GLIDE,
   FLOATING_TEXT_AQUA_GLIDE,
-  FLOATING_TEXT_HYDRO_DASH,
-  HYDROSTATIC_DRAG_DURATION_MS,
-  HYDROSTATIC_DRAG_SLOW_RATIO,
   ABYSSAL_UNDERTOW_DURATION_MS,
   ABYSSAL_UNDERTOW_SLOW_RATIO,
-  FLOATING_TEXT_HYDROSTATIC_DRAG,
   FLOATING_TEXT_ABYSSAL_UNDERTOW,
   BOSS_ABYSSAL_DAMAGE_RATIO,
-  BOSS_ABYSSAL_STASIS_STUN_MS,
   AbyssalHazardAudio,
   ABYSSAL_SUPER_BOMB_TINT,
-  HYDRO_FUSED_BOMB_TINT,
   FLOATING_TEXT_ABYSSAL_FUSED,
-  FLOATING_TEXT_HYDRO_FUSED,
-  MAELSTROM_EXTRA_POWER,
-  MAELSTROM_BONUS_SCORE,
-  MAELSTROM_ULT_CHARGE,
   FLOATING_TEXT_MAELSTROM_BURST,
-  FLOATING_TEXT_MAELSTROM_DETONATION,
   BOMB_KICK_ABYSSAL_SPEED,
   FLOATING_TEXT_HYDRO_SLIPSTREAM,
-  FLOATING_TEXT_ABYSSAL_SLIPSTREAM,
-  OCEANIC_CALM_DURATION_MS,
-  HYDRO_BARRIER_ANCHOR_DURATION_MS,
-  FLOATING_TEXT_OCEANIC_CALM,
-  FLOATING_TEXT_HYDRO_BARRIER_ANCHOR,
-  FLOATING_TEXT_ABYSS_CRUSHED,
-  FLOATING_TEXT_MAELSTROM_STASIS,
   HazardRenderer,
   type HazardRendererContext,
 } from './hazards/index.ts';
@@ -622,6 +580,193 @@ export default class GameScene extends Phaser.Scene {
       if (this.activeBuffs[i].id === id) return this.activeBuffs[i];
     }
     return undefined;
+  }
+
+  public removeBuffById(id: string): boolean {
+    if (!this.activeBuffs || this.activeBuffs.length === 0) return false;
+    let writeIdx = 0;
+    let removed = false;
+    for (let i = 0; i < this.activeBuffs.length; i++) {
+      const b = this.activeBuffs[i];
+      if (b.id === id) {
+        removed = true;
+      } else {
+        this.activeBuffs[writeIdx++] = b;
+      }
+    }
+    if (removed) {
+      this.activeBuffs.length = writeIdx;
+    }
+    return removed;
+  }
+
+  private activeMasterySpeedBonuses: Map<
+    string,
+    { delta: number; timer?: Phaser.Time.TimerEvent }
+  > = new Map();
+  private activeDebuffTintTimers: Map<string, Phaser.Time.TimerEvent> = new Map();
+
+  private clearMasteryAndDebuffTimers(): void {
+    for (const entry of this.activeMasterySpeedBonuses.values()) {
+      entry.timer?.remove?.(false);
+    }
+    this.activeMasterySpeedBonuses.clear();
+    for (const timer of this.activeDebuffTintTimers.values()) {
+      timer?.remove?.(false);
+    }
+    this.activeDebuffTintTimers.clear();
+  }
+
+  private applyMasterySpeedBurst(
+    key: string,
+    computeBoostedSpeed: (baseSpeed: number) => number,
+    durationMs: number,
+    onExpire?: () => void
+  ): void {
+    const existingBonus = this.activeMasterySpeedBonuses.get(key);
+    if (existingBonus) {
+      existingBonus.timer?.remove?.(false);
+      this.playerSpeed = Math.max(BASE_PLAYER_SPEED, this.playerSpeed - existingBonus.delta);
+    }
+    const boostedSpeed = computeBoostedSpeed(this.playerSpeed);
+    const delta = Math.max(0, boostedSpeed - this.playerSpeed);
+    this.playerSpeed += delta;
+
+    const timer = this.time?.delayedCall
+      ? this.time.delayedCall(durationMs, () => {
+          const cur = this.activeMasterySpeedBonuses.get(key);
+          if (cur) {
+            this.activeMasterySpeedBonuses.delete(key);
+            this.playerSpeed = Math.max(BASE_PLAYER_SPEED, this.playerSpeed - cur.delta);
+          }
+          onExpire?.();
+        })
+      : undefined;
+
+    if (existingBonus) {
+      existingBonus.delta = delta;
+      existingBonus.timer = timer;
+    } else {
+      this.activeMasterySpeedBonuses.set(key, { delta, timer });
+    }
+  }
+
+  private scheduleDebuffTintClear(
+    key: string,
+    durationMs: number,
+    onClear: () => void,
+    wasAlreadyActive: boolean = false,
+    previousRemainingMs: number = 0
+  ): void {
+    if (
+      wasAlreadyActive &&
+      this.activeDebuffTintTimers.has(key) &&
+      previousRemainingMs >= durationMs - 100
+    ) {
+      return;
+    }
+    const prevTimer = this.activeDebuffTintTimers.get(key);
+    if (prevTimer) {
+      prevTimer.remove?.(false);
+    }
+    if (this.time?.delayedCall) {
+      const nextTimer = this.time.delayedCall(durationMs, () => {
+        this.activeDebuffTintTimers.delete(key);
+        onClear();
+      });
+      if (nextTimer) {
+        this.activeDebuffTintTimers.set(key, nextTimer);
+      }
+    }
+  }
+
+  public acquirePooledGroupSprite(
+    group: Phaser.Physics.Arcade.Group | undefined | null,
+    x: number,
+    y: number,
+    textureKey: string
+  ): Phaser.Physics.Arcade.Sprite | null {
+    if (!group) return null;
+    let sprite: Phaser.Physics.Arcade.Sprite | null = null;
+    const groupWithGet = group as Phaser.Physics.Arcade.Group & {
+      get?: (gx: number, gy: number, key?: string) => Phaser.Physics.Arcade.Sprite | null;
+      maxSize?: number;
+    };
+    if (typeof groupWithGet.get === 'function') {
+      sprite = groupWithGet.get(x, y, textureKey);
+    } else {
+      const children = group.getChildren();
+      for (let i = 0; i < children.length; i++) {
+        const candidate = children[i] as Phaser.Physics.Arcade.Sprite;
+        if (candidate && candidate.active === false) {
+          sprite = candidate;
+          break;
+        }
+      }
+      if (!sprite) {
+        const maxSize = typeof groupWithGet.maxSize === 'number' ? groupWithGet.maxSize : -1;
+        if (maxSize > 0 && children.length >= maxSize) {
+          return null;
+        }
+        sprite = group.create(x, y, textureKey) as Phaser.Physics.Arcade.Sprite | null;
+      }
+    }
+    if (!sprite) return null;
+
+    if (typeof this.tweens?.killTweensOf === 'function') {
+      this.tweens.killTweensOf(sprite);
+    }
+    if (typeof sprite.setTexture === 'function') {
+      sprite.setTexture(textureKey);
+    }
+    sprite.setActive?.(true);
+    sprite.setVisible?.(true);
+    if (typeof sprite.enableBody === 'function') {
+      sprite.enableBody(true, x, y, true, true);
+    } else {
+      sprite.setPosition?.(x, y);
+    }
+    sprite.clearTint?.();
+    sprite.setAlpha?.(1);
+    sprite.setScale?.(1, 1);
+    sprite.setAngle?.(0);
+    sprite.setVelocity?.(0, 0);
+    return sprite;
+  }
+
+  private resetPooledBombState(bomb: Phaser.Physics.Arcade.Sprite): void {
+    const prevTimer = bomb.getData?.('fuseTimer') as Phaser.Time.TimerEvent | undefined;
+    if (prevTimer && prevTimer !== (bomb as unknown) && typeof prevTimer.remove === 'function') {
+      prevTimer.remove(false);
+    }
+    const prevChain = bomb.getData?.('tweenChain') as Phaser.Tweens.TweenChain | undefined;
+    if (prevChain && prevChain !== (bomb as unknown) && typeof prevChain.stop === 'function') {
+      prevChain.stop();
+    }
+    const ignoring = bomb.getData?.('ignoringColliders') as Set<Phaser.GameObjects.GameObject> | undefined;
+    if (ignoring instanceof Set) {
+      ignoring.clear();
+    }
+    const slideDir = bomb.getData?.('slideDir') as { x: number; y: number } | undefined;
+    if (slideDir && slideDir !== (bomb as unknown)) {
+      slideDir.x = 0;
+      slideDir.y = 0;
+    }
+    bomb.setData?.('id', undefined);
+    bomb.setData?.('parentBombId', undefined);
+    bomb.setData?.('owner', 'player');
+    bomb.setData?.('enemy', undefined);
+    bomb.setData?.('ally', undefined);
+    bomb.setData?.('power', BASE_BOMB_POWER);
+    bomb.setData?.('type', 'REGULAR');
+    bomb.setData?.('isGhostBomb', false);
+    bomb.setData?.('isSliding', false);
+    bomb.setData?.('slideSpeed', 0);
+    bomb.setData?.('reboundsLeft', undefined);
+    bomb.setData?.('softBlockPiercesRemaining', 0);
+    bomb.setData?.('kineticPinballEnemyBonus', false);
+    bomb.setData?.('fuseTimer', undefined);
+    bomb.setData?.('tweenChain', undefined);
   }
 
 
@@ -1354,6 +1499,7 @@ export default class GameScene extends Phaser.Scene {
     AudioVoicePool.resetInstance();
 
     // Reset scratch containers and transient state
+    this.clearMasteryAndDebuffTimers();
     this.bossHitBombIds.clear();
     this.destroyedBlocksThisTick.clear();
     this.scratchActiveEntities.length = 0;
@@ -1661,6 +1807,7 @@ export default class GameScene extends Phaser.Scene {
     this.score = 0;
     this.isTimeFrozen = false;
     this.isCloaked = false;
+    this.clearMasteryAndDebuffTimers();
     this.activeBuffs = [];
     this.inventory = { ...createInitialPlayerStats().inventory };
     this.itemsCollectedTotal = 0;
@@ -1693,7 +1840,7 @@ export default class GameScene extends Phaser.Scene {
     };
     this.cameras.main.setBackgroundColor('#87CEEB');
 
-    // Pre-allocate Zero-GC particle emitters
+    // Pre-allocate Zero-GC particle emitters with bounded pools
     if (this.add && this.add.particles && this.textures.exists('particle_dust')) {
       try {
         this.dustEmitter = this.add.particles(0, 0, 'particle_dust', {
@@ -1701,6 +1848,8 @@ export default class GameScene extends Phaser.Scene {
           speed: { min: 15, max: 35 },
           scale: { start: 0.7, end: 0.1 },
           alpha: { start: 0.45, end: 0 },
+          maxAliveParticles: Pooling.POOL_PRESETS.PARTICLES,
+          reserve: Pooling.POOL_PRESETS.PARTICLES,
           emitting: false,
         });
         this.dustEmitter.setDepth(RENDER_DEPTH.DEBRIS_PARTICLES);
@@ -1718,6 +1867,8 @@ export default class GameScene extends Phaser.Scene {
           alpha: { start: 1, end: 0 },
           tint: [0xffffff, 0xfde047, 0xf97316],
           blendMode: 'ADD',
+          maxAliveParticles: Pooling.POOL_PRESETS.PARTICLES,
+          reserve: Pooling.POOL_PRESETS.PARTICLES,
           emitting: false,
         });
         this.bombSparkEmitter.setDepth(RENDER_DEPTH.DEBRIS_PARTICLES);
@@ -1736,6 +1887,8 @@ export default class GameScene extends Phaser.Scene {
           scale: { start: 1.0, end: 0.2 },
           gravityY: 350,
           tint: [0xf97316, 0xc2410c, 0xb45309, 0x78350f],
+          maxAliveParticles: Pooling.POOL_PRESETS.DEBRIS,
+          reserve: Pooling.POOL_PRESETS.DEBRIS,
           emitting: false,
         });
         this.blockDebrisEmitter.setDepth(RENDER_DEPTH.DEBRIS_PARTICLES);
@@ -1804,7 +1957,11 @@ export default class GameScene extends Phaser.Scene {
     this.enemies = this.physics.add.group({ maxSize: 128 });
     this.neutrals = this.physics.add.group({ maxSize: 32 });
     this.allies = this.physics.add.group({ maxSize: 32 });
-    this.items = this.physics.add.group({ maxSize: Pooling.POOL_PRESETS.ITEM_DROPS });
+    this.items = this.physics.add.group({
+      maxSize: Pooling.POOL_PRESETS.ITEM_DROPS,
+      classType: Phaser.Physics.Arcade.Sprite,
+      defaultKey: 'item_bomb',
+    });
 
     this.generateMap();
 
@@ -3291,6 +3448,8 @@ export default class GameScene extends Phaser.Scene {
             }
           }
         }
+        this.scratchActiveEnemies.length = 0;
+        this.scratchActiveItems.length = 0;
       }
     } else {
       for (let ei = 0; ei < enemiesList.length; ei++) {
@@ -4332,11 +4491,8 @@ export default class GameScene extends Phaser.Scene {
     this.player.setAlpha(0.65);
     this.player.setTint(0x00ffff);
 
-    const originalSpeed = this.playerSpeed;
-    this.playerSpeed = this.playerSpeed * 1.30;
-
-    // Cleanse conflicting debuff
-    this.activeBuffs = this.activeBuffs.filter((b) => b.id !== 'PHASE_JITTER');
+    // Cleanse conflicting debuff without allocating filter array
+    this.removeBuffById('PHASE_JITTER');
     this.phaseJitterRemaining = 0;
 
     this.spawnFloatingText(this.player.x, this.player.y - 25, FLOATING_TEXT_QUANTUM_PHASED, '#00ffff');
@@ -4344,7 +4500,7 @@ export default class GameScene extends Phaser.Scene {
       this.cameras.main.flash(120, 0, 229, 255);
     }
 
-    this.time.delayedCall(TUNNELING_INVULNERABILITY_MS, () => {
+    this.scheduleDebuffTintClear('QUANTUM_PHASE_INVULN', TUNNELING_INVULNERABILITY_MS, () => {
       if (this.player && this.player.active) {
         this.player.setAlpha(1.0);
         this.player.clearTint();
@@ -4354,9 +4510,7 @@ export default class GameScene extends Phaser.Scene {
       }
     });
 
-    this.time.delayedCall(2500, () => {
-      this.playerSpeed = originalSpeed;
-    });
+    this.applyMasterySpeedBurst('QUANTUM_PHASE_SHIFT', (baseSpeed) => baseSpeed * 1.30, 2500);
   }
 
   grantGravitationalEscape(): void {
@@ -4367,10 +4521,7 @@ export default class GameScene extends Phaser.Scene {
     this.player.setAlpha(0.75);
     this.player.setTint(0xfbbf24);
 
-    const originalSpeed = this.playerSpeed;
-    this.playerSpeed = this.playerSpeed * (1.0 + ESCAPE_VELOCITY_SPEED_BURST_RATIO);
-
-    const existing = this.activeBuffs.find((b) => b.id === 'GRAVITATIONAL_ESCAPE');
+    const existing = this.findBuff('GRAVITATIONAL_ESCAPE');
     if (existing) {
       existing.remainingMs = ESCAPE_VELOCITY_INVULN_MS;
       existing.totalMs = ESCAPE_VELOCITY_INVULN_MS;
@@ -4391,16 +4542,20 @@ export default class GameScene extends Phaser.Scene {
       this.cameras.main.flash(100, 251, 191, 36);
     }
 
-    this.time.delayedCall(ESCAPE_VELOCITY_INVULN_MS, () => {
-      if (this.player && this.player.active) {
-        this.player.setAlpha(1.0);
-        this.player.clearTint();
-        if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
-          this.isInvulnerable = false;
+    this.applyMasterySpeedBurst(
+      'GRAVITATIONAL_ESCAPE',
+      (baseSpeed) => baseSpeed * (1.0 + ESCAPE_VELOCITY_SPEED_BURST_RATIO),
+      ESCAPE_VELOCITY_INVULN_MS,
+      () => {
+        if (this.player && this.player.active) {
+          this.player.setAlpha(1.0);
+          this.player.clearTint();
+          if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
+            this.isInvulnerable = false;
+          }
         }
       }
-      this.playerSpeed = originalSpeed;
-    });
+    );
 
     this.emitStatsUpdate();
   }
@@ -4413,13 +4568,11 @@ export default class GameScene extends Phaser.Scene {
     this.player.setAlpha(0.75);
     this.player.setTint(0x38bdf8);
 
-    const originalSpeed = this.playerSpeed;
-    this.playerSpeed = this.playerSpeed * (1.0 + THERMAL_BREAK_SPEED_BURST_RATIO);
+    // Cleanse conflicting debuffs without array allocation
+    this.removeBuffById('FROST_CHILL');
+    this.removeBuffById('THERMAL_SINGE');
 
-    // Cleanse conflicting debuffs
-    this.activeBuffs = this.activeBuffs.filter((b) => b.id !== 'FROST_CHILL' && b.id !== 'THERMAL_SINGE');
-
-    const existing = this.activeBuffs.find((b) => b.id === 'THERMAL_BREAK');
+    const existing = this.findBuff('THERMAL_BREAK');
     if (existing) {
       existing.remainingMs = THERMAL_BREAK_INVULN_MS;
       existing.totalMs = THERMAL_BREAK_INVULN_MS;
@@ -4442,16 +4595,20 @@ export default class GameScene extends Phaser.Scene {
       this.frostHazardAudio.playThermalBreak(now);
     }
 
-    this.time.delayedCall(THERMAL_BREAK_INVULN_MS, () => {
-      if (this.player && this.player.active) {
-        this.player.setAlpha(1.0);
-        this.player.clearTint();
-        if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
-          this.isInvulnerable = false;
+    this.applyMasterySpeedBurst(
+      'THERMAL_BREAK',
+      (baseSpeed) => baseSpeed * (1.0 + THERMAL_BREAK_SPEED_BURST_RATIO),
+      THERMAL_BREAK_INVULN_MS,
+      () => {
+        if (this.player && this.player.active) {
+          this.player.setAlpha(1.0);
+          this.player.clearTint();
+          if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
+            this.isInvulnerable = false;
+          }
         }
       }
-      this.playerSpeed = originalSpeed;
-    });
+    );
 
     this.emitStatsUpdate();
   }
@@ -4459,10 +4616,18 @@ export default class GameScene extends Phaser.Scene {
   applyFrostChill(): void {
     if (this.isGameOver || !this.player || !this.player.active) return;
     const now = this.time?.now ?? Date.now();
-    if (this.isInvulnerable || this.isDashing || this.activeBuffs.some((b) => b.id === 'THERMAL_BREAK' || b.id === 'MAGMA_SURF')) return;
-    this.activeBuffs = this.activeBuffs.filter((b) => b.id !== 'THERMAL_SINGE');
+    if (
+      this.isInvulnerable ||
+      this.isDashing ||
+      this.hasBuff('THERMAL_BREAK') ||
+      this.hasBuff('MAGMA_SURF')
+    ) {
+      return;
+    }
+    const removedConflict = this.removeBuffById('THERMAL_SINGE');
 
-    const existing = this.activeBuffs.find((b) => b.id === 'FROST_CHILL');
+    const existing = this.findBuff('FROST_CHILL');
+    const prevRemaining = existing ? existing.remainingMs : 0;
     if (existing) {
       existing.remainingMs = FROST_CHILL_DURATION_MS;
       existing.totalMs = FROST_CHILL_DURATION_MS;
@@ -4487,14 +4652,22 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.player && this.player.active && !this.isInvulnerable) {
       this.player.setTint(0x93c5fd);
-      this.time.delayedCall(FROST_CHILL_DURATION_MS, () => {
-        if (this.player && this.player.active && !this.activeBuffs.some((b) => b.id === 'FROST_CHILL')) {
-          this.player.clearTint();
-        }
-      });
+      this.scheduleDebuffTintClear(
+        'FROST_CHILL',
+        FROST_CHILL_DURATION_MS,
+        () => {
+          if (this.player && this.player.active && !this.hasBuff('FROST_CHILL')) {
+            this.player.clearTint();
+          }
+        },
+        Boolean(existing),
+        prevRemaining
+      );
     }
 
-    this.emitStatsUpdate();
+    if (!existing || removedConflict) {
+      this.emitStatsUpdate();
+    }
   }
 
   grantSuperconductorDash(): void {
@@ -4508,13 +4681,10 @@ export default class GameScene extends Phaser.Scene {
     this.player.setAlpha(0.80);
     this.player.setTint(0xfacc15);
 
-    const originalSpeed = this.playerSpeed;
-    this.playerSpeed = originalSpeed * (1.0 + SUPERCONDUCTOR_SPEED_BURST_RATIO);
+    // Cleanse conflicting debuff without array allocation
+    this.removeBuffById('STATIC_SHOCK');
 
-    // Cleanse conflicting debuff
-    this.activeBuffs = this.activeBuffs.filter((b) => b.id !== 'STATIC_SHOCK');
-
-    const existing = this.activeBuffs.find((b) => b.id === 'SUPERCONDUCTOR_DASH');
+    const existing = this.findBuff('SUPERCONDUCTOR_DASH');
     if (existing) {
       existing.remainingMs = SUPERCONDUCTOR_DASH_INVULN_MS;
       existing.totalMs = SUPERCONDUCTOR_DASH_INVULN_MS;
@@ -4537,16 +4707,20 @@ export default class GameScene extends Phaser.Scene {
       this.voltHazardAudio.playSuperconductorDash(now);
     }
 
-    this.time.delayedCall(SUPERCONDUCTOR_DASH_INVULN_MS, () => {
-      if (this.player && this.player.active) {
-        this.player.setAlpha(1.0);
-        this.player.clearTint();
-        if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
-          this.isInvulnerable = false;
+    this.applyMasterySpeedBurst(
+      'SUPERCONDUCTOR_DASH',
+      (baseSpeed) => baseSpeed * (1.0 + SUPERCONDUCTOR_SPEED_BURST_RATIO),
+      SUPERCONDUCTOR_DASH_INVULN_MS,
+      () => {
+        if (this.player && this.player.active) {
+          this.player.setAlpha(1.0);
+          this.player.clearTint();
+          if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
+            this.isInvulnerable = false;
+          }
         }
       }
-      this.playerSpeed = originalSpeed;
-    });
+    );
 
     this.emitStatsUpdate();
   }
@@ -4554,9 +4728,10 @@ export default class GameScene extends Phaser.Scene {
   applyStaticShock(): void {
     if (this.isGameOver || !this.player || !this.player.active) return;
     const now = this.time?.now ?? Date.now();
-    if (this.isInvulnerable || this.isDashing || this.activeBuffs.some((b) => b.id === 'SUPERCONDUCTOR_DASH')) return;
+    if (this.isInvulnerable || this.isDashing || this.hasBuff('SUPERCONDUCTOR_DASH')) return;
 
-    const existing = this.activeBuffs.find((b) => b.id === 'STATIC_SHOCK');
+    const existing = this.findBuff('STATIC_SHOCK');
+    const prevRemaining = existing ? existing.remainingMs : 0;
     if (existing) {
       existing.remainingMs = STATIC_SHOCK_DURATION_MS;
       existing.totalMs = STATIC_SHOCK_DURATION_MS;
@@ -4581,14 +4756,22 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.player && this.player.active && !this.isInvulnerable) {
       this.player.setTint(0xfef08a);
-      this.time.delayedCall(STATIC_SHOCK_DURATION_MS, () => {
-        if (this.player && this.player.active && !this.activeBuffs.some((b) => b.id === 'STATIC_SHOCK')) {
-          this.player.clearTint();
-        }
-      });
+      this.scheduleDebuffTintClear(
+        'STATIC_SHOCK',
+        STATIC_SHOCK_DURATION_MS,
+        () => {
+          if (this.player && this.player.active && !this.hasBuff('STATIC_SHOCK')) {
+            this.player.clearTint();
+          }
+        },
+        Boolean(existing),
+        prevRemaining
+      );
     }
 
-    this.emitStatsUpdate();
+    if (!existing) {
+      this.emitStatsUpdate();
+    }
   }
 
   grantMagmaSurf(): void {
@@ -4602,13 +4785,11 @@ export default class GameScene extends Phaser.Scene {
     this.player.setAlpha(0.85);
     this.player.setTint(0xf97316);
 
-    const originalSpeed = this.playerSpeed;
-    this.playerSpeed = originalSpeed * (1.0 + MAGMA_SURF_SPEED_BURST_RATIO);
+    // Cleanse conflicting debuffs without array allocation
+    this.removeBuffById('THERMAL_SINGE');
+    this.removeBuffById('FROST_CHILL');
 
-    // Cleanse conflicting debuffs
-    this.activeBuffs = this.activeBuffs.filter((b) => b.id !== 'THERMAL_SINGE' && b.id !== 'FROST_CHILL');
-
-    const existing = this.activeBuffs.find((b) => b.id === 'MAGMA_SURF');
+    const existing = this.findBuff('MAGMA_SURF');
     if (existing) {
       existing.remainingMs = MAGMA_SURF_INVULN_MS;
       existing.totalMs = MAGMA_SURF_INVULN_MS;
@@ -4631,16 +4812,20 @@ export default class GameScene extends Phaser.Scene {
       this.magmaHazardAudio.playMagmaSurf();
     }
 
-    this.time.delayedCall(MAGMA_SURF_INVULN_MS, () => {
-      if (this.player && this.player.active) {
-        this.player.setAlpha(1.0);
-        this.player.clearTint();
-        if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
-          this.isInvulnerable = false;
+    this.applyMasterySpeedBurst(
+      'MAGMA_SURF',
+      (baseSpeed) => baseSpeed * (1.0 + MAGMA_SURF_SPEED_BURST_RATIO),
+      MAGMA_SURF_INVULN_MS,
+      () => {
+        if (this.player && this.player.active) {
+          this.player.setAlpha(1.0);
+          this.player.clearTint();
+          if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
+            this.isInvulnerable = false;
+          }
         }
       }
-      this.playerSpeed = originalSpeed;
-    });
+    );
 
     this.emitStatsUpdate();
   }
@@ -4648,10 +4833,18 @@ export default class GameScene extends Phaser.Scene {
   applyThermalSinge(): void {
     if (this.isGameOver || !this.player || !this.player.active) return;
     const now = this.time?.now ?? Date.now();
-    if (this.isInvulnerable || this.isDashing || this.activeBuffs.some((b) => b.id === 'MAGMA_SURF' || b.id === 'THERMAL_BREAK')) return;
-    this.activeBuffs = this.activeBuffs.filter((b) => b.id !== 'FROST_CHILL');
+    if (
+      this.isInvulnerable ||
+      this.isDashing ||
+      this.hasBuff('MAGMA_SURF') ||
+      this.hasBuff('THERMAL_BREAK')
+    ) {
+      return;
+    }
+    const removedConflict = this.removeBuffById('FROST_CHILL');
 
-    const existing = this.activeBuffs.find((b) => b.id === 'THERMAL_SINGE');
+    const existing = this.findBuff('THERMAL_SINGE');
+    const prevRemaining = existing ? existing.remainingMs : 0;
     if (existing) {
       existing.remainingMs = THERMAL_SINGE_DURATION_MS;
       existing.totalMs = THERMAL_SINGE_DURATION_MS;
@@ -4676,26 +4869,35 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.player && this.player.active && !this.isInvulnerable) {
       this.player.setTint(0xfdba74);
-      this.time.delayedCall(THERMAL_SINGE_DURATION_MS, () => {
-        if (this.player && this.player.active && !this.activeBuffs.some((b) => b.id === 'THERMAL_SINGE')) {
-          this.player.clearTint();
-        }
-      });
+      this.scheduleDebuffTintClear(
+        'THERMAL_SINGE',
+        THERMAL_SINGE_DURATION_MS,
+        () => {
+          if (this.player && this.player.active && !this.hasBuff('THERMAL_SINGE')) {
+            this.player.clearTint();
+          }
+        },
+        Boolean(existing),
+        prevRemaining
+      );
     }
 
-    this.emitStatsUpdate();
+    if (!existing || removedConflict) {
+      this.emitStatsUpdate();
+    }
   }
 
   grantSporeSurge(): void {
     if (this.isGameOver || !this.player || !this.player.active) return;
+    const now = this.time?.now ?? Date.now();
     this.isInvulnerable = true;
-    const originalSpeed = this.playerSpeed;
-    this.playerSpeed = Math.floor(originalSpeed * (1.0 + SPORE_SURGE_SPEED_BURST_RATIO));
+    this.shieldInvulnerableUntil = Math.max(this.shieldInvulnerableUntil, now + SPORE_SURGE_INVULN_MS);
 
     this.player.setTint(0x10b981);
     this.player.setAlpha(0.85);
+    this.removeBuffById('NEUROTOXIN');
 
-    const existing = this.activeBuffs.find((b) => b.id === 'SPORE_SURGE');
+    const existing = this.findBuff('SPORE_SURGE');
     if (existing) {
       existing.remainingMs = SPORE_SURGE_INVULN_MS;
       existing.totalMs = SPORE_SURGE_INVULN_MS;
@@ -4718,16 +4920,20 @@ export default class GameScene extends Phaser.Scene {
       this.miasmaHazardAudio.playSporeSurge();
     }
 
-    this.time.delayedCall(SPORE_SURGE_INVULN_MS, () => {
-      if (this.player && this.player.active) {
-        this.player.setAlpha(1.0);
-        this.player.clearTint();
-        if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
-          this.isInvulnerable = false;
+    this.applyMasterySpeedBurst(
+      'SPORE_SURGE',
+      (baseSpeed) => Math.floor(baseSpeed * (1.0 + SPORE_SURGE_SPEED_BURST_RATIO)),
+      SPORE_SURGE_INVULN_MS,
+      () => {
+        if (this.player && this.player.active) {
+          this.player.setAlpha(1.0);
+          this.player.clearTint();
+          if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
+            this.isInvulnerable = false;
+          }
         }
       }
-      this.playerSpeed = originalSpeed;
-    });
+    );
 
     this.emitStatsUpdate();
   }
@@ -4735,9 +4941,10 @@ export default class GameScene extends Phaser.Scene {
   applyNeurotoxin(): void {
     if (this.isGameOver || !this.player || !this.player.active) return;
     const now = this.time?.now ?? Date.now();
-    if (this.isInvulnerable || this.isDashing) return;
+    if (this.isInvulnerable || this.isDashing || this.hasBuff('SPORE_SURGE')) return;
 
-    const existing = this.activeBuffs.find((b) => b.id === 'NEUROTOXIN');
+    const existing = this.findBuff('NEUROTOXIN');
+    const prevRemaining = existing ? existing.remainingMs : 0;
     if (existing) {
       existing.remainingMs = NEUROTOXIN_DURATION_MS;
       existing.totalMs = NEUROTOXIN_DURATION_MS;
@@ -4762,26 +4969,35 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.player && this.player.active && !this.isInvulnerable) {
       this.player.setTint(0xbbf7d0);
-      this.time.delayedCall(NEUROTOXIN_DURATION_MS, () => {
-        if (this.player && this.player.active && !this.activeBuffs.some((b) => b.id === 'NEUROTOXIN')) {
-          this.player.clearTint();
-        }
-      });
+      this.scheduleDebuffTintClear(
+        'NEUROTOXIN',
+        NEUROTOXIN_DURATION_MS,
+        () => {
+          if (this.player && this.player.active && !this.hasBuff('NEUROTOXIN')) {
+            this.player.clearTint();
+          }
+        },
+        Boolean(existing),
+        prevRemaining
+      );
     }
 
-    this.emitStatsUpdate();
+    if (!existing) {
+      this.emitStatsUpdate();
+    }
   }
 
   grantChronoSurge(): void {
     if (this.isGameOver || !this.player || !this.player.active) return;
+    const now = this.time?.now ?? Date.now();
     this.isInvulnerable = true;
-    const originalSpeed = this.playerSpeed;
-    this.playerSpeed = Math.floor(originalSpeed * (1.0 + CHRONO_SURGE_SPEED_BURST_RATIO));
+    this.shieldInvulnerableUntil = Math.max(this.shieldInvulnerableUntil, now + CHRONO_SURGE_INVULN_MS);
 
     this.player.setTint(0x818cf8);
     this.player.setAlpha(0.85);
+    this.removeBuffById('TEMPORAL_DILATION');
 
-    const existing = this.activeBuffs.find((b) => b.id === 'CHRONO_SURGE');
+    const existing = this.findBuff('CHRONO_SURGE');
     if (existing) {
       existing.remainingMs = CHRONO_SURGE_INVULN_MS;
       existing.totalMs = CHRONO_SURGE_INVULN_MS;
@@ -4804,16 +5020,20 @@ export default class GameScene extends Phaser.Scene {
       this.chronoHazardAudio.playChronoSurge();
     }
 
-    this.time.delayedCall(CHRONO_SURGE_INVULN_MS, () => {
-      if (this.player && this.player.active) {
-        this.player.setAlpha(1.0);
-        this.player.clearTint();
-        if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
-          this.isInvulnerable = false;
+    this.applyMasterySpeedBurst(
+      'CHRONO_SURGE',
+      (baseSpeed) => Math.floor(baseSpeed * (1.0 + CHRONO_SURGE_SPEED_BURST_RATIO)),
+      CHRONO_SURGE_INVULN_MS,
+      () => {
+        if (this.player && this.player.active) {
+          this.player.setAlpha(1.0);
+          this.player.clearTint();
+          if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
+            this.isInvulnerable = false;
+          }
         }
       }
-      this.playerSpeed = originalSpeed;
-    });
+    );
 
     this.emitStatsUpdate();
   }
@@ -4821,9 +5041,10 @@ export default class GameScene extends Phaser.Scene {
   applyTemporalDilation(): void {
     if (this.isGameOver || !this.player || !this.player.active) return;
     const now = this.time?.now ?? Date.now();
-    if (this.isInvulnerable || this.isDashing) return;
+    if (this.isInvulnerable || this.isDashing || this.hasBuff('CHRONO_SURGE')) return;
 
-    const existing = this.activeBuffs.find((b) => b.id === 'TEMPORAL_DILATION');
+    const existing = this.findBuff('TEMPORAL_DILATION');
+    const prevRemaining = existing ? existing.remainingMs : 0;
     if (existing) {
       existing.remainingMs = TEMPORAL_DILATION_DURATION_MS;
       existing.totalMs = TEMPORAL_DILATION_DURATION_MS;
@@ -4848,26 +5069,35 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.player && this.player.active && !this.isInvulnerable) {
       this.player.setTint(0xc7d2fe);
-      this.time.delayedCall(TEMPORAL_DILATION_DURATION_MS, () => {
-        if (this.player && this.player.active && !this.activeBuffs.some((b) => b.id === 'TEMPORAL_DILATION')) {
-          this.player.clearTint();
-        }
-      });
+      this.scheduleDebuffTintClear(
+        'TEMPORAL_DILATION',
+        TEMPORAL_DILATION_DURATION_MS,
+        () => {
+          if (this.player && this.player.active && !this.hasBuff('TEMPORAL_DILATION')) {
+            this.player.clearTint();
+          }
+        },
+        Boolean(existing),
+        prevRemaining
+      );
     }
 
-    this.emitStatsUpdate();
+    if (!existing) {
+      this.emitStatsUpdate();
+    }
   }
 
   grantSolarSurf(): void {
     if (this.isGameOver || !this.player || !this.player.active) return;
+    const now = this.time?.now ?? Date.now();
     this.isInvulnerable = true;
-    const originalSpeed = this.playerSpeed;
-    this.playerSpeed = Math.floor(originalSpeed * (1.0 + SOLAR_SURF_SPEED_BURST_RATIO));
+    this.shieldInvulnerableUntil = Math.max(this.shieldInvulnerableUntil, now + SOLAR_SURF_INVULN_MS);
 
     this.player.setTint(0xfbbf24);
     this.player.setAlpha(0.90);
+    this.removeBuffById('SUNSTROKE');
 
-    const existing = this.activeBuffs.find((b) => b.id === 'SOLAR_SURF');
+    const existing = this.findBuff('SOLAR_SURF');
     if (existing) {
       existing.remainingMs = SOLAR_SURF_INVULN_MS;
       existing.totalMs = SOLAR_SURF_INVULN_MS;
@@ -4890,16 +5120,20 @@ export default class GameScene extends Phaser.Scene {
       this.solarHazardAudio.playSolarSurfChimes();
     }
 
-    this.time.delayedCall(SOLAR_SURF_INVULN_MS, () => {
-      if (this.player && this.player.active) {
-        this.player.setAlpha(1.0);
-        this.player.clearTint();
-        if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
-          this.isInvulnerable = false;
+    this.applyMasterySpeedBurst(
+      'SOLAR_SURF',
+      (baseSpeed) => Math.floor(baseSpeed * (1.0 + SOLAR_SURF_SPEED_BURST_RATIO)),
+      SOLAR_SURF_INVULN_MS,
+      () => {
+        if (this.player && this.player.active) {
+          this.player.setAlpha(1.0);
+          this.player.clearTint();
+          if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
+            this.isInvulnerable = false;
+          }
         }
       }
-      this.playerSpeed = originalSpeed;
-    });
+    );
 
     this.emitStatsUpdate();
   }
@@ -4907,9 +5141,10 @@ export default class GameScene extends Phaser.Scene {
   applySunstroke(): void {
     if (this.isGameOver || !this.player || !this.player.active) return;
     const now = this.time?.now ?? Date.now();
-    if (this.isInvulnerable || this.isDashing) return;
+    if (this.isInvulnerable || this.isDashing || this.hasBuff('SOLAR_SURF')) return;
 
-    const existing = this.activeBuffs.find((b) => b.id === 'SUNSTROKE');
+    const existing = this.findBuff('SUNSTROKE');
+    const prevRemaining = existing ? existing.remainingMs : 0;
     if (existing) {
       existing.remainingMs = SUNSTROKE_DURATION_MS;
       existing.totalMs = SUNSTROKE_DURATION_MS;
@@ -4934,25 +5169,34 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.player && this.player.active && !this.isInvulnerable) {
       this.player.setTint(0xfdba74);
-      this.time.delayedCall(SUNSTROKE_DURATION_MS, () => {
-        if (this.player && this.player.active && !this.activeBuffs.some((b) => b.id === 'SUNSTROKE')) {
-          this.player.clearTint();
-        }
-      });
+      this.scheduleDebuffTintClear(
+        'SUNSTROKE',
+        SUNSTROKE_DURATION_MS,
+        () => {
+          if (this.player && this.player.active && !this.hasBuff('SUNSTROKE')) {
+            this.player.clearTint();
+          }
+        },
+        Boolean(existing),
+        prevRemaining
+      );
     }
-    this.emitStatsUpdate();
+    if (!existing) {
+      this.emitStatsUpdate();
+    }
   }
 
   grantAstralGlide(): void {
     if (this.isGameOver || !this.player || !this.player.active) return;
+    const now = this.time?.now ?? Date.now();
     this.isInvulnerable = true;
-    const originalSpeed = this.playerSpeed;
-    this.playerSpeed = Math.floor(originalSpeed * (1.0 + ASTRAL_GLIDE_SPEED_BURST_RATIO));
+    this.shieldInvulnerableUntil = Math.max(this.shieldInvulnerableUntil, now + ASTRAL_GLIDE_INVULN_MS);
 
     this.player.setTint(0xc084fc);
     this.player.setAlpha(0.85);
+    this.removeBuffById('COSMIC_DAZE');
 
-    const existing = this.activeBuffs.find((b) => b.id === 'ASTRAL_GLIDE');
+    const existing = this.findBuff('ASTRAL_GLIDE');
     if (existing) {
       existing.remainingMs = ASTRAL_GLIDE_INVULN_MS;
       existing.totalMs = ASTRAL_GLIDE_INVULN_MS;
@@ -4975,16 +5219,20 @@ export default class GameScene extends Phaser.Scene {
       this.nebulaHazardAudio.playAstralGlideChimes();
     }
 
-    this.time.delayedCall(ASTRAL_GLIDE_INVULN_MS, () => {
-      if (this.player && this.player.active) {
-        this.player.setAlpha(1.0);
-        this.player.clearTint();
-        if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
-          this.isInvulnerable = false;
+    this.applyMasterySpeedBurst(
+      'ASTRAL_GLIDE',
+      (baseSpeed) => Math.floor(baseSpeed * (1.0 + ASTRAL_GLIDE_SPEED_BURST_RATIO)),
+      ASTRAL_GLIDE_INVULN_MS,
+      () => {
+        if (this.player && this.player.active) {
+          this.player.setAlpha(1.0);
+          this.player.clearTint();
+          if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
+            this.isInvulnerable = false;
+          }
         }
       }
-      this.playerSpeed = originalSpeed;
-    });
+    );
 
     this.emitStatsUpdate();
   }
@@ -4992,9 +5240,10 @@ export default class GameScene extends Phaser.Scene {
   applyCosmicDaze(): void {
     if (this.isGameOver || !this.player || !this.player.active) return;
     const now = this.time?.now ?? Date.now();
-    if (this.isInvulnerable || this.isDashing) return;
+    if (this.isInvulnerable || this.isDashing || this.hasBuff('ASTRAL_GLIDE')) return;
 
-    const existing = this.activeBuffs.find((b) => b.id === 'COSMIC_DAZE');
+    const existing = this.findBuff('COSMIC_DAZE');
+    const prevRemaining = existing ? existing.remainingMs : 0;
     if (existing) {
       existing.remainingMs = COSMIC_DAZE_DURATION_MS;
       existing.totalMs = COSMIC_DAZE_DURATION_MS;
@@ -5019,25 +5268,35 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.player && this.player.active && !this.isInvulnerable) {
       this.player.setTint(0xddd6fe);
-      this.time.delayedCall(COSMIC_DAZE_DURATION_MS, () => {
-        if (this.player && this.player.active && !this.activeBuffs.some((b) => b.id === 'COSMIC_DAZE')) {
-          this.player.clearTint();
-        }
-      });
+      this.scheduleDebuffTintClear(
+        'COSMIC_DAZE',
+        COSMIC_DAZE_DURATION_MS,
+        () => {
+          if (this.player && this.player.active && !this.hasBuff('COSMIC_DAZE')) {
+            this.player.clearTint();
+          }
+        },
+        Boolean(existing),
+        prevRemaining
+      );
     }
-    this.emitStatsUpdate();
+    if (!existing) {
+      this.emitStatsUpdate();
+    }
   }
 
   grantAbyssalGlide(): void {
     if (this.isGameOver || !this.player || !this.player.active) return;
+    const now = this.time?.now ?? Date.now();
     this.isInvulnerable = true;
-    const originalSpeed = this.playerSpeed;
-    this.playerSpeed = Math.floor(originalSpeed * (1.0 + AQUA_GLIDE_SPEED_BURST_RATIO));
+    this.shieldInvulnerableUntil = Math.max(this.shieldInvulnerableUntil, now + AQUA_GLIDE_INVULN_MS);
 
     this.player.setTint(0x06b6d4);
     this.player.setAlpha(0.85);
+    this.removeBuffById('HYDROSTATIC_DRAG');
+    this.removeBuffById('ABYSSAL_UNDERTOW');
 
-    const existing = this.activeBuffs.find((b) => b.id === 'ABYSSAL_GLIDE' || b.id === 'AQUA_GLIDE');
+    const existing = this.findBuff('ABYSSAL_GLIDE') ?? this.findBuff('AQUA_GLIDE');
     if (existing) {
       existing.remainingMs = AQUA_GLIDE_INVULN_MS;
       existing.totalMs = AQUA_GLIDE_INVULN_MS;
@@ -5060,16 +5319,20 @@ export default class GameScene extends Phaser.Scene {
       this.abyssalHazardAudio.playAbyssalGlideChimes();
     }
 
-    this.time.delayedCall(AQUA_GLIDE_INVULN_MS, () => {
-      if (this.player && this.player.active) {
-        this.player.setAlpha(1.0);
-        this.player.clearTint();
-        if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
-          this.isInvulnerable = false;
+    this.applyMasterySpeedBurst(
+      'AQUA_GLIDE',
+      (baseSpeed) => Math.floor(baseSpeed * (1.0 + AQUA_GLIDE_SPEED_BURST_RATIO)),
+      AQUA_GLIDE_INVULN_MS,
+      () => {
+        if (this.player && this.player.active) {
+          this.player.setAlpha(1.0);
+          this.player.clearTint();
+          if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
+            this.isInvulnerable = false;
+          }
         }
       }
-      this.playerSpeed = originalSpeed;
-    });
+    );
 
     this.emitStatsUpdate();
   }
@@ -5085,9 +5348,17 @@ export default class GameScene extends Phaser.Scene {
   applyHydrostaticDrag(): void {
     if (this.isGameOver || !this.player || !this.player.active) return;
     const now = this.time?.now ?? Date.now();
-    if (this.isInvulnerable || this.isDashing) return;
+    if (
+      this.isInvulnerable ||
+      this.isDashing ||
+      this.hasBuff('ABYSSAL_GLIDE') ||
+      this.hasBuff('AQUA_GLIDE')
+    ) {
+      return;
+    }
 
-    const existing = this.activeBuffs.find((b) => b.id === 'HYDROSTATIC_DRAG' || b.id === 'ABYSSAL_UNDERTOW');
+    const existing = this.findBuff('HYDROSTATIC_DRAG') ?? this.findBuff('ABYSSAL_UNDERTOW');
+    const prevRemaining = existing ? existing.remainingMs : 0;
     if (existing) {
       existing.remainingMs = ABYSSAL_UNDERTOW_DURATION_MS;
       existing.totalMs = ABYSSAL_UNDERTOW_DURATION_MS;
@@ -5112,13 +5383,26 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.player && this.player.active && !this.isInvulnerable) {
       this.player.setTint(0x7dd3fc);
-      this.time.delayedCall(ABYSSAL_UNDERTOW_DURATION_MS, () => {
-        if (this.player && this.player.active && !this.activeBuffs.some((b) => b.id === 'HYDROSTATIC_DRAG' || b.id === 'ABYSSAL_UNDERTOW')) {
-          this.player.clearTint();
-        }
-      });
+      this.scheduleDebuffTintClear(
+        'ABYSSAL_UNDERTOW',
+        ABYSSAL_UNDERTOW_DURATION_MS,
+        () => {
+          if (
+            this.player &&
+            this.player.active &&
+            !this.hasBuff('HYDROSTATIC_DRAG') &&
+            !this.hasBuff('ABYSSAL_UNDERTOW')
+          ) {
+            this.player.clearTint();
+          }
+        },
+        Boolean(existing),
+        prevRemaining
+      );
     }
-    this.emitStatsUpdate();
+    if (!existing) {
+      this.emitStatsUpdate();
+    }
   }
 
   applyAbyssalUndertow(): void {
@@ -5131,7 +5415,8 @@ export default class GameScene extends Phaser.Scene {
     if (this.isInvulnerable || this.isDashing || now < this.shieldInvulnerableUntil) return;
     this.phaseJitterRemaining = Math.max(this.phaseJitterRemaining, durationMs);
 
-    const existing = this.activeBuffs.find((b) => b.id === 'PHASE_JITTER');
+    const existing = this.findBuff('PHASE_JITTER');
+    const prevRemaining = existing ? existing.remainingMs : 0;
     if (existing) {
       existing.remainingMs = durationMs;
       existing.totalMs = durationMs;
@@ -5148,15 +5433,25 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.player && this.player.active) {
       this.player.setTint(0xa855f7);
-      this.spawnFloatingText(this.player.x, this.player.y - 25, '⚡ PHASE JITTER (-25%)', '#a855f7');
+      if (!existing) {
+        this.spawnFloatingText(this.player.x, this.player.y - 25, '⚡ PHASE JITTER (-25%)', '#a855f7');
+      }
     }
 
-    this.time.delayedCall(durationMs, () => {
-      if (this.player && this.player.active && !this.isInvulnerable) {
-        this.player.clearTint();
-      }
-    });
-    this.emitStatsUpdate();
+    this.scheduleDebuffTintClear(
+      'PHASE_JITTER',
+      durationMs,
+      () => {
+        if (this.player && this.player.active && !this.isInvulnerable && !this.hasBuff('PHASE_JITTER')) {
+          this.player.clearTint();
+        }
+      },
+      Boolean(existing),
+      prevRemaining
+    );
+    if (!existing) {
+      this.emitStatsUpdate();
+    }
   }
 
   grantDistortionBarrier(durationMs: number = 2500): void {
@@ -5168,7 +5463,7 @@ export default class GameScene extends Phaser.Scene {
     this.player.setTint(0xec4899);
     this.player.setAlpha(0.85);
 
-    const existing = this.activeBuffs.find((b) => b.id === 'DISTORTION_BARRIER');
+    const existing = this.findBuff('DISTORTION_BARRIER');
     if (existing) {
       existing.remainingMs = durationMs;
       existing.totalMs = durationMs;
@@ -5187,17 +5482,15 @@ export default class GameScene extends Phaser.Scene {
       this.cameras.main.flash(100, 236, 72, 153, false);
     }
 
-    if (this.time && this.time.delayedCall) {
-      this.time.delayedCall(durationMs, () => {
-        if (this.player && this.player.active) {
-          this.player.setAlpha(1.0);
-          this.player.clearTint();
-          if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
-            this.isInvulnerable = false;
-          }
+    this.scheduleDebuffTintClear('DISTORTION_BARRIER', durationMs, () => {
+      if (this.player && this.player.active) {
+        this.player.setAlpha(1.0);
+        this.player.clearTint();
+        if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
+          this.isInvulnerable = false;
         }
-      });
-    }
+      }
+    });
 
     this.emitStatsUpdate();
   }
@@ -5686,17 +5979,41 @@ export default class GameScene extends Phaser.Scene {
     this.player.setVelocity(vx, vy);
   }
 
+  private addOverlappingGroupEntitiesToIgnoringSet(
+    group: Phaser.Physics.Arcade.Group | undefined,
+    bombBody: Phaser.Physics.Arcade.Body,
+    creator: Phaser.GameObjects.GameObject | undefined,
+    ignoring: Set<Phaser.GameObjects.GameObject>
+  ): void {
+    if (!group) return;
+    const children = group.getChildren();
+    for (let i = 0; i < children.length; i++) {
+      const obj = children[i] as Phaser.Physics.Arcade.Sprite;
+      if (obj && obj.active && obj !== creator) {
+        const ob = obj.body as Phaser.Physics.Arcade.Body;
+        if (ob && this.checkBodiesOverlap(ob, bombBody)) {
+          ignoring.add(obj);
+        }
+      }
+    }
+  }
+
   private populateBombIgnoringColliders(
     bomb: Phaser.Physics.Arcade.Sprite,
     creator?: Phaser.GameObjects.GameObject
   ): void {
-    const ignoring = new Set<Phaser.GameObjects.GameObject>();
+    let ignoring = bomb.getData('ignoringColliders') as Set<Phaser.GameObjects.GameObject> | undefined;
+    if (ignoring instanceof Set) {
+      ignoring.clear();
+    } else {
+      ignoring = new Set<Phaser.GameObjects.GameObject>();
+      bomb.setData('ignoringColliders', ignoring);
+    }
     if (creator) {
       ignoring.add(creator);
     }
     const bombBody = bomb.body as Phaser.Physics.Arcade.Body;
     if (!bombBody) {
-      bomb.setData('ignoringColliders', ignoring);
       return;
     }
 
@@ -5707,24 +6024,21 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    const checkGroup = (group?: Phaser.Physics.Arcade.Group) => {
-      if (!group) return;
-      group.getChildren().forEach((child) => {
-        const obj = child as Phaser.Physics.Arcade.Sprite;
-        if (obj.active && obj !== creator) {
-          const ob = obj.body as Phaser.Physics.Arcade.Body;
-          if (ob && this.checkBodiesOverlap(ob, bombBody)) {
-            ignoring.add(obj);
-          }
-        }
-      });
-    };
+    this.addOverlappingGroupEntitiesToIgnoringSet(this.enemies, bombBody, creator, ignoring);
+    this.addOverlappingGroupEntitiesToIgnoringSet(this.allies, bombBody, creator, ignoring);
+    this.addOverlappingGroupEntitiesToIgnoringSet(this.neutrals, bombBody, creator, ignoring);
+  }
 
-    checkGroup(this.enemies);
-    checkGroup(this.allies);
-    checkGroup(this.neutrals);
-
-    bomb.setData('ignoringColliders', ignoring);
+  private hasActiveBombAtPixel(centerX: number, centerY: number): boolean {
+    if (!this.bombs) return false;
+    const children = this.bombs.getChildren();
+    for (let i = 0; i < children.length; i++) {
+      const b = children[i] as Phaser.Physics.Arcade.Sprite;
+      if (b && b.active && b.x === centerX && b.y === centerY) {
+        return true;
+      }
+    }
+    return false;
   }
 
   placeBomb() {
@@ -5737,20 +6051,11 @@ export default class GameScene extends Phaser.Scene {
     const centerY = row * TILE_SIZE + TILE_SIZE / 2;
 
     // Prevent placing multiple bombs on same tile
-    let hasBomb = false;
-    this.bombs.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
-      const b = child as Phaser.Physics.Arcade.Sprite;
-      if (b.active && b.x === centerX && b.y === centerY) {
-        hasBomb = true;
-      }
-    });
+    if (this.hasActiveBombAtPixel(centerX, centerY)) return;
 
-    if (hasBomb) return;
-
-    const bomb = this.bombs.get(centerX, centerY, 'bomb') as Phaser.Physics.Arcade.Sprite;
+    const bomb = this.acquirePooledGroupSprite(this.bombs, centerX, centerY, 'bomb');
     if (!bomb) return;
-    bomb.setActive(true).setVisible(true);
-    bomb.enableBody(true, centerX, centerY, true, true);
+    this.resetPooledBombState(bomb);
     bomb.setDepth(RENDER_DEPTH.BOMBS);
     (bomb.body as Phaser.Physics.Arcade.Body)?.setSize(32, 32).setOffset(4, 4);
     (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(true);
@@ -5985,16 +6290,11 @@ export default class GameScene extends Phaser.Scene {
     const centerX = col * TILE_SIZE + TILE_SIZE / 2;
     const centerY = row * TILE_SIZE + TILE_SIZE / 2;
 
-    let hasBomb = false;
-    this.bombs.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
-      const b = child as Phaser.Physics.Arcade.Sprite;
-      if (b.active && b.x === centerX && b.y === centerY) {
-        hasBomb = true;
-      }
-    });
-    if (hasBomb) return;
+    if (this.hasActiveBombAtPixel(centerX, centerY)) return;
 
-    const ghostBomb = this.bombs.create(centerX, centerY, 'bomb') as Phaser.Physics.Arcade.Sprite;
+    const ghostBomb = this.acquirePooledGroupSprite(this.bombs, centerX, centerY, 'bomb');
+    if (!ghostBomb) return;
+    this.resetPooledBombState(ghostBomb);
     ghostBomb.setDepth(RENDER_DEPTH.BOMBS);
     (ghostBomb.body as Phaser.Physics.Arcade.Body)?.setSize(32, 32).setOffset(4, 4);
     (ghostBomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(true);
@@ -6078,28 +6378,24 @@ export default class GameScene extends Phaser.Scene {
 
     // Hard ceiling: max 2 active enemy bombs on arena
     let enemyBombCount = 0;
-    this.bombs.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
-      const b = child as Phaser.Physics.Arcade.Sprite;
-      if (b.active && b.getData('owner') === 'enemy') {
+    const bombChildren = this.bombs.getChildren();
+    for (let i = 0; i < bombChildren.length; i++) {
+      const b = bombChildren[i] as Phaser.Physics.Arcade.Sprite;
+      if (b && b.active && b.getData('owner') === 'enemy') {
         enemyBombCount++;
+        if (enemyBombCount >= 2) return false;
       }
-    });
-    if (enemyBombCount >= 2) return false;
+    }
 
     const centerX = col * TILE_SIZE + TILE_SIZE / 2;
     const centerY = row * TILE_SIZE + TILE_SIZE / 2;
 
     // Prevent placing multiple bombs on same tile
-    let hasBomb = false;
-    this.bombs.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
-      const b = child as Phaser.Physics.Arcade.Sprite;
-      if (b.active && b.x === centerX && b.y === centerY) {
-        hasBomb = true;
-      }
-    });
-    if (hasBomb) return false;
+    if (this.hasActiveBombAtPixel(centerX, centerY)) return false;
 
-    const bomb = this.bombs.create(centerX, centerY, 'bomb') as Phaser.Physics.Arcade.Sprite;
+    const bomb = this.acquirePooledGroupSprite(this.bombs, centerX, centerY, 'bomb');
+    if (!bomb) return false;
+    this.resetPooledBombState(bomb);
     bomb.setDepth(RENDER_DEPTH.BOMBS);
     (bomb.body as Phaser.Physics.Arcade.Body)?.setSize(32, 32).setOffset(4, 4);
     (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(true);
@@ -6190,19 +6486,15 @@ export default class GameScene extends Phaser.Scene {
     const centerX = col * TILE_SIZE + TILE_SIZE / 2;
     const centerY = row * TILE_SIZE + TILE_SIZE / 2;
 
-    let hasBomb = false;
-    this.bombs.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
-      const b = child as Phaser.Physics.Arcade.Sprite;
-      if (b.active && b.x === centerX && b.y === centerY) {
-        hasBomb = true;
-      }
-    });
-    if (hasBomb) return false;
+    if (this.hasActiveBombAtPixel(centerX, centerY)) return false;
 
-    const bomb = this.bombs.create(centerX, centerY, 'bomb') as Phaser.Physics.Arcade.Sprite;
+    const bomb = this.acquirePooledGroupSprite(this.bombs, centerX, centerY, 'bomb');
+    if (!bomb) return false;
+    this.resetPooledBombState(bomb);
     bomb.setDepth(RENDER_DEPTH.BOMBS);
     (bomb.body as Phaser.Physics.Arcade.Body)?.setSize(32, 32).setOffset(4, 4);
     (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(true);
+    applyPhysicsBodyInvariantGuard(bomb, 32, 32, 4, 4);
 
     this.populateBombIgnoringColliders(bomb, ally as Phaser.GameObjects.GameObject);
 
@@ -6282,9 +6574,11 @@ export default class GameScene extends Phaser.Scene {
 
     // Clean up timers & tweens
     const timer = bomb.getData('fuseTimer') as Phaser.Time.TimerEvent | undefined;
-    if (timer) timer.remove(false);
+    if (timer && timer !== (bomb as unknown)) timer.remove(false);
     const chain = bomb.getData('tweenChain') as Phaser.Tweens.TweenChain | undefined;
-    if (chain) chain.stop();
+    if (chain && chain !== (bomb as unknown)) chain.stop();
+    bomb.setData('fuseTimer', undefined);
+    bomb.setData('tweenChain', undefined);
 
     const owner = (bomb.getData('owner') as string) || 'player';
     const bombPower = (bomb.getData('power') as number) || this.bombPower;
@@ -6297,6 +6591,11 @@ export default class GameScene extends Phaser.Scene {
     const actualCol = Number.isFinite(curCol) && curCol >= 0 && curCol < COLS ? curCol : (col ?? 0);
 
     if (bomb.active) { bomb.disableBody(true, true); }
+    bomb.setData('isSliding', false);
+    const ignoring = bomb.getData('ignoringColliders') as Set<Phaser.GameObjects.GameObject> | undefined;
+    if (ignoring instanceof Set) {
+      ignoring.clear();
+    }
 
     const isGhostBomb = Boolean(bomb.getData('isGhostBomb'));
 
@@ -6306,6 +6605,7 @@ export default class GameScene extends Phaser.Scene {
       this.emitStatsUpdate();
     } else if (owner === 'enemy') {
       const enemy = bomb.getData('enemy') as (BaseEntity | BomberEnemy) | undefined;
+      bomb.setData('enemy', undefined);
       if (enemy && 'onBombExploded' in enemy && typeof enemy.onBombExploded === 'function') {
         enemy.onBombExploded();
       } else if (enemy && typeof (enemy as { activeBombs?: number }).activeBombs === 'number') {
@@ -6316,6 +6616,7 @@ export default class GameScene extends Phaser.Scene {
       }
     } else if (owner === 'ally') {
       const ally = bomb.getData('ally') as MiniBomberAlly | undefined;
+      bomb.setData('ally', undefined);
       if (ally && typeof ally.activeBombs === 'number') {
         ally.activeBombs = Math.max(0, ally.activeBombs - 1);
       }
@@ -6581,13 +6882,18 @@ export default class GameScene extends Phaser.Scene {
       let psionicBefore = 0;
       const psychicCrisis = activeCrisis as unknown as { manifestations?: Array<{ isDestroyed: boolean }> } | null;
       if (isPsychic && psychicCrisis && Array.isArray(psychicCrisis.manifestations)) {
-        psionicBefore = psychicCrisis.manifestations.filter((m) => m.isDestroyed).length;
+        for (let mi = 0; mi < psychicCrisis.manifestations.length; mi++) {
+          if (psychicCrisis.manifestations[mi].isDestroyed) psionicBefore++;
+        }
       }
 
       this.crisisManager.handleBombBlast(actualRow, actualCol, effectivePower);
 
       if (isPsychic && psychicCrisis && Array.isArray(psychicCrisis.manifestations)) {
-        const psionicAfter = psychicCrisis.manifestations.filter((m) => m.isDestroyed).length;
+        let psionicAfter = 0;
+        for (let mi = 0; mi < psychicCrisis.manifestations.length; mi++) {
+          if (psychicCrisis.manifestations[mi].isDestroyed) psionicAfter++;
+        }
         if (psionicAfter > psionicBefore) {
           this.score += 500;
           this.addUltimateCharge(10);
@@ -6940,8 +7246,9 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  public createExplosionSprite(x: number, y: number, owner: string = 'player'): Phaser.Physics.Arcade.Sprite {
-    const exp = this.explosions.create(x, y, 'explosion') as Phaser.Physics.Arcade.Sprite;
+  public createExplosionSprite(x: number, y: number, owner: string = 'player'): Phaser.Physics.Arcade.Sprite | null {
+    const exp = this.acquirePooledGroupSprite(this.explosions, x, y, 'explosion');
+    if (!exp) return null;
     exp.setDepth(RENDER_DEPTH.EXPLOSIONS);
     exp.setData('owner', owner);
 
@@ -6963,29 +7270,30 @@ export default class GameScene extends Phaser.Scene {
     const y = row * TILE_SIZE + TILE_SIZE / 2;
 
     const exp = this.createExplosionSprite(x, y, owner);
+    if (exp) {
+      // Center core has bright brilliant tint, arms have hot orange tint, tachyon overcharge has electric cyan tint
+      if (isOverchargedPiercing) {
+        exp.setTint(0x00ffff);
+      } else if (isCenter) {
+        exp.setTint(0xffffcc);
+      } else {
+        exp.setTint(0xff7722);
+      }
 
-    // Center core has bright brilliant tint, arms have hot orange tint, tachyon overcharge has electric cyan tint
-    if (isOverchargedPiercing) {
-      exp.setTint(0x00ffff);
-    } else if (isCenter) {
-      exp.setTint(0xffffcc);
-    } else {
-      exp.setTint(0xff7722);
+      // Explosive bloom easing: pop in with easeOut, then rapid fade
+      exp.setScale(0.7);
+      this.tweens.add({
+        targets: exp,
+        scaleX: isCenter ? 1.35 : 1.2,
+        scaleY: isCenter ? 1.35 : 1.2,
+        alpha: { from: 1, to: 0.1 },
+        duration: 320,
+        ease: 'Quad.easeOut',
+        onComplete: () => {
+          if (exp.active) { exp.disableBody(true, true); }
+        },
+      });
     }
-
-    // Explosive bloom easing: pop in with easeOut, then rapid fade
-    exp.setScale(0.7);
-    this.tweens.add({
-      targets: exp,
-      scaleX: isCenter ? 1.35 : 1.2,
-      scaleY: isCenter ? 1.35 : 1.2,
-      alpha: { from: 1, to: 0.1 },
-      duration: 320,
-      ease: 'Quad.easeOut',
-      onComplete: () => {
-        if (exp.active) { exp.disableBody(true, true); }
-      },
-    });
 
     // Check hit on active boss (PHYS-06: exactly 1 hit per bombId)
     if (this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED) {
@@ -7640,9 +7948,11 @@ export default class GameScene extends Phaser.Scene {
           });
 
           const exp = this.createExplosionSprite(targetX, targetY, 'player');
-          this.time.delayedCall(280, () => {
-            if (exp.active) { exp.disableBody(true, true); }
-          });
+          if (exp) {
+            this.time.delayedCall(280, () => {
+              if (exp.active) { exp.disableBody(true, true); }
+            });
+          }
         });
 
         if (this.map[r][c] === TILE_BLOCK) break;
@@ -7824,7 +8134,16 @@ export default class GameScene extends Phaser.Scene {
 
     const def = ITEM_DEFINITIONS[type];
     const textureKey = def ? def.iconKey : 'item_bomb';
-    const item = this.items.create(centerX, centerY, textureKey) as Phaser.Physics.Arcade.Sprite;
+    const item = this.acquirePooledGroupSprite(this.items, centerX, centerY, textureKey);
+    if (!item) return;
+
+    const prevShadow = item.getData?.('itemShadow') as Phaser.GameObjects.Sprite | null | undefined;
+    if (prevShadow && prevShadow !== (item as unknown) && prevShadow.active) {
+      if (typeof this.tweens?.killTweensOf === 'function') this.tweens.killTweensOf(prevShadow);
+      if (this.shadowPool) this.shadowPool.release(prevShadow);
+    }
+    item.setData('itemShadow', null);
+
     item.setDepth(RENDER_DEPTH.ITEMS);
     (item.body as Phaser.Physics.Arcade.Body)?.setSize(24, 24).setOffset(4, 4);
     item.setData('itemType', type);
@@ -7881,14 +8200,18 @@ export default class GameScene extends Phaser.Scene {
           ease: 'Sine.easeInOut',
         });
 
-        item.once(Phaser.GameObjects.Events.DESTROY, () => {
-          const s = item.getData('itemShadow') as Phaser.GameObjects.Sprite | null;
-          if (s && s.active) {
-            if (this.tweens) this.tweens.killTweensOf(s);
-            if (this.shadowPool) this.shadowPool.release(s);
-          }
-          item.setData('itemShadow', null);
-        });
+        const hasHook = item.getData?.('hasShadowDestroyHook');
+        if (!hasHook && typeof item.once === 'function') {
+          item.setData('hasShadowDestroyHook', true);
+          item.once(Phaser.GameObjects.Events.DESTROY, () => {
+            const s = item.getData('itemShadow') as Phaser.GameObjects.Sprite | null;
+            if (s && s !== (item as unknown) && s.active) {
+              if (typeof this.tweens?.killTweensOf === 'function') this.tweens.killTweensOf(s);
+              if (this.shadowPool) this.shadowPool.release(s);
+            }
+            item.setData('itemShadow', null);
+          });
+        }
       }
     }
   }

@@ -96,14 +96,17 @@ export class PsychicCrisis extends BaseCrisis {
     this.phantomTimerMs = 0;
     this.pulseTimerMs = 0;
     PsychicCrisisAudio.getInstance().reset();
-    this.manifestations = PsychicCrisis.MANIFESTATION_POSITIONS.map((pos, index) => ({
-      id: index + 1,
-      r: pos.r,
-      c: pos.c,
-      hp: 1,
-      maxHp: 1,
-      isDestroyed: false,
-    }));
+    for (let i = 0; i < this.manifestationPool.length; i++) {
+      const p = this.manifestationPool[i];
+      const pos = PsychicCrisis.MANIFESTATION_POSITIONS[i];
+      p.id = i + 1;
+      p.r = pos.r;
+      p.c = pos.c;
+      p.hp = 1;
+      p.maxHp = 1;
+      p.isDestroyed = false;
+    }
+    this.manifestations = this.manifestationPool;
     this.objectives = [];
   }
 

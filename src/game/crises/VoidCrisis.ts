@@ -141,8 +141,11 @@ export class VoidCrisis extends BaseCrisis {
 
   protected onUpdate(deltaMs: number): void {
     if (this.stage === CrisisStage.OUTBREAK || this.stage === CrisisStage.CLIMAX) {
-      // Calculate creep speed factor based on charged prisms
-      const chargedCount = this.prisms.filter((p) => p.isCharged).length;
+      // Calculate creep speed factor based on charged prisms (Zero-GC loop)
+      let chargedCount = 0;
+      for (let i = 0; i < this.prisms.length; i++) {
+        if (this.prisms[i].isCharged) chargedCount++;
+      }
       let speedMultiplier = 1.0;
       if (chargedCount === 1) speedMultiplier = 0.5; // -50% global creep speed
       else if (chargedCount >= 2) speedMultiplier = 0.0; // 100% frozen when both active!

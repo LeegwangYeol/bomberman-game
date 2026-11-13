@@ -711,7 +711,7 @@ export class OrbitalCrisisAudio {
     this.playKineticImpact(nowMs);
   }
 
-  public playCraterThud(nowMs: number = Date.now()): void {
+  public playCraterThud(_nowMs: number = Date.now()): void {
     const pool = this.getPool();
     if (!pool) return;
 
@@ -1029,6 +1029,8 @@ export class OrbitalCrisisAudio {
       this.pool.destroy();
       this.pool = null;
     }
+    OrbitalCrisisAudio.cachedNoiseBuffer = null;
+    OrbitalCrisisAudio.cachedNoiseSampleRate = 0;
     if (OrbitalCrisisAudio.instance === this) {
       OrbitalCrisisAudio.instance = null;
     }

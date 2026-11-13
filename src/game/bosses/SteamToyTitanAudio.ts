@@ -393,13 +393,13 @@ export class SteamToyTitanAudio {
   }
 
   /** Short 120ms piston exhaust puff */
-  public playSteamPuff(nowMs: number = Date.now()): boolean {
+  public playSteamPuff(_nowMs: number = Date.now()): boolean {
     if (this.isDestroyed) return false;
     return this.playProceduralNoiseBurst(0.12, 2800, 2000, 0.16, 'highpass');
   }
 
   /** 550ms broad exhaust blast */
-  public playSteamOverheatBlast(nowMs: number = Date.now()): boolean {
+  public playSteamOverheatBlast(_nowMs: number = Date.now()): boolean {
     if (this.isDestroyed) return false;
     return this.playProceduralNoiseBurst(0.55, 1400, 4200, 0.30, 'bandpass');
   }

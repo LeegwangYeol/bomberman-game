@@ -640,7 +640,7 @@ export class MutantFloraAudio {
     return this.playSporeBurst(nowMs);
   }
 
-  public playPollenHiss(nowMs: number = Date.now()): boolean {
+  public playPollenHiss(_nowMs: number = Date.now()): boolean {
     return this.playProceduralNoiseBurst(0.40, 2600, 1200, 0.18, 'highpass');
   }
 
@@ -752,7 +752,7 @@ export class MutantFloraAudio {
     return this.playPhaseTransition(3, nowMs);
   }
 
-  public playTragicWiltDefeat(nowMs: number = Date.now()): boolean {
+  public playTragicWiltDefeat(_nowMs: number = Date.now()): boolean {
     return this.playBossDefeated();
   }
 

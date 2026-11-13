@@ -723,5 +723,10 @@ export class SolarFlareCrisisAudio {
     }
     this.pool = null;
     this.ctx = null;
+    SolarFlareCrisisAudio.cachedNoiseBuffer = null;
+    SolarFlareCrisisAudio.cachedNoiseSampleRate = 0;
+    if (SolarFlareCrisisAudio.instance === this) {
+      SolarFlareCrisisAudio.instance = null;
+    }
   }
 }

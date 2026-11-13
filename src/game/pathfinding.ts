@@ -220,17 +220,34 @@ export class FlatHazardMask implements Iterable<string> {
       return this;
     }
     if (source instanceof FlatHazardMask) {
+      if (source.mask === this.mask) return this;
       const copyLen = Math.min(this.length, source.length);
-      this.mask.set(source.mask.subarray(0, copyLen));
-      if (this.length > copyLen) {
-        this.mask.fill(0, copyLen);
+      if (source.mask.length <= this.length) {
+        this.mask.set(source.mask);
+        if (this.length > copyLen) {
+          this.mask.fill(0, copyLen);
+        }
+        this._size = source.size;
+      } else {
+        let count = 0;
+        for (let i = 0; i < copyLen; i++) {
+          const v = source.mask[i];
+          this.mask[i] = v;
+          if (v !== 0) count++;
+        }
+        this._size = count;
       }
-      this._size = source.size;
     } else {
       const copyLen = Math.min(this.length, source.length);
-      this.mask.set(source.subarray(0, copyLen));
-      if (this.length > copyLen) {
-        this.mask.fill(0, copyLen);
+      if (source.length <= this.length) {
+        this.mask.set(source);
+        if (this.length > copyLen) {
+          this.mask.fill(0, copyLen);
+        }
+      } else {
+        for (let i = 0; i < copyLen; i++) {
+          this.mask[i] = source[i];
+        }
       }
       let count = 0;
       for (let i = 0; i < copyLen; i++) {
@@ -1209,27 +1226,28 @@ function populateMaskFromSetOrArray(
   }
   if (source instanceof FlatHazardMask) {
     if (source.mask === outMask) return;
-    outMask.fill(0);
     const copyLen = Math.min(outMask.length, source.length);
-    outMask.set(source.mask.subarray(0, copyLen));
+    if (source.mask.length <= outMask.length) {
+      outMask.set(source.mask);
+      if (copyLen < outMask.length) outMask.fill(0, copyLen);
+    } else {
+      for (let i = 0; i < copyLen; i++) outMask[i] = source.mask[i];
+    }
   } else if (source instanceof Uint8Array) {
-    outMask.fill(0);
     const copyLen = Math.min(outMask.length, source.length);
-    outMask.set(source.subarray(0, copyLen));
+    if (source.length <= outMask.length) {
+      outMask.set(source);
+      if (copyLen < outMask.length) outMask.fill(0, copyLen);
+    } else {
+      for (let i = 0; i < copyLen; i++) outMask[i] = source[i];
+    }
   } else if (source instanceof Set) {
     outMask.fill(0);
     for (const key of source) {
       if (typeof key !== 'string') continue;
-      const comma = key.indexOf(',');
-      if (comma !== -1) {
-        const rStr = key.slice(0, comma).trim();
-        const cStr = key.slice(comma + 1).trim();
-        if (rStr === '' || cStr === '') continue;
-        const r = Number(rStr);
-        const c = Number(cStr);
-        if (Number.isInteger(r) && Number.isInteger(c) && r >= 0 && r < ROWS && c >= 0 && c < COLS) {
-          outMask[r * COLS + c] = 1;
-        }
+      const idx = parseGridKeyFast(key);
+      if (idx !== -1 && idx < outMask.length) {
+        outMask[idx] = 1;
       }
     }
   }
@@ -1633,38 +1651,49 @@ export function cloneBombTilesAsSet(
   }
 
   if (outTarget instanceof Uint8Array) {
-    outTarget.fill(0);
-    if (!bombTiles) return outTarget;
+    if (!bombTiles) {
+      outTarget.fill(0);
+      return outTarget;
+    }
     if (bombTiles instanceof FlatHazardMask) {
+      if (bombTiles.mask === outTarget) return outTarget;
       const copyLen = Math.min(outTarget.length, bombTiles.length);
-      outTarget.set(bombTiles.mask.subarray(0, copyLen));
+      if (bombTiles.mask.length <= outTarget.length) {
+        outTarget.set(bombTiles.mask);
+        if (copyLen < outTarget.length) outTarget.fill(0, copyLen);
+      } else {
+        for (let i = 0; i < copyLen; i++) outTarget[i] = bombTiles.mask[i];
+      }
     } else if (bombTiles instanceof Uint8Array) {
+      if (bombTiles === outTarget) return outTarget;
       const copyLen = Math.min(outTarget.length, bombTiles.length);
-      outTarget.set(bombTiles.subarray(0, copyLen));
+      if (bombTiles.length <= outTarget.length) {
+        outTarget.set(bombTiles);
+        if (copyLen < outTarget.length) outTarget.fill(0, copyLen);
+      } else {
+        for (let i = 0; i < copyLen; i++) outTarget[i] = bombTiles[i];
+      }
     } else if (bombTiles instanceof Set) {
+      outTarget.fill(0);
       for (const bStr of bombTiles) {
-        const comma = bStr.indexOf(',');
-        if (comma !== -1) {
-          const r = parseInt(bStr.slice(0, comma), 10);
-          const c = parseInt(bStr.slice(comma + 1), 10);
-          if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
-            outTarget[r * COLS + c] = 1;
-          }
+        if (typeof bStr !== 'string') continue;
+        const idx = parseGridKeyFast(bStr);
+        if (idx !== -1 && idx < outTarget.length) {
+          outTarget[idx] = 1;
         }
       }
     } else if (typeof (bombTiles as { [Symbol.iterator]?: () => Iterator<unknown> })[Symbol.iterator] === 'function') {
+      outTarget.fill(0);
       for (const item of (bombTiles as Iterable<unknown>)) {
         if (typeof item === 'string') {
-          const comma = item.indexOf(',');
-          if (comma !== -1) {
-            const r = parseInt(item.slice(0, comma), 10);
-            const c = parseInt(item.slice(comma + 1), 10);
-            if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
-              outTarget[r * COLS + c] = 1;
-            }
+          const idx = parseGridKeyFast(item);
+          if (idx !== -1 && idx < outTarget.length) {
+            outTarget[idx] = 1;
           }
         }
       }
+    } else {
+      outTarget.fill(0);
     }
     return outTarget;
   }
@@ -1872,22 +1901,11 @@ export function getSafeBombEscapePath(
   sharedSimulatedBombsMask.setCoord(r, c, 1);
 
   if (existingBombs) {
-    if (existingBombs instanceof FlatHazardMask) {
-      existingBombs.forEachHazard((br, bc, val) => {
-        if (br !== r || bc !== c) {
-          if (isLethalHazardValue(val)) {
-            sharedEscapeDangerMask.setCoord(br, bc, val);
-            sharedSimulatedBombsMask.setCoord(br, bc, 1);
-          } else {
-            sharedHazardScratch.r = br;
-            sharedHazardScratch.c = bc;
-            getBlastTiles(sharedHazardScratch, power, map, sharedEscapeDangerMask);
-          }
-        }
-      });
-    } else if (existingBombs instanceof Uint8Array) {
-      for (let i = 0; i < existingBombs.length; i++) {
-        const val = existingBombs[i];
+    if (existingBombs instanceof FlatHazardMask || existingBombs instanceof Uint8Array) {
+      const ebMask = existingBombs instanceof FlatHazardMask ? existingBombs.mask : existingBombs;
+      const ebLen = Math.min(TOTAL_TILES, ebMask.length);
+      for (let i = 0; i < ebLen; i++) {
+        const val = ebMask[i];
         if (val !== 0) {
           const br = (i / COLS) | 0;
           const bc = i % COLS;
@@ -1905,16 +1923,15 @@ export function getSafeBombEscapePath(
       }
     } else if (existingBombs instanceof Set) {
       for (const bStr of existingBombs) {
-        const comma = bStr.indexOf(',');
-        if (comma !== -1) {
-          const br = parseInt(bStr.slice(0, comma), 10);
-          const bc = parseInt(bStr.slice(comma + 1), 10);
-          if (br >= 0 && br < ROWS && bc >= 0 && bc < COLS) {
-            if (br !== r || bc !== c) {
-              sharedHazardScratch.r = br;
-              sharedHazardScratch.c = bc;
-              getBlastTiles(sharedHazardScratch, power, map, sharedEscapeDangerMask);
-            }
+        if (typeof bStr !== 'string') continue;
+        const idx = parseGridKeyFast(bStr);
+        if (idx !== -1) {
+          const br = (idx / COLS) | 0;
+          const bc = idx % COLS;
+          if (br !== r || bc !== c) {
+            sharedHazardScratch.r = br;
+            sharedHazardScratch.c = bc;
+            getBlastTiles(sharedHazardScratch, power, map, sharedEscapeDangerMask);
           }
         }
       }
@@ -1923,14 +1940,22 @@ export function getSafeBombEscapePath(
 
   if (hazardMask) {
     if (hazardMask instanceof FlatHazardMask) {
-      hazardMask.forEachHazard((hr, hc, val) => {
-        sharedEscapeDangerMask.setCoord(hr, hc, Math.max(val, 2));
-        if (isLethalHazardValue(val) || val >= 1) {
-          sharedSimulatedBombsMask.setCoord(hr, hc, 1);
+      const hMask = hazardMask.mask;
+      const hLen = Math.min(TOTAL_TILES, hMask.length);
+      for (let i = 0; i < hLen; i++) {
+        const val = hMask[i];
+        if (val !== 0) {
+          const hr = (i / COLS) | 0;
+          const hc = i % COLS;
+          sharedEscapeDangerMask.setCoord(hr, hc, Math.max(val, 2));
+          if (isLethalHazardValue(val) || val >= 1) {
+            sharedSimulatedBombsMask.setCoord(hr, hc, 1);
+          }
         }
-      });
+      }
     } else if (hazardMask instanceof Uint8Array) {
-      for (let i = 0; i < hazardMask.length; i++) {
+      const hLen = Math.min(TOTAL_TILES, hazardMask.length);
+      for (let i = 0; i < hLen; i++) {
         const val = hazardMask[i];
         if (val === 1 || val === 2 || val >= 4) {
           const hr = (i / COLS) | 0;
@@ -1943,14 +1968,13 @@ export function getSafeBombEscapePath(
       }
     } else if (hazardMask instanceof Set) {
       for (const bStr of hazardMask) {
-        const comma = bStr.indexOf(',');
-        if (comma !== -1) {
-          const hr = parseInt(bStr.slice(0, comma), 10);
-          const hc = parseInt(bStr.slice(comma + 1), 10);
-          if (hr >= 0 && hr < ROWS && hc >= 0 && hc < COLS) {
-            sharedEscapeDangerMask.setCoord(hr, hc, 2);
-            sharedSimulatedBombsMask.setCoord(hr, hc, 1);
-          }
+        if (typeof bStr !== 'string') continue;
+        const idx = parseGridKeyFast(bStr);
+        if (idx !== -1) {
+          const hr = (idx / COLS) | 0;
+          const hc = idx % COLS;
+          sharedEscapeDangerMask.setCoord(hr, hc, 2);
+          sharedSimulatedBombsMask.setCoord(hr, hc, 1);
         }
       }
     }
@@ -2005,29 +2029,18 @@ export function canSafelyPlaceBomb(
   populateMaskFromSetOrArray(existingBombs, sharedBombMask);
 
   if (existingBombs) {
-    if (existingBombs instanceof FlatHazardMask) {
-      existingBombs.forEachHazard((br, bc, val) => {
-        if (br !== r || bc !== c) {
-          if (isLethalHazardValue(val)) {
-            sharedDangerMask[br * COLS + bc] = val;
-            sharedBombMask[br * COLS + bc] = 1;
-          } else {
-            sharedHazardScratch.r = br;
-            sharedHazardScratch.c = bc;
-            getBlastTiles(sharedHazardScratch, power, map, sharedDangerMask);
-          }
-        }
-      });
-    } else if (existingBombs instanceof Uint8Array) {
-      for (let i = 0; i < existingBombs.length; i++) {
-        const val = existingBombs[i];
+    if (existingBombs instanceof FlatHazardMask || existingBombs instanceof Uint8Array) {
+      const ebMask = existingBombs instanceof FlatHazardMask ? existingBombs.mask : existingBombs;
+      const ebLen = Math.min(TOTAL_TILES, ebMask.length);
+      for (let i = 0; i < ebLen; i++) {
+        const val = ebMask[i];
         if (val !== 0) {
           const br = (i / COLS) | 0;
           const bc = i % COLS;
           if (br !== r || bc !== c) {
             if (isLethalHazardValue(val)) {
-              sharedDangerMask[br * COLS + bc] = val;
-              sharedBombMask[br * COLS + bc] = 1;
+              sharedDangerMask[i] = val;
+              sharedBombMask[i] = 1;
             } else {
               sharedHazardScratch.r = br;
               sharedHazardScratch.c = bc;
@@ -2038,16 +2051,15 @@ export function canSafelyPlaceBomb(
       }
     } else if (existingBombs instanceof Set) {
       for (const bStr of existingBombs) {
-        const comma = bStr.indexOf(',');
-        if (comma !== -1) {
-          const br = parseInt(bStr.slice(0, comma), 10);
-          const bc = parseInt(bStr.slice(comma + 1), 10);
-          if (br >= 0 && br < ROWS && bc >= 0 && bc < COLS) {
-            if (br !== r || bc !== c) {
-              sharedHazardScratch.r = br;
-              sharedHazardScratch.c = bc;
-              getBlastTiles(sharedHazardScratch, power, map, sharedDangerMask);
-            }
+        if (typeof bStr !== 'string') continue;
+        const idx = parseGridKeyFast(bStr);
+        if (idx !== -1) {
+          const br = (idx / COLS) | 0;
+          const bc = idx % COLS;
+          if (br !== r || bc !== c) {
+            sharedHazardScratch.r = br;
+            sharedHazardScratch.c = bc;
+            getBlastTiles(sharedHazardScratch, power, map, sharedDangerMask);
           }
         }
       }
@@ -2056,14 +2068,20 @@ export function canSafelyPlaceBomb(
 
   if (hazardMask) {
     if (hazardMask instanceof FlatHazardMask) {
-      hazardMask.forEachHazard((hr, hc, val) => {
-        sharedDangerMask[hr * COLS + hc] = Math.max(val, 2);
-        if (isLethalHazardValue(val) || val >= 1) {
-          sharedBombMask[hr * COLS + hc] = 1;
+      const hMask = hazardMask.mask;
+      const hLen = Math.min(TOTAL_TILES, hMask.length);
+      for (let i = 0; i < hLen; i++) {
+        const val = hMask[i];
+        if (val !== 0) {
+          sharedDangerMask[i] = Math.max(val, 2);
+          if (isLethalHazardValue(val) || val >= 1) {
+            sharedBombMask[i] = 1;
+          }
         }
-      });
+      }
     } else if (hazardMask instanceof Uint8Array) {
-      for (let i = 0; i < hazardMask.length; i++) {
+      const hLen = Math.min(TOTAL_TILES, hazardMask.length);
+      for (let i = 0; i < hLen; i++) {
         const val = hazardMask[i];
         if (val === 1 || val === 2 || val >= 4) {
           sharedDangerMask[i] = Math.max(val, 2);
@@ -2074,15 +2092,11 @@ export function canSafelyPlaceBomb(
       }
     } else if (hazardMask instanceof Set) {
       for (const bStr of hazardMask) {
-        const comma = bStr.indexOf(',');
-        if (comma !== -1) {
-          const hr = parseInt(bStr.slice(0, comma), 10);
-          const hc = parseInt(bStr.slice(comma + 1), 10);
-          if (hr >= 0 && hr < ROWS && hc >= 0 && hc < COLS) {
-            const idx = hr * COLS + hc;
-            sharedDangerMask[idx] = 2;
-            sharedBombMask[idx] = 1;
-          }
+        if (typeof bStr !== 'string') continue;
+        const idx = parseGridKeyFast(bStr);
+        if (idx !== -1) {
+          sharedDangerMask[idx] = 2;
+          sharedBombMask[idx] = 1;
         }
       }
     }

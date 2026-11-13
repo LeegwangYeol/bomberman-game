@@ -814,5 +814,10 @@ export class ClockworkCrisisAudio {
       this.pool = null;
     }
     this.ctx = null;
+    ClockworkCrisisAudio.cachedNoiseBuffer = null;
+    ClockworkCrisisAudio.cachedNoiseSampleRate = 0;
+    if (ClockworkCrisisAudio.instance === this) {
+      ClockworkCrisisAudio.instance = null;
+    }
   }
 }

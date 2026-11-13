@@ -2785,3 +2785,25 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - TypeScript 정적 분석: `npx tsc --noEmit` **0 에러 (Clean exit 0)**.
     - ESLint 코드 품질: `npm run lint` **0 에러 (Clean exit 0)**.
     - Next.js Turbopack 프로덕션 빌드: `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링 완료)**.
+
+### 37) 일일 정기 무한 진화(단일 에이전트 경량 유지보수): Arcade 오브젝트 풀(`bombs`/`explosions`/`items`) 재활용 결함 근본 수리, 파티클 에미터 상한 및 `BaseEntity` 사망 스파크 풀링, 버프/디버프 Zero-GC 인플레이스 압축 및 마스터리 이동속도 중첩 폭주 차단, `pathfinding.ts` 무할당 최적화, 7종 CrisisAudio 정적 노이즈 버퍼 해제 및 ESLint 무경고(0 Warnings) 정비 완결 (Daily Auto-Maintenance: 2026-11-13 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 세션명: `[세션명: 봄버맨 일일 무한 진화]` (스케줄 백그라운드 단일 에이전트 자율 유지보수, 서브에이전트 스웜 미사용).
+  - **핵심 성능 및 무결성 수리 내역**:
+    1. **Arcade Physics 그룹 풀 재활용 및 `maxSize` 크래시 원천 차단 (`src/game/GameScene.ts`)**:
+       - `acquirePooledGroupSprite()` 및 `resetPooledBombState()` 도입으로 `bombs`(32), `explosions`(128), `items`(48, `classType: Phaser.Physics.Arcade.Sprite`)가 `group.create()` 대신 비활성 풀 스프라이트를 재활용하도록 수리하여 장기 플레이 시 `null` 반환 `TypeError` 크래시 제거.
+       - 재활용 폭탄의 `isGhostBomb: false`, `reboundsLeft: undefined` 초기화로 고스트 폭탄 슬롯 누수 및 `RICOCHET_BOMB` 3회 도탄 유실 버그 차단, `explodeBomb()` 즉시 `fuseTimer`/`tweenChain`/`enemy`/`ally`/`ignoringColliders` 참조 해제, `spawnItem()`의 이전 그림자 반환 및 단일 `DESTROY` 리스너 가드(`hasShadowDestroyHook`) 적용.
+       - 프레임 말미 `scratchActiveEnemies`·`scratchActiveItems` 즉시 비움으로 사망 엔티티 참조 잔류 차단.
+    2. **파티클 에미터 풀 상한 및 사망 스파크 풀링 (`src/game/GameScene.ts`, `src/game/entities/BaseEntity.ts`)**:
+       - `dustEmitter`, `bombSparkEmitter`, `blockDebrisEmitter`에 `maxAliveParticles: 256`, `reserve: 256` 강제 적용.
+       - `BaseEntity.die()`의 6개 사망 스파크 원을 `scene.circlePool`에서 획득·트윈 완료 시 반환하도록 전환.
+    3. **버프/디버프 Zero-GC 인플레이스 관리 및 마스터리 속도 비복리 보정 (`src/game/GameScene.ts`)**:
+       - `removeBuffById()`, `applyMasterySpeedBurst()`, `scheduleDebuffTintClear()`, `clearMasteryAndDebuffTimers()`를 통해 10종 해저드 마스터리 및 9종 디버프에서 매 프레임 `.filter` 배열 할당, 60Hz `delayedCall` 타이머 누적, 60Hz `stats-update` 발행을 제거하고 다중 프레임 대시 시 지수적 속도 폭주 방지 및 버프 중 획득한 영구 `SPEED_UP`(+25) 보존 보장.
+    4. **Zero-GC 경로탐색·위기 루프·오디오 버퍼 정리 및 코드 하모니제이션**:
+       - `src/game/pathfinding.ts` 내 잔여 `.subarray()` 뷰 할당, 문자열 슬라이싱, `forEachHazard` 클로저 전면 제거.
+       - `OrbitalCrisis.ts`, `VoidCrisis.ts` `.filter().length` 루프 전환 및 `PsychicCrisis.onReset()` 내 `manifestationPool` 인플레이스 재사용.
+       - 7종 `*CrisisAudio.ts`(`Psychic`, `Lava`, `SolarFlare`, `Clockwork`, `Void`, `Orbital`, `Rift`)의 `destroy()` 시 정적 500ms 노이즈 버퍼(`cachedNoiseBuffer = null`) 및 싱글톤 참조 해제, `src/components/BombermanGame.tsx` 토스트/복사 타이머 언마운트 정리, 미사용 import/인자 정리로 ESLint 경고 52건 전량 해소.
+  - **신규 영구 방어 테스트 및 검증 지표**:
+    - `tests/daily_zerogc_pooling_resilience.test.mjs` 신규 구축 (10개 핵심 풀링·Zero-GC·수명주기 회귀 테스트 전수 통과).
+    - 전체 테스트 스위트: **2,309 / 2,309 PASS (100% 통과, 0 실패, 0 스킵, +10 테스트 순증)**.
+    - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링)**.

@@ -684,6 +684,8 @@ export class RiftCrisisAudio {
     }
     this.pool = null;
     this.ctx = null;
+    RiftCrisisAudio.cachedNoiseBuffer = null;
+    RiftCrisisAudio.cachedSampleRate = 0;
     if (RiftCrisisAudio.instance === this) {
       RiftCrisisAudio.instance = null;
     }

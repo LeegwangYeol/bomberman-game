@@ -695,5 +695,10 @@ export class LavaCrisisAudio {
     }
     this.pool = null;
     this.ctx = null;
+    LavaCrisisAudio.cachedNoiseBuffer = null;
+    LavaCrisisAudio.cachedNoiseSampleRate = 0;
+    if (LavaCrisisAudio.instance === this) {
+      LavaCrisisAudio.instance = null;
+    }
   }
 }

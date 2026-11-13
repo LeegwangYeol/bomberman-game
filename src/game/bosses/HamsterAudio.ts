@@ -857,7 +857,7 @@ export class HamsterAudio {
     return true;
   }
 
-  public playDazedStars(nowMs: number = Date.now()): boolean {
+  public playDazedStars(_nowMs: number = Date.now()): boolean {
     if (this.isDestroyed) return false;
     const pool = this.getVoicePool();
     if (pool) {

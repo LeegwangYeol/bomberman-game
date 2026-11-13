@@ -101,6 +101,21 @@ export default function BombermanGame() {
   const [importInputString, setImportInputString] = useState('');
   const [importError, setImportError] = useState<string | null>(null);
   const [copiedExport, setCopiedExport] = useState(false);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current !== null) {
+        clearTimeout(toastTimerRef.current);
+        toastTimerRef.current = null;
+      }
+      if (copyTimerRef.current !== null) {
+        clearTimeout(copyTimerRef.current);
+        copyTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const isAnyModalOpen = isPerkModalOpen || isRelicModalOpen || isPauseModalOpen || isInventoryOpen || isExportImportModalOpen;
   const isAnyModalOpenRef = useRef(isAnyModalOpen);
@@ -124,7 +139,13 @@ export default function BombermanGame() {
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3500);
+    if (toastTimerRef.current !== null) {
+      clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = setTimeout(() => {
+      toastTimerRef.current = null;
+      setToastMessage(null);
+    }, 3500);
   }, []);
 
   // Sync updated meta-profile into LocalStorage
@@ -263,7 +284,13 @@ export default function BombermanGame() {
     if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(exportJsonString).then(() => {
         setCopiedExport(true);
-        setTimeout(() => setCopiedExport(false), 2000);
+        if (copyTimerRef.current !== null) {
+          clearTimeout(copyTimerRef.current);
+        }
+        copyTimerRef.current = setTimeout(() => {
+          copyTimerRef.current = null;
+          setCopiedExport(false);
+        }, 2000);
       }).catch((err) => {
         console.warn('Clipboard write access rejected or unavailable:', err);
       });

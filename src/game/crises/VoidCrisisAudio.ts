@@ -1053,7 +1053,7 @@ export class VoidCrisisAudio {
     this.playSingularityImplosionAlert(nowMs);
   }
 
-  public playSingularityCollapse(nowMs: number = Date.now()): void {
+  public playSingularityCollapse(_nowMs: number = Date.now()): void {
     const pool = this.getPool();
     if (!pool) return;
 
@@ -1087,7 +1087,7 @@ export class VoidCrisisAudio {
     this.playFilteredNoiseBurst(0.15, 1200, 400, 0.12, 2.5);
   }
 
-  public playAvatarDefeat(nowMs: number = Date.now()): void {
+  public playAvatarDefeat(_nowMs: number = Date.now()): void {
     const pool = this.getPool();
     if (!pool) return;
 
@@ -1339,6 +1339,8 @@ export class VoidCrisisAudio {
       this.pool = null;
     }
     this.ctx = null;
+    VoidCrisisAudio.cachedNoiseBuffer = null;
+    VoidCrisisAudio.cachedNoiseSampleRate = 0;
     if (VoidCrisisAudio.instance === this) {
       VoidCrisisAudio.instance = null;
     }

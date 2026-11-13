@@ -20,6 +20,10 @@ interface MutableArcadeBody extends Phaser.Physics.Arcade.Body {
 
 interface ISceneShadowPool {
   shadowPool?: { release: (sprite: Phaser.GameObjects.Sprite) => void };
+  circlePool?: {
+    acquire: () => Phaser.GameObjects.Arc | null;
+    release: (arc: Phaser.GameObjects.Arc) => void;
+  };
 }
 
 export function applyPhysicsBodyInvariantGuard(
@@ -270,21 +274,53 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
       this.overheadUI.destroy();
     }
 
-    // Death explosion particles
+    // Death explosion particles (Zero-GC pooled via scene.circlePool when available)
     if (this.scene && this.active) {
+      const sceneWithPool = this.scene as unknown as ISceneShadowPool | undefined;
+      const circlePool = sceneWithPool?.circlePool;
+      const deathX = this.x;
+      const deathY = this.y;
+      const sparkScene = this.scene;
       for (let i = 0; i < 6; i++) {
         const angle = (i / 6) * Math.PI * 2;
-        const spark = this.scene.add.circle(this.x, this.y, 4, 0xffe066, 0.9);
-        spark.setDepth(14);
-        this.scene.tweens.add({
-          targets: spark,
-          x: this.x + Math.cos(angle) * 22,
-          y: this.y + Math.sin(angle) * 22,
-          alpha: 0,
-          scale: 0.2,
-          duration: 260,
-          onComplete: () => spark.destroy(),
-        });
+        if (circlePool) {
+          const spark = circlePool.acquire();
+          if (!spark) continue;
+          spark
+            .setActive(true)
+            .setVisible(true)
+            .setPosition(deathX, deathY)
+            .setRadius(4)
+            .setFillStyle(0xffe066, 0.9)
+            .setAlpha(0.9)
+            .setScale(1);
+          spark.setDepth(14);
+          sparkScene.tweens.add({
+            targets: spark,
+            x: deathX + Math.cos(angle) * 22,
+            y: deathY + Math.sin(angle) * 22,
+            alpha: 0,
+            scale: 0.2,
+            duration: 260,
+            onComplete: () => {
+              if (sceneWithPool?.circlePool === circlePool) {
+                circlePool.release(spark);
+              }
+            },
+          });
+        } else {
+          const spark = sparkScene.add.circle(deathX, deathY, 4, 0xffe066, 0.9);
+          spark.setDepth(14);
+          sparkScene.tweens.add({
+            targets: spark,
+            x: deathX + Math.cos(angle) * 22,
+            y: deathY + Math.sin(angle) * 22,
+            alpha: 0,
+            scale: 0.2,
+            duration: 260,
+            onComplete: () => spark.destroy(),
+          });
+        }
       }
     }
 

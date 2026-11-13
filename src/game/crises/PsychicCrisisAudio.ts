@@ -524,6 +524,8 @@ export class PsychicCrisisAudio {
       this.pool = null;
     }
     this.ctx = null;
+    PsychicCrisisAudio.cachedNoiseBuffer = null;
+    PsychicCrisisAudio.cachedNoiseSampleRate = 0;
     if (PsychicCrisisAudio.instance === this) {
       PsychicCrisisAudio.instance = null;
     }

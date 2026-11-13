@@ -55,8 +55,6 @@ import {
 import {
   GravityHazard,
   GravityLifecycleState,
-  AccretionPhase,
-  GravityDangerValue,
 } from './GravityHazard.ts';
 import {
   SolarHazard,

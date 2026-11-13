@@ -144,7 +144,11 @@ export class OrbitalCrisis extends BaseCrisis {
     if (this.stage === CrisisStage.CLIMAX) {
       // Macrocannon charges toward 100% over the climax duration
       this.macrocannonCharge = Math.min(100, (this.stageElapsedMs / this.stageDurationMs) * 100);
-      const uplinkMitigation = this.uplinks.filter((u) => u.isOverridden).length * 10;
+      let overriddenCount = 0;
+      for (let i = 0; i < this.uplinks.length; i++) {
+        if (this.uplinks[i].isOverridden) overriddenCount++;
+      }
+      const uplinkMitigation = overriddenCount * 10;
       this.setThreat(Math.max(0, Math.floor(70 + (this.macrocannonCharge / 100) * 30 - uplinkMitigation)));
       OrbitalCrisisAudio.getInstance().playMacrocannonWhine(this.macrocannonCharge / 100);
 
