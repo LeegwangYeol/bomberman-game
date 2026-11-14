@@ -306,10 +306,10 @@ export class OverheadUI {
       this.hpGraphics.setVisible(visible);
     }
     if (this.nameTag && typeof this.nameTag.setVisible === 'function') {
-      this.nameTag.setVisible(visible);
+      this.nameTag.setVisible(visible && this.lodMode !== 'minimal');
     }
     if (this.indicator && typeof this.indicator.setVisible === 'function') {
-      this.indicator.setVisible(visible);
+      this.indicator.setVisible(visible && this.isIntentVisible);
     }
   }
 
@@ -347,7 +347,7 @@ export class OverheadUI {
 
   public destroy(): void {
     this.isDestroyed = true;
-    if (this.hpGraphics && this.hpGraphics.active) {
+    if (this.hpGraphics) {
       const sceneWithPool = this.scene as unknown as ISceneGraphicsPool | undefined;
       if (sceneWithPool?.graphicsPool) {
         sceneWithPool.graphicsPool.release(this.hpGraphics);
@@ -356,13 +356,16 @@ export class OverheadUI {
       }
       this.hpGraphics = null;
     }
-    if (this.nameTag && this.nameTag.active) {
-      // not pooled yet, just destroy or hide
-      this.nameTag.destroy();
+    if (this.nameTag) {
+      if (typeof this.nameTag.destroy === 'function') {
+        this.nameTag.destroy();
+      }
       this.nameTag = null;
     }
-    if (this.indicator && this.indicator.active) {
-      this.indicator.destroy();
+    if (this.indicator) {
+      if (typeof this.indicator.destroy === 'function') {
+        this.indicator.destroy();
+      }
       this.indicator = null;
     }
   }

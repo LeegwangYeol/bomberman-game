@@ -344,6 +344,10 @@ export class ObjectPool<T> {
     this.reset();
   }
 
+  public releaseAll(): void {
+    this.reset();
+  }
+
   public dispose(): void {
     this.destroy();
   }

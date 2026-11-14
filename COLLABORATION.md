@@ -2807,3 +2807,20 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - `tests/daily_zerogc_pooling_resilience.test.mjs` 신규 구축 (10개 핵심 풀링·Zero-GC·수명주기 회귀 테스트 전수 통과).
     - 전체 테스트 스위트: **2,309 / 2,309 PASS (100% 통과, 0 실패, 0 스킵, +10 테스트 순증)**.
     - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링)**.
+
+### 38) 일일 정기 무한 진화(단일 에이전트 경량 유지보수): 미완결 Cycle 38 코드(제15호 유물 심연의 소용돌이 진주 & 제11호 시너지 해구 염수 대소용돌이) 24건 TS/런타임 결함 완결 수리, 아군(`PetDroneAlly`·`ShieldGuardAlly`) 및 궁극기 VFX 전 구간 Zero-GC 오브젝트 풀링(`onComplete`+`onStop`) 강제, `ObjectPool.releaseAll()` 및 `SteamToyTitanBoss` 기절 충격파 회수 완결 (Daily Auto-Maintenance: 2026-11-15 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 세션명: `[세션명: 봄버맨 일일 무한 진화]` (스케줄 백그라운드 단일 에이전트 자율 유지보수, 서브에이전트 스웜 미사용).
+  - **핵심 성능·Zero-GC 풀링 및 무결성 수리 내역**:
+    1. **전 구간 일시적 VFX·투사체 Zero-GC 오브젝트 풀링 및 중단(`onStop`/`shutdown`) 회수 강제 (`AllyEntities.ts`, `ultimate_skills.ts`, `GameScene.ts`, `OverheadUI.ts`)**:
+       - `PetDroneAlly` 스턴 플라즈마 탄환 및 `ShieldGuardAlly` 4초 도발 오라 링을 일회성 `scene.add.circle` 생성/파괴 대신 `scene.circlePool` 획득·반환(`setStrokeStyle(0, 0, 0)` 초기화 및 멱등 `onComplete`+`onStop` 콜백)으로 전면 전환.
+       - `ultimate_skills.ts`의 `renderMeteorReticle`, `renderMeteorStreak`(운석·코로나·잔불 엠버), `renderSuperNovaWave`, `renderScorchDecal`, `renderChronoStasisVFX`, `createAegisDomeVisual` 및 `GameScene.spawnPickupParticles`에 멱등 `onComplete`+`onStop`/`destroy()` 풀 반환 가드를 적용하고, `GameScene`에서 `chronoStasisVisual` 핸들을 추적하여 매치 조기 종료(`shutdown()`)나 `tweens.killAll()` 시에도 `circlePool`·`rectPool`·`graphicsPool` 누수가 0건이 되도록 보장.
+       - `OverheadUI.destroy()`에서 `hpGraphics.active === false` 상태여도 `graphicsPool.release()`가 누락되지 않도록 수리하고, `OverheadUIManager` 수직 스태거링 대칭성 보정.
+    2. **미완결 Cycle 38(제15호 유물 & 제11호 시너지) 하모니제이션 및 24건 TS 에러 전량 해소 (`RelicSystem.ts`, `GameScene.ts`, `BombermanGame.tsx`, `SteamToyTitanBoss.ts`, `OrbitalCrisis.ts`, `GravityHazard.ts`)**:
+       - 제15호 에픽 유물 `ABYSSAL_MAELSTROM_PEARL` 및 제11호 시너지 `Hadal Brine Maelstrom`($C(15,2)=105$ 전수 조합, 11대 시너지)의 사전 할당 스크래치 버퍼(`_scratchAbyssalPearl`, `_scratchAbyssalPulledIds`), `RelicManager` 생성자 오버로드(`RelicId[] | number`), 비정상 입력(NaN 좌표·빈 적 배열·음수 타임스탬프) 시 500ms ICD 비소모 가드 완결.
+       - `GameScene.ts` 심연 오디오 프리셋을 `AudioVoiceToneParams` 및 `AudioVoicePool.getInstance(16)` 규격으로 정합화하고, `placeBomb()`의 `RelicId.VOID_SINGULARITY_LENS` 참조 수정, `Orbital Targeting Core` 지연 타격을 `Int16Array` 인덱스 버퍼로 무할당화, `BombermanGame.tsx`의 `MetaProfile.discoveredRelics` 필드 정합화 완료.
+       - `ObjectPool.releaseAll()` 추가 및 `SteamToyTitanBoss.applyStun()` 내 활성 충격파 즉시 풀 회수, `OrbitalCrisis` 정적 `SALVO_PATTERN` 호이스팅 + `countOverriddenUplinks()` 무할당 루프 및 0ms 스테이지 `NaN` 방어, `CrisisManager` `crisis-failed` 단일 발행 가드, `MultiTouchPointerTracker` 데스크톱 키보드 방향키 보존 가드 적용.
+  - **신규 영구 방어 테스트 및 검증 지표**:
+    - `tests/abyssal_pearl_and_hadal_brine_synergy.test.mjs` 13개 계층(15개 세부 테스트: 105개 유물 조합, `GameScene` 2슬롯 `relic_resonance` 연동 폭발 통합, 10,000프레임 Zero-GC 소크, 아군·궁극기 VFX `onComplete`/`onStop` 풀 회수 검증 포함) 전수 통과.
+    - 전체 테스트 스위트: **2,324 / 2,324 PASS (100% 통과, 0 실패, 0 스킵, +15 테스트 순증)**.
+    - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링)**.

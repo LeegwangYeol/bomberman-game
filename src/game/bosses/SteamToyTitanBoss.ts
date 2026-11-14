@@ -108,6 +108,7 @@ export class SteamToyTitanBoss extends BaseBoss {
   };
 
   private readonly preallocatedTelegraphs: TelegraphTile[] = [];
+  private readonly _scratchActiveShockwaves: BossShockwave[] = [];
 
   constructor(startX: number = 300, startY: number = 260) {
     const config: BossConfig = {
@@ -205,9 +206,16 @@ export class SteamToyTitanBoss extends BaseBoss {
   }
 
   public override applyStun(durationSec: number): void {
+    if (!Number.isFinite(durationSec) || durationSec <= 0 || this.bossState === BossState.DEFEATED) {
+      return;
+    }
     this.isMalletWindingUp = false;
     this.malletImpactActive = false;
     this.gearShieldActive = false;
+    for (let i = 0; i < this.preallocatedTelegraphs.length; i++) {
+      this.preallocatedTelegraphs[i].active = false;
+    }
+    this.shockwavePool.releaseAll();
     this.vx = 0;
     this.vy = 0;
     super.applyStun(durationSec);
@@ -285,10 +293,23 @@ export class SteamToyTitanBoss extends BaseBoss {
       this.gearRotationSpeed = 3.5;
       this.audio.playSteamVent();
       this.audio.playMalletWindup();
+    } else if (nextState === BossState.INTERMISSION) {
+      this.isMalletWindingUp = false;
+      this.malletImpactActive = false;
+      for (let i = 0; i < this.preallocatedTelegraphs.length; i++) {
+        this.preallocatedTelegraphs[i].active = false;
+      }
+      this.shockwavePool.releaseAll();
+      this.vx = 0;
+      this.vy = 0;
     } else if (nextState === BossState.STUNNED) {
       this.isMalletWindingUp = false;
       this.malletImpactActive = false;
       this.gearShieldActive = false;
+      for (let i = 0; i < this.preallocatedTelegraphs.length; i++) {
+        this.preallocatedTelegraphs[i].active = false;
+      }
+      this.shockwavePool.releaseAll();
       this.vx = 0;
       this.vy = 0;
     } else if (prevState === BossState.STUNNED) {
@@ -310,6 +331,12 @@ export class SteamToyTitanBoss extends BaseBoss {
     this.isMalletWindingUp = false;
     this.malletImpactActive = false;
     this.gearShieldActive = false;
+    this.isSteamVenting = false;
+    for (let i = 0; i < this.preallocatedTelegraphs.length; i++) {
+      this.preallocatedTelegraphs[i].active = false;
+    }
+    this.shockwavePool.releaseAll();
+    this.gearProjectilePool.releaseAll();
     this.vx = 0;
     this.vy = 0;
     this.audio.playSteamVent();
@@ -341,6 +368,7 @@ export class SteamToyTitanBoss extends BaseBoss {
       this.malletImpactTimerMs -= dt;
       if (this.malletImpactTimerMs <= 0) {
         this.malletImpactActive = false;
+        this.shockwavePool.releaseAll();
       }
     }
 
@@ -422,6 +450,7 @@ export class SteamToyTitanBoss extends BaseBoss {
     // Allocate shockwave from pool
     const sw = this.shockwavePool.acquire();
     if (sw) {
+      sw.active = true;
       sw.originX = impactX;
       sw.originY = impactY;
       sw.currentRadius = SteamToyTitanBoss.MALLET_RADIUS_PX;
@@ -430,6 +459,22 @@ export class SteamToyTitanBoss extends BaseBoss {
     }
 
     this.audio.playMalletImpact();
+  }
+
+  public activateMalletShockwave(impactX: number = this.x, impactY: number = this.y): void {
+    this.executeMalletSlam(impactX, impactY);
+  }
+
+  public getActiveShockwaves(): readonly BossShockwave[] {
+    this._scratchActiveShockwaves.length = 0;
+    const count = this.shockwavePool.activeCount;
+    for (let i = 0; i < count; i++) {
+      const sw = this.shockwavePool.getActive(i);
+      if (sw) {
+        this._scratchActiveShockwaves.push(sw);
+      }
+    }
+    return this._scratchActiveShockwaves;
   }
 
   /**

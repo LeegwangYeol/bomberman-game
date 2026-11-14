@@ -1,39 +1,29 @@
 # Bomberman Daily Evolution & Zero-GC Maintenance Report
-**Date:** 2026-11-13  
+**Date:** 2026-11-15  
 **Session:** `[세션명: 봄버맨 일일 무한 진화]`  
 **Environment:** Next.js 16.3.5 (Turbopack) | React 19.2.8 | Phaser 4.2.1 | TypeScript 5.8 | Node.js 25  
 **Authorization:** Absolute Autonomy Mode ("알아서 해" / "절대 허용")  
 **Execution Mode:** Lightweight Focused Single-Agent Auto-Maintenance (No Multi-Agent Swarm)  
-**Overall Status:** **100% PASS — ZERO-GC OBJECT-POOLING ENFORCED, BOUNDED ARCADE POOL RECYCLING REPAIRED, NON-COMPOUNDING MASTERY SPEED HARDENED, CRISIS AUDIO NOISE BUFFERS RELEASED, 0 LINT ERRORS/WARNINGS & PRODUCTION BUILD VERIFIED (2,309/2,309 PASS)**
+**Overall Status:** **100% PASS — ZERO-GC OBJECT-POOLING ENFORCED ACROSS ALLIES/ULTIMATE VFX/BOSSES, 24 INTERRUPTED TS ERRORS HARMONIZED, 15TH RELIC & 11TH SYNERGY VERIFIED, 0 LINT ERRORS/WARNINGS & PRODUCTION BUILD VERIFIED (2,324/2,324 PASS)**
 
 ---
 
 ## 1. Executive Summary
 
-Executed scheduled unattended daily maintenance directly as a focused single agent across `GameScene.ts`, `BaseEntity.ts`, `pathfinding.ts`, crisis subsystems, procedural WebAudio synthesizers, and React HUD lifecycle hooks:
+Executed scheduled unattended daily maintenance directly as a focused single agent across `GameScene.ts`, `RelicSystem.ts`, `AllyEntities.ts`, `ultimate_skills.ts`, `ObjectPool.ts`, `SteamToyTitanBoss.ts`, `OrbitalCrisis.ts`, `GravityHazard.ts`, `OverheadUI.ts`, `OverheadUIManager.ts`, and `BombermanGame.tsx`:
 
-1. **Zero-GC Arcade Pool Recycling & `maxSize` Crash Remediation (`src/game/GameScene.ts`):**
-   - Added `acquirePooledGroupSprite()` and `resetPooledBombState()` so `this.bombs` (`maxSize: 32`), `this.explosions` (`maxSize: 128`), and `this.items` (`maxSize: 48`, `classType: Phaser.Physics.Arcade.Sprite`) recycle deactivated pooled sprites via `group.get(...)` instead of calling `group.create(...)` (which previously returned `null` and threw `TypeError` once lifetime bomb/explosion/item counts exceeded 32 / 128 / 48).
-   - Reset `isGhostBomb: false` and `reboundsLeft: undefined` on every recycled bomb so Ghost Bomb capacity bypass never bleeds into regular bombs and `RICOCHET_BOMB` retains all 3 rebounds.
-   - Immediately cleared `fuseTimer`, `tweenChain`, `enemy`, `ally`, and `ignoringColliders` references in `explodeBomb()`, reused per-bomb `ignoringColliders` `Set` instances via indexed loops (`addOverlappingGroupEntitiesToIgnoringSet`), and ensured `spawnItem()` releases any prior `itemShadow` while registering its `DESTROY` listener at most once (`hasShadowDestroyHook`).
-   - Truncated `scratchActiveEnemies` and `scratchActiveItems` immediately after each frame's ally AI update so destroyed entity/item references are never retained between ticks.
+1. **Zero-GC Object-Pooling Enforcement Across Ephemeral Entities & VFX (`AllyEntities.ts`, `ultimate_skills.ts`, `GameScene.ts`, `ObjectPool.ts`, `OverheadUI.ts`):**
+   - Routed `PetDroneAlly` plasma stun bolts and `ShieldGuardAlly` 4s taunt aura rings through `scene.circlePool` (`acquire`/`release` with `setStrokeStyle(0, 0, 0)` reset and idempotent `onComplete` + `onStop` release callbacks) instead of transient `scene.add.circle` + `destroy()` allocations.
+   - Enforced idempotent `onComplete` + `onStop` / `destroy()` pool reclamation across `renderMeteorReticle`, `renderMeteorStreak` (meteor, corona, and trail embers), `renderSuperNovaWave`, `renderScorchDecal`, `renderChronoStasisVFX`, `createAegisDomeVisual`, and `GameScene.spawnPickupParticles` so `tweens.killAll()` or mid-match scene shutdown never leaks `circlePool`, `rectPool`, or `graphicsPool` instances.
+   - Tracked `chronoStasisVisual` lifecycle inside `GameScene` (`create()`, `executeChronoFreeze()`, `shutdown()`), added `ObjectPool.releaseAll()` for O(active) boss/hazard pool reclamation, and ensured `OverheadUI.destroy()` returns `hpGraphics` to `graphicsPool` even when `hpGraphics.active` was flipped to `false`.
+   - Pre-allocated `_scratchAbyssalPearl` and `_scratchAbyssalPulledIds` inside `RelicManager`, hoisted static frozen `SALVO_PATTERN` + `countOverriddenUplinks()` in `OrbitalCrisis.ts`, hoisted `SUPERNOVA_RING_COLORS` in `ultimate_skills.ts`, and converted `Orbital Targeting Core` delayed strikes to packed `Int16Array` tile indices.
 
-2. **Particle Emitter Caps & Pooled Death Sparks (`src/game/GameScene.ts`, `src/game/entities/BaseEntity.ts`):**
-   - Configured `maxAliveParticles: 256` and `reserve: 256` (`POOL_PRESETS.PARTICLES` / `POOL_PRESETS.DEBRIS`) on `dustEmitter`, `bombSparkEmitter`, and `blockDebrisEmitter`.
-   - Routed `BaseEntity.die()`'s 6 death spark circles through `scene.circlePool` (`acquire`/`release` on tween completion) instead of allocating transient `scene.add.circle` GameObjects on every kill.
+2. **Codebase Harmonization & Type/Runtime Remediation (`GameScene.ts`, `RelicSystem.ts`, `SteamToyTitanBoss.ts`, `GravityHazard.ts`, `BombermanGame.tsx`):**
+   - Resolved all 24 TypeScript compilation errors left from an interrupted Cycle 38 draft: harmonized `ABYSSAL_MAELSTROM_AUDIO_PRIMARY`, `ABYSSAL_MAELSTROM_AUDIO_SUB`, and `HADAL_BRINE_AUDIO_CRACK` with `AudioVoiceToneParams` + `AudioVoicePool.getInstance(16)`, fixed `placeBomb()` to check `RelicId.VOID_SINGULARITY_LENS`, overloaded `RelicManager` constructor (`RelicId[] | number`), tightened `GravityBombFusionResult` non-optional fields, and corrected `BombermanGame.tsx` to persist `discoveredRelics` on `MetaProfile`.
+   - Hardened `SteamToyTitanBoss` shockwave lifecycle (`sw.active = true` on acquire, `shockwavePool.releaseAll()` on `applyStun()` and defeat, `_scratchActiveShockwaves`-backed `getActiveShockwaves()`), guarded `RelicManager` 500ms ICD so NaN coordinates / empty enemy arrays / negative timestamps never burn cooldowns, fixed symmetric vertical staggering in `OverheadUIManager`, guarded `CrisisManager` one-shot `crisis-failed` emission, and protected desktop keyboard flags in `MultiTouchPointerTracker.recoverDroppedPointers()`.
 
-3. **Zero-GC Buff/Debuff Compaction, Timer Deduplication & Non-Compounding Mastery Speed (`src/game/GameScene.ts`):**
-   - Added `removeBuffById()`, `applyMasterySpeedBurst()` (`activeMasterySpeedBonuses`), `scheduleDebuffTintClear()` (`activeDebuffTintTimers`), and `clearMasteryAndDebuffTimers()` across all 10 hazard mastery `grant*` methods and 9 debuff `apply*` methods.
-   - Eliminated per-frame `.filter`/`.find`/`.some` array/closure allocations, prevented 60Hz `delayedCall` timer accumulation and 60Hz React `stats-update` thrashing when standing on hazard tiles, fixed exponential `playerSpeed` compounding on multi-frame dashes, and preserved permanent `SPEED_UP` (+25) pickups across mastery buff expiration.
-
-4. **Zero-GC Pathfinding, Crisis Loops & WebAudio Buffer Teardown (`pathfinding.ts`, Crises, Audio, `BombermanGame.tsx`):**
-   - Eliminated `.subarray()` TypedArray view allocations, string `.slice()`/`parseInt()` churn, and `forEachHazard` closures in `src/game/pathfinding.ts` (`FlatHazardMask.copyFrom`, `populateMaskFromSetOrArray`, `cloneBombTilesAsSet`, `getSafeBombEscapePath`, `canSafelyPlaceBomb`).
-   - Replaced per-frame `.filter(...).length` allocations in `OrbitalCrisis.ts`, `VoidCrisis.ts`, and `GameScene.explodeBomb()`, and preserved `PsychicCrisis.manifestationPool` in-place during `onReset()`.
-   - Released static 500ms white-noise `AudioBuffer` caches (`cachedNoiseBuffer = null`) and singleton references inside `destroy()` across all 7 `*CrisisAudio.ts` classes (`PsychicCrisisAudio`, `LavaCrisisAudio`, `SolarFlareCrisisAudio`, `ClockworkCrisisAudio`, `VoidCrisisAudio`, `OrbitalCrisisAudio`, `RiftCrisisAudio`).
-   - Added `toastTimerRef` and `copyTimerRef` cleanup on re-trigger and unmount in `src/components/BombermanGame.tsx`, and purged all 52 unused import/argument lint warnings across `GameScene.ts`, `HazardRenderer.ts`, and boss/crisis audio modules.
-
-5. **Permanent Defensive Regression Suite (`tests/daily_zerogc_pooling_resilience.test.mjs`):**
-   - Added 10 comprehensive end-to-end unit & integration tests covering >32 bomb pool recycling, Ghost/`RICOCHET_BOMB` state isolation, 32-bomb saturation safety, >128 explosion pool recycling & boss hit preservation, >48 item pool recycling & shadow lifecycle, particle emitter bounds, `BaseEntity.die()` `circlePool` release, 60Hz debuff deduplication & non-compounding mastery speed bursts, `pathfinding.ts` Zero-GC parity, and all 7 `*CrisisAudio.destroy()` buffer teardowns.
+3. **Permanent 13-Tier Defensive Regression & 10,000-Frame Soak Suite (`tests/abyssal_pearl_and_hadal_brine_synergy.test.mjs`):**
+   - Verified 15th Relic (`ABYSSAL_MAELSTROM_PEARL`), 11th Synergy (`Hadal Brine Maelstrom`), all $C(15, 2) = 105$ pairwise relic combinations, live `GameScene` 2-slot `relic_resonance` perk sync + `explodeBomb` integration, `OverheadUI` inactive pool reclamation & symmetric staggering, cross-hazard mastery speed non-compounding, `GravityHazard` inactive pooled bomb immunity, `CrisisManager` one-shot failure & 0ms `OrbitalCrisis` NaN safety, `SteamToyTitanBoss` stun shockwave reclamation, 10,000-frame Zero-GC soak (<4.5MB drift, identical scratch references), and `onComplete`/`onStop` pool reclamation across allies, ultimate VFX, and pickup particles.
 
 ---
 
@@ -41,8 +31,8 @@ Executed scheduled unattended daily maintenance directly as a focused single age
 
 | Metric | Target | Measured Result | Verdict |
 | :--- | :---: | :---: | :---: |
-| **Automated Test Suite (`npm test`)** | 100% Pass | **2,309 / 2,309 Passed (0 Failures, 0 Skips, +10 New Tests)** | ✅ **PASS** |
+| **Automated Test Suite (`npm test`)** | 100% Pass | **2,324 / 2,324 Passed (0 Failures, 0 Skips, +15 New Tests)** | ✅ **PASS** |
 | **TypeScript Static Check (`npx tsc --noEmit`)** | 0 Errors | **0 Errors (Exit Code 0)** | ✅ **PASS** |
 | **ESLint Quality Gate (`npm run lint`)** | 0 Errors | **0 Errors, 0 Warnings (Exit Code 0)** | ✅ **PASS** |
-| **Production Build (`npm run build`)** | Exit 0 | **Compiled in 1137ms, 4/4 Static Routes Prerendered** | ✅ **PASS** |
+| **Production Build (`npm run build`)** | Exit 0 | **Compiled in 1192ms, 4/4 Static Routes Prerendered** | ✅ **PASS** |
 | **Delivery Quota Protection** | `[skip ci]` | **Single `[skip ci]` commit pushed to `origin/main`** | ✅ **SAFE** |

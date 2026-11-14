@@ -1036,18 +1036,22 @@ export function simulateBombKickSlide(
     maxRebounds = 0;
   }
 
-  let currentCol = startCol;
-  let currentRow = startRow;
-  let currentDirX = dirX;
-  let currentDirY = dirY;
+  if (!Number.isFinite(startCol) || !Number.isFinite(startRow) || !Number.isFinite(dirX) || !Number.isFinite(dirY)) {
+    return { endCol: 0, endRow: 0, steps: 0, rebounds: 0, detonatedOnEnemy: false, trajectory: [] };
+  }
+
+  let currentCol = Math.floor(startCol);
+  let currentRow = Math.floor(startRow);
+  let currentDirX = Math.sign(dirX);
+  let currentDirY = Math.sign(dirY);
   let steps = 0;
   let rebounds = 0;
-  let remainingRebounds = Math.max(0, maxRebounds);
+  let remainingRebounds = Number.isFinite(maxRebounds) ? Math.min(32, Math.max(0, Math.floor(maxRebounds))) : 0;
   let detonatedOnEnemy = false;
   const trajectory: { col: number; row: number }[] = [{ col: currentCol, row: currentRow }];
 
-  if (!map || map.length === 0 || !map[0] || (dirX === 0 && dirY === 0)) {
-    return { endCol: startCol, endRow: startRow, steps: 0, rebounds: 0, detonatedOnEnemy: false, trajectory };
+  if (!map || map.length === 0 || !map[0] || (currentDirX === 0 && currentDirY === 0)) {
+    return { endCol: currentCol, endRow: currentRow, steps: 0, rebounds: 0, detonatedOnEnemy: false, trajectory };
   }
 
   const rows = map.length;

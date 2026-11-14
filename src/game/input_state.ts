@@ -143,7 +143,7 @@ export function resolveJoystickVector(
 
   // Sub-deadzone check with float tolerance to ensure exact boundary radius (e.g. 5.0px) is active
   const deadzoneSq = effectiveDeadzone * effectiveDeadzone;
-  if (effectiveDeadzone > 0 ? distSq < deadzoneSq - 1e-7 : distSq <= 1e-12) {
+  if (distSq <= 1e-12 || (effectiveDeadzone > 0 && distSq < Math.max(0, deadzoneSq - 1e-7))) {
     result.up = false;
     result.down = false;
     result.left = false;
@@ -890,7 +890,7 @@ export class MultiTouchPointerTracker {
       }
     }
 
-    if (this.activePointers.size === 0) {
+    if (recoveredCount > 0 && this.activePointers.size === 0) {
       cancelMobileAction(state, 'bomb');
       cancelMobileAction(state, 'dash');
       cancelMobileAction(state, 'ultimate');

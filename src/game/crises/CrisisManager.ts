@@ -50,6 +50,7 @@ export class CrisisManager {
   private activeCrisis: ICrisis | null = null;
   private totalCrisesResolved: number = 0;
   private hasCountedResolution: boolean = false;
+  private hasEmittedFailure: boolean = false;
   private previousStage: CrisisStage = CrisisStage.INACTIVE;
 
   // Robust Event Decoupling & Emitter Bridge
@@ -179,6 +180,7 @@ export class CrisisManager {
     }
 
     this.hasCountedResolution = false;
+    this.hasEmittedFailure = false;
     this.activeCrisis = crisis;
     this.activeCrisis.init();
     this.previousStage = CrisisStage.WHISPERS;
@@ -221,9 +223,12 @@ export class CrisisManager {
         });
       }
     } else if (status.isDefeated && status.stage === CrisisStage.FAILED) {
-      this.emit('crisis-failed', {
-        crisisType: status.crisisType,
-      });
+      if (!this.hasEmittedFailure) {
+        this.hasEmittedFailure = true;
+        this.emit('crisis-failed', {
+          crisisType: status.crisisType,
+        });
+      }
     }
 
     return status;
@@ -414,14 +419,18 @@ export class CrisisManager {
       }
     } else if (result === 'failed') {
       this.activeCrisis.failCrisis(message);
-      this.emit('crisis-failed', {
-        crisisType: type,
-      });
+      if (!this.hasEmittedFailure) {
+        this.hasEmittedFailure = true;
+        this.emit('crisis-failed', {
+          crisisType: type,
+        });
+      }
     } else {
       this.activeCrisis.reset();
       this.emit('crisis-reset', null);
     }
     this.activeCrisis = null;
+    this.hasEmittedFailure = false;
     this.previousStage = CrisisStage.INACTIVE;
   }
 
@@ -435,6 +444,7 @@ export class CrisisManager {
     }
     this.totalCrisesResolved = 0;
     this.hasCountedResolution = false;
+    this.hasEmittedFailure = false;
     this.previousStage = CrisisStage.INACTIVE;
     this.emit('crisis-reset', null);
   }

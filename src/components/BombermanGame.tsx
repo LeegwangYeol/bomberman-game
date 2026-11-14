@@ -17,6 +17,7 @@ import {
   PerkBranch,
   RelicId,
   RELIC_CATALOG,
+  SYNERGY_DEFINITIONS,
   CONFECTIONERY_PERKS,
   PerkTreeManager,
   RelicManager,
@@ -186,14 +187,26 @@ export default function BombermanGame() {
   const handleRespecPerks = useCallback(() => {
     setPerks((prevPerks) => {
       const res = PerkTreeManager.respecAllPerks(prevPerks, cosmicEssence);
+      const truncatedRelics = equippedRelics.slice(0, 1);
       setCosmicEssence(res.totalEssence);
-      syncMetaProfile({ perks: res.newPerks, cosmicEssence: res.totalEssence });
+      if (truncatedRelics.length !== equippedRelics.length) {
+        setEquippedRelics(truncatedRelics);
+      }
+      syncMetaProfile({
+        perks: res.newPerks,
+        cosmicEssence: res.totalEssence,
+        equippedRelics: truncatedRelics,
+      });
       if (phaserGameRef.current) {
         phaserGameRef.current.events.emit('perks-updated', res.newPerks);
+        phaserGameRef.current.events.emit('relics-updated', {
+          equipped: truncatedRelics,
+          maxSlots: 1,
+        });
       }
       return res.newPerks;
     });
-  }, [cosmicEssence, syncMetaProfile]);
+  }, [cosmicEssence, equippedRelics, syncMetaProfile]);
 
   const handleToggleRelic = useCallback((relicId: RelicId) => {
     setEquippedRelics((prev) => {
@@ -201,7 +214,10 @@ export default function BombermanGame() {
         const updated = prev.filter((id) => id !== relicId);
         syncMetaProfile({ equippedRelics: updated });
         if (phaserGameRef.current) {
-          phaserGameRef.current.events.emit('relics-updated', updated);
+          phaserGameRef.current.events.emit('relics-updated', {
+            equipped: updated,
+            maxSlots: appliedBonuses.maxRelicSlots,
+          });
         }
         return updated;
       } else {
@@ -209,7 +225,10 @@ export default function BombermanGame() {
           const updated = [...prev, relicId];
           syncMetaProfile({ equippedRelics: updated });
           if (phaserGameRef.current) {
-            phaserGameRef.current.events.emit('relics-updated', updated);
+            phaserGameRef.current.events.emit('relics-updated', {
+              equipped: updated,
+              maxSlots: appliedBonuses.maxRelicSlots,
+            });
           }
           return updated;
         }
@@ -219,41 +238,62 @@ export default function BombermanGame() {
   }, [appliedBonuses.maxRelicSlots, syncMetaProfile]);
 
   const handleSaveRun = useCallback((trigger: SaveTriggerType = 'manual') => {
-    const state: Omit<SerializedRunState, 'checksum'> = {
-      version: 1,
-      timestamp: Date.now(),
-      saveTrigger: trigger,
-      meta: {
-        runId: `run_${Date.now()}`,
-        stageIndex: 1,
-        gameMode: selectedMode,
-        score: stats.score,
-        elapsedTimeMs: 0,
-      },
-      player: {
-        x: 60,
-        y: 60,
-        gridRow: 1,
-        gridCol: 1,
-        facing: 'down',
-        stats,
-        hp: 3,
-      },
-      board: {
-        rows: 13,
-        cols: 15,
-        mapRLE: '',
-      },
-      activeBombs: [],
-      activeEntities: [],
-      activeItems: [],
-    };
+    const activeScene = phaserGameRef.current?.scene?.getScene?.('GameScene') as GameScene | undefined;
+    let state: Omit<SerializedRunState, 'checksum'>;
+    if (activeScene && typeof activeScene.captureRunState === 'function') {
+      const captured = activeScene.captureRunState(trigger);
+      const { checksum: _unusedChecksum, ...rest } = captured;
+      void _unusedChecksum;
+      state = {
+        ...rest,
+        saveTrigger: trigger,
+        meta: {
+          ...rest.meta,
+          gameMode: selectedMode,
+        },
+      };
+    } else {
+      state = {
+        version: 1,
+        timestamp: Date.now(),
+        saveTrigger: trigger,
+        meta: {
+          runId: `run_${Date.now()}`,
+          stageIndex: 1,
+          gameMode: selectedMode,
+          score: stats.score,
+          elapsedTimeMs: 0,
+        },
+        player: {
+          x: 60,
+          y: 60,
+          gridRow: 1,
+          gridCol: 1,
+          facing: 'down',
+          stats,
+          hp: 3,
+        },
+        board: {
+          rows: 13,
+          cols: 15,
+          mapRLE: '',
+        },
+        activeBombs: [],
+        activeEntities: [],
+        activeItems: [],
+      };
+    }
     persistenceRef.current.saveRunState(state);
     setHasSavedRun(true);
     if (trigger === 'manual') {
       showToast('💾 Run state snapshot saved to SessionStorage!');
     }
   }, [selectedMode, stats, showToast]);
+
+  const handleSaveRunRef = useRef(handleSaveRun);
+  useEffect(() => {
+    handleSaveRunRef.current = handleSaveRun;
+  }, [handleSaveRun]);
 
   const handleResumeRun = useCallback(() => {
     const runState = persistenceRef.current.loadRunState();
@@ -335,10 +375,10 @@ export default function BombermanGame() {
     }
   }, [showToast, importInputString]);
 
-  // Auto-save active run state when page is unloaded or backgrounded
+  // Auto-save active run state when page is unloaded or backgrounded (ref-stabilized)
   useEffect(() => {
     const handlePageHide = () => {
-      handleSaveRun('page_hide');
+      handleSaveRunRef.current('page_hide');
     };
     window.addEventListener('pagehide', handlePageHide);
     window.addEventListener('beforeunload', handlePageHide);
@@ -346,7 +386,7 @@ export default function BombermanGame() {
       window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener('beforeunload', handlePageHide);
     };
-  }, [handleSaveRun]);
+  }, []);
 
   // Load persistent profile & check active run state on client mount
   useEffect(() => {
@@ -634,17 +674,63 @@ export default function BombermanGame() {
       };
       phaserGame.events.on('currency-reward', handleCurrencyReward);
 
-      // Boss HUD Event Bridge Listener
+      const handleRelicAwarded = (payload: { relicId?: RelicId } | RelicId) => {
+        const awardedId =
+          typeof payload === 'string'
+            ? payload
+            : payload && typeof payload === 'object'
+              ? payload.relicId
+              : undefined;
+        if (!awardedId) return;
+        const current = persistenceRef.current.loadMetaProfile();
+        if (current) {
+          const existingDiscovered = Array.isArray(current.discoveredRelics) ? current.discoveredRelics : [];
+          if (!existingDiscovered.includes(awardedId)) {
+            persistenceRef.current.saveMetaProfile({
+              ...current,
+              discoveredRelics: [...existingDiscovered, awardedId],
+            });
+          }
+        }
+      };
+      phaserGame.events.on('relic-awarded', handleRelicAwarded);
+
+      // Boss HUD Event Bridge Listener (clone mutable array references so React reconciles cleanly)
       handleBossHudUpdate = (hud: BossHUDState) => {
-        setBossHudState(hud);
+        setBossHudState({
+          ...hud,
+          phaseHpSegments: Array.isArray(hud.phaseHpSegments) ? [...hud.phaseHpSegments] : [],
+        });
       };
       phaserGame.events.on('boss-hud-update', handleBossHudUpdate);
 
-      // Situation Log Event Bridge Listener
+      // Situation Log Event Bridge Listener (clone singleton snapshot so React never skips updates)
       handleSituationLogUpdate = (log: SituationLogState) => {
-        setSituationLogState(log);
+        setSituationLogState({
+          ...log,
+          objectives: Array.isArray(log.objectives)
+            ? log.objectives.map((obj) => ({ ...obj }))
+            : [],
+        });
       };
       phaserGame.events.on('situation-log-update', handleSituationLogUpdate);
+
+      // Sync persisted meta-progression perks & equipped relics immediately once Phaser scene boots
+      const syncInitialProgressionToScene = () => {
+        const bootProfile = persistenceRef.current.loadMetaProfile();
+        const bootPerks = bootProfile?.perks || {};
+        const bootBonuses = PerkTreeManager.calculateAppliedBonuses(bootPerks);
+        const bootEquipped =
+          bootProfile?.equippedRelics && bootProfile.equippedRelics.length > 0
+            ? bootProfile.equippedRelics.slice(0, bootBonuses.maxRelicSlots)
+            : [RelicId.POCKET_CHRONOMETER];
+        phaserGame.events.emit('perks-updated', bootPerks);
+        phaserGame.events.emit('relics-updated', {
+          equipped: bootEquipped,
+          maxSlots: bootBonuses.maxRelicSlots,
+        });
+      };
+      phaserGame.events.once('ready', syncInitialProgressionToScene);
     }
 
     return () => {
@@ -673,6 +759,7 @@ export default function BombermanGame() {
           phaserGameRef.current.events.off('situation-log-update', handleSituationLogUpdate);
         }
         phaserGameRef.current.events.off('currency-reward');
+        phaserGameRef.current.events.off('relic-awarded');
         phaserGameRef.current.destroy(true);
         phaserGameRef.current = null;
       }
@@ -1881,9 +1968,21 @@ export default function BombermanGame() {
                       <p className="text-[11px] text-emerald-300 leading-snug">
                         {relic.mechanics}
                       </p>
-                      {relic.synergyName && (
+                      {relic.synergyPartners.length > 0 && (
                         <p className="text-[10px] text-amber-400/90 italic">
-                          Pair with {relic.synergyPartners.map(p => RELIC_CATALOG[p]?.name).join(', ')} for {relic.synergyName}
+                          Pair with{' '}
+                          {relic.synergyPartners
+                            .map((partnerId) => {
+                              const partnerName = RELIC_CATALOG[partnerId]?.name ?? partnerId;
+                              const pairDef = SYNERGY_DEFINITIONS.find(
+                                (s) =>
+                                  (s.relicA === relic.id && s.relicB === partnerId) ||
+                                  (s.relicB === relic.id && s.relicA === partnerId)
+                              );
+                              const pairTitle = pairDef?.name ?? relic.synergyName;
+                              return pairTitle ? `${partnerName} (${pairTitle})` : partnerName;
+                            })
+                            .join(' • ')}
                         </p>
                       )}
                     </div>

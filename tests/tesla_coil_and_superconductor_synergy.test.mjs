@@ -68,9 +68,9 @@ test('Tier 1.3: Synergy Electro-Cryo Superconductor registered in SYNERGY_DEFINI
  * TIER 2: EXHAUSTIVE 78 PAIRWISE COMBINATIONS MATRIX
  * ============================================================================== */
 
-test('Tier 2.1: Exhaustive evaluation of all 91 pairwise relic combinations', () => {
+test('Tier 2.1: Exhaustive evaluation of all 105 pairwise relic combinations', () => {
   const allRelics = Object.keys(RELIC_CATALOG);
-  assert.equal(allRelics.length, 14, 'Must have exactly 14 relics');
+  assert.equal(allRelics.length, 15, 'Must have exactly 15 relics');
 
   let pairsEvaluated = 0;
   let activeSynergyPairs = 0;
@@ -93,14 +93,15 @@ test('Tier 2.1: Exhaustive evaluation of all 91 pairwise relic combinations', ()
     }
   }
 
-  // C(14, 2) = 14 * 13 / 2 = 91
-  assert.equal(pairsEvaluated, 91, 'Must evaluate exactly 91 pairwise combinations');
-  assert.equal(activeSynergyPairs, 10, 'Must trigger exactly 10 active synergy pairs');
-  assert.equal(foundSynergyNames.size, 10, 'Must discover all 10 distinct synergies');
+  // C(15, 2) = 15 * 14 / 2 = 105
+  assert.equal(pairsEvaluated, 105, 'Must evaluate exactly 105 pairwise combinations');
+  assert.equal(activeSynergyPairs, 11, 'Must trigger exactly 11 active synergy pairs');
+  assert.equal(foundSynergyNames.size, 11, 'Must discover all 11 distinct synergies');
   assert.ok(foundSynergyNames.has('Electro-Cryo Superconductor'));
   assert.ok(foundSynergyNames.has('Thermal Shock Reaction'));
   assert.ok(foundSynergyNames.has('Quantum Event Horizon'));
   assert.ok(foundSynergyNames.has('Bio-Electric Neuro-Overload'));
+  assert.ok(foundSynergyNames.has('Hadal Brine Maelstrom'));
 });
 
 /* ==============================================================================

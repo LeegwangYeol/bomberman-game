@@ -202,12 +202,12 @@ export interface GravityBombFusionResult {
   triggered: boolean;
   bonusRadius: number;
   fusedBombIndices: number[];
-  survivingBombIndex?: number;
-  absorbedBombIndices?: number[];
-  effectivePower?: number;
-  isRadial360?: boolean;
-  tintCyan?: number;
-  tintPurple?: number;
+  survivingBombIndex: number;
+  absorbedBombIndices: number[];
+  effectivePower: number;
+  isRadial360: boolean;
+  tintCyan: number;
+  tintPurple: number;
   floatingText?: string;
 }
 
@@ -752,7 +752,7 @@ export class GravityHazard {
     moveDirY: number = 0
   ): GravityPlayerResult {
     const res = this.scratchPlayerResult;
-    const safeNowMs = typeof nowMs === 'number' && Number.isFinite(nowMs) && nowMs > 0 ? nowMs : Date.now();
+    const safeNowMs = typeof nowMs === 'number' && Number.isFinite(nowMs) && nowMs >= 0 ? nowMs : Date.now();
     res.damage = 0;
     res.slowFactor = 1.0;
     res.isEscaping = false;
@@ -1054,13 +1054,23 @@ export class GravityHazard {
       : this.stateTimerMs;
 
     for (let i = 0; i < bombs.length; i++) {
-      const b = bombs[i];
-      if (!Number.isFinite(b.x) || !Number.isFinite(b.y)) continue;
+      const b = bombs[i] as {
+        id?: string;
+        x: number;
+        y: number;
+        power?: number;
+        active?: boolean;
+        getData?: (key: string) => unknown;
+      };
+      if (!b || b.active === false || !Number.isFinite(b.x) || !Number.isFinite(b.y)) continue;
 
       const dist = Math.hypot(b.x - this.centerWorldX, b.y - this.centerWorldY);
       if (dist <= FUSION_CORE_RADIUS_PX) {
         res.fusedBombIndices.push(i);
-        const bId = b.id ?? `bomb_core_${i}`;
+        const bId =
+          b.id ??
+          (typeof b.getData === 'function' ? (b.getData('id') as string | undefined) : undefined) ??
+          `bomb_core_${i}`;
         this.recordBombCoreArrival(bId, this.centerRow, this.centerCol, currentTimestamp);
       }
     }
@@ -1072,8 +1082,11 @@ export class GravityHazard {
         let maxTime = -Infinity;
         for (let k = 0; k < res.fusedBombIndices.length; k++) {
           const idx = res.fusedBombIndices[k];
-          const b = bombs[idx];
-          const bId = b.id ?? `bomb_core_${idx}`;
+          const b = bombs[idx] as { id?: string; getData?: (key: string) => unknown };
+          const bId =
+            b.id ??
+            (typeof b.getData === 'function' ? (b.getData('id') as string | undefined) : undefined) ??
+            `bomb_core_${idx}`;
           const t = this.getBombCoreArrivalTimestamp(bId) ?? currentTimestamp;
           if (t < minTime) minTime = t;
           if (t > maxTime) maxTime = t;
@@ -1094,7 +1107,9 @@ export class GravityHazard {
         let maxPower = 2;
         for (let k = 0; k < res.fusedBombIndices.length; k++) {
           const idx = res.fusedBombIndices[k];
-          const p = bombs[idx].power ?? 2;
+          const b = bombs[idx] as { power?: number; getData?: (key: string) => unknown };
+          const dataPower = typeof b.getData === 'function' ? b.getData('power') : undefined;
+          const p = typeof b.power === 'number' ? b.power : typeof dataPower === 'number' ? dataPower : 2;
           if (p > maxPower) maxPower = p;
         }
         res.effectivePower = maxPower + FUSION_EXTRA_BLAST_RADIUS;

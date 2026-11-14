@@ -759,6 +759,13 @@ export function renderMeteorReticle(
   g.setDepth(20);
 
   let elapsed = 0;
+  let reticleReleased = false;
+  const releaseReticle = () => {
+    if (reticleReleased) return;
+    reticleReleased = true;
+    if (pool) pool.release(g);
+    else g.destroy();
+  };
   const timer = scene.time.addEvent({
     delay: 16,
     repeat: Math.floor(warningMs / 16),
@@ -795,8 +802,7 @@ export function renderMeteorReticle(
       g.fillCircle(targetX, targetY, 3);
 
       if (progress >= 1.0) {
-        if (pool) pool.release(g);
-        else g.destroy();
+        releaseReticle();
         timer.remove();
         if (onImpact) onImpact();
       }
@@ -846,7 +852,24 @@ export function renderMeteorStreak(
     if (typeof corona.setDepth === 'function') corona.setDepth(RENDER_DEPTH.EXPLOSIONS + 5);
   }
 
-  const targets = [meteor, corona].filter(Boolean);
+  const targets: Phaser.GameObjects.Arc[] = [];
+  if (meteor) targets.push(meteor);
+  if (corona) targets.push(corona);
+
+  let streakReleased = false;
+  const releaseStreak = () => {
+    if (streakReleased) return;
+    streakReleased = true;
+    if (meteor) {
+      if (cPool) cPool.release(meteor);
+      else meteor.destroy();
+    }
+    if (corona) {
+      if (cPool) cPool.release(corona);
+      else corona.destroy();
+    }
+  };
+
   scene.tweens.add({
     targets,
     x: targetX,
@@ -863,32 +886,33 @@ export function renderMeteorStreak(
             .setPosition(meteor.x + (Math.random() - 0.5) * 8, meteor.y + (Math.random() - 0.5) * 8)
             .setRadius(r).setFillStyle(0xfbbf24, 0.8).setAlpha(0.8).setScale(1);
           ember.setDepth(RENDER_DEPTH.EXPLOSIONS + 5);
+          let emberReleased = false;
+          const releaseEmber = () => {
+            if (emberReleased) return;
+            emberReleased = true;
+            if (cPool) cPool.release(ember);
+            else ember.destroy();
+          };
           scene.tweens.add({
             targets: ember,
             alpha: 0,
             scale: 0.1,
             duration: 200,
-            onComplete: () => {
-              if (cPool) cPool.release(ember);
-              else ember.destroy();
-            },
+            onComplete: releaseEmber,
+            onStop: releaseEmber,
           });
         }
       }
     },
     onComplete: () => {
-      if (meteor) {
-        if (cPool) cPool.release(meteor);
-        else meteor.destroy();
-      }
-      if (corona) {
-        if (cPool) cPool.release(corona);
-        else corona.destroy();
-      }
+      releaseStreak();
       if (onTouchdown) onTouchdown();
     },
+    onStop: releaseStreak,
   });
 }
+
+const SUPERNOVA_RING_COLORS: readonly [number, number, number] = Object.freeze([0xffffff, 0xfbbf24, 0xf43f5e]);
 
 /**
  * Expanding Multi-Ring Chromatic Shockwave
@@ -908,7 +932,13 @@ export function renderSuperNovaWave(
   if (typeof g.setVisible === 'function') g.setVisible(true);
   g.setDepth(RENDER_DEPTH.SHOCKWAVES);
 
-  const colors = [0xffffff, 0xfbbf24, 0xf43f5e];
+  let waveReleased = false;
+  const releaseWave = () => {
+    if (waveReleased) return;
+    waveReleased = true;
+    if (pool) pool.release(g);
+    else g.destroy();
+  };
 
   scene.tweens.addCounter({
     from: 0,
@@ -921,25 +951,21 @@ export function renderSuperNovaWave(
       g.clear();
 
       // Outer wave
-      g.lineStyle(5 * (1 - p) + 0.5, colors[1], 0.9 * (1 - p));
+      g.lineStyle(5 * (1 - p) + 0.5, SUPERNOVA_RING_COLORS[1], 0.9 * (1 - p));
       g.strokeCircle(centerX, centerY, p * maxRadius);
 
       // Inner white flash ring
       const pInner = Math.max(0, p - 0.15) / 0.85;
-      g.lineStyle(3 * (1 - pInner) + 0.5, colors[0], 0.8 * (1 - pInner));
+      g.lineStyle(3 * (1 - pInner) + 0.5, SUPERNOVA_RING_COLORS[0], 0.8 * (1 - pInner));
       g.strokeCircle(centerX, centerY, pInner * (maxRadius * 0.88));
 
       // Trailing magenta refraction ring
       const pOuter = Math.max(0, p - 0.3) / 0.7;
-      g.lineStyle(2 * (1 - pOuter) + 0.5, colors[2], 0.7 * (1 - pOuter));
+      g.lineStyle(2 * (1 - pOuter) + 0.5, SUPERNOVA_RING_COLORS[2], 0.7 * (1 - pOuter));
       g.strokeCircle(centerX, centerY, pOuter * (maxRadius * 0.7));
     },
-    onComplete: () => {
-      if (g && g.active) {
-        if (pool) pool.release(g);
-        else g.destroy();
-      }
-    },
+    onComplete: releaseWave,
+    onStop: releaseWave,
   });
 }
 
@@ -981,18 +1007,26 @@ export function renderChronoStasisVFX(scene: Phaser.Scene, durationMs: number = 
     if (typeof border.strokeRect === 'function') border.strokeRect(4, 4, scene.scale.width - 8, scene.scale.height - 8);
   }
 
+  let cleanedUp = false;
+  let delayedTimer: Phaser.Time.TimerEvent | undefined;
   const cleanup = () => {
-    if (overlay && overlay.active) {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    if (delayedTimer && typeof delayedTimer.remove === 'function') {
+      delayedTimer.remove(false);
+      delayedTimer = undefined;
+    }
+    if (overlay) {
       if (rPool) rPool.release(overlay);
       else overlay.destroy();
     }
-    if (border && border.active) {
+    if (border) {
       if (gPool) gPool.release(border);
       else border.destroy();
     }
   };
 
-  scene.time.delayedCall(durationMs, cleanup);
+  delayedTimer = scene.time?.delayedCall ? scene.time.delayedCall(durationMs, cleanup) : undefined;
 
   return { destroy: cleanup };
 }
@@ -1022,17 +1056,21 @@ export function renderScorchDecal(
   decal.fillStyle(0x7f1d1d, 0.4);
   decal.fillCircle(x, y, 9);
 
+  let decalReleased = false;
+  const releaseDecal = () => {
+    if (decalReleased) return;
+    decalReleased = true;
+    if (pool) pool.release(decal);
+    else decal.destroy();
+  };
+
   scene.tweens.add({
     targets: decal,
     alpha: 0,
     duration: durationMs,
     ease: 'Quad.easeOut',
-    onComplete: () => {
-      if (decal && decal.active) {
-        if (pool) pool.release(decal);
-        else decal.destroy();
-      }
-    },
+    onComplete: releaseDecal,
+    onStop: releaseDecal,
   });
 }
 
@@ -1053,9 +1091,12 @@ export function createAegisDomeVisual(
   g.setDepth(15);
 
   let angle = 0;
+  let domeDestroyed = false;
 
   const destroy = () => {
-    if (g && g.active) {
+    if (domeDestroyed) return;
+    domeDestroyed = true;
+    if (g) {
       if (pool) pool.release(g);
       else g.destroy();
     }

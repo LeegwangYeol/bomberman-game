@@ -264,7 +264,9 @@ export class PetDroneAlly extends BaseEntity {
           itemBody.position.y = closestItem.y - hh;
         }
       }
-      const itemShadow = closestItem.getData && (closestItem.getData('shadow') as Phaser.GameObjects.Sprite | undefined);
+      const itemShadow =
+        closestItem.getData &&
+        ((closestItem.getData('itemShadow') || closestItem.getData('shadow')) as Phaser.GameObjects.Sprite | undefined);
       if (itemShadow && itemShadow.active) {
         itemShadow.x = closestItem.x;
         itemShadow.y = closestItem.y + 14;
@@ -301,17 +303,58 @@ export class PetDroneAlly extends BaseEntity {
         targetEnemy.stunUntil = currentTime + this.config.stunDurationMs;
         targetEnemy.overheadUI.setIntent('💫', true);
 
-        // Visual plasma projectile
-        if (this.scene) {
-          const bolt = this.scene.add.circle(this.x, this.y, 4, 0x38bdf8, 1);
-          bolt.setDepth(15);
-          this.scene.tweens.add({
-            targets: bolt,
-            x: targetEnemy.x,
-            y: targetEnemy.y,
-            duration: 200,
-            onComplete: () => bolt.destroy(),
-          });
+        // Visual plasma projectile (Zero-GC pooled via scene.circlePool)
+        if (this.scene && this.scene.tweens) {
+          const sceneWithPool = this.scene as unknown as {
+            circlePool?: {
+              acquire: () => Phaser.GameObjects.Arc | null;
+              release: (arc: Phaser.GameObjects.Arc) => void;
+            };
+          };
+          const cPool = sceneWithPool.circlePool;
+          if (cPool) {
+            const bolt = cPool.acquire();
+            if (bolt) {
+              if (typeof bolt.setStrokeStyle === 'function') {
+                bolt.setStrokeStyle(0, 0, 0);
+              }
+              bolt
+                .setActive(true)
+                .setVisible(true)
+                .setPosition(this.x, this.y)
+                .setRadius(4)
+                .setFillStyle(0x38bdf8, 1)
+                .setAlpha(1)
+                .setScale(1)
+                .setDepth(15);
+              let boltReleased = false;
+              const releaseBolt = () => {
+                if (!boltReleased && sceneWithPool.circlePool === cPool) {
+                  boltReleased = true;
+                  cPool.release(bolt);
+                }
+              };
+              this.scene.tweens.add({
+                targets: bolt,
+                x: targetEnemy.x,
+                y: targetEnemy.y,
+                duration: 200,
+                onComplete: releaseBolt,
+                onStop: releaseBolt,
+              });
+            }
+          } else if (this.scene.add?.circle) {
+            const bolt = this.scene.add.circle(this.x, this.y, 4, 0x38bdf8, 1);
+            bolt.setDepth(15);
+            this.scene.tweens.add({
+              targets: bolt,
+              x: targetEnemy.x,
+              y: targetEnemy.y,
+              duration: 200,
+              onComplete: () => bolt.destroy(),
+              onStop: () => bolt.destroy(),
+            });
+          }
         }
       }
     }
@@ -387,17 +430,58 @@ export class ShieldGuardAlly extends BaseEntity {
       this.tauntTimer = this.config.tauntIntervalMs;
       this.overheadUI.setIntent('📢', true);
 
-      // Visual taunt pulse ring
-      if (this.scene) {
-        const ring = this.scene.add.circle(this.x, this.y, 8, 0x60a5fa, 0.6);
-        ring.setDepth(12);
-        this.scene.tweens.add({
-          targets: ring,
-          radius: this.config.tauntRadiusTiles * TILE_SIZE,
-          alpha: 0,
-          duration: 400,
-          onComplete: () => ring.destroy(),
-        });
+      // Visual taunt pulse ring (Zero-GC pooled via scene.circlePool)
+      if (this.scene && this.scene.tweens) {
+        const sceneWithPool = this.scene as unknown as {
+          circlePool?: {
+            acquire: () => Phaser.GameObjects.Arc | null;
+            release: (arc: Phaser.GameObjects.Arc) => void;
+          };
+        };
+        const cPool = sceneWithPool.circlePool;
+        if (cPool) {
+          const ring = cPool.acquire();
+          if (ring) {
+            if (typeof ring.setStrokeStyle === 'function') {
+              ring.setStrokeStyle(0, 0, 0);
+            }
+            ring
+              .setActive(true)
+              .setVisible(true)
+              .setPosition(this.x, this.y)
+              .setRadius(8)
+              .setFillStyle(0x60a5fa, 0.6)
+              .setAlpha(0.6)
+              .setScale(1)
+              .setDepth(12);
+            let ringReleased = false;
+            const releaseRing = () => {
+              if (!ringReleased && sceneWithPool.circlePool === cPool) {
+                ringReleased = true;
+                cPool.release(ring);
+              }
+            };
+            this.scene.tweens.add({
+              targets: ring,
+              radius: this.config.tauntRadiusTiles * TILE_SIZE,
+              alpha: 0,
+              duration: 400,
+              onComplete: releaseRing,
+              onStop: releaseRing,
+            });
+          }
+        } else if (this.scene.add?.circle) {
+          const ring = this.scene.add.circle(this.x, this.y, 8, 0x60a5fa, 0.6);
+          ring.setDepth(12);
+          this.scene.tweens.add({
+            targets: ring,
+            radius: this.config.tauntRadiusTiles * TILE_SIZE,
+            alpha: 0,
+            duration: 400,
+            onComplete: () => ring.destroy(),
+            onStop: () => ring.destroy(),
+          });
+        }
       }
 
       // Force enemies within radius to target Aegis

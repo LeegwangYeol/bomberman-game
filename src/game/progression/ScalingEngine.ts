@@ -260,7 +260,7 @@ export class ScalingEngine {
     if (safeWave < 3) return []; // Waves 1 and 2 are vanilla training waves
 
     const allKeys = Object.keys(WAVE_MUTATOR_CATALOG) as WaveMutatorId[];
-    const s = seed !== undefined && Number.isFinite(seed) ? seed : safeWave * 104729;
+    const s = seed !== undefined && Number.isFinite(seed) ? Math.floor(Math.abs(seed)) : safeWave * 104729;
 
     // Pick first mutator
     const idx1 = Math.abs(s) % allKeys.length;

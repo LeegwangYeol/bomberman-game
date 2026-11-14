@@ -78,6 +78,8 @@ export function applyPhysicsBodyInvariantGuard(
  * Manages Sprite physics, HP pool, i-frames, stun, faction alignment, and 3-Tier Overhead UI.
  */
 export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
+  private static _nextEntityUid: number = 1;
+  public readonly entityId: string;
   public hp: number;
   public maxHp: number;
   public faction: EntityFaction;
@@ -164,6 +166,7 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
     hpBarColor?: number
   ) {
     super(scene, x, y, texture);
+    this.entityId = `ent_${BaseEntity._nextEntityUid++}`;
     this.faction = faction;
     this.maxHp = Math.max(1, maxHp);
     this.hp = this.maxHp;
@@ -286,6 +289,9 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
         if (circlePool) {
           const spark = circlePool.acquire();
           if (!spark) continue;
+          if (typeof spark.setStrokeStyle === 'function') {
+            spark.setStrokeStyle(0, 0, 0);
+          }
           spark
             .setActive(true)
             .setVisible(true)
@@ -295,6 +301,13 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
             .setAlpha(0.9)
             .setScale(1);
           spark.setDepth(14);
+          let sparkReleased = false;
+          const releaseSpark = () => {
+            if (!sparkReleased && sceneWithPool?.circlePool === circlePool) {
+              sparkReleased = true;
+              circlePool.release(spark);
+            }
+          };
           sparkScene.tweens.add({
             targets: spark,
             x: deathX + Math.cos(angle) * 22,
@@ -302,11 +315,8 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
             alpha: 0,
             scale: 0.2,
             duration: 260,
-            onComplete: () => {
-              if (sceneWithPool?.circlePool === circlePool) {
-                circlePool.release(spark);
-              }
-            },
+            onComplete: releaseSpark,
+            onStop: releaseSpark,
           });
         } else {
           const spark = sparkScene.add.circle(deathX, deathY, 4, 0xffe066, 0.9);

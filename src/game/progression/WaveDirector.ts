@@ -447,8 +447,15 @@ export class WaveDirector {
     this.activeCrisisType = null;
     this.currentConfig = null;
     this.elapsedMs = 0;
+    this.hasEmittedBossDefeated = false;
+    this.hasEmittedCrisisResolved = false;
+    this.hasEmittedCrisisFailed = false;
     this.dismissBoss();
-    this.crisisManager.reset();
+    this.crisisManager?.reset();
+  }
+
+  public setCrisisManager(cm: CrisisManager): void {
+    this.crisisManager = cm;
   }
 
   public destroy(): void {

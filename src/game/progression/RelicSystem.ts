@@ -10,7 +10,7 @@ import type {
 } from './ProgressionTypes.ts';
 
 /* ==============================================================================
- * 11 EQUIPPABLE RELIC DEFINITIONS
+ * 15 EQUIPPABLE RELIC DEFINITIONS
  * ============================================================================== */
 
 export const RELIC_CATALOG: Record<RelicId, RelicDefinition> = {
@@ -178,9 +178,21 @@ export const RELIC_CATALOG: Record<RelicId, RelicDefinition> = {
     description: 'Pressurized alchemical flask distilling concentrated neurotoxic spore miasma.',
     mechanics: 'Bomb detonations vent a 2.5-tile neurotoxic miasma cloud lasting 3.0s, inflicting 45 corrosive poison damage and a 35% acid slow for 2.0s with a 500ms ICD guard.',
     internalCooldownMs: 500,
-    synergyPartners: [RelicId.TESLA_OVERCHARGE_COIL],
+    synergyPartners: [RelicId.TESLA_OVERCHARGE_COIL, RelicId.ABYSSAL_MAELSTROM_PEARL],
     synergyName: 'Bio-Electric Neuro-Overload',
     synergyDescription: 'High-voltage chain lightning passing through miasmic spore clouds ignites a bio-electric storm: arcing to up to 4 targets for 130 damage, causing a 2.0s EMP paralysis, shield shatter, and neurotoxic detonation (+350 score)!',
+  },
+  [RelicId.ABYSSAL_MAELSTROM_PEARL]: {
+    id: RelicId.ABYSSAL_MAELSTROM_PEARL,
+    name: 'Abyssal Maelstrom Pearl',
+    icon: '🌊🐚',
+    rarity: 'epic',
+    description: 'Bioluminescent hadal trench pearl condensing crushing hydrostatic currents and oceanic undertows.',
+    mechanics: 'Bomb detonations unleash a 2.5-tile tidal undertow maelstrom crushing up to 3 enemies for 55 hydrostatic damage, pulling them inward at 120 px/s, and inflicting a 35% undertow drag for 2.0s with a 500ms ICD guard.',
+    internalCooldownMs: 500,
+    synergyPartners: [RelicId.CORROSIVE_MIASMIC_FLASK],
+    synergyName: 'Hadal Brine Maelstrom',
+    synergyDescription: 'Acidic miasma dissolves into hyper-pressurized oceanic brine: expands maelstrom to 3.5 tiles (up to 4 targets), crushes for 135 damage, pulls inward at 180 px/s, and inflicts 55% drag (3.0s) + 1.5s abyssal stun (+350 score)!',
   },
 };
 
@@ -255,11 +267,30 @@ export const SYNERGY_DEFINITIONS: RelicSynergy[] = [
     icon: '⚡☣️',
     description: 'High-voltage chain lightning passing through miasmic spore clouds ignites a bio-electric storm: arcing to up to 4 targets within 3.5 tiles for 130 damage, causing 2.0s EMP paralysis, shield shatter, and neurotoxic detonation (+350 score)!',
   },
+  {
+    relicA: RelicId.CORROSIVE_MIASMIC_FLASK,
+    relicB: RelicId.ABYSSAL_MAELSTROM_PEARL,
+    name: 'Hadal Brine Maelstrom',
+    icon: '🌊☣️',
+    description: 'Acidic miasma dissolves into hyper-pressurized oceanic brine: maelstrom expands to 3.5 tiles hitting up to 4 targets for 135 crushing damage, pulling them inward at 180 px/s with 55% drag (3.0s) and 1.5s abyssal stun (+350 score)!',
+  },
 ];
 
 /* ==============================================================================
  * RELIC SYSTEM MANAGER
  * ============================================================================== */
+
+export interface AbyssalPearlProcResult {
+  triggered: boolean;
+  pulledEnemyIds: string[];
+  maelstromRadius: number;
+  damage: number;
+  undertowDurationMs: number;
+  slowRatio: number;
+  pullSpeedPx: number;
+  stunDurationMs: number;
+  isHadalBrineMaelstrom: boolean;
+}
 
 export class RelicManager {
   private equippedRelics: RelicId[] = [];
@@ -269,15 +300,39 @@ export class RelicManager {
   // Internal Cooldown Tracking (Edge Case 21: 500ms ICD loop protection)
   private lastProcTimes: Map<string, number> = new Map();
 
+  // Pre-allocated Zero-GC scratch buffers for nearest-target selection
+  private readonly _scratchCandIds: string[] = [];
+  private readonly _scratchCandDists: number[] = [];
+  private readonly _scratchAbyssalPulledIds: string[] = [];
+  private readonly _scratchAbyssalPearl: AbyssalPearlProcResult = {
+    triggered: false,
+    pulledEnemyIds: this._scratchAbyssalPulledIds,
+    maelstromRadius: 0,
+    damage: 0,
+    undertowDurationMs: 0,
+    slowRatio: 0,
+    pullSpeedPx: 0,
+    stunDurationMs: 0,
+    isHadalBrineMaelstrom: false,
+  };
+
   // State trackers for specific relics
   public vampiricKillStreak: number = 0;
   public solarChargeElapsedMs: number = 0;
   public hasSolarShield: boolean = false;
 
-  constructor(initialEquipped: RelicId[] = [], maxSlots: number = 1) {
-    this.maxSlots = maxSlots;
-    for (const r of initialEquipped) {
-      this.equipRelic(r);
+  constructor(initialEquippedOrMaxSlots: RelicId[] | number = [], maxSlots: number = 1) {
+    if (typeof initialEquippedOrMaxSlots === 'number') {
+      this.maxSlots = Number.isFinite(initialEquippedOrMaxSlots)
+        ? Math.max(1, Math.floor(initialEquippedOrMaxSlots))
+        : 1;
+    } else {
+      this.maxSlots = Number.isFinite(maxSlots) ? Math.max(1, Math.floor(maxSlots)) : 1;
+      if (Array.isArray(initialEquippedOrMaxSlots)) {
+        for (const r of initialEquippedOrMaxSlots) {
+          this.equipRelic(r);
+        }
+      }
     }
   }
 
@@ -352,8 +407,9 @@ export class RelicManager {
   }
 
   public deserialize(saved: unknown): boolean {
-    if (!saved || typeof saved !== 'object') return false;
+    if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return false;
     const s = saved as Record<string, unknown>;
+    this.lastProcTimes.clear();
 
     if (typeof s.maxSlots === 'number' && Number.isFinite(s.maxSlots)) {
       this.setMaxSlots(s.maxSlots);
@@ -414,11 +470,70 @@ export class RelicManager {
     );
   }
 
+  public resetCooldowns(): void {
+    this.lastProcTimes.clear();
+  }
+
+  public hasAnyDetonationEnemyRelic(): boolean {
+    for (let i = 0; i < this.equippedRelics.length; i++) {
+      const r = this.equippedRelics[i];
+      if (
+        r === RelicId.PSIONIC_FEEDBACK_CRYSTAL ||
+        r === RelicId.QUANTUM_WARP_PRISM ||
+        r === RelicId.CRYO_GLACIAL_CORE ||
+        r === RelicId.TESLA_OVERCHARGE_COIL ||
+        r === RelicId.CORROSIVE_MIASMIC_FLASK ||
+        r === RelicId.ABYSSAL_MAELSTROM_PEARL
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private selectNearestEnemyIds(
+    enemies: { id: string; r: number; c: number }[],
+    bombRow: number,
+    bombCol: number,
+    maxRadius: number,
+    maxTargets: number,
+    outIds: string[]
+  ): void {
+    const ids = this._scratchCandIds;
+    const dists = this._scratchCandDists;
+    let count = 0;
+
+    for (let i = 0; i < enemies.length; i++) {
+      const e = enemies[i];
+      if (!e || typeof e.id !== 'string' || !Number.isFinite(e.r) || !Number.isFinite(e.c)) continue;
+      const dist = Math.hypot(e.r - bombRow, e.c - bombCol);
+      if (dist <= maxRadius) {
+        // In-place insertion sort by ascending Euclidean distance (Zero-GC, zero closures)
+        let pos = count;
+        while (pos > 0 && dists[pos - 1] > dist) {
+          ids[pos] = ids[pos - 1];
+          dists[pos] = dists[pos - 1];
+          pos--;
+        }
+        ids[pos] = e.id;
+        dists[pos] = dist;
+        count++;
+      }
+    }
+
+    const limit = Math.min(maxTargets, count);
+    for (let i = 0; i < limit; i++) {
+      outIds.push(ids[i]);
+    }
+    ids.length = 0;
+    dists.length = 0;
+  }
+
   /**
    * Internal Cooldown Guard (500ms) to prevent infinite loop procs (Edge Case 21)
    */
   private checkAndSetIcd(procKey: string, nowMs: number): boolean {
-    if (typeof nowMs !== 'number' || !Number.isFinite(nowMs)) {
+    if (typeof nowMs !== 'number' || !Number.isFinite(nowMs) || nowMs < 0) {
       return false;
     }
     const last = this.lastProcTimes.get(procKey);
@@ -773,6 +888,10 @@ export class RelicManager {
       return { warpedEnemyIds: [], warpRadius: 0, damage: 0, phaseDurationMs: 0, singularityPull: false, isEmpowered: false };
     }
 
+    if (!Number.isFinite(bombRow) || !Number.isFinite(bombCol) || !Array.isArray(enemies)) {
+      return { warpedEnemyIds: [], warpRadius: 0, damage: 0, phaseDurationMs: 0, singularityPull: false, isEmpowered: false };
+    }
+
     if (!this.checkAndSetIcd('quantum_warp_prism', nowMs)) {
       return { warpedEnemyIds: [], warpRadius: 0, damage: 0, phaseDurationMs: 0, singularityPull: false, isEmpowered: false };
     }
@@ -785,13 +904,12 @@ export class RelicManager {
     const isEmpowered = hasSynergy;
 
     const warpedEnemyIds: string[] = [];
-    if (Array.isArray(enemies) && Number.isFinite(bombRow) && Number.isFinite(bombCol)) {
-      for (const e of enemies) {
-        if (!e || !Number.isFinite(e.r) || !Number.isFinite(e.c)) continue;
-        const dist = Math.hypot(e.r - bombRow, e.c - bombCol);
-        if (dist <= warpRadius) {
-          warpedEnemyIds.push(e.id);
-        }
+    for (let i = 0; i < enemies.length; i++) {
+      const e = enemies[i];
+      if (!e || typeof e.id !== 'string' || !Number.isFinite(e.r) || !Number.isFinite(e.c)) continue;
+      const dist = Math.hypot(e.r - bombRow, e.c - bombCol);
+      if (dist <= warpRadius) {
+        warpedEnemyIds.push(e.id);
       }
     }
 
@@ -829,6 +947,10 @@ export class RelicManager {
       return { triggered: false, chilledEnemyIds: [], frostRadius: 0, damage: 0, chillDurationMs: 0, slowRatio: 0, isThermalShock: false };
     }
 
+    if (!Number.isFinite(bombRow) || !Number.isFinite(bombCol) || !Array.isArray(enemies)) {
+      return { triggered: false, chilledEnemyIds: [], frostRadius: 0, damage: 0, chillDurationMs: 0, slowRatio: 0, isThermalShock: false };
+    }
+
     if (!this.checkAndSetIcd('cryo_glacial_core', nowMs)) {
       return { triggered: false, chilledEnemyIds: [], frostRadius: 0, damage: 0, chillDurationMs: 0, slowRatio: 0, isThermalShock: false };
     }
@@ -841,13 +963,12 @@ export class RelicManager {
     const isThermalShock = hasSynergy;
 
     const chilledEnemyIds: string[] = [];
-    if (Array.isArray(enemies) && Number.isFinite(bombRow) && Number.isFinite(bombCol)) {
-      for (const e of enemies) {
-        if (!e || !Number.isFinite(e.r) || !Number.isFinite(e.c)) continue;
-        const dist = Math.hypot(e.r - bombRow, e.c - bombCol);
-        if (dist <= frostRadius) {
-          chilledEnemyIds.push(e.id);
-        }
+    for (let i = 0; i < enemies.length; i++) {
+      const e = enemies[i];
+      if (!e || typeof e.id !== 'string' || !Number.isFinite(e.r) || !Number.isFinite(e.c)) continue;
+      const dist = Math.hypot(e.r - bombRow, e.c - bombCol);
+      if (dist <= frostRadius) {
+        chilledEnemyIds.push(e.id);
       }
     }
 
@@ -887,6 +1008,10 @@ export class RelicManager {
       return { triggered: false, shockedEnemyIds: [], shockRadius: 0, damage: 0, shockDurationMs: 0, slowRatio: 0, isSuperconductor: false };
     }
 
+    if (!Number.isFinite(bombRow) || !Number.isFinite(bombCol) || !Array.isArray(enemies)) {
+      return { triggered: false, shockedEnemyIds: [], shockRadius: 0, damage: 0, shockDurationMs: 0, slowRatio: 0, isSuperconductor: false };
+    }
+
     if (!this.checkAndSetIcd('tesla_overcharge_coil', nowMs)) {
       return { triggered: false, shockedEnemyIds: [], shockRadius: 0, damage: 0, shockDurationMs: 0, slowRatio: 0, isSuperconductor: false };
     }
@@ -899,21 +1024,7 @@ export class RelicManager {
     const isSuperconductor = hasSynergy;
 
     const shockedEnemyIds: string[] = [];
-    if (Array.isArray(enemies) && Number.isFinite(bombRow) && Number.isFinite(bombCol)) {
-      const candidates: { id: string; dist: number }[] = [];
-      for (const e of enemies) {
-        if (!e || !Number.isFinite(e.r) || !Number.isFinite(e.c)) continue;
-        const dist = Math.hypot(e.r - bombRow, e.c - bombCol);
-        if (dist <= shockRadius) {
-          candidates.push({ id: e.id, dist });
-        }
-      }
-      candidates.sort((a, b) => a.dist - b.dist);
-      const targetCount = Math.min(3, candidates.length);
-      for (let i = 0; i < targetCount; i++) {
-        shockedEnemyIds.push(candidates[i].id);
-      }
-    }
+    this.selectNearestEnemyIds(enemies, bombRow, bombCol, shockRadius, 3, shockedEnemyIds);
 
     return {
       triggered: true,
@@ -949,7 +1060,7 @@ export class RelicManager {
       return { triggered: false, poisonedEnemyIds: [], cloudRadius: 0, damage: 0, poisonDurationMs: 0, slowRatio: 0, isNeuroOverload: false };
     }
 
-    if (!Number.isFinite(bombRow) || !Number.isFinite(bombCol)) {
+    if (!Number.isFinite(bombRow) || !Number.isFinite(bombCol) || !Array.isArray(enemies)) {
       return { triggered: false, poisonedEnemyIds: [], cloudRadius: 0, damage: 0, poisonDurationMs: 0, slowRatio: 0, isNeuroOverload: false };
     }
 
@@ -965,21 +1076,7 @@ export class RelicManager {
     const isNeuroOverload = hasSynergy;
 
     const poisonedEnemyIds: string[] = [];
-    if (Array.isArray(enemies) && Number.isFinite(bombRow) && Number.isFinite(bombCol)) {
-      const candidates: { id: string; dist: number }[] = [];
-      for (const e of enemies) {
-        if (!e || !Number.isFinite(e.r) || !Number.isFinite(e.c)) continue;
-        const dist = Math.hypot(e.r - bombRow, e.c - bombCol);
-        if (dist <= cloudRadius) {
-          candidates.push({ id: e.id, dist });
-        }
-      }
-      candidates.sort((a, b) => a.dist - b.dist);
-      const targetCount = hasSynergy ? Math.min(4, candidates.length) : Math.min(3, candidates.length);
-      for (let i = 0; i < targetCount; i++) {
-        poisonedEnemyIds.push(candidates[i].id);
-      }
-    }
+    this.selectNearestEnemyIds(enemies, bombRow, bombCol, cloudRadius, hasSynergy ? 4 : 3, poisonedEnemyIds);
 
     return {
       triggered: true,
@@ -990,6 +1087,77 @@ export class RelicManager {
       slowRatio,
       isNeuroOverload,
     };
+  }
+
+  /**
+   * 15th Relic Hook: Abyssal Maelstrom Pearl (RelicId.ABYSSAL_MAELSTROM_PEARL)
+   * Bomb detonations unleash a 2.5-tile tidal undertow maelstrom (3.5 with Hadal Brine Maelstrom synergy),
+   * crushing up to 3 nearest enemies (4 with synergy) for 55 hydrostatic damage (135 with synergy),
+   * pulling them inward at 120 px/s (180 px/s with synergy), and inflicting a 35% drag for 2.0s
+   * (55% drag for 3.0s + 1.5s abyssal stun with synergy).
+   */
+  public onBombDetonationAbyssalPearl(
+    bombRow: number,
+    bombCol: number,
+    enemies: { id: string; r: number; c: number }[],
+    nowMs: number
+  ): AbyssalPearlProcResult {
+    const out = this._scratchAbyssalPearl;
+    out.triggered = false;
+    out.pulledEnemyIds.length = 0;
+    out.maelstromRadius = 0;
+    out.damage = 0;
+    out.undertowDurationMs = 0;
+    out.slowRatio = 0;
+    out.pullSpeedPx = 0;
+    out.stunDurationMs = 0;
+    out.isHadalBrineMaelstrom = false;
+
+    if (!this.isEquipped(RelicId.ABYSSAL_MAELSTROM_PEARL)) {
+      return out;
+    }
+
+    if (
+      !Number.isFinite(bombRow) ||
+      !Number.isFinite(bombCol) ||
+      !Array.isArray(enemies) ||
+      enemies.length === 0 ||
+      typeof nowMs !== 'number' ||
+      !Number.isFinite(nowMs) ||
+      nowMs < 0
+    ) {
+      return out;
+    }
+
+    const prevLast = this.lastProcTimes.get('abyssal_maelstrom_pearl');
+    if (!this.checkAndSetIcd('abyssal_maelstrom_pearl', nowMs)) {
+      return out;
+    }
+
+    const hasSynergy = this.hasSynergy(RelicId.ABYSSAL_MAELSTROM_PEARL, RelicId.CORROSIVE_MIASMIC_FLASK);
+    const maelstromRadius = hasSynergy ? 3.5 : 2.5;
+    this.selectNearestEnemyIds(enemies, bombRow, bombCol, maelstromRadius, hasSynergy ? 4 : 3, out.pulledEnemyIds);
+
+    if (out.pulledEnemyIds.length === 0) {
+      // Do not consume 500ms ICD if zero valid targets fell inside maelstrom radius
+      if (prevLast === undefined) {
+        this.lastProcTimes.delete('abyssal_maelstrom_pearl');
+      } else {
+        this.lastProcTimes.set('abyssal_maelstrom_pearl', prevLast);
+      }
+      return out;
+    }
+
+    out.triggered = true;
+    out.maelstromRadius = maelstromRadius;
+    out.damage = hasSynergy ? 135 : 55;
+    out.undertowDurationMs = hasSynergy ? 3000 : 2000;
+    out.slowRatio = hasSynergy ? 0.55 : 0.35;
+    out.pullSpeedPx = hasSynergy ? 180 : 120;
+    out.stunDurationMs = hasSynergy ? 1500 : 0;
+    out.isHadalBrineMaelstrom = hasSynergy;
+
+    return out;
   }
 
   /* ==============================================================================
@@ -1006,17 +1174,25 @@ export class RelicManager {
     seed: number = 0
   ): RelicId | null {
     const allRelics = Object.keys(RELIC_CATALOG) as RelicId[];
-    const rand = ((seed || Date.now()) % 1000) / 1000;
+    const safeSeed =
+      typeof seed === 'number' && Number.isFinite(seed) && seed > 0
+        ? Math.floor(seed)
+        : Date.now();
+    const rand = ((safeSeed % 1000) + 1000) % 1000 / 1000;
+    const dropBonus =
+      perkBonuses && typeof perkBonuses.relicDropChanceBonus === 'number' && Number.isFinite(perkBonuses.relicDropChanceBonus)
+        ? perkBonuses.relicDropChanceBonus
+        : 0;
 
-    let dropChance = 0.05 + perkBonuses.relicDropChanceBonus;
+    let dropChance = 0.05 + dropBonus;
     if (isBoss) {
       dropChance = 1.0; // Boss defeat gives guaranteed relic drop!
     } else if (isChest) {
-      dropChance = 0.35 + perkBonuses.relicDropChanceBonus;
+      dropChance = 0.35 + dropBonus;
     }
 
     if (rand <= dropChance) {
-      const idx = Math.floor((((seed || Date.now()) >> 3) % allRelics.length + allRelics.length) % allRelics.length);
+      const idx = Math.floor((((safeSeed >> 3) % allRelics.length) + allRelics.length) % allRelics.length);
       return allRelics[idx];
     }
     return null;

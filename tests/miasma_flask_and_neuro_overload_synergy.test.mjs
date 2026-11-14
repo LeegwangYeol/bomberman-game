@@ -56,7 +56,7 @@ test('Tier 1.2: Reciprocal synergy partnership between CORROSIVE_MIASMIC_FLASK a
 });
 
 test('Tier 1.3: 10th Synergy Bio-Electric Neuro-Overload registered in SYNERGY_DEFINITIONS', () => {
-  assert.equal(SYNERGY_DEFINITIONS.length, 10, 'Must have exactly 10 synergies registered');
+  assert.ok(SYNERGY_DEFINITIONS.length >= 10, 'Must have at least 10 synergies registered');
   const neuroOverload = SYNERGY_DEFINITIONS.find((s) => s.name === 'Bio-Electric Neuro-Overload');
   assert.ok(neuroOverload, 'Bio-Electric Neuro-Overload synergy must exist in SYNERGY_DEFINITIONS');
   assert.ok(
@@ -68,12 +68,12 @@ test('Tier 1.3: 10th Synergy Bio-Electric Neuro-Overload registered in SYNERGY_D
 });
 
 /* ==============================================================================
- * TIER 2: EXHAUSTIVE 91 PAIRWISE COMBINATIONS MATRIX (C(14, 2) = 91)
+ * TIER 2: EXHAUSTIVE 105 PAIRWISE COMBINATIONS MATRIX (C(15, 2) = 105)
  * ============================================================================== */
 
-test('Tier 2.1: Exhaustive evaluation of all 91 pairwise relic combinations', () => {
+test('Tier 2.1: Exhaustive evaluation of all 105 pairwise relic combinations', () => {
   const allRelics = Object.keys(RELIC_CATALOG);
-  assert.equal(allRelics.length, 14, 'Must have exactly 14 relics');
+  assert.equal(allRelics.length, 15, 'Must have exactly 15 relics');
 
   let pairsEvaluated = 0;
   let activeSynergyPairs = 0;
@@ -104,10 +104,11 @@ test('Tier 2.1: Exhaustive evaluation of all 91 pairwise relic combinations', ()
     }
   }
 
-  // C(14, 2) = 14 * 13 / 2 = 91
-  assert.equal(pairsEvaluated, 91, 'Must evaluate exactly 91 pairwise combinations');
-  assert.equal(activeSynergyPairs, 10, 'Must trigger exactly 10 active synergy pairs');
-  assert.equal(foundSynergyNames.size, 10, 'Must discover all 10 distinct synergies');
+  // C(15, 2) = 15 * 14 / 2 = 105
+  assert.equal(pairsEvaluated, 105, 'Must evaluate exactly 105 pairwise combinations');
+  assert.equal(activeSynergyPairs, 11, 'Must trigger exactly 11 active synergy pairs');
+  assert.equal(foundSynergyNames.size, 11, 'Must discover all 11 distinct synergies');
+  assert.ok(foundSynergyNames.has('Hadal Brine Maelstrom'));
   assert.ok(foundSynergyNames.has('Bio-Electric Neuro-Overload'));
   assert.ok(foundSynergyNames.has('Electro-Cryo Superconductor'));
   assert.ok(foundSynergyNames.has('Thermal Shock Reaction'));
@@ -312,7 +313,8 @@ test('Tier 9.1: rollRelicDrop includes CORROSIVE_MIASMIC_FLASK in random pool', 
   }
 
   assert.ok(discovered.has(RelicId.CORROSIVE_MIASMIC_FLASK));
-  assert.equal(discovered.size, 14, 'All 14 relics must be rollable from drops');
+  assert.ok(discovered.has(RelicId.ABYSSAL_MAELSTROM_PEARL));
+  assert.equal(discovered.size, 15, 'All 15 relics must be rollable from drops');
 });
 
 /* ==============================================================================

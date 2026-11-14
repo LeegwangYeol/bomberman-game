@@ -177,7 +177,7 @@ export class OverheadUIManager {
               if (offsetsY[i] === 0) {
                 offsetsY[i] = 46;
               } else if (offsetsY[i] < offsetsY[j] + 30) {
-                offsetsY[i] = Math.max(offsetsY[j] + 30, offsetsY[j] + 46);
+                offsetsY[i] = Math.max(offsetsY[i] + 30, offsetsY[j] + 46);
               }
             }
           }

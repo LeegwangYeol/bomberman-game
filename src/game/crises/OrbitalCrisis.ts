@@ -142,8 +142,10 @@ export class OrbitalCrisis extends BaseCrisis {
     }
 
     if (this.stage === CrisisStage.CLIMAX) {
-      // Macrocannon charges toward 100% over the climax duration
-      this.macrocannonCharge = Math.min(100, (this.stageElapsedMs / this.stageDurationMs) * 100);
+      // Macrocannon charges toward 100% over the climax duration (guard 0/0 NaN)
+      const safeDuration = Number.isFinite(this.stageDurationMs) && this.stageDurationMs > 0 ? this.stageDurationMs : 1;
+      const safeElapsed = Number.isFinite(this.stageElapsedMs) && this.stageElapsedMs >= 0 ? this.stageElapsedMs : 0;
+      this.macrocannonCharge = Math.min(100, (safeElapsed / safeDuration) * 100);
       let overriddenCount = 0;
       for (let i = 0; i < this.uplinks.length; i++) {
         if (this.uplinks[i].isOverridden) overriddenCount++;
@@ -160,16 +162,28 @@ export class OrbitalCrisis extends BaseCrisis {
     }
   }
 
-  public spawnKineticSalvo(immediate: boolean = false): void {
-    // Generate 4 patterned impact points
-    const pattern = [
-      { r: 3, c: 5 },
-      { r: 3, c: 9 },
-      { r: 9, c: 5 },
-      { r: 9, c: 9 },
-    ];
+  private static readonly SALVO_PATTERN: ReadonlyArray<Readonly<{ r: number; c: number }>> = Object.freeze([
+    Object.freeze({ r: 3, c: 5 }),
+    Object.freeze({ r: 3, c: 9 }),
+    Object.freeze({ r: 9, c: 5 }),
+    Object.freeze({ r: 9, c: 9 }),
+  ]);
 
-    for (const pt of pattern) {
+  public getMacrocannonCharge(): number {
+    return this.macrocannonCharge;
+  }
+
+  private countOverriddenUplinks(): number {
+    let count = 0;
+    for (let i = 0; i < this.uplinks.length; i++) {
+      if (this.uplinks[i].isOverridden) count++;
+    }
+    return count;
+  }
+
+  public spawnKineticSalvo(immediate: boolean = false): void {
+    for (let i = 0; i < OrbitalCrisis.SALVO_PATTERN.length; i++) {
+      const pt = OrbitalCrisis.SALVO_PATTERN[i];
       if (!this.isPerimeter(pt.r, pt.c)) {
         if (immediate) {
           this.setHazardTile(pt.r, pt.c, HazardType.KINETIC_CRATER, 1.0, 3500, 0);
@@ -198,7 +212,7 @@ export class OrbitalCrisis extends BaseCrisis {
         this.setHazardTile(u.r, u.c, HazardType.UPLINK_TERMINAL, 1.0, 0, 1); // 1 = Overridden
         this.resolveObjective('override_uplinks');
 
-        const activeCount = this.uplinks.filter((up) => up.isOverridden).length;
+        const activeCount = this.countOverriddenUplinks();
         OrbitalCrisisAudio.getInstance().playUplinkSecured(activeCount);
 
         if (activeCount === 3) {
@@ -221,7 +235,7 @@ export class OrbitalCrisis extends BaseCrisis {
   protected onResolveObjective(objectiveId: string, value?: number): void {
     void value;
     if (objectiveId === 'override_uplinks') {
-      const activeCount = this.uplinks.filter((up) => up.isOverridden).length;
+      const activeCount = this.countOverriddenUplinks();
       this.adjustThreat(-8 * activeCount);
       const obj = this.objectives.find((o) => o.id === 'override_uplinks');
       if (obj && obj.isCompleted && !this.isVictorious) {

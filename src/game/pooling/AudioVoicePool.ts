@@ -314,7 +314,7 @@ export class AudioVoicePool {
 
     // Handle suspended context
     if (ctx && ctx.state === 'suspended' && typeof ctx.resume === 'function') {
-      ctx.resume().catch(() => {});
+      Promise.resolve(ctx.resume()).catch(() => {});
     }
 
     try {
@@ -338,7 +338,7 @@ export class AudioVoicePool {
     if (!this.ctx || this.voices.length === 0) return null;
     if (this.ctx.state === 'suspended' && !this.isResuming && typeof this.ctx.resume === 'function') {
       this.isResuming = true;
-      this.ctx.resume().catch(() => {}).finally(() => {
+      Promise.resolve(this.ctx.resume()).catch(() => {}).finally(() => {
         this.isResuming = false;
       });
     }
