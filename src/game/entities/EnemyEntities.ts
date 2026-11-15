@@ -1061,51 +1061,74 @@ export class SplitterEnemy extends BaseEntity {
     this.overheadUI.setIntent('🟢', true);
   }
 
+  private static readonly CANDIDATE_OFFSETS: readonly (readonly [number, number])[] = Object.freeze([
+    Object.freeze([0, -1] as const),
+    Object.freeze([0, 1] as const),
+    Object.freeze([-1, 0] as const),
+    Object.freeze([1, 0] as const),
+    Object.freeze([-1, -1] as const),
+    Object.freeze([-1, 1] as const),
+    Object.freeze([1, -1] as const),
+    Object.freeze([1, 1] as const),
+  ]);
+
   protected override onDeath(_currentTime?: number): void {
     void _currentTime;
     const er = Math.floor(this.y / TILE_SIZE);
     const ec = Math.floor(this.x / TILE_SIZE);
 
     if (this.scene) {
-      // AI-08: Check tile validity and map emptiness before placing mini-slimes
+      // AI-08: Zero-GC tile validity and map emptiness check before placing mini-slimes
       const map = (this.scene as unknown as { map?: number[][] }).map;
-      const candidates: { r: number; c: number }[] = [
-        { r: er, c: ec - 1 },
-        { r: er, c: ec + 1 },
-        { r: er - 1, c: ec },
-        { r: er + 1, c: ec },
-        { r: er - 1, c: ec - 1 },
-        { r: er - 1, c: ec + 1 },
-        { r: er + 1, c: ec - 1 },
-        { r: er + 1, c: ec + 1 },
-      ];
+      let p1r = er;
+      let p1c = ec;
+      let p2r = er;
+      let p2c = ec;
+      let foundCount = 0;
 
-      const validTiles = candidates.filter((pt) => {
-        if (pt.r < 1 || pt.r >= ROWS - 1 || pt.c < 1 || pt.c >= COLS - 1) return false;
-        if (!map) return true;
-        return map[pt.r]?.[pt.c] === TILE_EMPTY;
-      });
-
-      const p1 = validTiles[0] || { r: er, c: ec };
-      const p2 = validTiles[1] || validTiles[0] || { r: er, c: ec };
+      for (let i = 0; i < SplitterEnemy.CANDIDATE_OFFSETS.length; i++) {
+        const offset = SplitterEnemy.CANDIDATE_OFFSETS[i];
+        const cr = er + offset[0];
+        const cc = ec + offset[1];
+        if (cr < 1 || cr >= ROWS - 1 || cc < 1 || cc >= COLS - 1) continue;
+        if (map && map[cr]?.[cc] !== TILE_EMPTY) continue;
+        if (foundCount === 0) {
+          p1r = cr;
+          p1c = cc;
+          p2r = cr;
+          p2c = cc;
+          foundCount = 1;
+        } else {
+          p2r = cr;
+          p2c = cc;
+          break;
+        }
+      }
 
       const mini1 = new MiniSplitterEnemy(
         this.scene,
-        p1.c * TILE_SIZE + TILE_SIZE / 2,
-        p1.r * TILE_SIZE + TILE_SIZE / 2
+        p1c * TILE_SIZE + TILE_SIZE / 2,
+        p1r * TILE_SIZE + TILE_SIZE / 2
       );
       const mini2 = new MiniSplitterEnemy(
         this.scene,
-        p2.c * TILE_SIZE + TILE_SIZE / 2,
-        p2.r * TILE_SIZE + TILE_SIZE / 2
+        p2c * TILE_SIZE + TILE_SIZE / 2,
+        p2r * TILE_SIZE + TILE_SIZE / 2
       );
 
       this.spawnedMinis = [mini1, mini2];
 
-      const enemyGroup = (this.scene as unknown as { enemies?: Phaser.Physics.Arcade.Group }).enemies;
-      if (enemyGroup) {
-        enemyGroup.add(mini1);
-        enemyGroup.add(mini2);
+      const sceneRef = this.scene as unknown as {
+        enemies?: Phaser.Physics.Arcade.Group;
+        attachEntityDropShadow?: (entity: Phaser.GameObjects.Sprite, scale?: number) => void;
+      };
+      if (sceneRef.enemies) {
+        sceneRef.enemies.add(mini1);
+        sceneRef.enemies.add(mini2);
+      }
+      if (typeof sceneRef.attachEntityDropShadow === 'function') {
+        sceneRef.attachEntityDropShadow(mini1, 0.72);
+        sceneRef.attachEntityDropShadow(mini2, 0.72);
       }
     }
   }

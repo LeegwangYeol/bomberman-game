@@ -292,6 +292,44 @@ export interface AbyssalPearlProcResult {
   isHadalBrineMaelstrom: boolean;
 }
 
+const PYROCLASTIC_DIAGONAL_SHARDS: { dr: number; dc: number; maxDist: number }[] = [
+  Object.freeze({ dr: -1, dc: -1, maxDist: 2 }),
+  Object.freeze({ dr: -1, dc: 1, maxDist: 2 }),
+  Object.freeze({ dr: 1, dc: -1, maxDist: 2 }),
+  Object.freeze({ dr: 1, dc: 1, maxDist: 2 }),
+];
+Object.freeze(PYROCLASTIC_DIAGONAL_SHARDS);
+
+const EMPTY_SHARDS: { dr: number; dc: number; maxDist: number }[] = [];
+Object.freeze(EMPTY_SHARDS);
+
+const PYROCLASTIC_TRIGGERED_RESULT: {
+  spawnDiagonalShards: boolean;
+  shards: { dr: number; dc: number; maxDist: number }[];
+} = Object.freeze({
+  spawnDiagonalShards: true,
+  shards: PYROCLASTIC_DIAGONAL_SHARDS,
+});
+
+const PYROCLASTIC_SUPPRESSED_RESULT: {
+  spawnDiagonalShards: boolean;
+  shards: { dr: number; dc: number; maxDist: number }[];
+} = Object.freeze({
+  spawnDiagonalShards: false,
+  shards: EMPTY_SHARDS,
+});
+
+const BOMB_KICKED_DEFAULT = Object.freeze({ velocityPxPerSec: 200, softBlockPierceCount: 0 });
+const BOMB_KICKED_CLOCKWORK = Object.freeze({ velocityPxPerSec: 450, softBlockPierceCount: 1 });
+const BOMB_KICKED_SYNERGY = Object.freeze({ velocityPxPerSec: 450, softBlockPierceCount: 2 });
+
+const UPDATE_RESULT_IDLE = Object.freeze({ applyEnemySlow: false, slowRatio: 1.0, solarShieldGranted: false });
+const UPDATE_RESULT_SLOW = Object.freeze({ applyEnemySlow: true, slowRatio: 0.80, solarShieldGranted: false });
+const UPDATE_RESULT_SHIELD = Object.freeze({ applyEnemySlow: false, slowRatio: 1.0, solarShieldGranted: true });
+const UPDATE_RESULT_SLOW_SHIELD = Object.freeze({ applyEnemySlow: true, slowRatio: 0.80, solarShieldGranted: true });
+
+const ALL_RELIC_IDS: readonly RelicId[] = Object.freeze(Object.keys(RELIC_CATALOG) as RelicId[]);
+
 export class RelicManager {
   private equippedRelics: RelicId[] = [];
   private discoveredRelics: Set<RelicId> = new Set();
@@ -300,9 +338,82 @@ export class RelicManager {
   // Internal Cooldown Tracking (Edge Case 21: 500ms ICD loop protection)
   private lastProcTimes: Map<string, number> = new Map();
 
-  // Pre-allocated Zero-GC scratch buffers for nearest-target selection
+  // Pre-allocated Zero-GC scratch buffers for nearest-target selection & runtime hooks
   private readonly _scratchCandIds: string[] = [];
   private readonly _scratchCandDists: number[] = [];
+  private readonly _scratchEnemyKilled = {
+    shieldGranted: false,
+    currentStreak: 0,
+  };
+  private readonly _scratchBombPlacedIds: string[] = [];
+  private readonly _scratchBombPlaced = {
+    pulledEnemyIds: this._scratchBombPlacedIds,
+    pullRadius: 0,
+  };
+  private readonly _scratchWallBounceIds: string[] = [];
+  private readonly _scratchWallBounce = {
+    stunnedEnemyIds: this._scratchWallBounceIds,
+    stunDurationMs: 0,
+  };
+  private readonly _scratchPsionicIds: string[] = [];
+  private readonly _scratchPsionicPulse = {
+    affectedEnemyIds: this._scratchPsionicIds,
+    pulseRadius: 0,
+    confusedDurationMs: 0,
+    isStunned: false,
+  };
+  private readonly _scratchOrbitalTileSlots: { r: number; c: number }[] = [
+    { r: 0, c: 0 },
+    { r: 0, c: 0 },
+    { r: 0, c: 0 },
+    { r: 0, c: 0 },
+    { r: 0, c: 0 },
+  ];
+  private readonly _scratchOrbitalTargetTiles: { r: number; c: number }[] = [];
+  private readonly _scratchOrbitalTargeting = {
+    targetTiles: this._scratchOrbitalTargetTiles,
+    damage: 0,
+    delayMs: 0,
+  };
+  private readonly _scratchQuantumWarpIds: string[] = [];
+  private readonly _scratchQuantumWarp = {
+    warpedEnemyIds: this._scratchQuantumWarpIds,
+    warpRadius: 0,
+    damage: 0,
+    phaseDurationMs: 0,
+    singularityPull: false,
+    isEmpowered: false,
+  };
+  private readonly _scratchCryoIds: string[] = [];
+  private readonly _scratchCryoGlacial = {
+    triggered: false,
+    chilledEnemyIds: this._scratchCryoIds,
+    frostRadius: 0,
+    damage: 0,
+    chillDurationMs: 0,
+    slowRatio: 0,
+    isThermalShock: false,
+  };
+  private readonly _scratchTeslaIds: string[] = [];
+  private readonly _scratchTeslaCoil = {
+    triggered: false,
+    shockedEnemyIds: this._scratchTeslaIds,
+    shockRadius: 0,
+    damage: 0,
+    shockDurationMs: 0,
+    slowRatio: 0,
+    isSuperconductor: false,
+  };
+  private readonly _scratchMiasmaIds: string[] = [];
+  private readonly _scratchMiasmicFlask = {
+    triggered: false,
+    poisonedEnemyIds: this._scratchMiasmaIds,
+    cloudRadius: 0,
+    damage: 0,
+    poisonDurationMs: 0,
+    slowRatio: 0,
+    isNeuroOverload: false,
+  };
   private readonly _scratchAbyssalPulledIds: string[] = [];
   private readonly _scratchAbyssalPearl: AbyssalPearlProcResult = {
     triggered: false,
@@ -349,6 +460,10 @@ export class RelicManager {
 
   public getEquippedRelics(): RelicId[] {
     return [...this.equippedRelics];
+  }
+
+  public getEquippedCount(): number {
+    return this.equippedRelics.length;
   }
 
   public getDiscoveredRelics(): RelicId[] {
@@ -465,9 +580,13 @@ export class RelicManager {
 
   public hasSynergy(relicA: RelicId, relicB: RelicId): boolean {
     if (!this.isEquipped(relicA) || !this.isEquipped(relicB)) return false;
-    return SYNERGY_DEFINITIONS.some(
-      (s) => (s.relicA === relicA && s.relicB === relicB) || (s.relicA === relicB && s.relicB === relicA)
-    );
+    for (let i = 0; i < SYNERGY_DEFINITIONS.length; i++) {
+      const s = SYNERGY_DEFINITIONS[i];
+      if ((s.relicA === relicA && s.relicB === relicB) || (s.relicA === relicB && s.relicB === relicA)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   public resetCooldowns(): void {
@@ -565,15 +684,9 @@ export class RelicManager {
     slowRatio: number;
     solarShieldGranted: boolean;
   } {
-    let applyEnemySlow = false;
-    let slowRatio = 1.0;
+    const applyEnemySlow =
+      this.isEquipped(RelicId.POCKET_CHRONOMETER) && matchSecondsRemaining <= 30 && matchSecondsRemaining > 0;
     let solarShieldGranted = false;
-
-    // 1. Pocket Chronometer
-    if (this.isEquipped(RelicId.POCKET_CHRONOMETER) && matchSecondsRemaining <= 30 && matchSecondsRemaining > 0) {
-      applyEnemySlow = true;
-      slowRatio = 0.80; // 20% slow
-    }
 
     // 2. Solar Capacitor
     if (this.isEquipped(RelicId.SOLAR_CAPACITOR)) {
@@ -594,11 +707,10 @@ export class RelicManager {
       }
     }
 
-    return {
-      applyEnemySlow,
-      slowRatio,
-      solarShieldGranted,
-    };
+    if (applyEnemySlow) {
+      return solarShieldGranted ? UPDATE_RESULT_SLOW_SHIELD : UPDATE_RESULT_SLOW;
+    }
+    return solarShieldGranted ? UPDATE_RESULT_SHIELD : UPDATE_RESULT_IDLE;
   }
 
   /**
@@ -606,8 +718,12 @@ export class RelicManager {
    * - Vampiric Confection: restores 1 shield charge every 5 (or 3 with synergy) kills
    */
   public onEnemyKilled(nowMs: number): { shieldGranted: boolean; currentStreak: number } {
+    const out = this._scratchEnemyKilled;
+    out.shieldGranted = false;
+    out.currentStreak = 0;
+
     if (!this.isEquipped(RelicId.VAMPIRIC_CONFECTION)) {
-      return { shieldGranted: false, currentStreak: 0 };
+      return out;
     }
 
     this.vampiricKillStreak++;
@@ -616,11 +732,14 @@ export class RelicManager {
     if (this.vampiricKillStreak >= threshold) {
       if (this.checkAndSetIcd('vampiric_shield_restore', nowMs)) {
         this.vampiricKillStreak = 0;
-        return { shieldGranted: true, currentStreak: 0 };
+        out.shieldGranted = true;
+        out.currentStreak = 0;
+        return out;
       }
     }
 
-    return { shieldGranted: false, currentStreak: this.vampiricKillStreak };
+    out.currentStreak = this.vampiricKillStreak;
+    return out;
   }
 
   /**
@@ -641,32 +760,37 @@ export class RelicManager {
     enemies: { id: string; r: number; c: number }[],
     nowMs: number
   ): { pulledEnemyIds: string[]; pullRadius: number } {
+    const out = this._scratchBombPlaced;
+    out.pulledEnemyIds.length = 0;
+    out.pullRadius = 0;
+
     if (!this.isEquipped(RelicId.VOID_SINGULARITY_LENS)) {
-      return { pulledEnemyIds: [], pullRadius: 0 };
+      return out;
     }
 
     if (!bombTile || !Number.isFinite(bombTile.r) || !Number.isFinite(bombTile.c) || !Array.isArray(enemies)) {
-      return { pulledEnemyIds: [], pullRadius: 0 };
+      return out;
     }
 
     if (!this.checkAndSetIcd('void_singularity_pull', nowMs)) {
-      return { pulledEnemyIds: [], pullRadius: 0 };
+      return out;
     }
 
     const radius = this.hasSynergy(RelicId.VOID_SINGULARITY_LENS, RelicId.PYROCLASTIC_PRISM) ? 2.5 : 1.5;
-    const pulledEnemyIds: string[] = [];
+    out.pullRadius = radius;
 
-    for (const enemy of enemies) {
+    for (let i = 0; i < enemies.length; i++) {
+      const enemy = enemies[i];
       if (!enemy || typeof enemy.r !== 'number' || typeof enemy.c !== 'number') continue;
       const dr = enemy.r - bombTile.r;
       const dc = enemy.c - bombTile.c;
       const dist = Math.hypot(dr, dc);
       if (dist <= radius && dist > 0.1) {
-        pulledEnemyIds.push(enemy.id);
+        out.pulledEnemyIds.push(enemy.id);
       }
     }
 
-    return { pulledEnemyIds, pullRadius: radius };
+    return out;
   }
 
   /**
@@ -681,26 +805,18 @@ export class RelicManager {
     shards: { dr: number; dc: number; maxDist: number }[];
   } {
     if (!this.isEquipped(RelicId.PYROCLASTIC_PRISM)) {
-      return { spawnDiagonalShards: false, shards: [] };
+      return PYROCLASTIC_SUPPRESSED_RESULT;
     }
 
     if (!bombTile || !Number.isFinite(bombTile.r) || !Number.isFinite(bombTile.c)) {
-      return { spawnDiagonalShards: false, shards: [] };
+      return PYROCLASTIC_SUPPRESSED_RESULT;
     }
 
     if (!this.checkAndSetIcd('pyroclastic_shards', nowMs)) {
-      return { spawnDiagonalShards: false, shards: [] };
+      return PYROCLASTIC_SUPPRESSED_RESULT;
     }
 
-    const maxDist = 2;
-    const shards = [
-      { dr: -1, dc: -1, maxDist },
-      { dr: -1, dc: 1, maxDist },
-      { dr: 1, dc: -1, maxDist },
-      { dr: 1, dc: 1, maxDist },
-    ];
-
-    return { spawnDiagonalShards: true, shards };
+    return PYROCLASTIC_TRIGGERED_RESULT;
   }
 
   /**
@@ -712,32 +828,37 @@ export class RelicManager {
     enemies: { id: string; r: number; c: number }[],
     nowMs: number
   ): { stunnedEnemyIds: string[]; stunDurationMs: number } {
+    const out = this._scratchWallBounce;
+    out.stunnedEnemyIds.length = 0;
+    out.stunDurationMs = 0;
+
     if (!this.isEquipped(RelicId.GELATINOUS_CORE)) {
-      return { stunnedEnemyIds: [], stunDurationMs: 0 };
+      return out;
     }
 
     if (!playerTile || !Number.isFinite(playerTile.r) || !Number.isFinite(playerTile.c) || !Array.isArray(enemies)) {
-      return { stunnedEnemyIds: [], stunDurationMs: 0 };
+      return out;
     }
 
     if (!this.checkAndSetIcd('gelatinous_core_stun', nowMs)) {
-      return { stunnedEnemyIds: [], stunDurationMs: 0 };
+      return out;
     }
 
     const radius = this.hasSynergy(RelicId.GELATINOUS_CORE, RelicId.CLOCKWORK_SPRING) ? 2.5 : 1.5;
-    const stunnedEnemyIds: string[] = [];
 
-    for (const enemy of enemies) {
+    for (let i = 0; i < enemies.length; i++) {
+      const enemy = enemies[i];
       if (!enemy || typeof enemy.r !== 'number' || typeof enemy.c !== 'number') continue;
       const dr = enemy.r - playerTile.r;
       const dc = enemy.c - playerTile.c;
       const dist = Math.hypot(dr, dc);
       if (dist <= radius) {
-        stunnedEnemyIds.push(enemy.id);
+        out.stunnedEnemyIds.push(enemy.id);
       }
     }
 
-    return { stunnedEnemyIds, stunDurationMs: 500 };
+    out.stunDurationMs = 500;
+    return out;
   }
 
   /**
@@ -746,18 +867,16 @@ export class RelicManager {
    */
   public onBombKicked(nowMs: number): { velocityPxPerSec: number; softBlockPierceCount: number } {
     if (!this.isEquipped(RelicId.CLOCKWORK_SPRING)) {
-      return { velocityPxPerSec: 200, softBlockPierceCount: 0 };
+      return BOMB_KICKED_DEFAULT;
     }
 
     if (!this.checkAndSetIcd('clockwork_spring_kick', nowMs)) {
-      return { velocityPxPerSec: 200, softBlockPierceCount: 0 };
+      return BOMB_KICKED_DEFAULT;
     }
 
-    const pierces = this.hasSynergy(RelicId.CLOCKWORK_SPRING, RelicId.GELATINOUS_CORE) ? 2 : 1;
-    return {
-      velocityPxPerSec: 450,
-      softBlockPierceCount: pierces,
-    };
+    return this.hasSynergy(RelicId.CLOCKWORK_SPRING, RelicId.GELATINOUS_CORE)
+      ? BOMB_KICKED_SYNERGY
+      : BOMB_KICKED_CLOCKWORK;
   }
 
   /**
@@ -795,34 +914,41 @@ export class RelicManager {
     matchSecondsRemaining: number,
     nowMs: number
   ): { affectedEnemyIds: string[]; pulseRadius: number; confusedDurationMs: number; isStunned: boolean } {
+    const out = this._scratchPsionicPulse;
+    out.affectedEnemyIds.length = 0;
+    out.pulseRadius = 0;
+    out.confusedDurationMs = 0;
+    out.isStunned = false;
+
     if (!this.isEquipped(RelicId.PSIONIC_FEEDBACK_CRYSTAL)) {
-      return { affectedEnemyIds: [], pulseRadius: 0, confusedDurationMs: 0, isStunned: false };
+      return out;
     }
 
     if (!Number.isFinite(bombRow) || !Number.isFinite(bombCol) || !Array.isArray(enemies)) {
-      return { affectedEnemyIds: [], pulseRadius: 0, confusedDurationMs: 0, isStunned: false };
+      return out;
     }
 
     if (!this.checkAndSetIcd('psionic_feedback_crystal', nowMs)) {
-      return { affectedEnemyIds: [], pulseRadius: 0, confusedDurationMs: 0, isStunned: false };
+      return out;
     }
 
     const hasSynergy = this.hasSynergy(RelicId.PSIONIC_FEEDBACK_CRYSTAL, RelicId.POCKET_CHRONOMETER);
     const isEmpowered = hasSynergy && (isCrisisActive || (matchSecondsRemaining <= 30 && matchSecondsRemaining > 0));
     const radius = isEmpowered ? 3.5 : 2.0;
-    const confusedDurationMs = 1500;
-    const isStunned = isEmpowered;
 
-    const affectedEnemyIds: string[] = [];
-    for (const e of enemies) {
+    for (let i = 0; i < enemies.length; i++) {
+      const e = enemies[i];
       if (!e || typeof e.r !== 'number' || typeof e.c !== 'number') continue;
       const dist = Math.hypot(e.r - bombRow, e.c - bombCol);
       if (dist <= radius) {
-        affectedEnemyIds.push(e.id);
+        out.affectedEnemyIds.push(e.id);
       }
     }
 
-    return { affectedEnemyIds, pulseRadius: radius, confusedDurationMs, isStunned };
+    out.pulseRadius = radius;
+    out.confusedDurationMs = 1500;
+    out.isStunned = isEmpowered;
+    return out;
   }
 
   /**
@@ -835,35 +961,43 @@ export class RelicManager {
     bombCol: number,
     nowMs: number
   ): { targetTiles: { r: number; c: number }[]; damage: number; delayMs: number } {
+    const out = this._scratchOrbitalTargeting;
+    out.targetTiles.length = 0;
+    out.damage = 0;
+    out.delayMs = 0;
+
     if (!this.isEquipped(RelicId.ORBITAL_TARGETING_CORE)) {
-      return { targetTiles: [], damage: 0, delayMs: 0 };
+      return out;
     }
 
     if (!Number.isFinite(bombRow) || !Number.isFinite(bombCol)) {
-      return { targetTiles: [], damage: 0, delayMs: 0 };
+      return out;
     }
 
     if (!this.checkAndSetIcd('orbital_targeting_core', nowMs)) {
-      return { targetTiles: [], damage: 0, delayMs: 0 };
+      return out;
     }
 
-    const hasSynergy = this.hasSynergy(RelicId.ORBITAL_TARGETING_CORE, RelicId.MAGNETRON_DIAL);
-    const targetTiles: { r: number; c: number }[] = [{ r: bombRow, c: bombCol }];
+    const slots = this._scratchOrbitalTileSlots;
+    slots[0].r = bombRow;
+    slots[0].c = bombCol;
+    out.targetTiles.push(slots[0]);
 
-    if (hasSynergy) {
-      targetTiles.push(
-        { r: bombRow - 1, c: bombCol },
-        { r: bombRow + 1, c: bombCol },
-        { r: bombRow, c: bombCol - 1 },
-        { r: bombRow, c: bombCol + 1 }
-      );
+    if (this.hasSynergy(RelicId.ORBITAL_TARGETING_CORE, RelicId.MAGNETRON_DIAL)) {
+      slots[1].r = bombRow - 1;
+      slots[1].c = bombCol;
+      slots[2].r = bombRow + 1;
+      slots[2].c = bombCol;
+      slots[3].r = bombRow;
+      slots[3].c = bombCol - 1;
+      slots[4].r = bombRow;
+      slots[4].c = bombCol + 1;
+      out.targetTiles.push(slots[1], slots[2], slots[3], slots[4]);
     }
 
-    return {
-      targetTiles,
-      damage: 150,
-      delayMs: 1200,
-    };
+    out.damage = 150;
+    out.delayMs = 1200;
+    return out;
   }
 
   /**
@@ -884,43 +1018,44 @@ export class RelicManager {
     singularityPull: boolean;
     isEmpowered: boolean;
   } {
+    const out = this._scratchQuantumWarp;
+    out.warpedEnemyIds.length = 0;
+    out.warpRadius = 0;
+    out.damage = 0;
+    out.phaseDurationMs = 0;
+    out.singularityPull = false;
+    out.isEmpowered = false;
+
     if (!this.isEquipped(RelicId.QUANTUM_WARP_PRISM)) {
-      return { warpedEnemyIds: [], warpRadius: 0, damage: 0, phaseDurationMs: 0, singularityPull: false, isEmpowered: false };
+      return out;
     }
 
     if (!Number.isFinite(bombRow) || !Number.isFinite(bombCol) || !Array.isArray(enemies)) {
-      return { warpedEnemyIds: [], warpRadius: 0, damage: 0, phaseDurationMs: 0, singularityPull: false, isEmpowered: false };
+      return out;
     }
 
     if (!this.checkAndSetIcd('quantum_warp_prism', nowMs)) {
-      return { warpedEnemyIds: [], warpRadius: 0, damage: 0, phaseDurationMs: 0, singularityPull: false, isEmpowered: false };
+      return out;
     }
 
     const hasSynergy = this.hasSynergy(RelicId.QUANTUM_WARP_PRISM, RelicId.VOID_SINGULARITY_LENS);
     const warpRadius = hasSynergy ? 3.5 : 2.0;
-    const damage = hasSynergy ? 150 : 75;
-    const phaseDurationMs = hasSynergy ? 2000 : 1200;
-    const singularityPull = hasSynergy;
-    const isEmpowered = hasSynergy;
 
-    const warpedEnemyIds: string[] = [];
     for (let i = 0; i < enemies.length; i++) {
       const e = enemies[i];
       if (!e || typeof e.id !== 'string' || !Number.isFinite(e.r) || !Number.isFinite(e.c)) continue;
       const dist = Math.hypot(e.r - bombRow, e.c - bombCol);
       if (dist <= warpRadius) {
-        warpedEnemyIds.push(e.id);
+        out.warpedEnemyIds.push(e.id);
       }
     }
 
-    return {
-      warpedEnemyIds,
-      warpRadius,
-      damage,
-      phaseDurationMs,
-      singularityPull,
-      isEmpowered,
-    };
+    out.warpRadius = warpRadius;
+    out.damage = hasSynergy ? 150 : 75;
+    out.phaseDurationMs = hasSynergy ? 2000 : 1200;
+    out.singularityPull = hasSynergy;
+    out.isEmpowered = hasSynergy;
+    return out;
   }
 
   /**
@@ -943,44 +1078,46 @@ export class RelicManager {
     slowRatio: number;
     isThermalShock: boolean;
   } {
+    const out = this._scratchCryoGlacial;
+    out.triggered = false;
+    out.chilledEnemyIds.length = 0;
+    out.frostRadius = 0;
+    out.damage = 0;
+    out.chillDurationMs = 0;
+    out.slowRatio = 0;
+    out.isThermalShock = false;
+
     if (!this.isEquipped(RelicId.CRYO_GLACIAL_CORE)) {
-      return { triggered: false, chilledEnemyIds: [], frostRadius: 0, damage: 0, chillDurationMs: 0, slowRatio: 0, isThermalShock: false };
+      return out;
     }
 
     if (!Number.isFinite(bombRow) || !Number.isFinite(bombCol) || !Array.isArray(enemies)) {
-      return { triggered: false, chilledEnemyIds: [], frostRadius: 0, damage: 0, chillDurationMs: 0, slowRatio: 0, isThermalShock: false };
+      return out;
     }
 
     if (!this.checkAndSetIcd('cryo_glacial_core', nowMs)) {
-      return { triggered: false, chilledEnemyIds: [], frostRadius: 0, damage: 0, chillDurationMs: 0, slowRatio: 0, isThermalShock: false };
+      return out;
     }
 
     const hasSynergy = this.hasSynergy(RelicId.CRYO_GLACIAL_CORE, RelicId.PYROCLASTIC_PRISM);
     const frostRadius = hasSynergy ? 3.0 : 2.5;
-    const damage = hasSynergy ? 100 : 40;
-    const chillDurationMs = hasSynergy ? 2500 : 2000;
-    const slowRatio = 0.40;
-    const isThermalShock = hasSynergy;
 
-    const chilledEnemyIds: string[] = [];
     for (let i = 0; i < enemies.length; i++) {
       const e = enemies[i];
       if (!e || typeof e.id !== 'string' || !Number.isFinite(e.r) || !Number.isFinite(e.c)) continue;
       const dist = Math.hypot(e.r - bombRow, e.c - bombCol);
       if (dist <= frostRadius) {
-        chilledEnemyIds.push(e.id);
+        out.chilledEnemyIds.push(e.id);
       }
     }
 
-    return {
-      triggered: true,
-      chilledEnemyIds,
-      frostRadius,
-      damage,
-      chillDurationMs,
-      slowRatio,
-      isThermalShock,
-    };
+    out.triggered = true;
+    out.frostRadius = frostRadius;
+    out.damage = hasSynergy ? 100 : 40;
+    out.chillDurationMs = hasSynergy ? 2500 : 2000;
+    out.slowRatio = 0.40;
+    out.isThermalShock = hasSynergy;
+    return out;
   }
 
   /**
@@ -1004,37 +1141,38 @@ export class RelicManager {
     slowRatio: number;
     isSuperconductor: boolean;
   } {
+    const out = this._scratchTeslaCoil;
+    out.triggered = false;
+    out.shockedEnemyIds.length = 0;
+    out.shockRadius = 0;
+    out.damage = 0;
+    out.shockDurationMs = 0;
+    out.slowRatio = 0;
+    out.isSuperconductor = false;
+
     if (!this.isEquipped(RelicId.TESLA_OVERCHARGE_COIL)) {
-      return { triggered: false, shockedEnemyIds: [], shockRadius: 0, damage: 0, shockDurationMs: 0, slowRatio: 0, isSuperconductor: false };
+      return out;
     }
 
     if (!Number.isFinite(bombRow) || !Number.isFinite(bombCol) || !Array.isArray(enemies)) {
-      return { triggered: false, shockedEnemyIds: [], shockRadius: 0, damage: 0, shockDurationMs: 0, slowRatio: 0, isSuperconductor: false };
+      return out;
     }
 
     if (!this.checkAndSetIcd('tesla_overcharge_coil', nowMs)) {
-      return { triggered: false, shockedEnemyIds: [], shockRadius: 0, damage: 0, shockDurationMs: 0, slowRatio: 0, isSuperconductor: false };
+      return out;
     }
 
     const hasSynergy = this.hasSynergy(RelicId.TESLA_OVERCHARGE_COIL, RelicId.CRYO_GLACIAL_CORE);
     const shockRadius = hasSynergy ? 3.5 : 3.0;
-    const damage = hasSynergy ? 120 : 50;
-    const shockDurationMs = hasSynergy ? 2000 : 1000;
-    const slowRatio = 0.50;
-    const isSuperconductor = hasSynergy;
+    this.selectNearestEnemyIds(enemies, bombRow, bombCol, shockRadius, 3, out.shockedEnemyIds);
 
-    const shockedEnemyIds: string[] = [];
-    this.selectNearestEnemyIds(enemies, bombRow, bombCol, shockRadius, 3, shockedEnemyIds);
-
-    return {
-      triggered: true,
-      shockedEnemyIds,
-      shockRadius,
-      damage,
-      shockDurationMs,
-      slowRatio,
-      isSuperconductor,
-    };
+    out.triggered = true;
+    out.shockRadius = shockRadius;
+    out.damage = hasSynergy ? 120 : 50;
+    out.shockDurationMs = hasSynergy ? 2000 : 1000;
+    out.slowRatio = 0.50;
+    out.isSuperconductor = hasSynergy;
+    return out;
   }
 
   /**
@@ -1056,37 +1194,38 @@ export class RelicManager {
     slowRatio: number;
     isNeuroOverload: boolean;
   } {
+    const out = this._scratchMiasmicFlask;
+    out.triggered = false;
+    out.poisonedEnemyIds.length = 0;
+    out.cloudRadius = 0;
+    out.damage = 0;
+    out.poisonDurationMs = 0;
+    out.slowRatio = 0;
+    out.isNeuroOverload = false;
+
     if (!this.isEquipped(RelicId.CORROSIVE_MIASMIC_FLASK)) {
-      return { triggered: false, poisonedEnemyIds: [], cloudRadius: 0, damage: 0, poisonDurationMs: 0, slowRatio: 0, isNeuroOverload: false };
+      return out;
     }
 
     if (!Number.isFinite(bombRow) || !Number.isFinite(bombCol) || !Array.isArray(enemies)) {
-      return { triggered: false, poisonedEnemyIds: [], cloudRadius: 0, damage: 0, poisonDurationMs: 0, slowRatio: 0, isNeuroOverload: false };
+      return out;
     }
 
     if (!this.checkAndSetIcd('corrosive_miasmic_flask', nowMs)) {
-      return { triggered: false, poisonedEnemyIds: [], cloudRadius: 0, damage: 0, poisonDurationMs: 0, slowRatio: 0, isNeuroOverload: false };
+      return out;
     }
 
     const hasSynergy = this.hasSynergy(RelicId.CORROSIVE_MIASMIC_FLASK, RelicId.TESLA_OVERCHARGE_COIL);
     const cloudRadius = hasSynergy ? 3.5 : 2.5;
-    const damage = hasSynergy ? 130 : 45;
-    const poisonDurationMs = hasSynergy ? 3000 : 2000;
-    const slowRatio = hasSynergy ? 0.50 : 0.35;
-    const isNeuroOverload = hasSynergy;
+    this.selectNearestEnemyIds(enemies, bombRow, bombCol, cloudRadius, hasSynergy ? 4 : 3, out.poisonedEnemyIds);
 
-    const poisonedEnemyIds: string[] = [];
-    this.selectNearestEnemyIds(enemies, bombRow, bombCol, cloudRadius, hasSynergy ? 4 : 3, poisonedEnemyIds);
-
-    return {
-      triggered: true,
-      poisonedEnemyIds,
-      cloudRadius,
-      damage,
-      poisonDurationMs,
-      slowRatio,
-      isNeuroOverload,
-    };
+    out.triggered = true;
+    out.cloudRadius = cloudRadius;
+    out.damage = hasSynergy ? 130 : 45;
+    out.poisonDurationMs = hasSynergy ? 3000 : 2000;
+    out.slowRatio = hasSynergy ? 0.50 : 0.35;
+    out.isNeuroOverload = hasSynergy;
+    return out;
   }
 
   /**
@@ -1173,7 +1312,7 @@ export class RelicManager {
     perkBonuses: AppliedPerkBonuses,
     seed: number = 0
   ): RelicId | null {
-    const allRelics = Object.keys(RELIC_CATALOG) as RelicId[];
+    const allRelics = ALL_RELIC_IDS;
     const safeSeed =
       typeof seed === 'number' && Number.isFinite(seed) && seed > 0
         ? Math.floor(seed)

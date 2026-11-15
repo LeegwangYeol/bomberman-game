@@ -267,9 +267,25 @@ export class PetDroneAlly extends BaseEntity {
       const itemShadow =
         closestItem.getData &&
         ((closestItem.getData('itemShadow') || closestItem.getData('shadow')) as Phaser.GameObjects.Sprite | undefined);
-      if (itemShadow && itemShadow.active) {
-        itemShadow.x = closestItem.x;
-        itemShadow.y = closestItem.y + 14;
+      const validItemShadow =
+        itemShadow && itemShadow !== (closestItem as unknown) ? itemShadow : undefined;
+      const sceneTweens = (
+        this.scene as unknown as { tweens?: { killTweensOf?: (target: unknown) => void } } | undefined
+      )?.tweens;
+      if (sceneTweens && typeof sceneTweens.killTweensOf === 'function') {
+        if (typeof closestItem.getData !== 'function' || closestItem.getData('bobTweenKilled') !== true) {
+          sceneTweens.killTweensOf(closestItem);
+          if (validItemShadow) {
+            sceneTweens.killTweensOf(validItemShadow);
+          }
+          if (typeof closestItem.setData === 'function') {
+            closestItem.setData('bobTweenKilled', true);
+          }
+        }
+      }
+      if (validItemShadow && validItemShadow.active) {
+        validItemShadow.x = closestItem.x;
+        validItemShadow.y = closestItem.y + 14;
       }
 
       const toItemAngle = Phaser.Math.Angle.Between(this.x, this.y, closestItem.x, closestItem.y);

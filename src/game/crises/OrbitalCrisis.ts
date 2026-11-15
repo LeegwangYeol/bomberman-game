@@ -32,9 +32,22 @@ export class OrbitalCrisis extends BaseCrisis {
   public uplinks: UplinkTerminal[] = [];
   public macrocannonCharge: number = 0; // 0 to 100%
   public pendingCraters: { r: number; c: number; remainingMs: number }[] = [];
+  private readonly craterPool: { r: number; c: number; remainingMs: number }[] = [];
 
   constructor() {
     super(CrisisType.ORBITAL_BOMBARDMENT);
+    for (let i = 0; i < 16; i++) {
+      this.craterPool.push({ r: 0, c: 0, remainingMs: 0 });
+    }
+  }
+
+  private clearPendingCratersToPool(): void {
+    while (this.pendingCraters.length > 0) {
+      const item = this.pendingCraters.pop();
+      if (item) {
+        this.craterPool.push(item);
+      }
+    }
   }
 
   protected onInit(): void {
@@ -42,7 +55,7 @@ export class OrbitalCrisis extends BaseCrisis {
     this.salvoTimerMs = 0;
     this.salvosEvadedCount = 0;
     this.macrocannonCharge = 0;
-    this.pendingCraters = [];
+    this.clearPendingCratersToPool();
 
     this.uplinks = OrbitalCrisis.UPLINK_POSITIONS.map((u) => ({
       r: u.r,
@@ -128,14 +141,18 @@ export class OrbitalCrisis extends BaseCrisis {
         this.resolveObjective('dodge_salvos');
       }
 
-      // Tick pending craters
+      // Tick pending craters (Zero-GC swap-and-pop back to craterPool)
       for (let i = 0; i < this.pendingCraters.length; i++) {
         const p = this.pendingCraters[i];
         p.remainingMs -= deltaMs;
         if (p.remainingMs <= 0) {
           this.setHazardTile(p.r, p.c, HazardType.KINETIC_CRATER, 1.0, 3500, 0);
           OrbitalCrisisAudio.getInstance().playKineticCraterImpact();
-          this.pendingCraters.splice(i, 1);
+          const last = this.pendingCraters.pop();
+          if (last && i < this.pendingCraters.length) {
+            this.pendingCraters[i] = last;
+          }
+          this.craterPool.push(p);
           i--;
         }
       }
@@ -193,7 +210,11 @@ export class OrbitalCrisis extends BaseCrisis {
           this.setHazardTile(pt.r, pt.c, HazardType.KINETIC_TARGET, 0.7, 1500, 0);
           OrbitalCrisisAudio.getInstance().playReticlePing();
           OrbitalCrisisAudio.getInstance().playAtmosphericScream();
-          this.pendingCraters.push({ r: pt.r, c: pt.c, remainingMs: 1500 });
+          const crater = this.craterPool.pop() ?? { r: 0, c: 0, remainingMs: 0 };
+          crater.r = pt.r;
+          crater.c = pt.c;
+          crater.remainingMs = 1500;
+          this.pendingCraters.push(crater);
         }
       }
     }
@@ -250,5 +271,6 @@ export class OrbitalCrisis extends BaseCrisis {
   public override reset(): void {
     super.reset();
     OrbitalCrisisAudio.getInstance().reset();
+    this.clearPendingCratersToPool();
   }
 }

@@ -230,19 +230,29 @@ export class BossAttackManager {
     playerY: number,
     onPlayerHit: (dmg: number) => void
   ): void {
+    const safeDt = typeof dt === 'number' && Number.isFinite(dt) && dt > 0 ? dt : 0;
+    const dtSec = safeDt / 1000;
+    const validPlayerPos = Number.isFinite(playerX) && Number.isFinite(playerY);
+
     // 1. Update Projectiles
     this.projectilePool.forEachActive((p) => {
-      p.x += p.vx * (dt / 1000);
-      p.y += p.vy * (dt / 1000);
-      p.timerMs -= dt;
-
-      // Check collision with player
-      const dx = playerX - p.x;
-      const dy = playerY - p.y;
-      if (dx * dx + dy * dy <= (p.radius + 12) * (p.radius + 12)) {
-        onPlayerHit(p.damage);
+      if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.timerMs)) {
         this.projectilePool.release(p);
         return;
+      }
+      p.x += p.vx * dtSec;
+      p.y += p.vy * dtSec;
+      p.timerMs -= safeDt;
+
+      // Check collision with player
+      if (validPlayerPos) {
+        const dx = playerX - p.x;
+        const dy = playerY - p.y;
+        if (dx * dx + dy * dy <= (p.radius + 12) * (p.radius + 12)) {
+          onPlayerHit(p.damage);
+          this.projectilePool.release(p);
+          return;
+        }
       }
 
       if (p.timerMs <= 0 || p.x < 0 || p.x > 600 || p.y < 0 || p.y > 520) {
@@ -252,13 +262,19 @@ export class BossAttackManager {
 
     // 2. Update Shockwaves
     this.shockwavePool.forEachActive((s) => {
-      s.currentRadius += s.expansionSpeed * (dt / 1000);
-      const dx = playerX - s.originX;
-      const dy = playerY - s.originY;
-      const dist = Math.hypot(dx, dy);
+      if (!Number.isFinite(s.currentRadius) || !Number.isFinite(s.maxRadius) || s.expansionSpeed <= 0) {
+        this.shockwavePool.release(s);
+        return;
+      }
+      s.currentRadius += s.expansionSpeed * dtSec;
+      if (validPlayerPos) {
+        const dx = playerX - s.originX;
+        const dy = playerY - s.originY;
+        const dist = Math.hypot(dx, dy);
 
-      if (Math.abs(dist - s.currentRadius) < 14) {
-        onPlayerHit(s.damage);
+        if (Math.abs(dist - s.currentRadius) < 14) {
+          onPlayerHit(s.damage);
+        }
       }
 
       if (s.currentRadius >= s.maxRadius) {
@@ -268,8 +284,13 @@ export class BossAttackManager {
 
     // 3. Update Telegraphs (Progression Tier 1 -> Tier 2 -> Tier 3)
     this.telegraphPool.forEachActive((t) => {
-      t.timerMs -= dt;
-      const remainingRatio = t.timerMs / t.durationMs;
+      if (!Number.isFinite(t.timerMs)) {
+        this.telegraphPool.release(t);
+        return;
+      }
+      t.timerMs -= safeDt;
+      const safeDur = Number.isFinite(t.durationMs) && t.durationMs > 0 ? t.durationMs : 1;
+      const remainingRatio = t.timerMs / safeDur;
       if (remainingRatio > 0.75) {
         t.tier = 1; // Yellow pre-warning
       } else if (remainingRatio > 0.25) {

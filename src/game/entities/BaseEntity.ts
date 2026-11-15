@@ -321,6 +321,13 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
         } else {
           const spark = sparkScene.add.circle(deathX, deathY, 4, 0xffe066, 0.9);
           spark.setDepth(14);
+          let sparkDestroyed = false;
+          const destroySpark = () => {
+            if (!sparkDestroyed) {
+              sparkDestroyed = true;
+              spark.destroy();
+            }
+          };
           sparkScene.tweens.add({
             targets: spark,
             x: deathX + Math.cos(angle) * 22,
@@ -328,7 +335,8 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
             alpha: 0,
             scale: 0.2,
             duration: 260,
-            onComplete: () => spark.destroy(),
+            onComplete: destroySpark,
+            onStop: destroySpark,
           });
         }
       }

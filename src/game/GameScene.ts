@@ -386,6 +386,13 @@ const HADAL_BRINE_AUDIO_CRACK: Readonly<AudioVoiceToneParams> = Object.freeze({
   priority: 2,
 });
 
+const BLOCK_DEBRIS_FALLBACK_OFFSETS: readonly (readonly [number, number, number, number])[] = Object.freeze([
+  Object.freeze([-6, -6, -25, -25] as const),
+  Object.freeze([6, -6, 25, -25] as const),
+  Object.freeze([-6, 6, -25, 25] as const),
+  Object.freeze([6, 6, 25, 25] as const),
+]);
+
 /**
  * Main Phaser GameScene for Bomberman.
  */
@@ -396,6 +403,8 @@ export default class GameScene extends Phaser.Scene {
   public spritePool!: Pooling.ObjectPool<Phaser.GameObjects.Sprite>;
   public shadowPool!: Pooling.ObjectPool<Phaser.GameObjects.Sprite>;
   public floatingTextPool!: Pooling.ObjectPool<Phaser.GameObjects.Text>;
+  public nameTagTextPool!: Pooling.ObjectPool<Phaser.GameObjects.Text>;
+  public intentBadgeTextPool!: Pooling.ObjectPool<Phaser.GameObjects.Text>;
 
   private player!: Phaser.Physics.Arcade.Sprite;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -516,6 +525,61 @@ export default class GameScene extends Phaser.Scene {
   private readonly scratchActiveEntities: BaseEntity[] = [];
   private readonly scratchActiveEnemies: BaseEntity[] = [];
   private readonly scratchActiveItems: Phaser.Physics.Arcade.Sprite[] = [];
+  private readonly scratchChainStack: (Phaser.Physics.Arcade.Sprite | null)[] = [];
+  private scratchChainStackTop: number = 0;
+
+  private releaseGroupAoShadows(group?: Phaser.Physics.Arcade.StaticGroup | null): void {
+    if (!group || typeof group.getChildren !== 'function') return;
+    const children = group.getChildren();
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i] as Phaser.Physics.Arcade.Sprite | undefined;
+      if (!child || typeof child.getData !== 'function') continue;
+      const ao = child.getData('aoShadow') as Phaser.GameObjects.Rectangle | undefined;
+      if (ao && ao !== (child as unknown)) {
+        this.rectPool?.release(ao);
+        child.setData?.('aoShadow', undefined);
+      }
+    }
+  }
+
+  private releaseAllItemShadows(): void {
+    if (!this.items || typeof this.items.getChildren !== 'function') return;
+    const children = this.items.getChildren();
+    for (let i = 0; i < children.length; i++) {
+      const it = children[i] as Phaser.Physics.Arcade.Sprite | undefined;
+      if (!it) continue;
+      this.tweens?.killTweensOf?.(it);
+      if (typeof it.getData === 'function') {
+        const s = it.getData('itemShadow') as Phaser.GameObjects.Sprite | null | undefined;
+        if (s && s !== (it as unknown)) {
+          this.tweens?.killTweensOf?.(s);
+          this.shadowPool?.release(s);
+        }
+        it.setData?.('itemShadow', null);
+      }
+    }
+  }
+
+  private detonateStackedChainRange(stackBase: number): void {
+    const stackEnd = this.scratchChainStackTop;
+    if (stackEnd <= stackBase) return;
+    try {
+      for (let sIdx = stackBase; sIdx < stackEnd; sIdx++) {
+        const target = this.scratchChainStack[sIdx];
+        this.scratchChainStack[sIdx] = null;
+        if (target && target.active) {
+          const bCol = Math.floor(target.x / TILE_SIZE);
+          const bRow = Math.floor(target.y / TILE_SIZE);
+          this.explodeBomb(target, bRow, bCol);
+        }
+      }
+    } finally {
+      for (let sIdx = stackBase; sIdx < stackEnd; sIdx++) {
+        this.scratchChainStack[sIdx] = null;
+      }
+      this.scratchChainStackTop = stackBase;
+    }
+  }
   private readonly scratchRelicCandidatePool: Array<{ id: string; r: number; c: number }> = Array.from(
     { length: 128 },
     () => ({ id: '', r: 0, c: 0 })
@@ -1238,6 +1302,7 @@ export default class GameScene extends Phaser.Scene {
       if (restoredMap && restoredMap.length === ROWS && restoredMap[0]?.length === COLS) {
         this.map = restoredMap.map((row) => [...row]);
         if (this.blocks) {
+          this.releaseGroupAoShadows(this.blocks);
           this.blocks.clear(true, true);
           for (let r = 0; r < ROWS; r++) {
             for (let c = 0; c < COLS; c++) {
@@ -1248,8 +1313,25 @@ export default class GameScene extends Phaser.Scene {
                   'block'
                 ) as Phaser.Physics.Arcade.Sprite;
                 block.setDepth(RENDER_DEPTH.BLOCKS);
+                block.setData('row', r);
+                block.setData('col', c);
                 block.setImmovable(true);
                 (block.body as Phaser.Physics.Arcade.StaticBody)?.updateFromGameObject();
+                if (r < ROWS - 1 && this.rectPool) {
+                  const ao = this.rectPool.acquire();
+                  if (ao) {
+                    ao.setActive(true)
+                      .setVisible(true)
+                      .setPosition(c * TILE_SIZE + TILE_SIZE / 2, (r + 1) * TILE_SIZE + 2)
+                      .setSize(TILE_SIZE, 4)
+                      .setFillStyle(0x000000, 0.28)
+                      .setAlpha(0.28)
+                      .setScale(1)
+                      .setAngle(0);
+                    ao.setDepth(1);
+                    block.setData('aoShadow', ao);
+                  }
+                }
               }
             }
           }
@@ -1281,6 +1363,7 @@ export default class GameScene extends Phaser.Scene {
 
     // 4. Restore items
     if (this.items && Array.isArray(state.activeItems)) {
+      this.releaseAllItemShadows();
       this.items.clear(true, true);
       for (const it of state.activeItems) {
         if (it && typeof it.row === 'number' && typeof it.col === 'number' && it.itemType) {
@@ -1473,6 +1556,8 @@ export default class GameScene extends Phaser.Scene {
     this.scratchActiveEntities.length = 0;
     this.scratchActiveEnemies.length = 0;
     this.scratchActiveItems.length = 0;
+    this.scratchChainStack.length = 0;
+    this.scratchChainStackTop = 0;
     this.scratchRelicEnemiesView.length = 0;
   }
 
@@ -1709,6 +1794,8 @@ export default class GameScene extends Phaser.Scene {
     this.scratchActiveEntities.length = 0;
     this.scratchActiveEnemies.length = 0;
     this.scratchActiveItems.length = 0;
+    this.scratchChainStack.length = 0;
+    this.scratchChainStackTop = 0;
     this.scratchRelicEnemiesView.length = 0;
     this.activeBuffs = [];
     this.persistentHazardMask.clear();
@@ -1737,7 +1824,10 @@ export default class GameScene extends Phaser.Scene {
       this.overheadUIManager = null as unknown as OverheadUIManager;
     }
 
-    // Clear entity physics groups BEFORE destroying object pools so drop shadows release cleanly
+    // Clear entity physics groups BEFORE destroying object pools so drop shadows & AO shadows release cleanly
+    this.releaseAllItemShadows();
+    this.releaseGroupAoShadows(this.blocks);
+    this.releaseGroupAoShadows(this.walls);
     this.enemies?.clear(true, true);
     this.neutrals?.clear(true, true);
     this.allies?.clear(true, true);
@@ -1829,6 +1919,8 @@ export default class GameScene extends Phaser.Scene {
     this.spritePool?.destroy();
     this.shadowPool?.destroy();
     this.floatingTextPool?.destroy();
+    this.nameTagTextPool?.destroy();
+    this.intentBadgeTextPool?.destroy();
 
     this.circlePool = null as unknown as Pooling.ObjectPool<Phaser.GameObjects.Arc>;
     this.rectPool = null as unknown as Pooling.ObjectPool<Phaser.GameObjects.Rectangle>;
@@ -1836,6 +1928,8 @@ export default class GameScene extends Phaser.Scene {
     this.spritePool = null as unknown as Pooling.ObjectPool<Phaser.GameObjects.Sprite>;
     this.shadowPool = null as unknown as Pooling.ObjectPool<Phaser.GameObjects.Sprite>;
     this.floatingTextPool = null as unknown as Pooling.ObjectPool<Phaser.GameObjects.Text>;
+    this.nameTagTextPool = null as unknown as Pooling.ObjectPool<Phaser.GameObjects.Text>;
+    this.intentBadgeTextPool = null as unknown as Pooling.ObjectPool<Phaser.GameObjects.Text>;
 
     destroyProceduralTextures(this);
     if (this.events) {
@@ -1878,6 +1972,8 @@ export default class GameScene extends Phaser.Scene {
     this.spritePool?.destroy();
     this.shadowPool?.destroy();
     this.floatingTextPool?.destroy();
+    this.nameTagTextPool?.destroy();
+    this.intentBadgeTextPool?.destroy();
 
     if (this.dustEmitter) {
       this.dustEmitter.destroy();
@@ -1939,25 +2035,54 @@ export default class GameScene extends Phaser.Scene {
       reset: (arc) => {
         arc.setStrokeStyle?.(0, 0, 0);
         arc.setScale?.(1, 1);
+        arc.setAngle?.(0);
         arc.setAlpha?.(1);
+        arc.setScrollFactor?.(1);
         arc.setVisible(false).setActive(false);
         this.tweens?.killTweensOf?.(arc);
-      }
+      },
     });
     this.rectPool = new Pooling.ObjectPool({
       capacity: 512,
       factory: () => this.add.rectangle(-1000, -1000, 4, 4, 0xffffff).setVisible(false).setActive(false),
-      reset: (rect) => { rect.setVisible(false).setActive(false); this.tweens?.killTweensOf?.(rect); }
+      reset: (rect) => {
+        rect.setStrokeStyle?.(0, 0, 0);
+        rect.setScale?.(1, 1);
+        rect.setAngle?.(0);
+        rect.setAlpha?.(1);
+        rect.setScrollFactor?.(1);
+        rect.setVisible(false).setActive(false);
+        this.tweens?.killTweensOf?.(rect);
+      },
     });
     this.graphicsPool = new Pooling.ObjectPool({
       capacity: 256,
       factory: () => this.add.graphics().setVisible(false).setActive(false),
-      reset: (g) => { g.clear(); g.setVisible(false).setActive(false); this.tweens?.killTweensOf?.(g); }
+      reset: (g) => {
+        g.clear();
+        g.setPosition?.(0, 0);
+        g.setScale?.(1, 1);
+        g.setAngle?.(0);
+        g.setAlpha?.(1);
+        g.setScrollFactor?.(1);
+        g.setVisible(false).setActive(false);
+        this.tweens?.killTweensOf?.(g);
+      },
     });
     this.spritePool = new Pooling.ObjectPool({
       capacity: 128,
       factory: () => this.add.sprite(-1000, -1000, 'player').setVisible(false).setActive(false),
-      reset: (s) => { s.setVisible(false).setActive(false); this.tweens?.killTweensOf?.(s); }
+      reset: (s) => {
+        s.clearTint?.();
+        s.setFlipX?.(false);
+        s.setFlipY?.(false);
+        s.setScale?.(1, 1);
+        s.setAngle?.(0);
+        s.setAlpha?.(1);
+        s.setScrollFactor?.(1);
+        s.setVisible(false).setActive(false);
+        this.tweens?.killTweensOf?.(s);
+      },
     });
     this.shadowPool = new Pooling.ObjectPool({
       capacity: 256,
@@ -1965,19 +2090,90 @@ export default class GameScene extends Phaser.Scene {
         const key = this.textures && this.textures.exists('shadow_ellipse') ? 'shadow_ellipse' : '';
         return this.add.sprite(-1000, -1000, key).setVisible(false).setActive(false);
       },
-      reset: (s) => { s.setVisible(false).setActive(false); this.tweens?.killTweensOf?.(s); }
+      reset: (s) => {
+        s.clearTint?.();
+        s.setScale?.(1, 1);
+        s.setAngle?.(0);
+        s.setAlpha?.(1);
+        s.setScrollFactor?.(1);
+        s.setVisible(false).setActive(false);
+        this.tweens?.killTweensOf?.(s);
+      },
     });
     this.floatingTextPool = new Pooling.ObjectPool({
       capacity: Pooling.POOL_PRESETS.FLOATING_TEXT,
-      factory: () => this.add.text(-1000, -1000, '', {
-        fontSize: '12px',
-        fontStyle: 'bold',
-        fontFamily: 'monospace, "Press Start 2P", Arial, sans-serif',
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 3,
-      }).setOrigin(0.5, 0.5).setVisible(false).setActive(false),
-      reset: (t) => { t.setVisible(false).setActive(false); this.tweens?.killTweensOf?.(t); }
+      factory: () =>
+        this.add
+          .text(-1000, -1000, '', {
+            fontSize: '12px',
+            fontStyle: 'bold',
+            fontFamily: 'monospace, "Press Start 2P", Arial, sans-serif',
+            color: '#ffffff',
+            stroke: '#000000',
+            strokeThickness: 3,
+          })
+          .setOrigin(0.5, 0.5)
+          .setVisible(false)
+          .setActive(false),
+      reset: (t) => {
+        t.setScale?.(1, 1);
+        t.setAngle?.(0);
+        t.setAlpha?.(1);
+        t.setScrollFactor?.(1);
+        t.setVisible(false).setActive(false);
+        this.tweens?.killTweensOf?.(t);
+      },
+    });
+    this.nameTagTextPool = new Pooling.ObjectPool({
+      capacity: Pooling.POOL_PRESETS.OVERHEAD_TEXT,
+      factory: () =>
+        this.add
+          .text(-1000, -1000, '', {
+            fontSize: '9px',
+            fontStyle: 'bold',
+            fontFamily: 'monospace, "Press Start 2P", Arial, sans-serif',
+            color: '#fb923c',
+            backgroundColor: 'rgba(15, 23, 42, 0.85)',
+            padding: { x: 3, y: 1 },
+            stroke: '#000000',
+            strokeThickness: 2,
+          })
+          .setOrigin(0.5, 0.5)
+          .setVisible(false)
+          .setActive(false),
+      reset: (t) => {
+        t.setScale?.(1, 1);
+        t.setAngle?.(0);
+        t.setAlpha?.(1);
+        t.setScrollFactor?.(1);
+        t.setVisible(false).setActive(false);
+        this.tweens?.killTweensOf?.(t);
+      },
+    });
+    this.intentBadgeTextPool = new Pooling.ObjectPool({
+      capacity: Pooling.POOL_PRESETS.OVERHEAD_TEXT,
+      factory: () =>
+        this.add
+          .text(-1000, -1000, '', {
+            fontSize: '13px',
+            fontStyle: 'bold',
+            fontFamily: 'monospace, Arial, sans-serif',
+            color: '#FFD700',
+            stroke: '#000000',
+            strokeThickness: 2,
+          })
+          .setOrigin(0.5, 0.5)
+          .setVisible(false)
+          .setActive(false),
+      reset: (t) => {
+        t.setText?.('');
+        t.setScale?.(1, 1);
+        t.setAngle?.(0);
+        t.setAlpha?.(1);
+        t.setScrollFactor?.(1);
+        t.setVisible(false).setActive(false);
+        this.tweens?.killTweensOf?.(t);
+      },
     });
     this.isGameOver = false;
     this.isHitStopActive = false;
@@ -2634,6 +2830,11 @@ export default class GameScene extends Phaser.Scene {
               this.blocks.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
                 const b = child as Phaser.Physics.Arcade.Sprite;
                 if (b && b.active && b.getData('row') === nr && b.getData('col') === nc) {
+                  const ao = b.getData?.('aoShadow') as Phaser.GameObjects.Rectangle | undefined;
+                  if (ao && ao !== (b as unknown)) {
+                    this.rectPool?.release(ao);
+                    b.setData?.('aoShadow', undefined);
+                  }
                   b.destroy();
                 }
               });
@@ -2722,12 +2923,23 @@ export default class GameScene extends Phaser.Scene {
 
     this.cameras.main.setScroll(-offsetX, -offsetY);
 
+    // Clear old map decorations and any prior static group AO shadows BEFORE building new tiles
+    for (let i = 0; i < this.mapDecorations.length; i++) {
+      try {
+        this.mapDecorations[i]?.destroy();
+      } catch {}
+    }
+    this.mapDecorations.length = 0;
+    this.releaseGroupAoShadows(this.walls);
+    this.releaseGroupAoShadows(this.blocks);
+
     for (let r = 0; r < ROWS; r++) {
       this.map[r] = [];
       for (let c = 0; c < COLS; c++) {
         // Floor tile at depth 0
         const floor = this.add.image(c * TILE_SIZE + TILE_SIZE / 2, r * TILE_SIZE + TILE_SIZE / 2, 'floor');
         floor.setDepth(RENDER_DEPTH.FLOOR);
+        this.mapDecorations.push(floor);
 
         // Outer borders
         if (r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1) {
@@ -2741,6 +2953,7 @@ export default class GameScene extends Phaser.Scene {
               ao.setActive(true).setVisible(true).setPosition(c * TILE_SIZE + TILE_SIZE / 2, (r + 1) * TILE_SIZE + 2)
                 .setSize(TILE_SIZE, 4).setFillStyle(0x000000, 0.28).setAlpha(0.28).setScale(1).setAngle(0);
               ao.setDepth(1);
+              wall.setData?.('aoShadow', ao);
             }
           }
         }
@@ -2756,6 +2969,7 @@ export default class GameScene extends Phaser.Scene {
               ao.setActive(true).setVisible(true).setPosition(c * TILE_SIZE + TILE_SIZE / 2, (r + 1) * TILE_SIZE + 2)
                 .setSize(TILE_SIZE, 4).setFillStyle(0x000000, 0.28).setAlpha(0.28).setScale(1).setAngle(0);
               ao.setDepth(1);
+              wall.setData?.('aoShadow', ao);
             }
           }
         }
@@ -2797,14 +3011,6 @@ export default class GameScene extends Phaser.Scene {
         }
       }
     }
-
-    // Clear old map decorations before adding new ones
-    for (let i = 0; i < this.mapDecorations.length; i++) {
-      try {
-        this.mapDecorations[i]?.destroy();
-      } catch {}
-    }
-    this.mapDecorations.length = 0;
 
     // Conveyor belt overlays
     this.conveyors.forEach((cv) => {
@@ -3128,9 +3334,29 @@ export default class GameScene extends Phaser.Scene {
         if (it && it.active) {
           const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, it.x, it.y);
           if (d <= pullDist && d > 6) {
+            const rawShadow = it.getData?.('itemShadow') as Phaser.GameObjects.Sprite | null | undefined;
+            const itemShadow = rawShadow && rawShadow !== (it as unknown) ? rawShadow : undefined;
+            if (typeof it.getData !== 'function' || it.getData('bobTweenKilled') !== true) {
+              this.tweens?.killTweensOf?.(it);
+              if (itemShadow) {
+                this.tweens?.killTweensOf?.(itemShadow);
+              }
+              it.setData?.('bobTweenKilled', true);
+            }
             const angle = Phaser.Math.Angle.Between(it.x, it.y, this.player.x, this.player.y);
             it.x += Math.cos(angle) * pullSpeed;
             it.y += Math.sin(angle) * pullSpeed;
+            const itBody = it.body as Phaser.Physics.Arcade.Body | undefined;
+            if (itBody?.position) {
+              const hw = itBody.halfWidth ?? (itBody.width ? itBody.width / 2 : 0);
+              const hh = itBody.halfHeight ?? (itBody.height ? itBody.height / 2 : 0);
+              itBody.position.x = it.x - hw;
+              itBody.position.y = it.y - hh;
+            }
+            if (itemShadow && itemShadow.active) {
+              itemShadow.x = it.x;
+              itemShadow.y = it.y + 14;
+            }
           }
         }
       }
@@ -4126,10 +4352,10 @@ export default class GameScene extends Phaser.Scene {
           this.starCandies = (this.starCandies || 0) + reward.starCandies;
           this.cosmicEssence = (this.cosmicEssence || 0) + reward.cosmicEssence;
 
-          // Award relic if not already discovered
+          // Award relic if not already discovered (auto-equip if a relic slot is available)
           if (this.relicManager && reward.relicReward) {
             this.relicManager.discoverRelic(reward.relicReward);
-            if (this.relicManager.getEquippedRelics().length < 1) {
+            if (this.relicManager.getEquippedCount() < this.relicManager.getMaxSlots()) {
               this.relicManager.equipRelic(reward.relicReward);
             }
           }
@@ -6953,9 +7179,9 @@ export default class GameScene extends Phaser.Scene {
         this.spawnFloatingText(cX, cY - 25, '⚡ TACHYON OVERCHARGE (+2)', '#38bdf8');
       }
 
-      // Synchronized Entanglement Detonation: Trigger paired ghost bomb / parent bomb immediately
+      // Synchronized Entanglement Detonation: Trigger paired ghost bomb / parent bomb immediately (Zero-GC re-entrant stack)
       if (detResult.pairedGhostBombIds && detResult.pairedGhostBombIds.length > 0) {
-        const pairedBombsToDetonate: { b: Phaser.Physics.Arcade.Sprite; r: number; c: number }[] = [];
+        const stackBase = this.scratchChainStackTop;
         const allBombs = this.bombs.getChildren();
         for (let i = 0; i < allBombs.length; i++) {
           const b = allBombs[i] as Phaser.Physics.Arcade.Sprite;
@@ -6963,18 +7189,11 @@ export default class GameScene extends Phaser.Scene {
             const bId = b.getData('id');
             const parentId = b.getData('parentBombId');
             if (detResult.pairedGhostBombIds.includes(bId) || (parentId && detResult.pairedGhostBombIds.includes(parentId))) {
-              const bCol = Math.floor(b.x / TILE_SIZE);
-              const bRow = Math.floor(b.y / TILE_SIZE);
-              pairedBombsToDetonate.push({ b, r: bRow, c: bCol });
+              this.scratchChainStack[this.scratchChainStackTop++] = b;
             }
           }
         }
-        for (let i = 0; i < pairedBombsToDetonate.length; i++) {
-          const target = pairedBombsToDetonate[i];
-          if (target.b.active) {
-            this.explodeBomb(target.b, target.r, target.c);
-          }
-        }
+        this.detonateStackedChainRange(stackBase);
       }
     }
 
@@ -7520,19 +7739,29 @@ export default class GameScene extends Phaser.Scene {
         }
       }
 
-      // Relic proc: Orbital Targeting Core
+      // Relic proc: Orbital Targeting Core (Zero-GC scalar coordinate capture)
       const orbitalProc = this.relicManager.onBombDetonationOrbitalTargeting(
         actualRow,
         actualCol,
         detNowMs
       );
       if (orbitalProc && orbitalProc.targetTiles.length > 0) {
-        const savedTileIndices = new Int16Array(orbitalProc.targetTiles.length);
+        let t0 = -1;
+        let t1 = -1;
+        let t2 = -1;
+        let t3 = -1;
+        let t4 = -1;
         let validTileCount = 0;
-        for (let ti = 0; ti < orbitalProc.targetTiles.length; ti++) {
+        for (let ti = 0; ti < orbitalProc.targetTiles.length && validTileCount < 5; ti++) {
           const t = orbitalProc.targetTiles[ti];
           if (t.r >= 0 && t.r < ROWS && t.c >= 0 && t.c < COLS) {
-            savedTileIndices[validTileCount++] = t.r * COLS + t.c;
+            const packed = t.r * COLS + t.c;
+            if (validTileCount === 0) t0 = packed;
+            else if (validTileCount === 1) t1 = packed;
+            else if (validTileCount === 2) t2 = packed;
+            else if (validTileCount === 3) t3 = packed;
+            else t4 = packed;
+            validTileCount++;
           }
         }
         if (validTileCount > 0 && this.time?.delayedCall) {
@@ -7541,10 +7770,12 @@ export default class GameScene extends Phaser.Scene {
               return;
             }
             for (let ti = 0; ti < validTileCount; ti++) {
-              const packed = savedTileIndices[ti];
-              const tr = Math.floor(packed / COLS);
-              const tc = packed % COLS;
-              this.spawnExplosion(tr, tc, false, 'player', bombId, true);
+              const packed = ti === 0 ? t0 : ti === 1 ? t1 : ti === 2 ? t2 : ti === 3 ? t3 : t4;
+              if (packed >= 0) {
+                const tr = Math.floor(packed / COLS);
+                const tc = packed % COLS;
+                this.spawnExplosion(tr, tc, false, 'player', bombId, true);
+              }
             }
           });
         }
@@ -7563,32 +7794,42 @@ export default class GameScene extends Phaser.Scene {
     // 3. Dynamic Expanding Shockwave Ring
     const centerX = actualCol * TILE_SIZE + TILE_SIZE / 2;
     const centerY = actualRow * TILE_SIZE + TILE_SIZE / 2;
-    const shockwave = this.graphicsPool ? this.graphicsPool.acquire() : null;
+    const shockwavePoolRef = this.graphicsPool;
+    const shockwave = shockwavePoolRef ? shockwavePoolRef.acquire() : null;
     if (shockwave) {
       shockwave.setActive(true).setVisible(true);
+      shockwave.setAlpha?.(1);
       shockwave.setDepth(RENDER_DEPTH.SHOCKWAVES);
+      let shockwaveReleased = false;
+      const releaseShockwave = () => {
+        if (shockwaveReleased) return;
+        shockwaveReleased = true;
+        if (this.graphicsPool === shockwavePoolRef) {
+          shockwavePoolRef?.release(shockwave);
+        }
+      };
       this.tweens.addCounter({
         from: 0,
         to: 1,
         duration: 220,
         ease: 'Quad.easeOut',
         onUpdate: (tween) => {
+          if (!shockwave.active) return;
           const t = tween.getValue() ?? 0;
           shockwave.clear();
           shockwave.lineStyle(3 * (1 - t) + 0.5, 0xffe066, 0.85 * (1 - t));
           shockwave.strokeCircle(centerX, centerY, 8 + t * (TILE_SIZE * 1.3));
         },
-        onComplete: () => {
-          if (this.graphicsPool) this.graphicsPool.release(shockwave);
-        },
+        onComplete: releaseShockwave,
+        onStop: releaseShockwave,
       });
     }
 
     // Spawn Epicenter Explosion (isCenter = true, passing bombId for PHYS-06)
     this.spawnExplosion(actualRow, actualCol, true, owner, bombId, isPiercing);
 
-    // Epicenter chain reaction: detonate any other active bombs stacked on the same tile
-    const sameTileBombs: Phaser.Physics.Arcade.Sprite[] = [];
+    // Epicenter chain reaction: detonate any other active bombs stacked on the same tile (Zero-GC re-entrant stack)
+    const epicenterStackBase = this.scratchChainStackTop;
     const bombChildren = this.bombs.getChildren();
     for (let cIdx = 0; cIdx < bombChildren.length; cIdx++) {
       const otherBomb = bombChildren[cIdx] as Phaser.Physics.Arcade.Sprite;
@@ -7596,18 +7837,11 @@ export default class GameScene extends Phaser.Scene {
         const bCol = Math.floor(otherBomb.x / TILE_SIZE);
         const bRow = Math.floor(otherBomb.y / TILE_SIZE);
         if (bRow === actualRow && bCol === actualCol) {
-          sameTileBombs.push(otherBomb);
+          this.scratchChainStack[this.scratchChainStackTop++] = otherBomb;
         }
       }
     }
-    for (let i = 0; i < sameTileBombs.length; i++) {
-      const otherBomb = sameTileBombs[i];
-      if (otherBomb.active) {
-        const bCol = Math.floor(otherBomb.x / TILE_SIZE);
-        const bRow = Math.floor(otherBomb.y / TILE_SIZE);
-        this.explodeBomb(otherBomb, bRow, bCol);
-      }
-    }
+    this.detonateStackedChainRange(epicenterStackBase);
 
     for (const dir of CARDINAL_DIRECTIONS) {
       let blocksPierced = 0;
@@ -7642,8 +7876,8 @@ export default class GameScene extends Phaser.Scene {
         // Empty tile, spawn explosion
         this.spawnExplosion(nr, nc, false, owner, bombId, isPiercing);
 
-        // Check for chain reaction with other bombs (snapshot targets to prevent iteration skips)
-        const chainedBombs: Phaser.Physics.Arcade.Sprite[] = [];
+        // Check for chain reaction with other bombs (Zero-GC re-entrant stack snapshot)
+        const rayStackBase = this.scratchChainStackTop;
         const activeBombsList = this.bombs.getChildren();
         for (let bIdx = 0; bIdx < activeBombsList.length; bIdx++) {
           const otherBomb = activeBombsList[bIdx] as Phaser.Physics.Arcade.Sprite;
@@ -7651,18 +7885,11 @@ export default class GameScene extends Phaser.Scene {
             const bCol = Math.floor(otherBomb.x / TILE_SIZE);
             const bRow = Math.floor(otherBomb.y / TILE_SIZE);
             if (bRow === nr && bCol === nc) {
-              chainedBombs.push(otherBomb);
+              this.scratchChainStack[this.scratchChainStackTop++] = otherBomb;
             }
           }
         }
-        for (let j = 0; j < chainedBombs.length; j++) {
-          const otherBomb = chainedBombs[j];
-          if (otherBomb.active) {
-            const bCol = Math.floor(otherBomb.x / TILE_SIZE);
-            const bRow = Math.floor(otherBomb.y / TILE_SIZE);
-            this.explodeBomb(otherBomb, bRow, bCol);
-          }
-        }
+        this.detonateStackedChainRange(rayStackBase);
       }
     }
   }
@@ -7703,6 +7930,11 @@ export default class GameScene extends Phaser.Scene {
 
       // Explosive bloom easing: pop in with easeOut, then rapid fade
       exp.setScale(0.7);
+      const releaseExp = () => {
+        if (exp.active) {
+          exp.disableBody(true, true);
+        }
+      };
       this.tweens.add({
         targets: exp,
         scaleX: isCenter ? 1.35 : 1.2,
@@ -7710,9 +7942,8 @@ export default class GameScene extends Phaser.Scene {
         alpha: { from: 1, to: 0.1 },
         duration: 320,
         ease: 'Quad.easeOut',
-        onComplete: () => {
-          if (exp.active) { exp.disableBody(true, true); }
-        },
+        onComplete: releaseExp,
+        onStop: releaseExp,
       });
     }
 
@@ -7789,30 +8020,40 @@ export default class GameScene extends Phaser.Scene {
           this.blockDebrisEmitter.explode(8, centerX, centerY);
         } else {
           // Fallback if emitter not initialized (headless test environment)
-          const offsets = [
-            { dx: -6, dy: -6, vx: -25, vy: -25 },
-            { dx: 6, dy: -6, vx: 25, vy: -25 },
-            { dx: -6, dy: 6, vx: -25, vy: 25 },
-            { dx: 6, dy: 6, vx: 25, vy: 25 },
-          ];
-          offsets.forEach((off) => {
-            const frag = this.rectPool ? this.rectPool.acquire() : null;
-            if (!frag) return;
-            frag.setActive(true).setVisible(true).setPosition(centerX + off.dx, centerY + off.dy)
-              .setSize(8, 8).setFillStyle(isChest ? 0xfbbf24 : 0xb87333).setAlpha(1).setAngle(0).setScale(1);
+          const rectPoolRef = this.rectPool;
+          for (let fi = 0; fi < BLOCK_DEBRIS_FALLBACK_OFFSETS.length; fi++) {
+            const off = BLOCK_DEBRIS_FALLBACK_OFFSETS[fi];
+            const frag = rectPoolRef ? rectPoolRef.acquire() : null;
+            if (!frag) continue;
+            frag.setStrokeStyle?.(0, 0, 0);
+            frag
+              .setActive(true)
+              .setVisible(true)
+              .setPosition(centerX + off[0], centerY + off[1])
+              .setSize(8, 8)
+              .setFillStyle(isChest ? 0xfbbf24 : 0xb87333)
+              .setAlpha(1)
+              .setAngle(0)
+              .setScale(1);
             frag.setDepth(RENDER_DEPTH.DEBRIS_PARTICLES);
+            let fragReleased = false;
+            const releaseFrag = () => {
+              if (!fragReleased && this.rectPool === rectPoolRef) {
+                fragReleased = true;
+                rectPoolRef?.release(frag);
+              }
+            };
             this.tweens.add({
               targets: frag,
-              x: frag.x + off.vx,
-              y: frag.y + off.vy,
+              x: frag.x + off[2],
+              y: frag.y + off[3],
               alpha: 0,
               angle: 45,
               duration: 220,
-              onComplete: () => {
-                if (this.rectPool) this.rectPool.release(frag);
-              },
+              onComplete: releaseFrag,
+              onStop: releaseFrag,
             });
-          });
+          }
         }
 
         b.destroy();
@@ -7853,13 +8094,22 @@ export default class GameScene extends Phaser.Scene {
       this.triggerHitStop(50);
 
       // Spawn shield shatter burst
+      const shieldCirclePool = this.circlePool;
       for (let i = 0; i < 8; i++) {
         const angle = (i / 8) * Math.PI * 2;
-        const spark = this.circlePool ? this.circlePool.acquire() : null;
+        const spark = shieldCirclePool ? shieldCirclePool.acquire() : null;
         if (!spark) continue;
+        spark.setStrokeStyle?.(0, 0, 0);
         spark.setActive(true).setVisible(true).setPosition(this.player.x, this.player.y)
           .setRadius(4).setFillStyle(0x38bdf8, 0.9).setAlpha(0.9).setScale(1);
         spark.setDepth(RENDER_DEPTH.DEBRIS_PARTICLES);
+        let sparkReleased = false;
+        const releaseSpark = () => {
+          if (!sparkReleased && this.circlePool === shieldCirclePool) {
+            sparkReleased = true;
+            shieldCirclePool?.release(spark);
+          }
+        };
         this.tweens.add({
           targets: spark,
           x: this.player.x + Math.cos(angle) * 25,
@@ -7867,9 +8117,8 @@ export default class GameScene extends Phaser.Scene {
           alpha: 0,
           scale: 0.2,
           duration: 250,
-          onComplete: () => {
-            if (this.circlePool) this.circlePool.release(spark);
-          },
+          onComplete: releaseSpark,
+          onStop: releaseSpark,
         });
       }
 
@@ -7936,13 +8185,22 @@ export default class GameScene extends Phaser.Scene {
       this.cameras.main.flash(300, 251, 191, 36);
 
       // Golden shield VFX burst
+      const secondWindCirclePool = this.circlePool;
       for (let i = 0; i < 12; i++) {
         const angle = (i / 12) * Math.PI * 2;
-        const spark = this.circlePool ? this.circlePool.acquire() : null;
+        const spark = secondWindCirclePool ? secondWindCirclePool.acquire() : null;
         if (!spark) continue;
+        spark.setStrokeStyle?.(0, 0, 0);
         spark.setActive(true).setVisible(true).setPosition(this.player.x, this.player.y)
           .setRadius(5).setFillStyle(0xfbbf24, 0.95).setAlpha(0.95).setScale(1);
         spark.setDepth(RENDER_DEPTH.DEBRIS_PARTICLES);
+        let sparkReleased = false;
+        const releaseSpark = () => {
+          if (!sparkReleased && this.circlePool === secondWindCirclePool) {
+            sparkReleased = true;
+            secondWindCirclePool?.release(spark);
+          }
+        };
         this.tweens.add({
           targets: spark,
           x: this.player.x + Math.cos(angle) * 35,
@@ -7950,9 +8208,8 @@ export default class GameScene extends Phaser.Scene {
           alpha: 0,
           scale: 0.2,
           duration: 350,
-          onComplete: () => {
-            if (this.circlePool) this.circlePool.release(spark);
-          },
+          onComplete: releaseSpark,
+          onStop: releaseSpark,
         });
       }
 
@@ -8329,18 +8586,13 @@ export default class GameScene extends Phaser.Scene {
     const pCol = Math.floor(this.player.x / TILE_SIZE);
     const pRow = Math.floor(this.player.y / TILE_SIZE);
 
-    const directions = [
-      { dr: -1, dc: 0 },
-      { dr: 1, dc: 0 },
-      { dr: 0, dc: -1 },
-      { dr: 0, dc: 1 },
-    ];
-
     const maxDepth = skill.maxDepthPerArm ?? 4;
     const baseFuse = skill.fuseMs ?? 1200;
     const stepDelay = skill.cascadeStepDelayMs ?? 70;
+    const barrageCirclePool = this.circlePool;
 
-    directions.forEach((dir) => {
+    for (let dIdx = 0; dIdx < CARDINAL_DIRECTIONS.length; dIdx++) {
+      const dir = CARDINAL_DIRECTIONS[dIdx];
       for (let k = 1; k <= maxDepth; k++) {
         const r = pRow + dir.dr * k;
         const c = pCol + dir.dc * k;
@@ -8351,8 +8603,16 @@ export default class GameScene extends Phaser.Scene {
         const targetY = r * TILE_SIZE + TILE_SIZE / 2;
         const fuseTime = baseFuse + k * stepDelay;
 
-        const warhead = this.circlePool ? this.circlePool.acquire() : null;
+        const warhead = barrageCirclePool ? barrageCirclePool.acquire() : null;
+        let warheadReleased = false;
+        const releaseWarhead = () => {
+          if (!warheadReleased && warhead && this.circlePool === barrageCirclePool) {
+            warheadReleased = true;
+            barrageCirclePool?.release(warhead);
+          }
+        };
         if (warhead) {
+          warhead.setStrokeStyle?.(0, 0, 0);
           warhead.setActive(true).setVisible(true).setPosition(targetX, targetY)
             .setRadius(14).setFillStyle(0xd90429, 0.9).setAlpha(0.9).setScale(1);
           warhead.setDepth(RENDER_DEPTH.BOMBS);
@@ -8363,13 +8623,15 @@ export default class GameScene extends Phaser.Scene {
             yoyo: true,
             repeat: Math.floor(fuseTime / 200),
             duration: 100,
+            onStop: releaseWarhead,
           });
         }
 
         this.time.delayedCall(fuseTime, () => {
-            if (warhead && warhead.active) {
-              if (this.circlePool) this.circlePool.release(warhead);
-            }
+          releaseWarhead();
+          if (this.isGameOver || !this.map?.[r]) {
+            return;
+          }
           webAudioSynth.playCarpetDetonation(k);
           this.cameraTrauma.addTrauma(skill.traumaPerStep ?? 0.15);
 
@@ -8377,9 +8639,10 @@ export default class GameScene extends Phaser.Scene {
             this.destroyBlock(r, c);
           }
 
-          this.enemies.getChildren().forEach((child) => {
-            const enemy = child as Phaser.Physics.Arcade.Sprite;
-            if (enemy.active) {
+          const enemyList = this.enemies ? this.enemies.getChildren() : [];
+          for (let ei = 0; ei < enemyList.length; ei++) {
+            const enemy = enemyList[ei] as Phaser.Physics.Arcade.Sprite;
+            if (enemy && enemy.active) {
               const er = Math.floor(enemy.y / TILE_SIZE);
               const ec = Math.floor(enemy.x / TILE_SIZE);
               if (er === r && ec === c) {
@@ -8392,7 +8655,7 @@ export default class GameScene extends Phaser.Scene {
                 }
               }
             }
-          });
+          }
 
           const exp = this.createExplosionSprite(targetX, targetY, 'player');
           if (exp) {
@@ -8404,7 +8667,7 @@ export default class GameScene extends Phaser.Scene {
 
         if (this.map[r][c] === TILE_BLOCK) break;
       }
-    });
+    }
   }
 
   private executeAegisOverdrive(skill: UltimateSkillDefinition): void {
@@ -8476,10 +8739,11 @@ export default class GameScene extends Phaser.Scene {
     this.player.setVelocity(dirX * DASH_SPEED, dirY * DASH_SPEED);
 
     // 3 Ghost afterimages
+    const dashSpritePool = this.spritePool;
     for (let i = 0; i < 3; i++) {
       this.time.delayedCall(i * 40, () => {
         if (!this.player || !this.player.active) return;
-        const ghost = this.spritePool ? this.spritePool.acquire() : null;
+        const ghost = dashSpritePool ? dashSpritePool.acquire() : null;
         if (!ghost) return;
         ghost.setActive(true).setVisible(true).setPosition(this.player.x, this.player.y);
         if (typeof ghost.setTexture === 'function') {
@@ -8491,14 +8755,20 @@ export default class GameScene extends Phaser.Scene {
         ghost.setTint(0x38bdf8);
         const pDepth = RENDER_DEPTH.ENTITY_Y_BASE + this.player.y * RENDER_DEPTH.ENTITY_Y_SCALE;
         ghost.setDepth(pDepth + RENDER_DEPTH.OFFSET_SHADOW);
+        let ghostReleased = false;
+        const releaseGhost = () => {
+          if (!ghostReleased && this.spritePool === dashSpritePool) {
+            ghostReleased = true;
+            dashSpritePool?.release(ghost);
+          }
+        };
         this.tweens.add({
           targets: ghost,
           alpha: 0,
           scale: 0.8,
           duration: 200,
-          onComplete: () => {
-            if (this.spritePool) this.spritePool.release(ghost);
-          },
+          onComplete: releaseGhost,
+          onStop: releaseGhost,
         });
       });
     }
@@ -8582,12 +8852,16 @@ export default class GameScene extends Phaser.Scene {
     const item = this.acquirePooledGroupSprite(this.items, centerX, centerY, textureKey);
     if (!item) return;
 
+    if (typeof this.tweens?.killTweensOf === 'function') {
+      this.tweens.killTweensOf(item);
+    }
     const prevShadow = item.getData?.('itemShadow') as Phaser.GameObjects.Sprite | null | undefined;
     if (prevShadow && prevShadow !== (item as unknown) && prevShadow.active) {
       if (typeof this.tweens?.killTweensOf === 'function') this.tweens.killTweensOf(prevShadow);
       if (this.shadowPool) this.shadowPool.release(prevShadow);
     }
     item.setData('itemShadow', null);
+    item.setData('bobTweenKilled', false);
 
     item.setDepth(RENDER_DEPTH.ITEMS);
     (item.body as Phaser.Physics.Arcade.Body)?.setSize(24, 24).setOffset(4, 4);
@@ -8597,11 +8871,20 @@ export default class GameScene extends Phaser.Scene {
     item.setData('col', col);
 
     // 600ms grace period golden glow ring
-    const glow = this.circlePool ? this.circlePool.acquire() : null;
+    const glowCirclePool = this.circlePool;
+    const glow = glowCirclePool ? glowCirclePool.acquire() : null;
     if (glow) {
+      glow.setStrokeStyle?.(0, 0, 0);
       glow.setActive(true).setVisible(true).setPosition(centerX, centerY)
         .setRadius(18).setFillStyle(0xfbbf24, 0.45).setAlpha(0.45).setScale(1);
       glow.setDepth(RENDER_DEPTH.ITEM_GLOW);
+      let glowReleased = false;
+      const releaseGlow = () => {
+        if (!glowReleased && this.circlePool === glowCirclePool) {
+          glowReleased = true;
+          glowCirclePool?.release(glow);
+        }
+      };
       this.tweens.add({
         targets: glow,
         scaleX: 1.3,
@@ -8609,9 +8892,8 @@ export default class GameScene extends Phaser.Scene {
         alpha: 0,
         duration: ITEM_GRACE_PERIOD_MS,
         ease: 'Sine.easeOut',
-        onComplete: () => {
-          if (this.circlePool) this.circlePool.release(glow);
-        },
+        onComplete: releaseGlow,
+        onStop: releaseGlow,
       });
     }
 

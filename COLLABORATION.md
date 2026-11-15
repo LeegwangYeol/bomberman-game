@@ -2824,3 +2824,21 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - `tests/abyssal_pearl_and_hadal_brine_synergy.test.mjs` 13개 계층(15개 세부 테스트: 105개 유물 조합, `GameScene` 2슬롯 `relic_resonance` 연동 폭발 통합, 10,000프레임 Zero-GC 소크, 아군·궁극기 VFX `onComplete`/`onStop` 풀 회수 검증 포함) 전수 통과.
     - 전체 테스트 스위트: **2,324 / 2,324 PASS (100% 통과, 0 실패, 0 스킵, +15 테스트 순증)**.
     - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링)**.
+
+### 39) 일일 정기 무한 진화(단일 에이전트 경량 유지보수): `OverheadUI` 텍스트 캔버스 오브젝트 풀링(`nameTagTextPool`·`intentBadgeTextPool`), 오브젝트 풀 `alpha`/`scale`/`stroke` 오염 정화, 세이브 복원(`resume-run-state`) 블록 파괴 불가 및 AO/아이템 그림자 누수 수리, 재진입 안전 Zero-GC 폭탄 연쇄 스택(`scratchChainStack`), 자석·펫드론 보빙 트윈 충돌 해소, `RelicManager` 13대 런타임 훅 전수 무할당화 및 5대 위기 모듈 Zero-GC 루프 정비 완결 (Daily Auto-Maintenance: 2026-11-16 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 세션명: `[세션명: 봄버맨 일일 무한 진화]` (스케줄 백그라운드 단일 에이전트 자율 유지보수, 서브에이전트 스웜 미사용).
+  - **핵심 성능·Zero-GC 풀링 및 무결성 수리 내역**:
+    1. **`OverheadUI` 텍스트 캔버스 Zero-GC 풀링 및 풀 상태 오염(Visual State Bleed) 원천 차단 (`ObjectPool.ts`, `OverheadUI.ts`, `GameScene.ts`, `BaseEntity.ts`, `ultimate_skills.ts`)**:
+       - `POOL_PRESETS.OVERHEAD_TEXT = 64` 추가 및 `GameScene` 내 `nameTagTextPool`·`intentBadgeTextPool` 구축(`create()`/`shutdown()` 수명주기 연동)으로 적·아군·중립 스폰/사망 시마다 발생하던 엔티티당 2회의 Canvas2D 텍스처 할당 및 WebGL 업로드를 0회로 제거하고, 64개 초과 동시 스폰 시에도 안전한 비풀링 폴백 보장.
+       - `circlePool`, `rectPool`, `graphicsPool`, `spritePool`, `shadowPool`, `floatingTextPool`의 `reset` 콜백에서 `alpha = 1`, `scale = 1`, `angle = 0`, `scrollFactor = 1`, `strokeStyle = 0`, `clearTint`를 강제 복원하고 `ultimate_skills.ts`에서도 획득 직후 알파/스트로크를 초기화하여, `renderScorchDecal`(`alpha -> 0` 카운터 트윈) 이후 재사용되는 충격파·조준선·체력바가 투명해지던 시각 오염 결함 해결.
+       - `BaseEntity.die()` 폴백 스파크, 폭탄 충격파·폭발 스프라이트·블록 파편 사각형·쉴드 파쇄 및 세컨드 윈드 스파크·`executeNuclearBarrage` 탄두(`isGameOver` 가드 포함)·대시 잔상·아이템 스폰 글로우 전 구간에 멱등 `onComplete`+`onStop` 풀 회수 가드를 적용하고, `renderMeteorReticle`의 `warningMs <= 0`/`NaN` 입력 시 `0/0 = NaN` 영구 풀 누수를 차단.
+    2. **세이브 복원·맵 재생성 누수 수리 및 폭탄 연쇄·유물·위기 핫루프 Zero-GC 하모니제이션 (`GameScene.ts`, `RelicSystem.ts`, `AllyEntities.ts`, `EnemyEntities.ts`, `BossAttackManager.ts`, `crises/*.ts`)**:
+       - `onResumeRunState`에서 기존 블록의 `aoShadow`와 아이템의 `itemShadow`를 선제 반환하고, 복원된 소프트 블록에 `row`·`col`·`aoShadow`를 부여하여 복원 후 폭탄으로 소프트 블록이 파괴되지 않던 런타임 버그를 근본 수리. 또한 `spawnEnemies()` 통로 개척 시 파괴되는 소프트 블록 `aoShadow` 반환 및 `generateMap()` 상단 `mapDecorations` 정리 + 195개 바닥 타일 `Image` 추적으로 웨이브 전환 시 장식/바닥 누수 제거.
+       - 자석(`hasMagnet` / `MAGNETRON_DIAL`) 및 `PetDroneAlly` 아이템 견인 시 기존 무한 보빙 트윈(`yoyo: true, repeat: -1`)을 최초 1회 종료(`bobTweenKilled`)하고 `item.body.position`과 `itemShadow`(`x`, `y + 14`)를 매 프레임 동기화.
+       - `explodeBomb()` 내 매 폭발 배열 할당(`pairedBombsToDetonate`, `sameTileBombs`, `chainedBombs`)을 재진입 안전 `scratchChainStack`으로 전환하고, 위기 보상 유물 자동 장착 조건을 `relicManager.getEquippedCount() < relicManager.getMaxSlots()`로 보정(2슬롯 공명 퍽 호환).
+       - `RelicManager` 13개 런타임 트리거 훅 전수를 사전 할당 스크래치 버퍼 및 동결 싱글톤 상수로 무할당화하고, `SplitterEnemy` 사망 분열 무할당 오프셋 스캔 + 미니 슬라임 드롭 그림자 부착, `BossAttackManager.update()`의 `NaN`/음수 `dt` 및 `0ms` 텔레그래프 방어, `OrbitalCrisis.pendingCraters` 전용 `craterPool`(swap-and-pop) 및 5종 위기 모듈 내 `.filter()`/`.some()`/`.every()` 클로저 전면 제거.
+  - **신규 영구 방어 테스트 및 검증 지표**:
+    - `tests/daily_cycle39_zerogc_pooling_harmonization.test.mjs` 신규 구축 (8대 핵심 검증 시나리오 및 10,000프레임 소크 테스트 전수 통과).
+    - 전체 테스트 스위트: **2,332 / 2,332 PASS (100% 통과, 0 실패, 0 스킵, +8 테스트 순증)**.
+    - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링)**.

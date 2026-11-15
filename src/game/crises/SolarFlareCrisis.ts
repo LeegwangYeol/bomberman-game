@@ -150,7 +150,10 @@ export class SolarFlareCrisis extends BaseCrisis {
   }
 
   public isThermalVent(r: number, c: number): boolean {
-    return this.vents.some((v) => v.r === r && v.c === c);
+    for (let i = 0; i < this.vents.length; i++) {
+      if (this.vents[i].r === r && this.vents[i].c === c) return true;
+    }
+    return false;
   }
 
   public triggerCmeSweep(): void {
@@ -269,7 +272,7 @@ export class SolarFlareCrisis extends BaseCrisis {
         this.setHazardTile(vent.r, vent.c, HazardType.THERMAL_VENT, 0.4, 0, 1); // 1 = Cooled
         this.resolveObjective('cool_thermal_vents');
 
-        const cooledCount = this.vents.filter((v) => v.isCooled).length;
+        const cooledCount = this.countCooledVents();
         SolarFlareCrisisAudio.getInstance().playThermalVentPurged(cooledCount);
 
         if (cooledCount < 4) {
@@ -286,12 +289,26 @@ export class SolarFlareCrisis extends BaseCrisis {
     }
   }
 
+  private countCooledVents(): number {
+    let count = 0;
+    for (let i = 0; i < this.vents.length; i++) {
+      if (this.vents[i].isCooled) count++;
+    }
+    return count;
+  }
+
   protected onResolveObjective(objectiveId: string, value?: number): void {
     void value;
     if (objectiveId === 'cool_thermal_vents') {
-      const cooledCount = this.vents.filter((v) => v.isCooled).length;
+      const cooledCount = this.countCooledVents();
       this.adjustThreat(-6 * cooledCount);
-      const obj = this.objectives.find((o) => o.id === 'cool_thermal_vents');
+      let obj = null;
+      for (let i = 0; i < this.objectives.length; i++) {
+        if (this.objectives[i].id === 'cool_thermal_vents') {
+          obj = this.objectives[i];
+          break;
+        }
+      }
       if (obj && obj.isCompleted && !this.isVictorious) {
         SolarFlareCrisisAudio.getInstance().playHeliosStabilization();
         this.resolveCrisis('All 4 Thermal Vents cooled! Super-flare extinguished and stellar calm restored!');

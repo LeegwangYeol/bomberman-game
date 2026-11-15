@@ -2,10 +2,18 @@ import type Phaser from 'phaser';
 import type { EntityFaction, OverheadRenderLayers, NameTagLODMode } from './types.ts';
 import { RENDER_DEPTH } from './types.ts';
 
-interface ISceneGraphicsPool {
+interface ISceneOverheadPools {
   graphicsPool?: {
     acquire: () => Phaser.GameObjects.Graphics;
     release: (graphics: Phaser.GameObjects.Graphics) => void;
+  };
+  nameTagTextPool?: {
+    acquire: () => Phaser.GameObjects.Text;
+    release: (text: Phaser.GameObjects.Text) => void;
+  };
+  intentBadgeTextPool?: {
+    acquire: () => Phaser.GameObjects.Text;
+    release: (text: Phaser.GameObjects.Text) => void;
   };
 }
 
@@ -46,6 +54,9 @@ export class OverheadUI {
   public hpGraphics: Phaser.GameObjects.Graphics | null = null;
   public nameTag: Phaser.GameObjects.Text | null = null;
   public indicator: Phaser.GameObjects.Text | null = null;
+  private hpGraphicsFromPool: boolean = false;
+  private nameTagFromPool: boolean = false;
+  private indicatorFromPool: boolean = false;
 
   private lastRenderedHp: number = -1;
   private lastRenderedMaxHp: number = -1;
@@ -76,26 +87,53 @@ export class OverheadUI {
     this.hpBarColor = hpBarColor;
 
     if (scene && scene.add) {
+      const sceneWithPool = scene as unknown as ISceneOverheadPools;
+
       // Tier 1: HP Bar Graphics
       if (typeof scene.add.graphics === 'function') {
-        const sceneWithPool = scene as unknown as ISceneGraphicsPool;
         if (sceneWithPool.graphicsPool) {
-          this.hpGraphics = sceneWithPool.graphicsPool.acquire();
-        } else {
+          const pooledG = sceneWithPool.graphicsPool.acquire();
+          if (pooledG) {
+            this.hpGraphics = pooledG;
+            this.hpGraphicsFromPool = true;
+          }
+        }
+        if (!this.hpGraphics) {
           this.hpGraphics = scene.add.graphics();
+          this.hpGraphicsFromPool = false;
         }
         if (this.hpGraphics) {
           if (typeof this.hpGraphics.setActive === 'function') this.hpGraphics.setActive(true);
           if (typeof this.hpGraphics.setVisible === 'function') this.hpGraphics.setVisible(true);
+          if (typeof this.hpGraphics.setAlpha === 'function') {
+            this.hpGraphics.setAlpha(this.currentAlpha);
+          }
           this.hpGraphics.setDepth(RENDER_DEPTH.ENTITY_Y_BASE + RENDER_DEPTH.OFFSET_HP_BAR);
         }
       }
 
-      // Tier 2: Name Tag Text
+      // Tier 2: Name Tag Text (Zero-GC pooled when scene.nameTagTextPool has capacity)
       const nameColor =
         faction === 'enemy' ? '#fb923c' : faction === 'ally' ? '#22d3ee' : '#fbbf24';
 
-      if (typeof scene.add.text === 'function') {
+      if (sceneWithPool.nameTagTextPool) {
+        const pooledName = sceneWithPool.nameTagTextPool.acquire();
+        if (pooledName) {
+          this.nameTag = pooledName;
+          this.nameTagFromPool = true;
+          if (typeof this.nameTag.setActive === 'function') this.nameTag.setActive(true);
+          if (typeof this.nameTag.setVisible === 'function') this.nameTag.setVisible(true);
+          if (typeof this.nameTag.setAlpha === 'function') this.nameTag.setAlpha(this.currentAlpha);
+          if (typeof this.nameTag.setScale === 'function') this.nameTag.setScale(1, 1);
+          if (typeof this.nameTag.setOrigin === 'function') this.nameTag.setOrigin(0.5, 0.5);
+          if (typeof this.nameTag.setColor === 'function') this.nameTag.setColor(nameColor);
+          if (typeof this.nameTag.setText === 'function') this.nameTag.setText(name);
+          if (typeof this.nameTag.setDepth === 'function') {
+            this.nameTag.setDepth(RENDER_DEPTH.ENTITY_Y_BASE + RENDER_DEPTH.OFFSET_NAME_TAG);
+          }
+        }
+      }
+      if (!this.nameTag && typeof scene.add.text === 'function') {
         this.nameTag = scene.add
           .text(0, 0, name, {
             fontSize: '9px',
@@ -109,8 +147,30 @@ export class OverheadUI {
           })
           .setOrigin(0.5, 0.5)
           .setDepth(RENDER_DEPTH.ENTITY_Y_BASE + RENDER_DEPTH.OFFSET_NAME_TAG);
+        this.nameTagFromPool = false;
+      }
 
-        // Tier 3: Intent Indicator Badge
+      // Tier 3: Intent Indicator Badge (Zero-GC pooled when scene.intentBadgeTextPool has capacity)
+      if (sceneWithPool.intentBadgeTextPool) {
+        const pooledBadge = sceneWithPool.intentBadgeTextPool.acquire();
+        if (pooledBadge) {
+          this.indicator = pooledBadge;
+          this.indicatorFromPool = true;
+          if (typeof this.indicator.setActive === 'function') this.indicator.setActive(true);
+          if (typeof this.indicator.setVisible === 'function') this.indicator.setVisible(false);
+          if (typeof this.indicator.setAlpha === 'function') {
+            this.indicator.setAlpha(this.currentAlpha);
+          }
+          if (typeof this.indicator.setScale === 'function') this.indicator.setScale(1, 1);
+          if (typeof this.indicator.setOrigin === 'function') this.indicator.setOrigin(0.5, 0.5);
+          if (typeof this.indicator.setColor === 'function') this.indicator.setColor('#FFD700');
+          if (typeof this.indicator.setText === 'function') this.indicator.setText('');
+          if (typeof this.indicator.setDepth === 'function') {
+            this.indicator.setDepth(RENDER_DEPTH.ENTITY_Y_BASE + RENDER_DEPTH.OFFSET_INTENT_BADGE);
+          }
+        }
+      }
+      if (!this.indicator && typeof scene.add.text === 'function') {
         this.indicator = scene.add
           .text(0, 0, '', {
             fontSize: '13px',
@@ -123,6 +183,7 @@ export class OverheadUI {
           .setOrigin(0.5, 0.5)
           .setDepth(RENDER_DEPTH.ENTITY_Y_BASE + RENDER_DEPTH.OFFSET_INTENT_BADGE)
           .setVisible(false);
+        this.indicatorFromPool = false;
       }
     }
   }
@@ -347,26 +408,33 @@ export class OverheadUI {
 
   public destroy(): void {
     this.isDestroyed = true;
+    const sceneWithPool = this.scene as unknown as ISceneOverheadPools | undefined;
     if (this.hpGraphics) {
-      const sceneWithPool = this.scene as unknown as ISceneGraphicsPool | undefined;
-      if (sceneWithPool?.graphicsPool) {
+      if (this.hpGraphicsFromPool && sceneWithPool?.graphicsPool) {
         sceneWithPool.graphicsPool.release(this.hpGraphics);
       } else if (typeof this.hpGraphics.destroy === 'function') {
         this.hpGraphics.destroy();
       }
       this.hpGraphics = null;
+      this.hpGraphicsFromPool = false;
     }
     if (this.nameTag) {
-      if (typeof this.nameTag.destroy === 'function') {
+      if (this.nameTagFromPool && sceneWithPool?.nameTagTextPool) {
+        sceneWithPool.nameTagTextPool.release(this.nameTag);
+      } else if (typeof this.nameTag.destroy === 'function') {
         this.nameTag.destroy();
       }
       this.nameTag = null;
+      this.nameTagFromPool = false;
     }
     if (this.indicator) {
-      if (typeof this.indicator.destroy === 'function') {
+      if (this.indicatorFromPool && sceneWithPool?.intentBadgeTextPool) {
+        sceneWithPool.intentBadgeTextPool.release(this.indicator);
+      } else if (typeof this.indicator.destroy === 'function') {
         this.indicator.destroy();
       }
       this.indicator = null;
+      this.indicatorFromPool = false;
     }
   }
 }

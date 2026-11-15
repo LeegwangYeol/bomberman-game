@@ -756,8 +756,10 @@ export function renderMeteorReticle(
   if (!g) return null;
   if (typeof g.setActive === 'function') g.setActive(true);
   if (typeof g.setVisible === 'function') g.setVisible(true);
+  if (typeof g.setAlpha === 'function') g.setAlpha(1);
   g.setDepth(20);
 
+  const safeWarningMs = Number.isFinite(warningMs) && warningMs > 0 ? warningMs : 16;
   let elapsed = 0;
   let reticleReleased = false;
   const releaseReticle = () => {
@@ -768,10 +770,10 @@ export function renderMeteorReticle(
   };
   const timer = scene.time.addEvent({
     delay: 16,
-    repeat: Math.floor(warningMs / 16),
+    repeat: Math.max(0, Math.floor(safeWarningMs / 16)),
     callback: () => {
       elapsed += 16;
-      const progress = Math.min(1.0, elapsed / warningMs);
+      const progress = Math.min(1.0, elapsed / safeWarningMs);
       if (!g || !g.active) return;
       g.clear();
 
@@ -829,6 +831,7 @@ export function renderMeteorStreak(
 
   const meteor = cPool ? cPool.acquire() : scene.add.circle(startX, startY, 9, 0xffedd5, 1.0);
   if (meteor) {
+    if (typeof meteor.setStrokeStyle === 'function') meteor.setStrokeStyle(0, 0, 0);
     if (typeof meteor.setActive === 'function') meteor.setActive(true);
     if (typeof meteor.setVisible === 'function') meteor.setVisible(true);
     if (typeof meteor.setPosition === 'function') meteor.setPosition(startX, startY);
@@ -842,6 +845,7 @@ export function renderMeteorStreak(
   // Flaming corona
   const corona = cPool ? cPool.acquire() : scene.add.circle(startX, startY, 16, 0xf97316, 0.6);
   if (corona) {
+    if (typeof corona.setStrokeStyle === 'function') corona.setStrokeStyle(0, 0, 0);
     if (typeof corona.setActive === 'function') corona.setActive(true);
     if (typeof corona.setVisible === 'function') corona.setVisible(true);
     if (typeof corona.setPosition === 'function') corona.setPosition(startX, startY);
@@ -881,6 +885,7 @@ export function renderMeteorStreak(
       if (scene.tweens && Math.random() < 0.7 && meteor) {
         const ember = cPool ? cPool.acquire() : null;
         if (ember) {
+          if (typeof ember.setStrokeStyle === 'function') ember.setStrokeStyle(0, 0, 0);
           const r = Math.floor(Math.random() * 4) + 2;
           ember.setActive(true).setVisible(true)
             .setPosition(meteor.x + (Math.random() - 0.5) * 8, meteor.y + (Math.random() - 0.5) * 8)
@@ -930,6 +935,7 @@ export function renderSuperNovaWave(
   if (!g) return;
   if (typeof g.setActive === 'function') g.setActive(true);
   if (typeof g.setVisible === 'function') g.setVisible(true);
+  if (typeof g.setAlpha === 'function') g.setAlpha(1);
   g.setDepth(RENDER_DEPTH.SHOCKWAVES);
 
   let waveReleased = false;
@@ -987,6 +993,7 @@ export function renderChronoStasisVFX(scene: Phaser.Scene, durationMs: number = 
     0.28
   );
   if (overlay) {
+    if (typeof overlay.setStrokeStyle === 'function') overlay.setStrokeStyle(0, 0, 0);
     if (typeof overlay.setActive === 'function') overlay.setActive(true);
     if (typeof overlay.setVisible === 'function') overlay.setVisible(true);
     if (typeof overlay.setPosition === 'function') overlay.setPosition(scene.scale.width / 2, scene.scale.height / 2);
@@ -1001,6 +1008,7 @@ export function renderChronoStasisVFX(scene: Phaser.Scene, durationMs: number = 
   if (border) {
     if (typeof border.setActive === 'function') border.setActive(true);
     if (typeof border.setVisible === 'function') border.setVisible(true);
+    if (typeof border.setAlpha === 'function') border.setAlpha(1);
     if (typeof border.setDepth === 'function') border.setDepth(RENDER_DEPTH.SCREEN_OVERLAY);
     if (typeof border.clear === 'function') border.clear();
     if (typeof border.lineStyle === 'function') border.lineStyle(6, 0x38bdf8, 0.75);
@@ -1088,6 +1096,7 @@ export function createAegisDomeVisual(
   if (!g) return { update: () => {}, destroy: () => {} };
   if (typeof g.setActive === 'function') g.setActive(true);
   if (typeof g.setVisible === 'function') g.setVisible(true);
+  if (typeof g.setAlpha === 'function') g.setAlpha(1);
   g.setDepth(15);
 
   let angle = 0;

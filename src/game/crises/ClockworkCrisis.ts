@@ -254,7 +254,7 @@ export class ClockworkCrisis extends BaseCrisis {
         this.overloadWindowTimerMs = 0;
       }
 
-      const activeHits = this.conduits.filter((c) => c.isHit).length;
+      const activeHits = this.countHitConduits();
       this.resolveObjective('dynamo_overload', activeHits);
       ClockworkCrisisAudio.getInstance().playConduitHit(activeHits);
 
@@ -276,6 +276,14 @@ export class ClockworkCrisis extends BaseCrisis {
         );
       }
     }
+  }
+
+  private countHitConduits(): number {
+    let count = 0;
+    for (let i = 0; i < this.conduits.length; i++) {
+      if (this.conduits[i].isHit) count++;
+    }
+    return count;
   }
 
   private resetConduitOverload(): void {
@@ -300,9 +308,15 @@ export class ClockworkCrisis extends BaseCrisis {
   protected onResolveObjective(objectiveId: string, value?: number): void {
     void value;
     if (objectiveId === 'dynamo_overload') {
-      const activeHits = this.conduits.filter((c) => c.isHit).length;
+      const activeHits = this.countHitConduits();
       this.adjustThreat(-5 * activeHits);
-      const obj = this.objectives.find((o) => o.id === 'dynamo_overload');
+      let obj = null;
+      for (let i = 0; i < this.objectives.length; i++) {
+        if (this.objectives[i].id === 'dynamo_overload') {
+          obj = this.objectives[i];
+          break;
+        }
+      }
       if (obj && obj.isCompleted && !this.isVictorious) {
         this.resolveCrisis('Dynamo Overload short-circuited the Steam Toy Titan and dismantled the mechanical rebellion!');
       }

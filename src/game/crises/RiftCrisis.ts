@@ -235,7 +235,7 @@ export class RiftCrisis extends BaseCrisis {
         this.quantumSyncTimerMs = 0;
       }
 
-      const polarizedCount = this.spires.filter((s) => s.isPolarized).length;
+      const polarizedCount = this.countPolarizedSpires();
       this.resolveObjective('quantum_sync', polarizedCount);
       RiftCrisisAudio.getInstance().playSpireSync(polarizedCount);
 
@@ -256,6 +256,14 @@ export class RiftCrisis extends BaseCrisis {
         );
       }
     }
+  }
+
+  private countPolarizedSpires(): number {
+    let count = 0;
+    for (let i = 0; i < this.spires.length; i++) {
+      if (this.spires[i].isPolarized) count++;
+    }
+    return count;
   }
 
   private resetQuantumSync(): void {
@@ -280,9 +288,15 @@ export class RiftCrisis extends BaseCrisis {
   protected onResolveObjective(objectiveId: string, value?: number): void {
     void value;
     if (objectiveId === 'quantum_sync') {
-      const polarizedCount = this.spires.filter((s) => s.isPolarized).length;
+      const polarizedCount = this.countPolarizedSpires();
       this.adjustThreat(-8 * polarizedCount);
-      const obj = this.objectives.find((o) => o.id === 'quantum_sync');
+      let obj = null;
+      for (let i = 0; i < this.objectives.length; i++) {
+        if (this.objectives[i].id === 'quantum_sync') {
+          obj = this.objectives[i];
+          break;
+        }
+      }
       if (obj && obj.isCompleted && !this.isVictorious) {
         this.resolveCrisis('Quantum Synchronization achieved! Dimensional rifts collapsed and reality stabilized!');
       }

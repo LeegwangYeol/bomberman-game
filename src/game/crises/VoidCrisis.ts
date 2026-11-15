@@ -231,7 +231,7 @@ export class VoidCrisis extends BaseCrisis {
         }
 
         // Check if both prisms are now charged
-        const allCharged = this.prisms.every((p) => p.isCharged);
+        const allCharged = this.prisms.length > 0 && this.countChargedPrisms() === this.prisms.length;
         if (allCharged && !this.supernovaCleansed) {
           this.triggerSupernovaCleanse();
         }
@@ -353,6 +353,30 @@ export class VoidCrisis extends BaseCrisis {
     return false;
   }
 
+  private static readonly SPREAD_NEIGHBOR_OFFSETS: readonly (readonly [number, number])[] = Object.freeze([
+    Object.freeze([-1, 0] as const),
+    Object.freeze([1, 0] as const),
+    Object.freeze([-1, -1] as const),
+    Object.freeze([1, 1] as const),
+    Object.freeze([0, -1] as const),
+    Object.freeze([0, 1] as const),
+  ]);
+
+  private static readonly ORTHOGONAL_DIRS: readonly (readonly [number, number])[] = Object.freeze([
+    Object.freeze([-1, 0] as const),
+    Object.freeze([1, 0] as const),
+    Object.freeze([0, -1] as const),
+    Object.freeze([0, 1] as const),
+  ]);
+
+  private countChargedPrisms(): number {
+    let count = 0;
+    for (let i = 0; i < this.prisms.length; i++) {
+      if (this.prisms[i].isCharged) count++;
+    }
+    return count;
+  }
+
   private spreadCreepFrom(r: number, c: number): void {
     if (
       typeof r !== 'number' || typeof c !== 'number' ||
@@ -361,18 +385,13 @@ export class VoidCrisis extends BaseCrisis {
     ) {
       return;
     }
-    const neighbors = [
-      { r: r - 1, c },
-      { r: r + 1, c },
-      { r: r - 1, c: c - 1 },
-      { r: r + 1, c: c + 1 },
-      { r, c: c - 1 },
-      { r, c: c + 1 },
-    ];
 
-    for (const n of neighbors) {
-      if (this.canCreepSpreadTo(n.r, n.c)) {
-        this.setHazardTile(n.r, n.c, HazardType.VOID_CREEP, 0.8, 0, 0);
+    for (let i = 0; i < VoidCrisis.SPREAD_NEIGHBOR_OFFSETS.length; i++) {
+      const off = VoidCrisis.SPREAD_NEIGHBOR_OFFSETS[i];
+      const nr = r + off[0];
+      const nc = c + off[1];
+      if (this.canCreepSpreadTo(nr, nc)) {
+        this.setHazardTile(nr, nc, HazardType.VOID_CREEP, 0.8, 0, 0);
         this.voidCreepCount++;
         break;
       }
@@ -385,15 +404,10 @@ export class VoidCrisis extends BaseCrisis {
     for (let i = 0; i < active.length; i++) {
       const tile = active[i];
       if (tile.type === HazardType.VOID_CREEP || tile.type === HazardType.VOID_RIFT) {
-        const dirs = [
-          { dr: -1, dc: 0 },
-          { dr: 1, dc: 0 },
-          { dr: 0, dc: -1 },
-          { dr: 0, dc: 1 },
-        ];
-        for (const d of dirs) {
-          const nr = tile.r + d.dr;
-          const nc = tile.c + d.dc;
+        for (let di = 0; di < VoidCrisis.ORTHOGONAL_DIRS.length; di++) {
+          const d = VoidCrisis.ORTHOGONAL_DIRS[di];
+          const nr = tile.r + d[0];
+          const nc = tile.c + d[1];
           if (this.canCreepSpreadTo(nr, nc)) {
             this.setHazardTile(nr, nc, HazardType.VOID_CREEP, 0.8, 0, 0);
             this.voidCreepCount++;
@@ -416,7 +430,10 @@ export class VoidCrisis extends BaseCrisis {
     if (this.isTileHazardous(r, c)) return false;
 
     // Both prisms charged -> Supernova Cleanse permanently freezes & purges void creep
-    if (this.supernovaCleansed || (this.prisms.length > 0 && this.prisms.every((p) => p.isCharged))) {
+    if (
+      this.supernovaCleansed ||
+      (this.prisms.length > 0 && this.countChargedPrisms() === this.prisms.length)
+    ) {
       return false;
     }
 
@@ -466,9 +483,15 @@ export class VoidCrisis extends BaseCrisis {
   protected onResolveObjective(objectiveId: string, value?: number): void {
     void value;
     if (objectiveId === 'charge_prisms') {
-      const chargedCount = this.prisms.filter((p) => p.isCharged).length;
+      const chargedCount = this.countChargedPrisms();
       this.adjustThreat(-10 * chargedCount);
-      const obj = this.objectives.find((o) => o.id === 'charge_prisms');
+      let obj = null;
+      for (let i = 0; i < this.objectives.length; i++) {
+        if (this.objectives[i].id === 'charge_prisms') {
+          obj = this.objectives[i];
+          break;
+        }
+      }
       if (obj && obj.isCompleted && !this.supernovaCleansed) {
         this.triggerSupernovaCleanse();
       }
