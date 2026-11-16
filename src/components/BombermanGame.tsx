@@ -760,6 +760,7 @@ export default function BombermanGame() {
         }
         phaserGameRef.current.events.off('currency-reward');
         phaserGameRef.current.events.off('relic-awarded');
+        phaserGameRef.current.events.off('ready');
         phaserGameRef.current.destroy(true);
         phaserGameRef.current = null;
       }

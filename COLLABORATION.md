@@ -2842,3 +2842,20 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - `tests/daily_cycle39_zerogc_pooling_harmonization.test.mjs` 신규 구축 (8대 핵심 검증 시나리오 및 10,000프레임 소크 테스트 전수 통과).
     - 전체 테스트 스위트: **2,332 / 2,332 PASS (100% 통과, 0 실패, 0 스킵, +8 테스트 순증)**.
     - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링)**.
+
+### 40) 일일 정기 무한 진화(단일 에이전트 경량 유지보수): `TIME_FREEZE`·`CHRONO_FREEZE` 폭탄 도화선 영구 잠금 결함 수리, `playerDie()` 히트스톱 물리 재개 버그 차단, 10대 해저드 라이브 보스 스턴·마스터리 대칭성 확립, `findCorneringBombTile`·아군/적군 AI·`TelegraphEngine`·4대 위기 모듈 Zero-GC 스크래치 버퍼화 및 `BossHUD` 20Hz 스로틀 복원 완결 (Daily Auto-Maintenance: 2026-11-17 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 세션명: `[세션명: 봄버맨 일일 무한 진화]` (스케줄 백그라운드 단일 에이전트 자율 유지보수, 서브에이전트 스웜 미사용).
+  - **핵심 성능·Zero-GC 풀링 및 무결성 수리 내역**:
+    1. **런타임 치명 버그 수리 및 10대 해저드 전투/마스터리 하모니제이션 (`GameScene.ts`, `gameplay_mechanics.ts`, `BombermanGame.tsx`)**:
+       - **`TIME_FREEZE`·`CHRONO_FREEZE` 폭탄 슬롯 영구 잠금(Soft-Lock) 근본 수리**: `setActiveBombsFrozen(frozen)` 헬퍼를 도입하여 `TIME_FREEZE` 아이템 습득(`collectItem` 및 `applyItemEffect`), `TIME_FREEZE` 버프 만료, `CHRONO_FREEZE` 궁극기 만료(`isUltimateChronoFrozen` 플래그로 `TIME_FREEZE` 중첩 보존), 고스트·적군·아군 폭탄 설치 전 구간에서 `fuseTimer.paused`와 `pulseTween` 일시정지/재개를 일원화.
+       - **사망 히트스톱(`playerDie`) 70ms 후 물리 엔진 재개 버그 차단 및 궁극기 Zero-GC화**: `triggerHitStop()`의 `delayedCall`/`setTimeout` 복귀 콜백에 `!this.isGameOver` 가드를 추가하여 플레이어 사망 후 70ms 뒤에 `physics.world.resume()`이 호출되던 결함을 원천 차단하고, `executeMeteorStrike`·`executeSuperNova`·`executeChronoFreeze`에 `isGameOver` 중단 가드 및 `Uint8Array`/`Int16Array` 정적 스크래치 버퍼(`scratchMeteorUsedMask`, `scratchMeteorTargetsR/C`, `CHRONO_TICK_DELAYS_MS`) 적용.
+       - **10대 해저드 라이브 보스 스턴 대칭성 및 마스터리 중복 이펙트 방지**: `startBossEncounter()`로 스폰된 단독 `activeBoss`에 대해 기존 4종 외 누락되었던 6종 해저드(`Frost`, `Volt`, `Magma`, `Miasma`, `Chrono`, `Solar`)에도 `!hitActiveBossInGroup` 보스 스턴 판정을 추가하고, `updatePlayerMovement()`의 `Gravity`(`SINGULARITY_BURST`/`slingshotGranted`)·`Frost`(`ABSOLUTE_ZERO_BURST`) 피격 판정, `performDash()`의 `Chrono`·`Solar`·`Nebula`·`Abyssal` 대시 마스터리 연동, `frostHazardAudio` 엣지 트리거 전환, 9종 `grant*()` 마스터리의 50ms 중복 발동 가드를 완결.
+       - **세이브 복원 맵 참조 보존 및 리스너 정리**: `onResumeRunState`에서 `this.map` 행을 인플레이스 갱신하여 `dynamicHazard`의 맵 참조 단절을 막고, `generateMap()` 직접 재호출 시 기존 벽/블록 AO 그림자 선제 반환, 외부 위기 종료 시 `crisisGraphicsDirty` 1회 클리어, `BombermanGame.tsx` 언마운트 시 `events.off('ready')` 해제 적용.
+    2. **전술 경로탐색·엔티티 AI·보스 HUD·텔레그래프·위기·오디오 Zero-GC 강화 (`pathfinding.ts`, `AllyEntities.ts`, `EnemyEntities.ts`, `BaseEntity.ts`, `BossHUD.ts`, `TelegraphEngine.ts`, `HamsterBoss.ts`, `crises/*.ts`, `hazards/*Audio.ts`)**:
+       - `findCorneringBombTile`을 `zeroGCPathfinder.findPath` + `Int16Array`/`Uint8Array` 스크래치 버퍼로 전면 재작성하고 `populateObstacleMask`의 `.subarray()` 뷰 할당 제거, `MiniBomberAlly.updateAI`의 `Set<string>`을 `FlatHazardMask`로 전환, 6종 적군 클래스의 매 프레임 `{ r, c }`/`{ x, y }` 리터럴 할당 제거 및 `BaseEntity.destroy()` 내 `killTweensOf(this)` 추가.
+       - `BossHUD.emitState(force)`의 50ms(20Hz) 스로틀 복원 및 `setEnraged(true)`·`triggerStun()` 중복 이벤트 발행 제거, `TelegraphEngine` BFS 이웃 배열 할당 제거 및 `scratchTrimmedTiles`(`Int16Array`) 도입, `HamsterBoss.dashDirection` 인플레이스 갱신, `SolarFlareCrisis.resetVentsInPlace()`(`onInit`·`reset` 공용) 및 `PsychicCrisis` 동결 싱글톤 반환, `Solar`·`Abyssal`·`NebulaHazardAudio.resetInstance()`의 `instance === null` 상태 정적 노이즈 버퍼 해제 보장.
+  - **신규 영구 방어 테스트 및 검증 지표**:
+    - `tests/daily_cycle40_zerogc_timefreeze_hazard_harmonization.test.mjs` 신규 구축 (10대 핵심 검증 시나리오 및 10,000프레임 전 서브시스템 Zero-GC 소크 테스트 전수 통과 — 10,000프레임 동안 `Set` 할당 `0`회 검증).
+    - 전체 테스트 스위트: **2,342 / 2,342 PASS (100% 통과, 0 실패, 0 스킵, +10 테스트 순증)**.
+    - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 1030ms 컴파일, 4/4 정적 라우트 사전 렌더링)**.

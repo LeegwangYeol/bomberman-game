@@ -39,6 +39,24 @@ export class SolarFlareCrisis extends BaseCrisis {
     super(CrisisType.SOLAR_FLARES);
   }
 
+  private resetVentsInPlace(): void {
+    if (this.vents.length === SolarFlareCrisis.THERMAL_VENTS.length) {
+      for (let i = 0; i < SolarFlareCrisis.THERMAL_VENTS.length; i++) {
+        const src = SolarFlareCrisis.THERMAL_VENTS[i];
+        const dst = this.vents[i];
+        dst.r = src.r;
+        dst.c = src.c;
+        dst.isCooled = false;
+      }
+    } else {
+      this.vents = SolarFlareCrisis.THERMAL_VENTS.map((v) => ({
+        r: v.r,
+        c: v.c,
+        isCooled: false,
+      }));
+    }
+  }
+
   protected onInit(): void {
     SolarFlareCrisisAudio.getInstance().reset();
     this.cmeTimerMs = 0;
@@ -47,11 +65,7 @@ export class SolarFlareCrisis extends BaseCrisis {
     this.cmeSweepRemainingMs = 0;
     this.sweepsSurvivedCount = 0;
 
-    this.vents = SolarFlareCrisis.THERMAL_VENTS.map((v) => ({
-      r: v.r,
-      c: v.c,
-      isCooled: false,
-    }));
+    this.resetVentsInPlace();
 
     this.objectives = [
       {
@@ -223,14 +237,13 @@ export class SolarFlareCrisis extends BaseCrisis {
     const row = Math.floor(r);
     const col = Math.floor(c);
     if (this.isPillar(row, col)) return true; // Inside/behind pillar
-    // Check if adjacent orthogonal tile has a solid pillar shielding it
-    const adjacentPillars = [
-      this.isPillar(row - 1, col),
-      this.isPillar(row + 1, col),
-      this.isPillar(row, col - 1),
-      this.isPillar(row, col + 1),
-    ];
-    return adjacentPillars.some((p) => p);
+    // Check if adjacent orthogonal tile has a solid pillar shielding it (Zero-GC scalar check)
+    return (
+      this.isPillar(row - 1, col) ||
+      this.isPillar(row + 1, col) ||
+      this.isPillar(row, col - 1) ||
+      this.isPillar(row, col + 1)
+    );
   }
 
   /**
@@ -342,11 +355,15 @@ export class SolarFlareCrisis extends BaseCrisis {
       this.sweepsSurvivedCount = Math.max(0, extra.sweepsSurvivedCount);
     }
     if (Array.isArray(extra.vents)) {
-      for (const raw of extra.vents) {
+      for (let ri = 0; ri < extra.vents.length; ri++) {
+        const raw = extra.vents[ri];
         if (raw && typeof raw === 'object' && 'r' in raw && 'c' in raw) {
-          const match = this.vents.find((v) => v.r === raw.r && v.c === raw.c);
-          if (match) {
-            match.isCooled = Boolean(raw.isCooled);
+          for (let vi = 0; vi < this.vents.length; vi++) {
+            const v = this.vents[vi];
+            if (v.r === raw.r && v.c === raw.c) {
+              v.isCooled = Boolean((raw as { isCooled?: unknown }).isCooled);
+              break;
+            }
           }
         }
       }
@@ -361,10 +378,6 @@ export class SolarFlareCrisis extends BaseCrisis {
     this.isCmeSweeping = false;
     this.cmeSweepRemainingMs = 0;
     this.sweepsSurvivedCount = 0;
-    this.vents = SolarFlareCrisis.THERMAL_VENTS.map((v) => ({
-      r: v.r,
-      c: v.c,
-      isCooled: false,
-    }));
+    this.resetVentsInPlace();
   }
 }

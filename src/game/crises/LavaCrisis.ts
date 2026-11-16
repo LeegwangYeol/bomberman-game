@@ -204,7 +204,13 @@ export class LavaCrisis extends BaseCrisis {
     void value;
     if (objectiveId === 'solidify_lava') {
       this.adjustThreat(-3);
-      const obj = this.objectives.find((o) => o.id === 'solidify_lava');
+      let obj = null;
+      for (let i = 0; i < this.objectives.length; i++) {
+        if (this.objectives[i].id === 'solidify_lava') {
+          obj = this.objectives[i];
+          break;
+        }
+      }
       if (obj && obj.isCompleted) {
         this.triggerAlert(
           'lava_cooled',

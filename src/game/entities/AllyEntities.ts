@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import { BaseEntity } from './BaseEntity.ts';
 import { ALLY_ARCHETYPES, FACTIONS } from './types.ts';
 import {
+  ROWS,
+  COLS,
   TILE_SIZE,
   type GridCoord,
   findPathBFS,
@@ -10,6 +12,11 @@ import {
   FlatHazardMask,
   cloneBombTilesAsSet,
 } from '../pathfinding.ts';
+
+const sharedMiniBomberBlastMask = new FlatHazardMask(ROWS * COLS);
+const sharedMiniBomberSimBombsMask = new FlatHazardMask(ROWS * COLS);
+const sharedAllyPosScratch: GridCoord = { r: 0, c: 0 };
+const sharedPlayerPosScratch: GridCoord = { r: 0, c: 0 };
 
 /**
  * 1. Mini-Bomber Buddy ("Pom-Pom"):
@@ -114,16 +121,28 @@ export class MiniBomberAlly extends BaseEntity {
       return;
     }
 
-    // Bomb placement evaluation with strict friendly fire immunity invariant:
+    // Bomb placement evaluation with strict friendly fire immunity invariant (Zero-GC FlatHazardMask):
     if (this.bombCooldownTimer <= 0 && this.activeBombs < this.maxBombs) {
-      const candidateBlast = getBlastTiles({ r: ar, c: ac }, this.bombPower, map);
-      const playerInDanger = candidateBlast.has(`${pr},${pc}`);
+      sharedMiniBomberBlastMask.clear();
+      sharedAllyPosScratch.r = ar;
+      sharedAllyPosScratch.c = ac;
+      getBlastTiles(sharedAllyPosScratch, this.bombPower, map, sharedMiniBomberBlastMask);
+      const playerInDanger =
+        pr >= 0 && pr < ROWS && pc >= 0 && pc < COLS && sharedMiniBomberBlastMask.isHazard(pr, pc);
 
       // FRIENDLY FIRE SAFETY: NEVER plant bomb if blast intersects player!
       if (!playerInDanger) {
-        const simulatedBombs = cloneBombTilesAsSet(bombTiles);
-        simulatedBombs.add(`${ar},${ac}`);
-        const escape = findEscapePathBFS({ r: ar, c: ac }, candidateBlast, map, simulatedBombs, 4);
+        cloneBombTilesAsSet(bombTiles, sharedMiniBomberSimBombsMask);
+        sharedMiniBomberSimBombsMask.setCoord(ar, ac, 1);
+        sharedAllyPosScratch.r = ar;
+        sharedAllyPosScratch.c = ac;
+        const escape = findEscapePathBFS(
+          sharedAllyPosScratch,
+          sharedMiniBomberBlastMask,
+          map,
+          sharedMiniBomberSimBombsMask,
+          4
+        );
 
         if (escape && escape.length > 0) {
           const placed = dropBombCallback ? dropBombCallback(ar, ac, this.bombPower) : false;
@@ -151,7 +170,11 @@ export class MiniBomberAlly extends BaseEntity {
       this.pathRecalcTimer -= delta;
       if (this.pathRecalcTimer <= 0) {
         this.pathRecalcTimer = 220;
-        this.currentPath = findPathBFS({ r: ar, c: ac }, { r: pr, c: pc }, map, bombTiles);
+        sharedAllyPosScratch.r = ar;
+        sharedAllyPosScratch.c = ac;
+        sharedPlayerPosScratch.r = pr;
+        sharedPlayerPosScratch.c = pc;
+        this.currentPath = findPathBFS(sharedAllyPosScratch, sharedPlayerPosScratch, map, bombTiles);
       }
 
       if (this.currentPath.length > 0) {

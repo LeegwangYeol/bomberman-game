@@ -885,8 +885,13 @@ export function applyItemEffect(
         });
       }
       if (scene && typeof scene === 'object') {
-        const s = scene as { isTimeFrozen?: boolean; cameras?: { main?: { flash?: (d: number, r: number, g: number, b: number) => void } } };
+        const s = scene as {
+          isTimeFrozen?: boolean;
+          setActiveBombsFrozen?: (frozen: boolean) => void;
+          cameras?: { main?: { flash?: (d: number, r: number, g: number, b: number) => void } };
+        };
         s.isTimeFrozen = true;
+        s.setActiveBombsFrozen?.(true);
         s.cameras?.main?.flash?.(200, 250, 204, 21);
       }
       return { upgraded: true, label: 'TIME FREEZE (4s)!', color: def.color };

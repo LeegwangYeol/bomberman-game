@@ -104,6 +104,7 @@ export class TelegraphEngine {
   private readonly scratchProposedMask: Uint8Array = new Uint8Array(TOTAL_TILES);
   private readonly scratchBfsQueue: Int16Array = new Int16Array(TOTAL_TILES);
   private readonly scratchBfsVisited: Uint8Array = new Uint8Array(TOTAL_TILES);
+  private readonly scratchTrimmedTiles: Int16Array = new Int16Array(MAX_TELEGRAPH_TILES);
   private scratchBfsGen: number = 1;
 
   // 7. Attack Management State
@@ -284,27 +285,56 @@ export class TelegraphEngine {
           const cr = (curr / this.cols) | 0;
           const cc = curr % this.cols;
 
-          // Check 4 cardinal neighbors
-          const neighbors = [
-            cr > 0 ? curr - this.cols : -1,
-            cr < this.rows - 1 ? curr + this.cols : -1,
-            cc > 0 ? curr - 1 : -1,
-            cc < this.cols - 1 ? curr + 1 : -1,
-          ];
-
-          for (let n = 0; n < 4; n++) {
-            const nIdx = neighbors[n];
+          // Check 4 cardinal neighbors without array allocation
+          if (cr > 0) {
+            const upIdx = curr - this.cols;
             if (
-              nIdx !== -1 &&
-              nIdx >= 0 &&
-              nIdx < this.totalTiles &&
-              this.walkableMask[nIdx] === 1 &&
-              this.scratchProposedMask[nIdx] === 0 &&
-              this.scratchBfsVisited[nIdx] !== gen
+              this.walkableMask[upIdx] === 1 &&
+              this.scratchProposedMask[upIdx] === 0 &&
+              this.scratchBfsVisited[upIdx] !== gen
             ) {
-              this.scratchBfsVisited[nIdx] = gen;
+              this.scratchBfsVisited[upIdx] = gen;
               if (tail < this.scratchBfsQueue.length) {
-                this.scratchBfsQueue[tail++] = nIdx;
+                this.scratchBfsQueue[tail++] = upIdx;
+              }
+            }
+          }
+          if (cr < this.rows - 1) {
+            const downIdx = curr + this.cols;
+            if (
+              this.walkableMask[downIdx] === 1 &&
+              this.scratchProposedMask[downIdx] === 0 &&
+              this.scratchBfsVisited[downIdx] !== gen
+            ) {
+              this.scratchBfsVisited[downIdx] = gen;
+              if (tail < this.scratchBfsQueue.length) {
+                this.scratchBfsQueue[tail++] = downIdx;
+              }
+            }
+          }
+          if (cc > 0) {
+            const leftIdx = curr - 1;
+            if (
+              this.walkableMask[leftIdx] === 1 &&
+              this.scratchProposedMask[leftIdx] === 0 &&
+              this.scratchBfsVisited[leftIdx] !== gen
+            ) {
+              this.scratchBfsVisited[leftIdx] = gen;
+              if (tail < this.scratchBfsQueue.length) {
+                this.scratchBfsQueue[tail++] = leftIdx;
+              }
+            }
+          }
+          if (cc < this.cols - 1) {
+            const rightIdx = curr + 1;
+            if (
+              this.walkableMask[rightIdx] === 1 &&
+              this.scratchProposedMask[rightIdx] === 0 &&
+              this.scratchBfsVisited[rightIdx] !== gen
+            ) {
+              this.scratchBfsVisited[rightIdx] = gen;
+              if (tail < this.scratchBfsQueue.length) {
+                this.scratchBfsQueue[tail++] = rightIdx;
               }
             }
           }
@@ -341,7 +371,8 @@ export class TelegraphEngine {
     const attackId = attackIdOrZero > 0 ? attackIdOrZero : this.nextAttackId++;
     const validation = this.validateSafeCoverage(targetTiles);
 
-    let tilesToRegister = targetTiles;
+    let tilesSource: ArrayLike<number> = targetTiles;
+    let tilesLength = targetTiles.length;
     if (!validation.valid) {
       if (!allowTrimming) {
         return {
@@ -365,26 +396,30 @@ export class TelegraphEngine {
         };
       }
 
-      // Filter and trim tiles
-      const trimmed: number[] = [];
-      for (let i = 0; i < targetTiles.length && trimmed.length < budgetRemaining; i++) {
-        const idx = targetTiles[i];
+      // Filter and trim tiles into pre-allocated typed scratch buffer (Zero-GC)
+      let trimmedCount = 0;
+      const maxTrim = Math.min(budgetRemaining, MAX_TELEGRAPH_TILES);
+      for (let i = 0; i < targetTiles.length && trimmedCount < maxTrim; i++) {
+        const raw = targetTiles[i];
+        if (typeof raw !== 'number' || !Number.isFinite(raw)) continue;
+        const idx = raw | 0;
         if (idx >= 0 && idx < this.totalTiles && this.walkableMask[idx] === 1) {
-          trimmed.push(idx);
+          this.scratchTrimmedTiles[trimmedCount++] = idx;
         }
       }
-      tilesToRegister = trimmed;
+      tilesSource = this.scratchTrimmedTiles;
+      tilesLength = trimmedCount;
     }
 
     // Check capacity
-    if (this._activeCount + tilesToRegister.length > MAX_TELEGRAPH_TILES) {
+    if (this._activeCount + tilesLength > MAX_TELEGRAPH_TILES) {
       return { success: false, reason: 'CAPACITY_EXHAUSTED' };
     }
 
     // Allocate and commit slots
     let registeredCount = 0;
-    for (let i = 0; i < tilesToRegister.length; i++) {
-      const raw = tilesToRegister[i];
+    for (let i = 0; i < tilesLength; i++) {
+      const raw = tilesSource[i];
       if (typeof raw !== 'number' || !Number.isFinite(raw)) continue;
       const idx = raw | 0;
       if (idx < 0 || idx >= this.totalTiles) continue;

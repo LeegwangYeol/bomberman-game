@@ -174,11 +174,14 @@ export class HamsterBoss extends BaseBoss {
     const absX = Math.abs(dx);
     const absY = Math.abs(dy);
     if (absX === 0 && absY === 0) {
-      this.dashDirection = { x: 1, y: 0 };
+      this.dashDirection.x = 1;
+      this.dashDirection.y = 0;
     } else if (absX > absY) {
-      this.dashDirection = { x: Math.sign(dx) || 1, y: 0 };
+      this.dashDirection.x = Math.sign(dx) || 1;
+      this.dashDirection.y = 0;
     } else {
-      this.dashDirection = { x: 0, y: Math.sign(dy) || 1 };
+      this.dashDirection.x = 0;
+      this.dashDirection.y = Math.sign(dy) || 1;
     }
     this.audio.playRevWindup();
   }
@@ -186,10 +189,16 @@ export class HamsterBoss extends BaseBoss {
   /**
    * Helper for unit tests / immediate dash activation
    */
-  public startDash(direction: { x: number; y: number } = { x: 1, y: 0 }): void {
+  public startDash(direction?: { x: number; y: number }): void {
     this.isDashing = true;
     this.isReving = false;
-    this.dashDirection = direction;
+    if (direction) {
+      this.dashDirection.x = direction.x;
+      this.dashDirection.y = direction.y;
+    } else {
+      this.dashDirection.x = 1;
+      this.dashDirection.y = 0;
+    }
     this.vx = this.dashDirection.x * this.dashSpeed;
     this.vy = this.dashDirection.y * this.dashSpeed;
     this.audio.playDashWhirr();
@@ -245,14 +254,16 @@ export class HamsterBoss extends BaseBoss {
         const canGoUp = this.y > this.minArenaY + 40;
         const canGoDown = this.y < this.maxArenaY - 40;
         const yDir = canGoUp && canGoDown ? (Math.random() > 0.5 ? 1 : -1) : canGoUp ? -1 : 1;
-        this.dashDirection = { x: 0, y: yDir };
+        this.dashDirection.x = 0;
+        this.dashDirection.y = yDir;
       } else {
         // Offset 2px inward to prevent immediate re-trigger on next frame
         this.y -= Math.sign(this.dashDirection.y) * 2;
         const canGoLeft = this.x > this.minArenaX + 40;
         const canGoRight = this.x < this.maxArenaX - 40;
         const xDir = canGoLeft && canGoRight ? (Math.random() > 0.5 ? 1 : -1) : canGoLeft ? -1 : 1;
-        this.dashDirection = { x: xDir, y: 0 };
+        this.dashDirection.x = xDir;
+        this.dashDirection.y = 0;
       }
       this.vx = this.dashDirection.x * this.dashSpeed;
       this.vy = this.dashDirection.y * this.dashSpeed;

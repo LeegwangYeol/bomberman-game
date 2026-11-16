@@ -469,6 +469,8 @@ export class AbyssalHazardAudio {
     if (AbyssalHazardAudio.instance) {
       AbyssalHazardAudio.instance.destroy();
       AbyssalHazardAudio.instance = null;
+    } else {
+      AbyssalHazardAudio.destroy();
     }
   }
 

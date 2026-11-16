@@ -282,8 +282,9 @@ export class BossHUD {
     const clamped = Math.max(0, Math.min(100, value));
     if (this.state.enrageGauge !== clamped) {
       this.state.enrageGauge = clamped;
-      if (this.state.enrageGauge >= 100) {
+      if (this.state.enrageGauge >= 100 && !this.state.isEnraged) {
         this.setEnraged(true);
+        return;
       }
       this.emitState(false);
     }
@@ -303,6 +304,7 @@ export class BossHUD {
         durationMs: 3500,
         remainingMs: 3500,
       });
+      return;
     }
     this.emitState(true);
   }
@@ -325,8 +327,6 @@ export class BossHUD {
       durationMs: stunMs,
       remainingMs: stunMs,
     });
-
-    this.emitState(true);
   }
 
   public registerComboHit(hits: number, windowMs: number = 150): void {
@@ -376,8 +376,12 @@ export class BossHUD {
   }
 
   private emitState(force: boolean): void {
-    void force;
-    this.lastEmitTime = Date.now();
+    const now = Date.now();
+    if (!force && now - this.lastEmitTime < this.emitIntervalMs) {
+      this.isDirty = true;
+      return;
+    }
+    this.lastEmitTime = now;
     this.isDirty = false;
     if (this.game && this.game.events) {
       this.game.events.emit('boss-hud-update', { ...this.state });

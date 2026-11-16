@@ -61,7 +61,9 @@ export function applyPhysicsBodyInvariantGuard(
     this.height = targetHeight;
     this.halfWidth = fixedHalfW;
     this.halfHeight = fixedHalfH;
-    this.updateCenter();
+    if (typeof this.updateCenter === 'function') {
+      this.updateCenter();
+    }
   };
   mutableBody.updateFromGameObject = function(this: MutableArcadeBody) {
     if (!Number.isFinite(sprite.x)) sprite.x = 0;
@@ -69,7 +71,9 @@ export function applyPhysicsBodyInvariantGuard(
     this.updateBounds();
     this.position.x = sprite.x + fixedRelX;
     this.position.y = sprite.y + fixedRelY;
-    this.updateCenter();
+    if (typeof this.updateCenter === 'function') {
+      this.updateCenter();
+    }
   };
 }
 
@@ -495,6 +499,12 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
   }
 
   public override destroy(fromScene?: boolean): void {
+    const sceneTweens = (
+      this.scene as unknown as { tweens?: { killTweensOf?: (target: unknown) => void } } | undefined
+    )?.tweens;
+    if (sceneTweens && typeof sceneTweens.killTweensOf === 'function') {
+      sceneTweens.killTweensOf(this);
+    }
     if (this.dropShadow) {
       const sceneWithPool = this.scene as unknown as ISceneShadowPool | undefined;
       if (sceneWithPool?.shadowPool) {

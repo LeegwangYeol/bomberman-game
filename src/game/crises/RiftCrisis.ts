@@ -426,13 +426,21 @@ export class RiftCrisis extends BaseCrisis {
     }
 
     // 6. State Harmonization: Objectives & Hazard Tiles
-    const polarizedCount = this.spires.filter((s) => s.isPolarized).length;
-    const syncObj = this.objectives.find((o) => o.id === 'quantum_sync');
+    let polarizedCount = 0;
+    for (let i = 0; i < this.spires.length; i++) {
+      if (this.spires[i].isPolarized) polarizedCount++;
+    }
+    let syncObj = null;
+    let navObj = null;
+    for (let i = 0; i < this.objectives.length; i++) {
+      const o = this.objectives[i];
+      if (o.id === 'quantum_sync') syncObj = o;
+      else if (o.id === 'navigate_rifts') navObj = o;
+    }
     if (syncObj) {
       syncObj.currentCount = polarizedCount;
       syncObj.isCompleted = polarizedCount >= syncObj.targetCount;
     }
-    const navObj = this.objectives.find((o) => o.id === 'navigate_rifts');
     if (navObj && this.warpsPerformedCount > 0) {
       navObj.currentCount = Math.min(
         navObj.targetCount,

@@ -1182,21 +1182,37 @@ export class ZeroGCPathfinder {
 export const zeroGCPathfinder = new ZeroGCPathfinder();
 export const EMPTY_PATH: readonly GridCoord[] = Object.freeze([]);
 const outPathBuffer = new Int16Array(TOTAL_TILES);
+const corneringPathBuffer = new Int16Array(TOTAL_TILES);
+const corneringCandidatesBuffer = new Int16Array(TOTAL_TILES + 2);
 const sharedBombMask = new Uint8Array(TOTAL_TILES);
 const sharedDangerMask = new Uint8Array(TOTAL_TILES);
 const sharedObstacleMask = new Uint8Array(TOTAL_TILES);
 const sharedLethalMask = new Uint8Array(TOTAL_TILES);
+const sharedCorneringBlastMask = new Uint8Array(TOTAL_TILES);
 const sharedEscapeDangerMask = new FlatHazardMask(TOTAL_TILES);
 const sharedSimulatedBombsMask = new FlatHazardMask(TOTAL_TILES);
 const sharedPosScratch: GridCoord = { r: 0, c: 0 };
 const sharedHazardScratch: GridCoord = { r: 0, c: 0 };
+const sharedCorneringScratch: GridCoord = { r: 0, c: 0 };
+
+const BLAST_CARDINAL_DIRECTIONS = Object.freeze([
+  Object.freeze({ dr: -1, dc: 0 }),
+  Object.freeze({ dr: 1, dc: 0 }),
+  Object.freeze({ dr: 0, dc: -1 }),
+  Object.freeze({ dr: 0, dc: 1 }),
+]);
 
 function populateObstacleMask(map: number[][] | Uint8Array, outMask: Uint8Array): void {
   outMask.fill(0);
   if (!map) return;
   if (map instanceof Uint8Array) {
-    const copyLen = Math.min(outMask.length, map.length);
-    outMask.set(map.subarray(0, copyLen));
+    if (map.length <= outMask.length) {
+      outMask.set(map);
+    } else {
+      for (let i = 0; i < outMask.length; i++) {
+        outMask[i] = map[i];
+      }
+    }
     return;
   }
   if (!Array.isArray(map)) return;
@@ -1360,15 +1376,9 @@ export function getBlastTiles(
     (blast as Set<string>).add(`${center.r},${center.c}`);
   }
 
-  const directions = [
-    { dr: -1, dc: 0 }, // Up
-    { dr: 1, dc: 0 },  // Down
-    { dr: 0, dc: -1 }, // Left
-    { dr: 0, dc: 1 },  // Right
-  ];
-
   const intPower = Math.floor(power);
-  for (const dir of directions) {
+  for (let d = 0; d < 4; d++) {
+    const dir = BLAST_CARDINAL_DIRECTIONS[d];
     for (let i = 1; i <= intPower; i++) {
       const nr = center.r + dir.dr * i;
       const nc = center.c + dir.dc * i;
@@ -1742,20 +1752,15 @@ export function getSafeDemolitionApproaches(
   ) {
     return EMPTY_PATH as GridCoord[];
   }
-  const dirs = [
-    { dr: -1, dc: 0 },
-    { dr: 1, dc: 0 },
-    { dr: 0, dc: -1 },
-    { dr: 0, dc: 1 },
-  ];
   const safe: GridCoord[] = [];
-  for (const d of dirs) {
+  for (let di = 0; di < 4; di++) {
+    const d = BLAST_CARDINAL_DIRECTIONS[di];
     const r = targetBlock.r + d.dr;
     const c = targetBlock.c + d.dc;
     if (r >= 0 && r < ROWS && c >= 0 && c < COLS && map[r]?.[c] === TILE_EMPTY) {
       const isBomb = isTileInHazardMask(bombTiles, r, c);
       const isLethalHazard = isTileLethalInHazardMask(hazardMask, r, c);
-      if (!isBomb && !isLethalHazard && canSafelyPlaceBomb({ r, c }, bombPower, map, bombTiles, maxEscapeSteps, hazardMask)) {
+      if (!isBomb && !isLethalHazard && canSafelyPlaceBomb(r * COLS + c, bombPower, map, bombTiles, maxEscapeSteps, hazardMask)) {
         safe.push({ r, c });
       }
     }
@@ -2137,62 +2142,96 @@ export function findCorneringBombTile(
     return null;
   }
 
-  // Count player's open walkable neighbors
-  const dirs = [
-    { dr: -1, dc: 0 },
-    { dr: 1, dc: 0 },
-    { dr: 0, dc: -1 },
-    { dr: 0, dc: 1 },
-  ];
-  const playerNeighbors: GridCoord[] = [];
-  for (const d of dirs) {
+  // Count player's open walkable neighbors using zero-allocation scalar slots
+  let neighborCount = 0;
+  let n0 = -1;
+  let n1 = -1;
+  let n2 = -1;
+  let n3 = -1;
+  for (let di = 0; di < 4; di++) {
+    const d = BLAST_CARDINAL_DIRECTIONS[di];
     const nr = playerPos.r + d.dr;
     const nc = playerPos.c + d.dc;
     if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && map[nr]?.[nc] === TILE_EMPTY) {
-      playerNeighbors.push({ r: nr, c: nc });
+      const nIdx = nr * COLS + nc;
+      if (neighborCount === 0) n0 = nIdx;
+      else if (neighborCount === 1) n1 = nIdx;
+      else if (neighborCount === 2) n2 = nIdx;
+      else n3 = nIdx;
+      neighborCount++;
     }
   }
 
   const dist = Math.abs(enemyPos.r - playerPos.r) + Math.abs(enemyPos.c - playerPos.c);
+  if (dist > 4) {
+    return null;
+  }
 
   // Player must be confined (at most 2 open neighbors: corridor, corner, or dead-end)
   // OR when allowOpenPursuit is enabled and enemy is within close striking distance (dist <= 2)
-  if (playerNeighbors.length > 2) {
+  if (neighborCount > 2) {
     if (!allowOpenPursuit || dist > 2) {
       return null;
     }
   }
 
-  const path = findPathBFS(enemyPos, playerPos, map, bombTiles || new Set(), false, hazardMask);
-  if (path.length === 0 && (enemyPos.r !== playerPos.r || enemyPos.c !== playerPos.c)) {
-    return null;
+  const startIdx = enemyPos.r * COLS + enemyPos.c;
+  const playerIdx = playerPos.r * COLS + playerPos.c;
+  let pathLen = 0;
+  if (startIdx !== playerIdx) {
+    populateObstacleMask(map, sharedObstacleMask);
+    populateMaskFromSetOrArray(bombTiles, sharedBombMask);
+    let lethalMask: Uint8Array | null = null;
+    if (hazardMask) {
+      populateMaskFromSetOrArray(hazardMask, sharedLethalMask);
+      lethalMask = sharedLethalMask;
+    }
+    pathLen = zeroGCPathfinder.findPath(
+      startIdx,
+      playerIdx,
+      corneringPathBuffer,
+      sharedObstacleMask,
+      sharedBombMask,
+      false,
+      lethalMask
+    );
+    if (pathLen === 0) {
+      return null;
+    }
   }
 
-  if (dist > 4) {
-    return null;
-  }
-
-  // Candidates for choke point:
+  // Candidates for choke point (flat tile indices in typed scratch buffer):
   // 1. enemyPos (enemy already standing where dropping a bomb covers player or player exit)
   // 2. player's sole exit
   // 3. steps along path between enemy and player
-  const candidates: GridCoord[] = [enemyPos];
-  if (playerNeighbors.length === 1) {
-    candidates.push(playerNeighbors[0]);
+  let candCount = 0;
+  corneringCandidatesBuffer[candCount++] = startIdx;
+  if (neighborCount === 1 && n0 !== -1) {
+    corneringCandidatesBuffer[candCount++] = n0;
   }
-  for (const step of path) {
-    candidates.push(step);
+  for (let pi = 0; pi < pathLen; pi++) {
+    corneringCandidatesBuffer[candCount++] = corneringPathBuffer[pi];
   }
 
-  for (const cand of candidates) {
-    const blast = getBlastTiles(cand, 2, map);
+  for (let ci = 0; ci < candCount; ci++) {
+    const candIdx = corneringCandidatesBuffer[ci];
+    const cr = (candIdx / COLS) | 0;
+    const cc = candIdx % COLS;
+    sharedCorneringBlastMask.fill(0);
+    sharedCorneringScratch.r = cr;
+    sharedCorneringScratch.c = cc;
+    getBlastTiles(sharedCorneringScratch, 2, map, sharedCorneringBlastMask);
+
     const coversPlayerOrExit =
-      blast.has(`${playerPos.r},${playerPos.c}`) ||
-      playerNeighbors.some((n) => blast.has(`${n.r},${n.c}`));
+      sharedCorneringBlastMask[playerIdx] !== 0 ||
+      (n0 !== -1 && sharedCorneringBlastMask[n0] !== 0) ||
+      (n1 !== -1 && sharedCorneringBlastMask[n1] !== 0) ||
+      (n2 !== -1 && sharedCorneringBlastMask[n2] !== 0) ||
+      (n3 !== -1 && sharedCorneringBlastMask[n3] !== 0);
 
     if (coversPlayerOrExit) {
-      if (canSafelyPlaceBomb(cand, 2, map, bombTiles, 8, hazardMask)) {
-        return cand;
+      if (canSafelyPlaceBomb(candIdx, 2, map, bombTiles, 8, hazardMask)) {
+        return { r: cr, c: cc };
       }
     }
   }

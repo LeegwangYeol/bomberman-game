@@ -276,6 +276,8 @@ export class NebulaHazardAudio {
     if (NebulaHazardAudio.instance) {
       NebulaHazardAudio.instance.destroy();
       NebulaHazardAudio.instance = null;
+    } else {
+      NebulaHazardAudio.destroy();
     }
   }
 

@@ -190,6 +190,8 @@ export class SolarHazardAudio {
     if (SolarHazardAudio.instance) {
       SolarHazardAudio.instance.destroy();
       SolarHazardAudio.instance = null;
+    } else {
+      SolarHazardAudio.destroy();
     }
   }
 

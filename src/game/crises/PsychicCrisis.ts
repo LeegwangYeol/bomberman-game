@@ -311,13 +311,21 @@ export class PsychicCrisis extends BaseCrisis {
     return false;
   }
 
+  private static readonly DISPEL_TRUE_RESULT = Object.freeze({
+    dispelled: true,
+    bonusScore: 150,
+    barrierDurationMs: 2500,
+  });
+  private static readonly DISPEL_FALSE_RESULT = Object.freeze({
+    dispelled: false,
+    bonusScore: 0,
+    barrierDurationMs: 0,
+  });
+
   public dispelPsionicIllusion(r: number, c: number): { dispelled: boolean; bonusScore: number; barrierDurationMs: number } {
-    const dispelled = this.dispelIllusionAt(r, c);
-    return {
-      dispelled,
-      bonusScore: dispelled ? 150 : 0,
-      barrierDurationMs: dispelled ? 2500 : 0,
-    };
+    return this.dispelIllusionAt(r, c)
+      ? PsychicCrisis.DISPEL_TRUE_RESULT
+      : PsychicCrisis.DISPEL_FALSE_RESULT;
   }
 
   protected onBombBlast(r: number, c: number, radius: number = 1): void {
@@ -373,7 +381,13 @@ export class PsychicCrisis extends BaseCrisis {
 
   protected onResolveObjective(objectiveId: string, _value?: number): void {
     if (objectiveId === 'resist_psionics') {
-      const obj = this.objectives.find((o) => o.id === 'resist_psionics');
+      let obj = null;
+      for (let i = 0; i < this.objectives.length; i++) {
+        if (this.objectives[i].id === 'resist_psionics') {
+          obj = this.objectives[i];
+          break;
+        }
+      }
       if (obj && obj.isCompleted) {
         this.clearAllHazards();
         this.resolveCrisis('Psionic Manifestations destroyed! Reality anchored.');
