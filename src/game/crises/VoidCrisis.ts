@@ -60,13 +60,25 @@ export class VoidCrisis extends BaseCrisis {
 
     VoidCrisisAudio.getInstance().reset();
 
-    this.prisms = VoidCrisis.PRISM_POSITIONS.map((p) => ({
-      r: p.r,
-      c: p.c,
-      charge: 0,
-      hits: 0,
-      isCharged: false,
-    }));
+    if (this.prisms.length === VoidCrisis.PRISM_POSITIONS.length) {
+      for (let i = 0; i < VoidCrisis.PRISM_POSITIONS.length; i++) {
+        const src = VoidCrisis.PRISM_POSITIONS[i];
+        const dst = this.prisms[i];
+        dst.r = src.r;
+        dst.c = src.c;
+        dst.charge = 0;
+        dst.hits = 0;
+        dst.isCharged = false;
+      }
+    } else {
+      this.prisms = VoidCrisis.PRISM_POSITIONS.map((p) => ({
+        r: p.r,
+        c: p.c,
+        charge: 0,
+        hits: 0,
+        isCharged: false,
+      }));
+    }
 
     this.objectives = [
       {
@@ -497,7 +509,13 @@ export class VoidCrisis extends BaseCrisis {
       }
     } else if (objectiveId === 'defeat_avatar') {
       this.adjustThreat(-50);
-      const obj = this.objectives.find((o) => o.id === 'defeat_avatar');
+      let obj = null;
+      for (let i = 0; i < this.objectives.length; i++) {
+        if (this.objectives[i].id === 'defeat_avatar') {
+          obj = this.objectives[i];
+          break;
+        }
+      }
       if (obj && obj.isCompleted && !this.isVictorious) {
         this.resolveCrisis('Supernova Cleanse shattered the Void Avatar and purified the cosmos!');
       }

@@ -208,6 +208,8 @@ export class MagmaHazardAudio {
       MagmaHazardAudio.instance.destroy();
       MagmaHazardAudio.instance = null;
     }
+    MagmaHazardAudio.cachedNoiseBuffer = null;
+    MagmaHazardAudio.cachedNoiseSampleRate = 0;
   }
 
   public init(ctx: AudioContext, pool?: AudioVoicePool): void {
@@ -570,6 +572,7 @@ export class MagmaHazardAudio {
     }
     this.ctx = null;
     MagmaHazardAudio.cachedNoiseBuffer = null;
+    MagmaHazardAudio.cachedNoiseSampleRate = 0;
     if (MagmaHazardAudio.instance === this) {
       MagmaHazardAudio.instance = null;
     }

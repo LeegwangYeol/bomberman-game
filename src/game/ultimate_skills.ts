@@ -765,8 +765,13 @@ export function renderMeteorReticle(
   const releaseReticle = () => {
     if (reticleReleased) return;
     reticleReleased = true;
-    if (pool) pool.release(g);
-    else g.destroy();
+    if (pool) {
+      if ((scene as unknown as ISceneVfxPools).graphicsPool === pool) {
+        pool.release(g);
+      }
+    } else {
+      g.destroy();
+    }
   };
   const timer = scene.time.addEvent({
     delay: 16,
@@ -774,7 +779,11 @@ export function renderMeteorReticle(
     callback: () => {
       elapsed += 16;
       const progress = Math.min(1.0, elapsed / safeWarningMs);
-      if (!g || !g.active) return;
+      if (!g || !g.active) {
+        releaseReticle();
+        timer?.remove();
+        return;
+      }
       g.clear();
 
       // Outer warning ring contracting to center
@@ -805,7 +814,7 @@ export function renderMeteorReticle(
 
       if (progress >= 1.0) {
         releaseReticle();
-        timer.remove();
+        timer?.remove();
         if (onImpact) onImpact();
       }
     },
@@ -864,13 +873,20 @@ export function renderMeteorStreak(
   const releaseStreak = () => {
     if (streakReleased) return;
     streakReleased = true;
+    const poolStillActive = cPool && (scene as unknown as ISceneVfxPools).circlePool === cPool;
     if (meteor) {
-      if (cPool) cPool.release(meteor);
-      else meteor.destroy();
+      if (cPool) {
+        if (poolStillActive) cPool.release(meteor);
+      } else {
+        meteor.destroy();
+      }
     }
     if (corona) {
-      if (cPool) cPool.release(corona);
-      else corona.destroy();
+      if (cPool) {
+        if (poolStillActive) cPool.release(corona);
+      } else {
+        corona.destroy();
+      }
     }
   };
 
@@ -895,8 +911,13 @@ export function renderMeteorStreak(
           const releaseEmber = () => {
             if (emberReleased) return;
             emberReleased = true;
-            if (cPool) cPool.release(ember);
-            else ember.destroy();
+            if (cPool) {
+              if ((scene as unknown as ISceneVfxPools).circlePool === cPool) {
+                cPool.release(ember);
+              }
+            } else {
+              ember.destroy();
+            }
           };
           scene.tweens.add({
             targets: ember,
@@ -942,8 +963,13 @@ export function renderSuperNovaWave(
   const releaseWave = () => {
     if (waveReleased) return;
     waveReleased = true;
-    if (pool) pool.release(g);
-    else g.destroy();
+    if (pool) {
+      if ((scene as unknown as ISceneVfxPools).graphicsPool === pool) {
+        pool.release(g);
+      }
+    } else {
+      g.destroy();
+    }
   };
 
   scene.tweens.addCounter({
@@ -1000,6 +1026,7 @@ export function renderChronoStasisVFX(scene: Phaser.Scene, durationMs: number = 
     if (typeof overlay.setSize === 'function') overlay.setSize(scene.scale.width * 2, scene.scale.height * 2);
     if (typeof overlay.setFillStyle === 'function') overlay.setFillStyle(0x0284c7, 0.28);
     if (typeof overlay.setAlpha === 'function') overlay.setAlpha(0.28);
+    if (typeof overlay.setScrollFactor === 'function') overlay.setScrollFactor(0);
     if (typeof overlay.setDepth === 'function') overlay.setDepth(RENDER_DEPTH.SCREEN_OVERLAY);
   }
 
@@ -1009,6 +1036,7 @@ export function renderChronoStasisVFX(scene: Phaser.Scene, durationMs: number = 
     if (typeof border.setActive === 'function') border.setActive(true);
     if (typeof border.setVisible === 'function') border.setVisible(true);
     if (typeof border.setAlpha === 'function') border.setAlpha(1);
+    if (typeof border.setScrollFactor === 'function') border.setScrollFactor(0);
     if (typeof border.setDepth === 'function') border.setDepth(RENDER_DEPTH.SCREEN_OVERLAY);
     if (typeof border.clear === 'function') border.clear();
     if (typeof border.lineStyle === 'function') border.lineStyle(6, 0x38bdf8, 0.75);
@@ -1025,12 +1053,22 @@ export function renderChronoStasisVFX(scene: Phaser.Scene, durationMs: number = 
       delayedTimer = undefined;
     }
     if (overlay) {
-      if (rPool) rPool.release(overlay);
-      else overlay.destroy();
+      if (rPool) {
+        if ((scene as unknown as ISceneVfxPools).rectPool === rPool) {
+          rPool.release(overlay);
+        }
+      } else {
+        overlay.destroy();
+      }
     }
     if (border) {
-      if (gPool) gPool.release(border);
-      else border.destroy();
+      if (gPool) {
+        if ((scene as unknown as ISceneVfxPools).graphicsPool === gPool) {
+          gPool.release(border);
+        }
+      } else {
+        border.destroy();
+      }
     }
   };
 
@@ -1068,8 +1106,13 @@ export function renderScorchDecal(
   const releaseDecal = () => {
     if (decalReleased) return;
     decalReleased = true;
-    if (pool) pool.release(decal);
-    else decal.destroy();
+    if (pool) {
+      if ((scene as unknown as ISceneVfxPools).graphicsPool === pool) {
+        pool.release(decal);
+      }
+    } else {
+      decal.destroy();
+    }
   };
 
   scene.tweens.add({
@@ -1106,8 +1149,13 @@ export function createAegisDomeVisual(
     if (domeDestroyed) return;
     domeDestroyed = true;
     if (g) {
-      if (pool) pool.release(g);
-      else g.destroy();
+      if (pool) {
+        if ((scene as unknown as ISceneVfxPools).graphicsPool === pool) {
+          pool.release(g);
+        }
+      } else {
+        g.destroy();
+      }
     }
   };
 

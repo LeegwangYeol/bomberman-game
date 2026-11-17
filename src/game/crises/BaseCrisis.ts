@@ -298,7 +298,13 @@ export abstract class BaseCrisis implements ICrisis {
     if (this.stage === CrisisStage.INACTIVE || this.stage === CrisisStage.RESOLVED || this.stage === CrisisStage.FAILED) {
       return;
     }
-    const obj = this.objectives.find((o) => o.id === objectiveId);
+    let obj: CrisisObjective | undefined;
+    for (let i = 0; i < this.objectives.length; i++) {
+      if (this.objectives[i].id === objectiveId) {
+        obj = this.objectives[i];
+        break;
+      }
+    }
     if (!obj) return;
 
     if (value !== undefined) {

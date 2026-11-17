@@ -91,6 +91,8 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
   public entityName: string;
   public normalizedEntityType: string = '';
   public overheadUI: OverheadUI;
+  protected readonly overheadBarWidth: number;
+  protected readonly overheadHpBarColor?: number;
 
   public invulnerableTimer: number = 0;
   public iFrameDurationMs: number = 800;
@@ -113,6 +115,7 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
   private _isSquashStretching: boolean = false;
   protected _isMovingAnimation: boolean = false;
   public dropShadow?: Phaser.GameObjects.Sprite;
+  public dropShadowScale: number = 1.0;
 
   public override setVelocity(x?: number, y?: number): this {
     if (this.isStunned) {
@@ -191,7 +194,55 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
     this.setDepth(9);
     applyPhysicsBodyInvariantGuard(this, 24, 24, 8, 8);
 
+    this.overheadBarWidth = barWidth;
+    this.overheadHpBarColor = hpBarColor;
     this.overheadUI = new OverheadUI(scene, entityName, faction, maxHp, barWidth, hpBarColor);
+  }
+
+  /**
+   * Resets a pooled/inactive BaseEntity back to clean live defaults without leaking
+   * stale death, stun, speed-debuff, velocity, or destroyed OverheadUI state.
+   */
+  public reset(): void {
+    const sceneTweens = (
+      this.scene as unknown as { tweens?: { killTweensOf?: (target: unknown) => void } } | undefined
+    )?.tweens;
+    if (sceneTweens && typeof sceneTweens.killTweensOf === 'function') {
+      sceneTweens.killTweensOf(this);
+    }
+
+    this.isDead = false;
+    this.hp = this.maxHp;
+    this.invulnerableTimer = 0;
+    this.isStunned = false;
+    this.stunUntil = 0;
+    this.speedMultiplier = 1.0;
+    this.speedMultiplierUntilMs = 0;
+    this.stepCycle = 0;
+    this.bobOffset = 0;
+    this._isSquashStretching = false;
+    this._isMovingAnimation = false;
+    this.displayOriginY = this.baseDisplayOriginY;
+
+    this.setAngle(0);
+    this.setAlpha(1.0);
+    this.setScale(this.baseScaleX, this.baseScaleY);
+    super.setVelocity(0, 0);
+
+    if (!this.overheadUI || this.overheadUI.isDestroyed) {
+      this.overheadUI = new OverheadUI(
+        this.scene,
+        this.entityName,
+        this.faction,
+        this.maxHp,
+        this.overheadBarWidth,
+        this.overheadHpBarColor
+      );
+    } else {
+      this.overheadUI.setVisible(true);
+      this.overheadUI.setIntent('', false);
+      this.overheadUI.update(this.x, this.y, this.hp);
+    }
   }
 
   /**
@@ -490,7 +541,11 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
       this.dropShadow.x = this.x;
       this.dropShadow.y = this.y + 14;
       const hNorm = Math.max(0, this.bobOffset) / 20;
-      this.dropShadow.setScale(Math.max(0.4, 1.0 - hNorm * 0.25), Math.max(0.3, 0.7 - hNorm * 0.2));
+      const s = this.dropShadowScale > 0 ? this.dropShadowScale : 1.0;
+      this.dropShadow.setScale(
+        Math.max(0.4, 1.0 - hNorm * 0.25) * s,
+        Math.max(0.3, 0.7 - hNorm * 0.2) * s
+      );
       this.dropShadow.setAlpha(Math.max(0.15, 0.45 - hNorm * 0.20));
       this.dropShadow.setDepth(6);
     }

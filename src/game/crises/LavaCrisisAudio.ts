@@ -393,6 +393,8 @@ export class LavaCrisisAudio {
       LavaCrisisAudio.instance.destroy();
       LavaCrisisAudio.instance = null;
     }
+    LavaCrisisAudio.cachedNoiseBuffer = null;
+    LavaCrisisAudio.cachedNoiseSampleRate = 0;
   }
 
   public init(ctx: AudioContext | null, pool?: AudioVoicePool): void {

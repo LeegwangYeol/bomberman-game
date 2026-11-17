@@ -783,6 +783,8 @@ export class DynamicHazardAudio {
       DynamicHazardAudio.instance.destroy();
       DynamicHazardAudio.instance = null;
     }
+    DynamicHazardAudio.cachedNoiseBuffer = null;
+    DynamicHazardAudio.cachedNoiseSampleRate = 0;
   }
 
   public playDynamicHazardState(
@@ -1706,6 +1708,7 @@ export class DynamicHazardAudio {
 
     this.ctx = null;
     DynamicHazardAudio.cachedNoiseBuffer = null;
+    DynamicHazardAudio.cachedNoiseSampleRate = 0;
     if (DynamicHazardAudio.instance === this) {
       DynamicHazardAudio.instance = null;
     }

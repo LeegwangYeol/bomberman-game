@@ -244,6 +244,8 @@ export class VoltHazardAudio {
       VoltHazardAudio.instance.destroy();
       VoltHazardAudio.instance = null;
     }
+    VoltHazardAudio.cachedNoiseBuffer = null;
+    VoltHazardAudio.cachedNoiseSampleRate = 0;
   }
 
   public init(ctx: AudioContext, pool?: AudioVoicePool): void {
@@ -619,6 +621,9 @@ export class VoltHazardAudio {
     }
     this.ctx = null;
     VoltHazardAudio.cachedNoiseBuffer = null;
-    VoltHazardAudio.instance = null;
+    VoltHazardAudio.cachedNoiseSampleRate = 0;
+    if (VoltHazardAudio.instance === this) {
+      VoltHazardAudio.instance = null;
+    }
   }
 }

@@ -55,6 +55,8 @@ import {
 import {
   GravityHazard,
   GravityLifecycleState,
+  AccretionPhase,
+  GravityDangerValue,
 } from './GravityHazard.ts';
 import {
   SolarHazard,
@@ -411,7 +413,12 @@ export class HazardRenderer {
       }
     }
 
-    // 7. Solar Hazard (Solar Corona & Coronal Flare)
+    // 7. Gravity Hazard (Gravitational Singularity & Event Horizon)
+    if (hasGravity && context.gravityHazard) {
+      HazardRenderer.renderGravitySingularity(graphics, context.gravityHazard, time);
+    }
+
+    // 8. Solar Hazard (Solar Corona & Coronal Flare)
     if (hasSolar && context.solarHazard) {
       const activeIndices = context.solarHazard.getActiveSolarIndices();
       const activeCount = context.solarHazard.getActiveSolarCount();
@@ -458,7 +465,7 @@ export class HazardRenderer {
       }
     }
 
-    // 8. Nebula Hazard (Astral Nebula & Solar Eclipse)
+    // 9. Nebula Hazard (Astral Nebula & Solar Eclipse)
     if (hasNebula && context.nebulaHazard) {
       const activeIndices = context.nebulaHazard.getActiveNebulaIndices();
       const activeCount = context.nebulaHazard.getActiveNebulaCount();
@@ -505,9 +512,80 @@ export class HazardRenderer {
       }
     }
 
-    // 9. Abyssal Hazard (Abyssal Rift & Ocean Maelstrom)
+    // 10. Abyssal Hazard (Abyssal Rift & Ocean Maelstrom)
     if (hasAbyssal && context.abyssalHazard) {
       HazardRenderer.renderAbyssalTide(graphics, context.abyssalHazard, time);
+    }
+  }
+
+  /**
+   * Procedural vector renderer for Void / Gravity: Gravitational Singularity & Event Horizon.
+   * Utilizes deep violet (0x7c3aed), relativistic magenta (0xc026d3), and void black-purple (0x1e1b4b) palette.
+   * Strictly clamps telegraph fill alpha within [0.18, 0.40] across all accretion tiles (including core)
+   * so bombs, players, and overhead UI are never occluded during ACCRETION_SWIRL.
+   */
+  public static renderGravitySingularity(
+    graphics: Phaser.GameObjects.Graphics | null | undefined,
+    hazard: GravityHazard | null | undefined,
+    time: number
+  ): void {
+    if (!graphics || !hazard) return;
+
+    const state = hazard.getState();
+    if (state === GravityLifecycleState.DORMANT || state === GravityLifecycleState.COOLDOWN) {
+      return;
+    }
+
+    const activeIndices = hazard.getActiveGravityIndices();
+    const activeCount = hazard.getActiveGravityCount();
+    const dangerMask = hazard.getDangerMask();
+    const phase = hazard.getAccretionPhase();
+    const isBurst = state === GravityLifecycleState.SINGULARITY_BURST;
+
+    for (let i = 0; i < activeCount; i++) {
+      const idx = activeIndices[i];
+      const r = (idx / COLS) | 0;
+      const c = idx % COLS;
+      const left = c * TILE_SIZE;
+      const top = r * TILE_SIZE;
+      const cx = left + TILE_SIZE / 2;
+      const cy = top + TILE_SIZE / 2;
+      const maskVal = dangerMask[idx];
+
+      if (maskVal === GravityDangerValue.COLLAPSED) {
+        graphics.fillStyle(0xa855f7, 0.25);
+        graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        graphics.lineStyle(1.5, 0xe879f9, 0.7);
+        graphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+      } else if (isBurst) {
+        const pulse = 0.8 + 0.2 * Math.sin(time / 20);
+        const isCore = r === hazard.centerRow && c === hazard.centerCol;
+        graphics.fillStyle(isCore ? 0x1e1b4b : 0x581c87, 0.95);
+        graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        graphics.lineStyle(2.5, 0xe879f9, 0.95 * pulse);
+        graphics.strokeRect(left + 1, top + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+        if (isCore) {
+          graphics.lineStyle(2.0, 0xffffff, 0.95 * pulse);
+          graphics.strokeCircle(cx, cy, 9);
+        }
+      } else {
+        let baseAlpha: number;
+        if (phase === AccretionPhase.FORMATION) {
+          baseAlpha = 0.18;
+        } else if (phase === AccretionPhase.COMPRESSION) {
+          baseAlpha = 0.34;
+        } else {
+          baseAlpha = 0.40;
+        }
+        const isCore = maskVal === GravityDangerValue.EVENT_HORIZON;
+        const rawAlpha = isCore ? baseAlpha + 0.06 : baseAlpha;
+        const alpha = Math.max(0.18, Math.min(0.40, rawAlpha));
+
+        graphics.fillStyle(isCore ? 0xc026d3 : 0x7c3aed, alpha);
+        graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        graphics.lineStyle(isCore ? 2.0 : 1.25, isCore ? 0xf0abfc : 0xa855f7, isCore ? 0.85 : 0.6);
+        graphics.strokeCircle(cx, cy, isCore ? 9 : 6);
+      }
     }
   }
 

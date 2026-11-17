@@ -390,6 +390,8 @@ export class SolarFlareCrisisAudio {
       SolarFlareCrisisAudio.instance.destroy();
       SolarFlareCrisisAudio.instance = null;
     }
+    SolarFlareCrisisAudio.cachedNoiseBuffer = null;
+    SolarFlareCrisisAudio.cachedNoiseSampleRate = 0;
   }
 
   public init(ctx: AudioContext | null, pool?: AudioVoicePool): void {

@@ -295,7 +295,6 @@ import type {
 
 interface PooledEnemySprite extends BaseEntity {
   archetype?: string;
-  reset?: () => void;
 }
 import {
   generateItemTextures as generateProceduralItemTextures,
@@ -823,6 +822,8 @@ export default class GameScene extends Phaser.Scene {
     { delta: number; timer?: Phaser.Time.TimerEvent }
   > = new Map();
   private activeDebuffTintTimers: Map<string, Phaser.Time.TimerEvent> = new Map();
+  private activeChronoFreezeTimer: Phaser.Time.TimerEvent | null = null;
+  private activeChronoSpeedBoost: number = 0;
 
   private clearMasteryAndDebuffTimers(): void {
     for (const entry of this.activeMasterySpeedBonuses.values()) {
@@ -838,6 +839,11 @@ export default class GameScene extends Phaser.Scene {
       this.activeStompSlowTimer = null;
     }
     this.activeStompSlowDelta = 0;
+    if (this.activeChronoFreezeTimer) {
+      this.activeChronoFreezeTimer.remove?.(false);
+      this.activeChronoFreezeTimer = null;
+    }
+    this.activeChronoSpeedBoost = 0;
   }
 
   private applyMasterySpeedBurst(
@@ -1066,14 +1072,27 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  public attachEntityDropShadow(entity: { x: number; y: number; dropShadow?: Phaser.GameObjects.Sprite }): void {
+  public attachEntityDropShadow(
+    entity: { x: number; y: number; dropShadow?: Phaser.GameObjects.Sprite; dropShadowScale?: number },
+    scale: number = 1.0
+  ): void {
+    const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1.0;
+    entity.dropShadowScale = safeScale;
+    if (entity.dropShadow) {
+      if (this.shadowPool) {
+        this.shadowPool.release(entity.dropShadow);
+      } else {
+        entity.dropShadow.destroy();
+      }
+      entity.dropShadow = undefined;
+    }
     if (this.textures && this.textures.exists('shadow_ellipse')) {
       const shadow = this.shadowPool ? this.shadowPool.acquire() : null;
       if (shadow) {
         shadow.setActive(true).setVisible(true).setPosition(entity.x, entity.y + 14);
         shadow.setDepth(6);
         shadow.setAlpha(0.45);
-        shadow.setScale(1.0, 0.7);
+        shadow.setScale(1.0 * safeScale, 0.7 * safeScale);
         entity.dropShadow = shadow;
       }
     }
@@ -1590,6 +1609,11 @@ export default class GameScene extends Phaser.Scene {
     this.lastHydrostaticDragFloatingTextMs = -9999;
     this.lastAbyssalRelicAudioMs = -9999;
     this.isUltimateChronoFrozen = false;
+    if (this.activeChronoFreezeTimer) {
+      this.activeChronoFreezeTimer.remove?.(false);
+      this.activeChronoFreezeTimer = null;
+    }
+    this.activeChronoSpeedBoost = 0;
     this.crisisGraphicsDirty = false;
     this.lastFrostAudioState = FrostLifecycleState.DORMANT;
     this.scratchMeteorUsedMask.fill(0);
@@ -2010,7 +2034,37 @@ export default class GameScene extends Phaser.Scene {
   }
 
   create() {
-    // If re-created without prior shutdown, ensure previous pools and visual objects are cleaned up
+    // If re-created without prior shutdown, ensure previous groups, visuals, and pools are cleaned up
+    if (this.aegisDomeVisual) {
+      this.aegisDomeVisual.destroy();
+      this.aegisDomeVisual = null;
+    }
+    if (this.chronoStasisVisual) {
+      this.chronoStasisVisual.destroy();
+      this.chronoStasisVisual = null;
+    }
+    this.shieldVisual = null;
+    this.playerDropShadow = undefined;
+
+    this.releaseGroupAoShadows(this.blocks);
+    this.releaseGroupAoShadows(this.walls);
+    this.enemies?.clear(true, true);
+    this.neutrals?.clear(true, true);
+    this.allies?.clear(true, true);
+    this.bombs?.clear(true, true);
+    this.items?.clear(true, true);
+    this.explosions?.clear(true, true);
+    this.blocks?.clear(true, true);
+    this.walls?.clear(true, true);
+    if (typeof this.enemies?.destroy === 'function') this.enemies.destroy(true);
+    if (typeof this.neutrals?.destroy === 'function') this.neutrals.destroy(true);
+    if (typeof this.allies?.destroy === 'function') this.allies.destroy(true);
+    if (typeof this.bombs?.destroy === 'function') this.bombs.destroy(true);
+    if (typeof this.items?.destroy === 'function') this.items.destroy(true);
+    if (typeof this.explosions?.destroy === 'function') this.explosions.destroy(true);
+    if (typeof this.blocks?.destroy === 'function') this.blocks.destroy(true);
+    if (typeof this.walls?.destroy === 'function') this.walls.destroy(true);
+
     this.circlePool?.destroy();
     this.rectPool?.destroy();
     this.graphicsPool?.destroy();
@@ -2295,14 +2349,6 @@ export default class GameScene extends Phaser.Scene {
     this.destroyedBlocksThisTick.clear();
     this.bossHitBombIds.clear();
     this.statsTimerAccumulator = 0;
-    if (this.aegisDomeVisual) {
-      this.aegisDomeVisual.destroy();
-      this.aegisDomeVisual = null;
-    }
-    if (this.chronoStasisVisual) {
-      this.chronoStasisVisual.destroy();
-      this.chronoStasisVisual = null;
-    }
     this.itemsCollected = {
       speedUp: 0,
       bombUp: 0,
@@ -2841,39 +2887,58 @@ export default class GameScene extends Phaser.Scene {
     this.emitStatsUpdate();
   }
 
+  private static readonly SPAWN_ORTHOGONAL_DIRS: ReadonlyArray<{ readonly dr: number; readonly dc: number }> = Object.freeze([
+    Object.freeze({ dr: -1, dc: 0 }),
+    Object.freeze({ dr: 1, dc: 0 }),
+    Object.freeze({ dr: 0, dc: -1 }),
+    Object.freeze({ dr: 0, dc: 1 }),
+  ]);
+  private static readonly SPAWN_ENEMY_ARCHETYPES: readonly EnemyType[] = Object.freeze([
+    'CHASER',
+    'BOMBER',
+    'TANK',
+    'GHOST',
+    'SPLITTER',
+  ]);
+  private static readonly SPAWN_NEUTRAL_TYPES: readonly NeutralType[] = Object.freeze(['MERCHANT', 'CRITTER']);
+  private static readonly SPAWN_ALLY_TYPES: readonly AllyType[] = Object.freeze([
+    'MINI_BOMBER',
+    'PET_DRONE',
+    'SHIELD_GUARD',
+  ]);
+  private readonly scratchSpawnedTilesMask: Uint8Array = new Uint8Array(ROWS * COLS);
+
   spawnEnemies(count: number) {
     let spawned = 0;
-    const spawnedTiles = new Set<string>();
-    const archetypes: EnemyType[] = ['CHASER', 'BOMBER', 'TANK', 'GHOST', 'SPLITTER'];
+    this.scratchSpawnedTilesMask.fill(0);
+    const archetypes = GameScene.SPAWN_ENEMY_ARCHETYPES;
+    const dirs = GameScene.SPAWN_ORTHOGONAL_DIRS;
 
     while (spawned < count) {
       const r = Phaser.Math.Between(5, ROWS - 2);
       const c = Phaser.Math.Between(5, COLS - 2);
-      const key = `${r},${c}`;
+      const tileIdx = r * COLS + c;
 
-      if (this.map[r][c] === TILE_EMPTY && !spawnedTiles.has(key)) {
+      if (this.map[r][c] === TILE_EMPTY && this.scratchSpawnedTilesMask[tileIdx] === 0) {
         // Guarantee at least 2 open orthogonal corridor neighbors (prevent spawn dead-end locks)
-        const dirs = [
-          { dr: -1, dc: 0 },
-          { dr: 1, dc: 0 },
-          { dr: 0, dc: -1 },
-          { dr: 0, dc: 1 },
-        ];
-        const openNeighbors = dirs.filter((d) => {
-          const nr = r + d.dr;
-          const nc = c + d.dc;
-          return nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && this.map[nr][nc] === TILE_EMPTY;
-        });
+        let openNeighborCount = 0;
+        for (let di = 0; di < dirs.length; di++) {
+          const nr = r + dirs[di].dr;
+          const nc = c + dirs[di].dc;
+          if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && this.map[nr][nc] === TILE_EMPTY) {
+            openNeighborCount++;
+          }
+        }
 
-        if (openNeighbors.length < 2) {
-          for (const d of dirs) {
-            if (openNeighbors.length >= 2) break;
-            const nr = r + d.dr;
-            const nc = c + d.dc;
+        if (openNeighborCount < 2) {
+          for (let di = 0; di < dirs.length && openNeighborCount < 2; di++) {
+            const nr = r + dirs[di].dr;
+            const nc = c + dirs[di].dc;
             if (nr >= 1 && nr < ROWS - 1 && nc >= 1 && nc < COLS - 1 && this.map[nr][nc] === TILE_BLOCK) {
               this.map[nr][nc] = TILE_EMPTY;
-              this.blocks.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
-                const b = child as Phaser.Physics.Arcade.Sprite;
+              const blockChildren = this.blocks.getChildren();
+              for (let bi = blockChildren.length - 1; bi >= 0; bi--) {
+                const b = blockChildren[bi] as Phaser.Physics.Arcade.Sprite;
                 if (b && b.active && b.getData('row') === nr && b.getData('col') === nc) {
                   const ao = b.getData?.('aoShadow') as Phaser.GameObjects.Rectangle | undefined;
                   if (ao && ao !== (b as unknown)) {
@@ -2882,25 +2947,37 @@ export default class GameScene extends Phaser.Scene {
                   }
                   b.destroy();
                 }
-              });
-              openNeighbors.push(d);
+              }
+              openNeighborCount++;
             }
           }
         }
 
-        spawnedTiles.add(key);
+        this.scratchSpawnedTilesMask[tileIdx] = 1;
         const archetype = archetypes[spawned % archetypes.length];
         const x = c * TILE_SIZE + TILE_SIZE / 2;
         const y = r * TILE_SIZE + TILE_SIZE / 2;
 
-        let enemy = this.enemies.getChildren().find((e) => {
-          const pe = e as unknown as PooledEnemySprite;
-          return !pe.active && pe.archetype === archetype;
-        }) as unknown as PooledEnemySprite | undefined;
+        let enemy: PooledEnemySprite | undefined;
+        const enemyChildren = this.enemies.getChildren();
+        for (let ei = 0; ei < enemyChildren.length; ei++) {
+          const pe = enemyChildren[ei] as unknown as PooledEnemySprite;
+          if (pe && !pe.active && pe.archetype === archetype) {
+            enemy = pe;
+            break;
+          }
+        }
+
         if (enemy) {
           enemy.enableBody(true, x, y, true, true);
-          enemy.hp = enemy.maxHp;
-          if (enemy.reset) enemy.reset();
+          if (enemy.reset) {
+            enemy.reset();
+          } else {
+            enemy.hp = enemy.maxHp;
+          }
+          if (!enemy.dropShadow || !enemy.dropShadow.active) {
+            this.attachEntityDropShadow(enemy);
+          }
         } else {
           enemy = createEnemy(this, archetype, x, y);
           enemy.archetype = archetype;
@@ -2914,16 +2991,16 @@ export default class GameScene extends Phaser.Scene {
 
   spawnNeutrals(count: number = 2) {
     let spawned = 0;
-    const spawnedTiles = new Set<string>();
-    const types: NeutralType[] = ['MERCHANT', 'CRITTER'];
+    this.scratchSpawnedTilesMask.fill(0);
+    const types = GameScene.SPAWN_NEUTRAL_TYPES;
 
     while (spawned < count) {
       const r = Phaser.Math.Between(3, ROWS - 3);
       const c = Phaser.Math.Between(3, COLS - 3);
-      const key = `${r},${c}`;
+      const tileIdx = r * COLS + c;
 
-      if (this.map[r][c] === TILE_EMPTY && !spawnedTiles.has(key)) {
-        spawnedTiles.add(key);
+      if (this.map[r][c] === TILE_EMPTY && this.scratchSpawnedTilesMask[tileIdx] === 0) {
+        this.scratchSpawnedTilesMask[tileIdx] = 1;
         const type = types[spawned % types.length];
         const x = c * TILE_SIZE + TILE_SIZE / 2;
         const y = r * TILE_SIZE + TILE_SIZE / 2;
@@ -2938,16 +3015,16 @@ export default class GameScene extends Phaser.Scene {
 
   spawnAllies(count: number = 1) {
     let spawned = 0;
-    const spawnedTiles = new Set<string>();
-    const types: AllyType[] = ['MINI_BOMBER', 'PET_DRONE', 'SHIELD_GUARD'];
+    this.scratchSpawnedTilesMask.fill(0);
+    const types = GameScene.SPAWN_ALLY_TYPES;
 
     while (spawned < count) {
       const r = Phaser.Math.Clamp(1 + Phaser.Math.Between(0, 2), 1, ROWS - 2);
       const c = Phaser.Math.Clamp(1 + Phaser.Math.Between(0, 2), 1, COLS - 2);
-      const key = `${r},${c}`;
+      const tileIdx = r * COLS + c;
 
-      if (this.map[r][c] === TILE_EMPTY && !spawnedTiles.has(key)) {
-        spawnedTiles.add(key);
+      if (this.map[r][c] === TILE_EMPTY && this.scratchSpawnedTilesMask[tileIdx] === 0) {
+        this.scratchSpawnedTilesMask[tileIdx] = 1;
         const type = types[spawned % types.length];
         const x = c * TILE_SIZE + TILE_SIZE / 2;
         const y = r * TILE_SIZE + TILE_SIZE / 2;
@@ -4056,34 +4133,6 @@ export default class GameScene extends Phaser.Scene {
     }
     this.scratchActiveEntities.length = 0;
 
-    // 10c. Dynamic Hazard Environmental Vaporization for Enemies
-    if (this.dynamicHazard && this.dynamicHazard.getState() === HazardLifecycleState.ACTIVE) {
-      if (this.enemies) {
-        const eChildren = this.enemies.getChildren();
-        for (let ei = 0; ei < eChildren.length; ei++) {
-          const enemy = eChildren[ei] as BaseEntity;
-          if (enemy && enemy.active && !enemy.isDead) {
-            const enemyTileR = Math.floor(enemy.y / TILE_SIZE);
-            const enemyTileC = Math.floor(enemy.x / TILE_SIZE);
-            const col = this.dynamicHazard.checkEnemyCollision(enemyTileR, enemyTileC, false);
-            if (col.hit && col.isVaporized) {
-              this.score += col.scoreBonus;
-              this.addUltimateCharge(col.ultimateChargeBonus || 5);
-              this.emitStatsUpdate();
-              this.spawnFloatingText(enemy.x, enemy.y - 10, col.floatingText || '⚡ VAPORIZED!', '#38BDF8');
-              this.spawnPickupParticles(enemy.x, enemy.y, '#38BDF8');
-              if (typeof enemy.takeDamage === 'function') {
-                enemy.takeDamage(col.damage, 'hazard', this.time.now);
-              }
-              if (enemy.active && !enemy.isDead) {
-                enemy.die(this.time.now);
-              }
-            }
-          }
-        }
-      }
-    }
-
     // 10.5 Update Relic Manager (ARCH-RELIC-01)
     if (this.relicManager) {
       const pCol = Math.floor(this.player.x / TILE_SIZE);
@@ -4511,24 +4560,32 @@ export default class GameScene extends Phaser.Scene {
         }
 
         // Enemy Collision Check against active beam
-        const enemiesList = this.enemies.getChildren();
-        for (let i = 0; i < enemiesList.length; i++) {
-          const enemy = enemiesList[i] as BaseEntity;
-          if (enemy && enemy.active && !enemy.isDead) {
-            const er = Math.floor(enemy.y / TILE_SIZE);
-            const ec = Math.floor(enemy.x / TILE_SIZE);
-            const isBoss = enemy === (this.activeBoss as unknown as BaseEntity);
-            const enemyHit = this.dynamicHazard.checkEnemyCollision(er, ec, isBoss);
-            if (enemyHit.hit) {
-              if (enemyHit.isVaporized) {
-                if (typeof enemy.takeDamage === 'function') {
-                  enemy.takeDamage(enemyHit.damage, 'hazard', this.time.now);
+        if (this.enemies) {
+          const enemiesList = this.enemies.getChildren();
+          for (let i = 0; i < enemiesList.length; i++) {
+            const enemy = enemiesList[i] as BaseEntity;
+            if (enemy && enemy.active && !enemy.isDead) {
+              const er = Math.floor(enemy.y / TILE_SIZE);
+              const ec = Math.floor(enemy.x / TILE_SIZE);
+              const isBoss = enemy === (this.activeBoss as unknown as BaseEntity);
+              const enemyHit = this.dynamicHazard.checkEnemyCollision(er, ec, isBoss);
+              if (enemyHit.hit) {
+                if (enemyHit.isVaporized) {
+                  this.score += enemyHit.scoreBonus;
+                  this.addUltimateCharge(enemyHit.ultimateChargeBonus || 5);
+                  this.emitStatsUpdate();
+                  this.spawnFloatingText(enemy.x, enemy.y - 10, enemyHit.floatingText || '⚡ VAPORIZED!', '#38BDF8');
+                  this.spawnPickupParticles(enemy.x, enemy.y, '#38BDF8');
+                  this.dynamicHazardAudio?.playMinionVaporization();
+                  if (typeof enemy.takeDamage === 'function') {
+                    enemy.takeDamage(enemyHit.damage, 'hazard', this.time.now);
+                  }
+                  if (enemy.active && !enemy.isDead) {
+                    enemy.die(this.time.now);
+                  }
+                } else if (enemyHit.isStunned && isBoss && this.activeBoss) {
+                  this.handleBossHazardHit(enemy.x, enemy.y, 0.15, enemyHit.stunDurationMs, enemyHit.floatingText || '⚡ STUNNED (1.5s)!', '#FBBF24', 'Tachyon Stasis!');
                 }
-                this.dynamicHazardAudio?.playMinionVaporization();
-                this.score += enemyHit.scoreBonus;
-                this.addUltimateCharge(5);
-              } else if (enemyHit.isStunned && isBoss && this.activeBoss) {
-                this.handleBossHazardHit(enemy.x, enemy.y, 0.15, enemyHit.stunDurationMs, enemyHit.floatingText || '⚡ STUNNED (1.5s)!', '#FBBF24', 'Tachyon Stasis!');
               }
             }
           }
@@ -4593,6 +4650,7 @@ export default class GameScene extends Phaser.Scene {
       }
 
       if (this.gravityHazard.state === GravityLifecycleState.SINGULARITY_BURST && !this.isGameOver) {
+        let hitActiveBossInGroup = false;
         const enemiesList = this.enemies.getChildren();
         for (let i = 0; i < enemiesList.length; i++) {
           const enemy = enemiesList[i] as BaseEntity;
@@ -4600,6 +4658,7 @@ export default class GameScene extends Phaser.Scene {
             const er = Math.floor(enemy.y / TILE_SIZE);
             const ec = Math.floor(enemy.x / TILE_SIZE);
             const isBoss = enemy === (this.activeBoss as unknown as BaseEntity);
+            if (isBoss) hitActiveBossInGroup = true;
             const enemyHit = this.gravityHazard.checkEnemyCollision(er, ec, isBoss);
             if (enemyHit.hit) {
               if (enemyHit.isSpaghettified || enemyHit.isCrushed) {
@@ -4619,7 +4678,7 @@ export default class GameScene extends Phaser.Scene {
         }
 
         // Dedicated active boss check
-        if (this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED && this.activeBoss.currentHp > 0) {
+        if (!hitActiveBossInGroup && this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED && this.activeBoss.currentHp > 0) {
           const br = Math.floor(this.activeBoss.y / TILE_SIZE);
           const bc = Math.floor(this.activeBoss.x / TILE_SIZE);
           const bossHit = this.gravityHazard.checkEnemyCollision(br, bc, true);
@@ -4911,6 +4970,7 @@ export default class GameScene extends Phaser.Scene {
 
       if (this.nebulaHazard.state === NebulaLifecycleState.ECLIPSE_COLLAPSE && !this.isGameOver) {
         // Enemy Collision Check against eclipse collapse
+        let hitActiveBossInGroup = false;
         const enemiesList = this.enemies.getChildren();
         for (let i = 0; i < enemiesList.length; i++) {
           const enemy = enemiesList[i] as BaseEntity;
@@ -4918,6 +4978,7 @@ export default class GameScene extends Phaser.Scene {
             const er = Math.floor(enemy.y / TILE_SIZE);
             const ec = Math.floor(enemy.x / TILE_SIZE);
             const isBoss = enemy === (this.activeBoss as unknown as BaseEntity);
+            if (isBoss) hitActiveBossInGroup = true;
             const enemyHit = this.nebulaHazard.checkEnemyCollision(er, ec, isBoss, this.time.now);
             if (enemyHit.hit) {
               if (enemyHit.isDissolved || enemyHit.isDecomposed) {
@@ -4935,7 +4996,7 @@ export default class GameScene extends Phaser.Scene {
         }
 
         // Dedicated active boss check
-        if (this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED && this.activeBoss.currentHp > 0) {
+        if (!hitActiveBossInGroup && this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED && this.activeBoss.currentHp > 0) {
           const br = Math.floor(this.activeBoss.y / TILE_SIZE);
           const bc = Math.floor(this.activeBoss.x / TILE_SIZE);
           const bossHit = this.nebulaHazard.checkEnemyCollision(br, bc, true, this.time.now);
@@ -4955,6 +5016,7 @@ export default class GameScene extends Phaser.Scene {
 
       if (this.abyssalHazard.state === AbyssalLifecycleState.ABYSSAL_MAELSTROM && !this.isGameOver) {
         // Enemy Collision Check against abyssal maelstrom
+        let hitActiveBossInGroup = false;
         const enemiesList = this.enemies.getChildren();
         for (let i = 0; i < enemiesList.length; i++) {
           const enemy = enemiesList[i] as BaseEntity;
@@ -4962,6 +5024,7 @@ export default class GameScene extends Phaser.Scene {
             const er = Math.floor(enemy.y / TILE_SIZE);
             const ec = Math.floor(enemy.x / TILE_SIZE);
             const isBoss = enemy === (this.activeBoss as unknown as BaseEntity);
+            if (isBoss) hitActiveBossInGroup = true;
             const enemyHit = this.abyssalHazard.checkEnemyCollision(er, ec, isBoss, this.time.now);
             if (enemyHit.hit) {
               if (enemyHit.isCrushed || enemyHit.isVaporized || enemyHit.isDissolved || enemyHit.isDecomposed) {
@@ -4979,7 +5042,7 @@ export default class GameScene extends Phaser.Scene {
         }
 
         // Dedicated active boss check
-        if (this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED && this.activeBoss.currentHp > 0) {
+        if (!hitActiveBossInGroup && this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED && this.activeBoss.currentHp > 0) {
           const br = Math.floor(this.activeBoss.y / TILE_SIZE);
           const bc = Math.floor(this.activeBoss.x / TILE_SIZE);
           const bossHit = this.abyssalHazard.checkEnemyCollision(br, bc, true, this.time.now);
@@ -7534,111 +7597,25 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    // 3. Polarization Strike helper (blast cleanses spire into golden channel for 8.0s)
-    const checkPolarizationStrike = (r: number, c: number) => {
-      if (this.frostHazard) {
-        this.frostHazard.onBombBlastImpact(r, c);
-      }
-      if (this.voltHazard) {
-        this.voltHazard.onBombBlastImpact(r, c);
-      }
-      if (this.magmaHazard) {
-        const quenchRes = this.magmaHazard.onBombBlastImpact(r, c);
-        if (quenchRes.quenched) {
-          const px = c * TILE_SIZE + TILE_SIZE / 2;
-          const py = r * TILE_SIZE + TILE_SIZE / 2;
-          this.spawnFloatingText(px, py - 20, quenchRes.floatingText, '#6366f1');
-          if (this.magmaHazardAudio) {
-            this.magmaHazardAudio.playObsidianQuenchSnap();
-          }
-        }
-      }
-      if (this.miasmaHazard) {
-        const cleanseRes = this.miasmaHazard.onBombBlastImpact(r, c);
-        if (cleanseRes.cleansed) {
-          const px = c * TILE_SIZE + TILE_SIZE / 2;
-          const py = r * TILE_SIZE + TILE_SIZE / 2;
-          this.spawnFloatingText(px, py - 20, cleanseRes.floatingText, '#10b981');
-          if (this.miasmaHazardAudio) {
-            this.miasmaHazardAudio.playFloralCleanseSnap();
-          }
-        }
-      }
-      if (this.chronoHazard) {
-        const stabRes = this.chronoHazard.onBombBlastImpact(r, c);
-        if (stabRes.stabilized) {
-          const px = c * TILE_SIZE + TILE_SIZE / 2;
-          const py = r * TILE_SIZE + TILE_SIZE / 2;
-          this.spawnFloatingText(px, py - 20, stabRes.floatingText, '#818cf8');
-          if (this.chronoHazardAudio) {
-            this.chronoHazardAudio.playTimelineStabilizeSnap();
-          }
-        }
-      }
-      if (this.solarHazard) {
-        const calmRes = this.solarHazard.onBombBlastImpact(r, c);
-        if (calmRes.quenched) {
-          const px = c * TILE_SIZE + TILE_SIZE / 2;
-          const py = r * TILE_SIZE + TILE_SIZE / 2;
-          this.spawnFloatingText(px, py - 20, calmRes.floatingText, '#fbbf24');
-          if (this.solarHazardAudio) {
-            this.solarHazardAudio.playSolarCalmResolution();
-          }
-        }
-      }
-      if (this.nebulaHazard) {
-        const calmRes = this.nebulaHazard.onBombBlastImpact(r, c);
-        if (calmRes.cleanedTilesCount > 0) {
-          const px = c * TILE_SIZE + TILE_SIZE / 2;
-          const py = r * TILE_SIZE + TILE_SIZE / 2;
-          this.spawnFloatingText(px, py - 20, calmRes.floatingText, '#c084fc');
-          if (this.nebulaHazardAudio) {
-            this.nebulaHazardAudio.playStardustCalmSnap();
-          }
-        }
-      }
-      if (this.abyssalHazard) {
-        const calmRes = this.abyssalHazard.onBombBlastImpact(r, c);
-        if (calmRes.cleanedTilesCount > 0) {
-          const px = c * TILE_SIZE + TILE_SIZE / 2;
-          const py = r * TILE_SIZE + TILE_SIZE / 2;
-          this.spawnFloatingText(px, py - 20, calmRes.floatingText, '#38bdf8');
-          if (this.abyssalHazardAudio) {
-            this.abyssalHazardAudio.playOceanicCalmSnap();
-          }
-        }
-      }
-      if (this.crisisManager && this.crisisManager.dispelPsionicIllusionAt(r, c)) {
-        const px = c * TILE_SIZE + TILE_SIZE / 2;
-        const py = r * TILE_SIZE + TILE_SIZE / 2;
-        this.score += 150;
-        this.emitStatsUpdate();
-        this.spawnFloatingText(px, py - 20, '+150 DISPELLED!', '#ec4899');
-        this.grantDistortionBarrier();
-      }
-      if (this.dynamicHazard) {
-        const impact = this.dynamicHazard.onBombBlastImpact(r, c);
-        if (impact.polarized) {
-          const px = c * TILE_SIZE + TILE_SIZE / 2;
-          const py = r * TILE_SIZE + TILE_SIZE / 2;
-          this.dynamicHazardAudio?.playPolarizationStrike(this.time?.now ?? Date.now());
-          this.spawnFloatingText(px, py - 20, '★ POLARIZATION STRIKE (8.0s)', '#facc15');
-          this.score += 350;
+    if (this.gravityHazard) {
+      this.gravityHazard.clearBombCoreArrival(bombId);
+      if (
+        this.gravityHazard.state === GravityLifecycleState.ACCRETION_SWIRL ||
+        this.gravityHazard.state === GravityLifecycleState.SINGULARITY_BURST
+      ) {
+        const gDet = this.gravityHazard.onBombDetonatedInSingularity(actualRow, actualCol, effectivePower);
+        if (gDet.collapsed) {
+          const cX = actualCol * TILE_SIZE + TILE_SIZE / 2;
+          const cY = actualRow * TILE_SIZE + TILE_SIZE / 2;
+          this.spawnFloatingText(cX, cY - 25, gDet.floatingText || '🌀 SINGULARITY COLLAPSED!', '#c084fc');
+          this.gravityHazardAudio?.playSingularityDissipation();
+          this.score += 250;
           this.emitStatsUpdate();
-
-          // Purge 3x3 surrounding tiles if crisis manager is active
-          if (this.crisisManager && this.crisisManager.getActiveCrisis()) {
-            for (let dr = -1; dr <= 1; dr++) {
-              for (let dc = -1; dc <= 1; dc++) {
-                this.crisisManager.handleBombBlast(r + dr, c + dc, 1);
-              }
-            }
-          }
         }
       }
-    };
+    }
 
-    checkPolarizationStrike(actualRow, actualCol);
+    this.applyBlastTileHazardImpacts(actualRow, actualCol);
 
     // Crisis blast interaction (clearing void creep, charging prisms, psionic disruption)
     if (this.crisisManager && this.crisisManager.getActiveCrisis()) {
@@ -7696,7 +7673,7 @@ export default class GameScene extends Phaser.Scene {
             const sc = actualCol + shard.dc * step;
             if (sr >= 0 && sr < ROWS && sc >= 0 && sc < COLS) {
               if (this.map[sr][sc] === TILE_WALL) break;
-              checkPolarizationStrike(sr, sc);
+              this.applyBlastTileHazardImpacts(sr, sc);
               this.spawnExplosion(sr, sc, false, owner, bombId, isPiercing);
               if (this.map[sr][sc] === TILE_BLOCK) {
                 this.destroyedBlocksThisTick.add(TILE_KEY_LUT[sr * COLS + sc]);
@@ -8087,10 +8064,10 @@ export default class GameScene extends Phaser.Scene {
           break; // Stop at unbreakable wall
         }
 
-        checkPolarizationStrike(nr, nc);
+        this.applyBlastTileHazardImpacts(nr, nc);
 
         // PHYS-05: Prevent simultaneous blast ray piercing through destroyed blocks
-        const key = `${nr},${nc}`;
+        const key = TILE_KEY_LUT[nr * COLS + nc];
         const isBlock = this.map[nr][nc] === TILE_BLOCK || this.destroyedBlocksThisTick.has(key);
 
         if (isBlock) {
@@ -8122,6 +8099,109 @@ export default class GameScene extends Phaser.Scene {
           }
         }
         this.detonateStackedChainRange(rayStackBase);
+      }
+    }
+  }
+
+  private applyBlastTileHazardImpacts(r: number, c: number): void {
+    if (this.frostHazard) {
+      this.frostHazard.onBombBlastImpact(r, c);
+    }
+    if (this.voltHazard) {
+      this.voltHazard.onBombBlastImpact(r, c);
+    }
+    if (this.magmaHazard) {
+      const quenchRes = this.magmaHazard.onBombBlastImpact(r, c);
+      if (quenchRes.quenched) {
+        const px = c * TILE_SIZE + TILE_SIZE / 2;
+        const py = r * TILE_SIZE + TILE_SIZE / 2;
+        this.spawnFloatingText(px, py - 20, quenchRes.floatingText, '#6366f1');
+        if (this.magmaHazardAudio) {
+          this.magmaHazardAudio.playObsidianQuenchSnap();
+        }
+      }
+    }
+    if (this.miasmaHazard) {
+      const cleanseRes = this.miasmaHazard.onBombBlastImpact(r, c);
+      if (cleanseRes.cleansed) {
+        const px = c * TILE_SIZE + TILE_SIZE / 2;
+        const py = r * TILE_SIZE + TILE_SIZE / 2;
+        this.spawnFloatingText(px, py - 20, cleanseRes.floatingText, '#10b981');
+        if (this.miasmaHazardAudio) {
+          this.miasmaHazardAudio.playFloralCleanseSnap();
+        }
+      }
+    }
+    if (this.chronoHazard) {
+      const stabRes = this.chronoHazard.onBombBlastImpact(r, c);
+      if (stabRes.stabilized) {
+        const px = c * TILE_SIZE + TILE_SIZE / 2;
+        const py = r * TILE_SIZE + TILE_SIZE / 2;
+        this.spawnFloatingText(px, py - 20, stabRes.floatingText, '#818cf8');
+        if (this.chronoHazardAudio) {
+          this.chronoHazardAudio.playTimelineStabilizeSnap();
+        }
+      }
+    }
+    if (this.solarHazard) {
+      const calmRes = this.solarHazard.onBombBlastImpact(r, c);
+      if (calmRes.quenched) {
+        const px = c * TILE_SIZE + TILE_SIZE / 2;
+        const py = r * TILE_SIZE + TILE_SIZE / 2;
+        this.spawnFloatingText(px, py - 20, calmRes.floatingText, '#fbbf24');
+        if (this.solarHazardAudio) {
+          this.solarHazardAudio.playSolarCalmResolution();
+        }
+      }
+    }
+    if (this.nebulaHazard) {
+      const calmRes = this.nebulaHazard.onBombBlastImpact(r, c);
+      if (calmRes.cleanedTilesCount > 0) {
+        const px = c * TILE_SIZE + TILE_SIZE / 2;
+        const py = r * TILE_SIZE + TILE_SIZE / 2;
+        this.spawnFloatingText(px, py - 20, calmRes.floatingText, '#c084fc');
+        if (this.nebulaHazardAudio) {
+          this.nebulaHazardAudio.playStardustCalmSnap();
+        }
+      }
+    }
+    if (this.abyssalHazard) {
+      const calmRes = this.abyssalHazard.onBombBlastImpact(r, c);
+      if (calmRes.cleanedTilesCount > 0) {
+        const px = c * TILE_SIZE + TILE_SIZE / 2;
+        const py = r * TILE_SIZE + TILE_SIZE / 2;
+        this.spawnFloatingText(px, py - 20, calmRes.floatingText, '#38bdf8');
+        if (this.abyssalHazardAudio) {
+          this.abyssalHazardAudio.playOceanicCalmSnap();
+        }
+      }
+    }
+    if (this.crisisManager && this.crisisManager.dispelPsionicIllusionAt(r, c)) {
+      const px = c * TILE_SIZE + TILE_SIZE / 2;
+      const py = r * TILE_SIZE + TILE_SIZE / 2;
+      this.score += 150;
+      this.emitStatsUpdate();
+      this.spawnFloatingText(px, py - 20, '+150 DISPELLED!', '#ec4899');
+      this.grantDistortionBarrier();
+    }
+    if (this.dynamicHazard) {
+      const impact = this.dynamicHazard.onBombBlastImpact(r, c);
+      if (impact.polarized) {
+        const px = c * TILE_SIZE + TILE_SIZE / 2;
+        const py = r * TILE_SIZE + TILE_SIZE / 2;
+        this.dynamicHazardAudio?.playPolarizationStrike(this.time?.now ?? Date.now());
+        this.spawnFloatingText(px, py - 20, '★ POLARIZATION STRIKE (8.0s)', '#facc15');
+        this.score += 350;
+        this.emitStatsUpdate();
+
+        // Purge 3x3 surrounding tiles if crisis manager is active
+        if (this.crisisManager && this.crisisManager.getActiveCrisis()) {
+          for (let dr = -1; dr <= 1; dr++) {
+            for (let dc = -1; dc <= 1; dc++) {
+              this.crisisManager.handleBombBlast(r + dr, c + dc, 1);
+            }
+          }
+        }
       }
     }
   }
@@ -8234,8 +8314,9 @@ export default class GameScene extends Phaser.Scene {
     const centerY = row * TILE_SIZE + TILE_SIZE / 2;
 
     let isChest = false;
-    this.blocks.getChildren().forEach((child: Phaser.GameObjects.GameObject) => {
-      const b = child as Phaser.Physics.Arcade.Sprite;
+    const blockChildren = this.blocks.getChildren();
+    for (let bi = blockChildren.length - 1; bi >= 0; bi--) {
+      const b = blockChildren[bi] as Phaser.Physics.Arcade.Sprite;
       if (b && b.active && b.getData('row') === row && b.getData('col') === col) {
         if (b.getData('isChest')) {
           isChest = true;
@@ -8290,7 +8371,7 @@ export default class GameScene extends Phaser.Scene {
 
         b.destroy();
       }
-    });
+    }
 
     if (this.destroyedBlocksThisTick.size >= 3) {
       this.triggerHitStop(45);
@@ -8792,6 +8873,14 @@ export default class GameScene extends Phaser.Scene {
 
   private executeChronoFreeze(skill: UltimateSkillDefinition): void {
     webAudioSynth.playChronoFreeze();
+    if (this.activeChronoFreezeTimer) {
+      this.activeChronoFreezeTimer.remove?.(false);
+      this.activeChronoFreezeTimer = null;
+    }
+    if (this.activeChronoSpeedBoost > 0) {
+      this.playerSpeed = Math.max(BASE_PLAYER_SPEED, this.playerSpeed - this.activeChronoSpeedBoost);
+      this.activeChronoSpeedBoost = 0;
+    }
     if (this.chronoStasisVisual) {
       this.chronoStasisVisual.destroy();
     }
@@ -8800,6 +8889,7 @@ export default class GameScene extends Phaser.Scene {
     this.isTimeFrozen = true;
     this.isUltimateChronoFrozen = true;
     const speedBoost = this.playerSpeed * ((skill.playerSpeedMultiplier ?? 1.20) - 1);
+    this.activeChronoSpeedBoost = speedBoost;
     this.playerSpeed += speedBoost;
 
     // Pause active bomb fuse timers safely
@@ -8813,14 +8903,17 @@ export default class GameScene extends Phaser.Scene {
       });
     }
 
-    this.time.delayedCall(skill.durationMs ?? 5000, () => {
+    this.activeChronoFreezeTimer = this.time.delayedCall(skill.durationMs ?? 5000, () => {
+      this.activeChronoFreezeTimer = null;
       if (this.chronoStasisVisual) {
         this.chronoStasisVisual.destroy();
         this.chronoStasisVisual = null;
       }
       this.isUltimateChronoFrozen = false;
       this.isTimeFrozen = this.hasBuff('TIME_FREEZE');
-      this.playerSpeed = Math.max(BASE_PLAYER_SPEED, this.playerSpeed - speedBoost);
+      const appliedBoost = this.activeChronoSpeedBoost;
+      this.activeChronoSpeedBoost = 0;
+      this.playerSpeed = Math.max(BASE_PLAYER_SPEED, this.playerSpeed - appliedBoost);
       if (!this.isGameOver) {
         webAudioSynth.playChronoResume();
         this.cameraTrauma?.addTrauma(skill.traumaOnResume ?? 0.60);

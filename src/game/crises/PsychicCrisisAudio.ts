@@ -223,6 +223,8 @@ export class PsychicCrisisAudio {
       PsychicCrisisAudio.instance.destroy();
       PsychicCrisisAudio.instance = null;
     }
+    PsychicCrisisAudio.cachedNoiseBuffer = null;
+    PsychicCrisisAudio.cachedNoiseSampleRate = 0;
   }
 
   public init(ctx: AudioContext, pool?: AudioVoicePool): void {
@@ -521,8 +523,8 @@ export class PsychicCrisisAudio {
     this.clearPendingNodes();
     if (this.ownsPool && this.pool) {
       this.pool.destroy();
-      this.pool = null;
     }
+    this.pool = null;
     this.ctx = null;
     PsychicCrisisAudio.cachedNoiseBuffer = null;
     PsychicCrisisAudio.cachedNoiseSampleRate = 0;

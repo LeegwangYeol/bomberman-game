@@ -248,6 +248,8 @@ export class ChronoHazardAudio {
       ChronoHazardAudio.instance.destroy();
       ChronoHazardAudio.instance = null;
     }
+    ChronoHazardAudio.cachedNoiseBuffer = null;
+    ChronoHazardAudio.cachedNoiseSampleRate = 0;
   }
 
   public init(ctx: AudioContext, pool?: AudioVoicePool): void {
@@ -575,6 +577,7 @@ export class ChronoHazardAudio {
     }
     this.ctx = null;
     ChronoHazardAudio.cachedNoiseBuffer = null;
+    ChronoHazardAudio.cachedNoiseSampleRate = 0;
     if (ChronoHazardAudio.instance === this) {
       ChronoHazardAudio.instance = null;
     }

@@ -68,12 +68,23 @@ export class ClockworkCrisis extends BaseCrisis {
 
     ClockworkCrisisAudio.getInstance().reset();
 
-    this.conduits = ClockworkCrisis.DYNAMO_CONDUITS.map((c) => ({
-      r: c.r,
-      c: c.c,
-      isHit: false,
-      hitTimestampMs: 0,
-    }));
+    if (this.conduits.length === ClockworkCrisis.DYNAMO_CONDUITS.length) {
+      for (let i = 0; i < ClockworkCrisis.DYNAMO_CONDUITS.length; i++) {
+        const src = ClockworkCrisis.DYNAMO_CONDUITS[i];
+        const dst = this.conduits[i];
+        dst.r = src.r;
+        dst.c = src.c;
+        dst.isHit = false;
+        dst.hitTimestampMs = 0;
+      }
+    } else {
+      this.conduits = ClockworkCrisis.DYNAMO_CONDUITS.map((c) => ({
+        r: c.r,
+        c: c.c,
+        isHit: false,
+        hitTimestampMs: 0,
+      }));
+    }
 
     this.objectives = [
       {

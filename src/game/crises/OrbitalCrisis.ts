@@ -57,11 +57,21 @@ export class OrbitalCrisis extends BaseCrisis {
     this.macrocannonCharge = 0;
     this.clearPendingCratersToPool();
 
-    this.uplinks = OrbitalCrisis.UPLINK_POSITIONS.map((u) => ({
-      r: u.r,
-      c: u.c,
-      isOverridden: false,
-    }));
+    if (this.uplinks.length === OrbitalCrisis.UPLINK_POSITIONS.length) {
+      for (let i = 0; i < OrbitalCrisis.UPLINK_POSITIONS.length; i++) {
+        const src = OrbitalCrisis.UPLINK_POSITIONS[i];
+        const dst = this.uplinks[i];
+        dst.r = src.r;
+        dst.c = src.c;
+        dst.isOverridden = false;
+      }
+    } else {
+      this.uplinks = OrbitalCrisis.UPLINK_POSITIONS.map((u) => ({
+        r: u.r,
+        c: u.c,
+        isOverridden: false,
+      }));
+    }
 
     this.objectives = [
       {
@@ -258,7 +268,13 @@ export class OrbitalCrisis extends BaseCrisis {
     if (objectiveId === 'override_uplinks') {
       const activeCount = this.countOverriddenUplinks();
       this.adjustThreat(-8 * activeCount);
-      const obj = this.objectives.find((o) => o.id === 'override_uplinks');
+      let obj = null;
+      for (let i = 0; i < this.objectives.length; i++) {
+        if (this.objectives[i].id === 'override_uplinks') {
+          obj = this.objectives[i];
+          break;
+        }
+      }
       if (obj && obj.isCompleted && !this.isVictorious) {
         OrbitalCrisisAudio.getInstance().playCounterBarrage();
         this.resolveCrisis('Planetary defense grid activated! Counter-orbital EMP neutralized the dreadnought fleet!');

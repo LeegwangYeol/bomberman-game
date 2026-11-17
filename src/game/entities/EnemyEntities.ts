@@ -66,6 +66,14 @@ const MINI_SPLITTER_CONFIG = Object.freeze({
 const sharedEnemyPosScratch: GridCoord = { r: 0, c: 0 };
 const sharedEnemyTargetScratch: GridCoord = { r: 0, c: 0 };
 
+function clearPathInPlace(path: GridCoord[]): GridCoord[] {
+  if (!Object.isFrozen(path)) {
+    path.length = 0;
+    return path;
+  }
+  return [];
+}
+
 /**
  * 1. ChaserEnemy: High speed, 350ms telegraph windup before 240 px/s corridor dash, 900ms stun on wall impact.
  */
@@ -104,6 +112,24 @@ export class ChaserEnemy extends BaseEntity {
     this.mass = 1.0;
     this.collisionRadius = 12;
     this.setTint(0xff4444);
+    this.changeState(EnemyState.TRACKING);
+  }
+
+  public override reset(): void {
+    super.reset();
+    this.moveSpeed = this.config.trackSpeed;
+    this.activeBombs = 0;
+    this.bombCooldownTimer = 2000;
+    this.escapePath = clearPathInPlace(this.escapePath);
+    this.currentPath = clearPathInPlace(this.currentPath);
+    this.evadeTimeoutMs = 0;
+    this.stateTimer = 0;
+    this.pathRecalcTimer = 0;
+    this.attackDir.x = 0;
+    this.attackDir.y = 0;
+    this.dashTargetTile = null;
+    this.setTint(0xff4444);
+    this.aiState = EnemyState.PATROL;
     this.changeState(EnemyState.TRACKING);
   }
 
@@ -533,6 +559,21 @@ export class BomberEnemy extends BaseEntity {
     this.changeState(EnemyState.HUNTING);
   }
 
+  public override reset(): void {
+    super.reset();
+    this.moveSpeed = this.config.trackSpeed;
+    this.activeBombs = 0;
+    this.bombCooldownTimer = 2500;
+    this.currentPath = clearPathInPlace(this.currentPath);
+    this.escapePath = clearPathInPlace(this.escapePath);
+    this.escapeTargetTile = null;
+    this.pathRecalcTimer = 0;
+    this.evadeTimeoutMs = 0;
+    this.setTint(0xc084fc);
+    this.aiState = EnemyState.PATROL;
+    this.changeState(EnemyState.HUNTING);
+  }
+
   public changeState(newState: EnemyState) {
     if (this.aiState === newState) return;
     this.aiState = newState;
@@ -861,6 +902,18 @@ export class TankEnemy extends BaseEntity {
     this.overheadUI.setIntent('🛡️', true);
   }
 
+  public override reset(): void {
+    super.reset();
+    this.iFrameDurationMs = this.config.iFrameMs;
+    this.moveSpeed = this.config.walkSpeed;
+    this.stompTimer = 4500;
+    this.pathRecalcTimer = 0;
+    this.currentPath = clearPathInPlace(this.currentPath);
+    this.setTint(0x64748b);
+    this.setScale(1.2, 1.2);
+    this.overheadUI.setIntent('🛡️', true);
+  }
+
   public updateAI(
     delta: number,
     currentTime: number,
@@ -997,6 +1050,24 @@ export class GhostEnemy extends BaseEntity {
     this.overheadUI.setIntent('👻', true);
   }
 
+  public override reset(): void {
+    super.reset();
+    this.moveSpeed = this.config.phaseSpeed;
+    this.isPhasing = true;
+    this.pathRecalcTimer = 0;
+    this.dashCooldownTimer = 4000;
+    this.isMaterialized = false;
+    this.materializeUntil = 0;
+    this.currentPath = clearPathInPlace(this.currentPath);
+    this.isDashing = false;
+    this.dashRemainingMs = 0;
+    this.dashDir.x = 0;
+    this.dashDir.y = 0;
+    this.setTint(0x67e8f9);
+    this.setAlpha(0.65);
+    this.overheadUI.setIntent('👻', true);
+  }
+
   public updateAI(
     delta: number,
     currentTime: number,
@@ -1122,6 +1193,17 @@ export class SplitterEnemy extends BaseEntity {
     this.moveSpeed = this.config.parentSpeed;
     this.mass = 0.8;
     this.collisionRadius = 10;
+    this.setTint(0x22c55e);
+    this.setScale(1.15, 1.15);
+    this.overheadUI.setIntent('🟢', true);
+  }
+
+  public override reset(): void {
+    super.reset();
+    this.moveSpeed = this.config.parentSpeed;
+    this.spawnedMinis.length = 0;
+    this.pathRecalcTimer = 0;
+    this.currentPath = clearPathInPlace(this.currentPath);
     this.setTint(0x22c55e);
     this.setScale(1.15, 1.15);
     this.overheadUI.setIntent('🟢', true);
@@ -1279,6 +1361,16 @@ export class MiniSplitterEnemy extends BaseEntity {
     this.setTint(0x84cc16);
     this.setScale(0.7, 0.7);
     applyPhysicsBodyInvariantGuard(this, 18, 18, 11, 11);
+    this.overheadUI.setIntent('🟢', true);
+  }
+
+  public override reset(): void {
+    super.reset();
+    this.moveSpeed = 100;
+    this.pathRecalcTimer = 0;
+    this.currentPath = clearPathInPlace(this.currentPath);
+    this.setTint(0x84cc16);
+    this.setScale(0.7, 0.7);
     this.overheadUI.setIntent('🟢', true);
   }
 

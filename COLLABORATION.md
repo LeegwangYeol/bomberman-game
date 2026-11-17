@@ -2859,3 +2859,27 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - `tests/daily_cycle40_zerogc_timefreeze_hazard_harmonization.test.mjs` 신규 구축 (10대 핵심 검증 시나리오 및 10,000프레임 전 서브시스템 Zero-GC 소크 테스트 전수 통과 — 10,000프레임 동안 `Set` 할당 `0`회 검증).
     - 전체 테스트 스위트: **2,342 / 2,342 PASS (100% 통과, 0 실패, 0 스킵, +10 테스트 순증)**.
     - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 1030ms 컴파일, 4/4 정적 라우트 사전 렌더링)**.
+
+### 41) 일일 정기 무한 진화(단일 에이전트 경량 유지보수): 누락된 `GravityHazard` 절차적 렌더러(`[0.18, 0.40]` 알파 클램프) 및 특이점 폭탄 해체 카운터플레이 연동, `DynamicHazard` 이중 적군 판정/더블 스코어 제거 및 10대 해저드 `!hitActiveBossInGroup` 가드 완결, 풀링 적군 6종 `reset()` 수명주기·`attachEntityDropShadow(scale)` 누수 방지, `CHRONO_FREEZE` 중첩 타이머·스크롤 팩터 보정, 8종 오디오 정적 노이즈 버퍼 정리 및 위기 모듈 인플레이스 재사용 완결 (Daily Auto-Maintenance: 2026-11-18 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 세션명: `[세션명: 봄버맨 일일 무한 진화]` (스케줄 백그라운드 단일 에이전트 자율 유지보수, 서브에이전트 스웜 미사용).
+  - **핵심 성능·Zero-GC 풀링 및 무결성 수리 내역**:
+    1. **누락된 `GravityHazard` 렌더러 복원 및 특이점 폭탄 해체 카운터플레이 연동 (`GravityHazard.ts`, `HazardRenderer.ts`, `GameScene.ts`)**:
+       - `GravityHazard.ts`에 사전 할당 `activeGravityIndices: Int16Array(32)` 및 `getActiveGravityIndices()` / `getActiveGravityCount()`를 추가하여 `ACCRETION_SWIRL`·`SINGULARITY_BURST` 양 상태에서 반경 3 격자 29개 타일을 $O(29)$ 무할당 순회하도록 구현.
+       - `HazardRenderer.ts`에서 `hasGravity` 계산만 존재하고 실제 렌더링 블록이 누락되어 중력 특이점이 화면에 보이지 않던 결함을 수리하여 `HazardRenderer.renderGravitySingularity()`를 구현·연결하고, 텔레그래프(`FORMATION`·`COMPRESSION`·`CRITICAL_COLLAPSE`) 구간의 코어 포함 전 타일 채움 알파를 `[0.18, 0.40]` 범위로 엄격히 클램프하여 폭탄·플레이어·Overhead UI 가림(Occlusion) 0건을 보장.
+       - `GameScene.explodeBomb()`에 누락되어 있던 `gravityHazard.clearBombCoreArrival(bombId)` 및 `gravityHazard.onBombDetonatedInSingularity(actualRow, actualCol, effectivePower)`를 연동하여 특이점 중심부 폭탄 기폭 시 즉시 `COOLDOWN` 해체, `playSingularityDissipation()` 재생 및 `+250` 보너스 점수가 정상 작동하도록 복원.
+    2. **`DynamicHazard` 이중 적군 충돌 루프 제거 및 10대 해저드 보스 가드 대칭화 (`GameScene.ts`)**:
+       - `GameScene.update()` 내 동일 프레임에 두 번 실행되던 `DynamicHazard` 적군 충돌 루프(블록 `10c`의 `isBoss=false` 하드코딩 루프 + 블록 `13` 루프)를 단일 루프(`13`)로 통합하여 미니언 처치 시 점수 이중 가산(+200 버그 -> 정상 +100) 및 그룹 내 보스의 미니언 오판 즉사 위험을 제거.
+       - `GravityHazard`, `NebulaHazard`, `AbyssalHazard`에도 `let hitActiveBossInGroup = false;` 가드를 추가하여 10대 해저드 전종에서 `activeBoss`가 `enemies` 그룹에 포함된 경우 보스 스턴/데미지 중복 판정을 원천 차단.
+    3. **풀링 적군 6종 `reset()` 부활 수명주기, 그림자 풀 스케일·누수 방어 및 궁극기 VFX 안정화 (`BaseEntity.ts`, `EnemyEntities.ts`, `ultimate_skills.ts`, `GameScene.ts`)**:
+       - `BaseEntity.reset()` 및 6종 적군 서브클래스(`Chaser`, `Bomber`, `Tank`, `Ghost`, `Splitter`, `MiniSplitter`)의 `override reset()`을 구현하여 비활성 적군 재활용 시 `isDead`, `hp`, `isStunned`, `speedMultiplier`, `activeBombs`, 파괴된 `OverheadUI`(풀 재획득) 및 경로 버퍼(`clearPathInPlace`)가 깨끗하게 초기화되도록 보장.
+       - `GameScene.attachEntityDropShadow(entity, scale = 1.0)`에서 기존 활성 `dropShadow`를 선제적으로 `shadowPool`에 반환하고 `BaseEntity.dropShadowScale`을 보존하여 `MiniSplitterEnemy`(`0.72` 스케일) 그림자 풀 누수 및 프레임 갱신 시 스케일 덮어쓰기 결함을 수리.
+       - `GameScene.executeChronoFreeze`에 `activeChronoFreezeTimer` 및 `activeChronoSpeedBoost` 추적을 도입하여 `CHRONO_FREEZE` 중첩 발동 시 이전 타이머에 의한 조기 해동 및 이동속도 영구 누적 드리프트를 차단하고, `renderChronoStasisVFX`의 화면 오버레이/테두리에 `setScrollFactor(0)` 적용, `renderMeteorReticle` 비활성 시 16ms 반복 타이머 즉시 해제 및 전 VFX 헬퍼의 풀 교체 안전 가드 적용.
+       - `GameScene.create()` 무종료 재진입 시 `shieldVisual`/`playerDropShadow` 및 기존 물리 그룹 선제 정리, `explodeBomb` 내 매 폭발 클로저(`checkPolarizationStrike`)를 `applyBlastTileHazardImpacts` 메서드로 추출 + `TILE_KEY_LUT` 적용, `destroyBlock` 및 `spawnEnemies`의 배열 변이 `.forEach`/`.filter`/`.find`와 `Set<string>`을 역방향 인덱스 루프 및 `scratchSpawnedTilesMask: Uint8Array`로 무할당화.
+    4. **8종 해저드·위기 오디오 정적 노이즈 버퍼 정리 및 위기 모듈 Zero-GC 인플레이스 재사용 (`*HazardAudio.ts`, `*CrisisAudio.ts`, `BaseCrisis.ts`, `ClockworkCrisis.ts`, `OrbitalCrisis.ts`, `VoidCrisis.ts`)**:
+       - `Volt`·`Miasma`·`Dynamic`·`Chrono`·`MagmaHazardAudio` 및 `Psychic`·`Lava`·`SolarFlareCrisisAudio` 8종의 `resetInstance()` / `destroy()`에서 `instance === null` 상태여도 정적 `cachedNoiseBuffer = null` 및 `cachedNoiseSampleRate = 0`을 무조건 초기화하도록 통일하고, `PsychicCrisisAudio.destroy()`의 외부 공유 `pool` 참조 잔류를 해소.
+       - `ClockworkCrisis.conduits`, `OrbitalCrisis.uplinks`, `VoidCrisis.prisms` 배열 및 원소 객체를 `init()`/`reset()` 간 인플레이스 재사용하고 `BaseCrisis`·`OrbitalCrisis`·`VoidCrisis`의 `.find()` 클로저를 인덱스 `for` 루프로 전환.
+  - **신규 영구 방어 테스트 및 검증 지표**:
+    - `tests/daily_cycle41_zerogc_gravity_renderer_pool_harmonization.test.mjs` 신규 구축 (9개 통합 회귀 시나리오 및 10,000프레임 Zero-GC 소크 테스트 전수 통과).
+    - 전체 테스트 스위트: **2,351 / 2,351 PASS (100% 통과, 0 실패, 0 스킵, +9 테스트 순증)**.
+    - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링)**.

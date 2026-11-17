@@ -358,6 +358,8 @@ export class MiasmaHazardAudio {
       MiasmaHazardAudio.instance.destroy();
       MiasmaHazardAudio.instance = null;
     }
+    MiasmaHazardAudio.cachedNoiseBuffer = null;
+    MiasmaHazardAudio.cachedNoiseSampleRate = 0;
   }
 
   public init(ctx: AudioContext, pool?: AudioVoicePool): void {
@@ -844,6 +846,7 @@ export class MiasmaHazardAudio {
     }
     this.ctx = null;
     MiasmaHazardAudio.cachedNoiseBuffer = null;
+    MiasmaHazardAudio.cachedNoiseSampleRate = 0;
     if (MiasmaHazardAudio.instance === this) {
       MiasmaHazardAudio.instance = null;
     }

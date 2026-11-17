@@ -265,6 +265,8 @@ export class GravityHazard {
   public readonly intensityGrid: Float32Array = new Float32Array(TOTAL_TILES);
   public readonly eventHorizonIndices: Int16Array = new Int16Array(MAX_EVENT_HORIZON_TILES);
   private eventHorizonCount: number = 0;
+  public readonly activeGravityIndices: Int16Array = new Int16Array(MAX_EVENT_HORIZON_TILES);
+  private activeGravityCount: number = 0;
 
   // Pre-allocated scratch buffer & pool for Zero-GC computeCosmicRadialBlast
   private readonly radialVisitedMask: Uint8Array = new Uint8Array(TOTAL_TILES);
@@ -415,6 +417,7 @@ export class GravityHazard {
     this.lastPlayerEscapeMs = -9999;
     this.dangerMask.fill(0);
     this.eventHorizonCount = 0;
+    this.activeGravityCount = 0;
     this.clearAllBombCoreArrivals();
   }
 
@@ -453,6 +456,7 @@ export class GravityHazard {
       case GravityLifecycleState.DORMANT:
         this.dangerMask.fill(0);
         this.eventHorizonCount = 0;
+        this.activeGravityCount = 0;
         break;
 
       case GravityLifecycleState.ACCRETION_SWIRL:
@@ -467,6 +471,7 @@ export class GravityHazard {
       case GravityLifecycleState.COOLDOWN:
         this.dangerMask.fill(0);
         this.eventHorizonCount = 0;
+        this.activeGravityCount = 0;
         break;
     }
   }
@@ -512,6 +517,7 @@ export class GravityHazard {
             this.stateTimerMs = 0;
             this.dangerMask.fill(0);
             this.eventHorizonCount = 0;
+            this.activeGravityCount = 0;
           } else {
             this.stateTimerMs += remainingDelta;
             remainingDelta = 0;
@@ -598,6 +604,7 @@ export class GravityHazard {
   private recomputeDangerMask(): void {
     this.dangerMask.fill(0);
     this.eventHorizonCount = 0;
+    this.activeGravityCount = 0;
 
     const isBurst = (this.state === GravityLifecycleState.SINGULARITY_BURST);
     const isAccretion = (this.state === GravityLifecycleState.ACCRETION_SWIRL);
@@ -616,6 +623,9 @@ export class GravityHazard {
         if (distSq <= GRAVITY_PULL_RADIUS_TILES * GRAVITY_PULL_RADIUS_TILES) {
           const idx = ((r * COLS + c) | 0);
           if (idx < 0 || idx >= TOTAL_TILES) continue;
+          if (this.activeGravityCount < MAX_EVENT_HORIZON_TILES) {
+            this.activeGravityIndices[this.activeGravityCount++] = idx;
+          }
           if (isBurst) {
             this.dangerMask[idx] = 2; // All 29 tiles in burst become lethal 2
             if (this.eventHorizonCount < MAX_EVENT_HORIZON_TILES) {
@@ -1272,7 +1282,7 @@ export class GravityHazard {
     if (dist <= CORE_RADIUS_PX * 1.5) {
       res.collapsed = true;
       res.singularityId = 0;
-      res.cleansedTileCount = this.eventHorizonCount;
+      res.cleansedTileCount = this.activeGravityCount > 0 ? this.activeGravityCount : this.eventHorizonCount;
       res.shockwaveRadiusTiles = Math.max(3, power);
       res.floatingText = FLOATING_TEXT_SINGULARITY_COLLAPSED;
 
@@ -1371,6 +1381,14 @@ export class GravityHazard {
 
   public getEventHorizonCount(): number {
     return this.eventHorizonCount;
+  }
+
+  public getActiveGravityIndices(): Int16Array {
+    return this.activeGravityIndices;
+  }
+
+  public getActiveGravityCount(): number {
+    return this.activeGravityCount;
   }
 
   public getCenter(): { r: number; c: number; worldX: number; worldY: number } {
