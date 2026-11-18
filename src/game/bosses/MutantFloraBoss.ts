@@ -520,9 +520,17 @@ export class MutantFloraBoss extends BaseBoss {
     this.audio.playBossDefeated();
   }
 
-  public destroy(): void {
+  public override destroy(): void {
+    this.isUnderground = false;
+    this.undergroundTimerMs = 0;
+    this.isVineWhipping = false;
+    this.activeRoots = 0;
+    this.vx = 0;
+    this.vy = 0;
+    this.attackManager = null;
     this.audio.destroy();
     this.rootPool.destroy();
+    super.destroy();
   }
 
   public dispose(): void {

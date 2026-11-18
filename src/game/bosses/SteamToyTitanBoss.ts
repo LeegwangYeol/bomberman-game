@@ -729,9 +729,23 @@ export class SteamToyTitanBoss extends BaseBoss {
     return data;
   }
 
-  public destroy(): void {
+  public override destroy(): void {
+    this.isMalletWindingUp = false;
+    this.malletWindupTimerMs = 0;
+    this.malletImpactActive = false;
+    this.malletImpactTimerMs = 0;
+    this.isSteamVenting = false;
+    this.steamVentDurationTimerMs = 0;
+    this.gearShieldActive = false;
+    this.vx = 0;
+    this.vy = 0;
+    for (let i = 0; i < this.preallocatedTelegraphs.length; i++) {
+      this.preallocatedTelegraphs[i].active = false;
+    }
+    this._scratchActiveShockwaves.length = 0;
     this.audio.destroy();
     this.shockwavePool.destroy();
     this.gearProjectilePool.destroy();
+    super.destroy();
   }
 }

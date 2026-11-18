@@ -1455,15 +1455,16 @@ export default class GameScene extends Phaser.Scene {
   public captureRunState(saveTrigger: SaveTriggerType = 'manual'): SerializedRunState {
     const serializedBombs: SerializedBomb[] = [];
     if (this.bombs) {
-      this.bombs.getChildren().forEach((b) => {
-        const bomb = b as Phaser.Physics.Arcade.Sprite & {
+      const bombChildren = this.bombs.getChildren();
+      for (let bi = 0; bi < bombChildren.length; bi++) {
+        const bomb = bombChildren[bi] as Phaser.Physics.Arcade.Sprite & {
           id?: string | number;
           fuseRemainingMs?: number;
           power?: number;
           owner?: string;
           bombType?: string;
         };
-        if (bomb.active) {
+        if (bomb && bomb.active) {
           const col = Math.floor(bomb.x / TILE_SIZE);
           const row = Math.floor(bomb.y / TILE_SIZE);
           const dataId = typeof bomb.getData === 'function' ? (bomb.getData('id') as string | number | undefined) : undefined;
@@ -1491,14 +1492,15 @@ export default class GameScene extends Phaser.Scene {
             bombType: (bomb.bombType || dataType || 'standard') as SerializedBomb['bombType'],
           });
         }
-      });
+      }
     }
 
     const serializedItems: SerializedItem[] = [];
     if (this.items) {
-      this.items.getChildren().forEach((it) => {
-        const item = it as Phaser.Physics.Arcade.Sprite & { itemType?: string };
-        if (item.active) {
+      const itemChildren = this.items.getChildren();
+      for (let ii = 0; ii < itemChildren.length; ii++) {
+        const item = itemChildren[ii] as Phaser.Physics.Arcade.Sprite & { itemType?: string };
+        if (item && item.active) {
           const col = Math.floor(item.x / TILE_SIZE);
           const row = Math.floor(item.y / TILE_SIZE);
           const dataItemType = typeof item.getData === 'function' ? (item.getData('itemType') as string | undefined) : undefined;
@@ -1510,13 +1512,14 @@ export default class GameScene extends Phaser.Scene {
             spawnTime: typeof dataSpawnTime === 'number' ? dataSpawnTime : Date.now(),
           });
         }
-      });
+      }
     }
 
     const serializedEntities: SerializedEntity[] = [];
     if (this.enemies) {
-      this.enemies.getChildren().forEach((e) => {
-        const enemy = e as Phaser.Physics.Arcade.Sprite & {
+      const enemyChildren = this.enemies.getChildren();
+      for (let ei = 0; ei < enemyChildren.length; ei++) {
+        const enemy = enemyChildren[ei] as Phaser.Physics.Arcade.Sprite & {
           id?: string | number;
           entityId?: string;
           archetype?: string;
@@ -1525,7 +1528,7 @@ export default class GameScene extends Phaser.Scene {
           maxHp?: number;
           aiState?: string;
         };
-        if (enemy.active) {
+        if (enemy && enemy.active) {
           serializedEntities.push({
             id: enemy.id || enemy.entityId || this.getStableEntityId(enemy),
             archetype: enemy.archetype || 'slime',
@@ -1537,7 +1540,7 @@ export default class GameScene extends Phaser.Scene {
             aiState: enemy.aiState || 'IDLE',
           });
         }
-      });
+      }
     }
 
     const playerCol = this.player ? Math.floor(this.player.x / TILE_SIZE) : 1;
@@ -2048,6 +2051,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.releaseGroupAoShadows(this.blocks);
     this.releaseGroupAoShadows(this.walls);
+    this.releaseAllItemShadows();
     this.enemies?.clear(true, true);
     this.neutrals?.clear(true, true);
     this.allies?.clear(true, true);
@@ -2909,130 +2913,231 @@ export default class GameScene extends Phaser.Scene {
   private readonly scratchSpawnedTilesMask: Uint8Array = new Uint8Array(ROWS * COLS);
 
   spawnEnemies(count: number) {
+    if (!Number.isFinite(count) || count <= 0) return;
+    const targetCount = Math.floor(count);
     let spawned = 0;
     this.scratchSpawnedTilesMask.fill(0);
     const archetypes = GameScene.SPAWN_ENEMY_ARCHETYPES;
     const dirs = GameScene.SPAWN_ORTHOGONAL_DIRS;
 
-    while (spawned < count) {
-      const r = Phaser.Math.Between(5, ROWS - 2);
-      const c = Phaser.Math.Between(5, COLS - 2);
+    const placeEnemyAt = (r: number, c: number) => {
       const tileIdx = r * COLS + c;
+      // Guarantee at least 2 open orthogonal corridor neighbors (prevent spawn dead-end locks)
+      let openNeighborCount = 0;
+      for (let di = 0; di < dirs.length; di++) {
+        const nr = r + dirs[di].dr;
+        const nc = c + dirs[di].dc;
+        if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && this.map[nr][nc] === TILE_EMPTY) {
+          openNeighborCount++;
+        }
+      }
 
-      if (this.map[r][c] === TILE_EMPTY && this.scratchSpawnedTilesMask[tileIdx] === 0) {
-        // Guarantee at least 2 open orthogonal corridor neighbors (prevent spawn dead-end locks)
-        let openNeighborCount = 0;
-        for (let di = 0; di < dirs.length; di++) {
+      if (openNeighborCount < 2) {
+        for (let di = 0; di < dirs.length && openNeighborCount < 2; di++) {
           const nr = r + dirs[di].dr;
           const nc = c + dirs[di].dc;
-          if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && this.map[nr][nc] === TILE_EMPTY) {
+          if (nr >= 1 && nr < ROWS - 1 && nc >= 1 && nc < COLS - 1 && this.map[nr][nc] === TILE_BLOCK) {
+            this.map[nr][nc] = TILE_EMPTY;
+            const blockChildren = this.blocks.getChildren();
+            for (let bi = blockChildren.length - 1; bi >= 0; bi--) {
+              const b = blockChildren[bi] as Phaser.Physics.Arcade.Sprite;
+              if (b && b.active && b.getData('row') === nr && b.getData('col') === nc) {
+                const ao = b.getData?.('aoShadow') as Phaser.GameObjects.Rectangle | undefined;
+                if (ao && ao !== (b as unknown)) {
+                  this.rectPool?.release(ao);
+                  b.setData?.('aoShadow', undefined);
+                }
+                b.destroy();
+              }
+            }
             openNeighborCount++;
           }
         }
+      }
 
-        if (openNeighborCount < 2) {
-          for (let di = 0; di < dirs.length && openNeighborCount < 2; di++) {
-            const nr = r + dirs[di].dr;
-            const nc = c + dirs[di].dc;
-            if (nr >= 1 && nr < ROWS - 1 && nc >= 1 && nc < COLS - 1 && this.map[nr][nc] === TILE_BLOCK) {
-              this.map[nr][nc] = TILE_EMPTY;
-              const blockChildren = this.blocks.getChildren();
-              for (let bi = blockChildren.length - 1; bi >= 0; bi--) {
-                const b = blockChildren[bi] as Phaser.Physics.Arcade.Sprite;
-                if (b && b.active && b.getData('row') === nr && b.getData('col') === nc) {
-                  const ao = b.getData?.('aoShadow') as Phaser.GameObjects.Rectangle | undefined;
-                  if (ao && ao !== (b as unknown)) {
-                    this.rectPool?.release(ao);
-                    b.setData?.('aoShadow', undefined);
-                  }
-                  b.destroy();
-                }
-              }
-              openNeighborCount++;
-            }
-          }
+      this.scratchSpawnedTilesMask[tileIdx] = 1;
+      const archetype = archetypes[spawned % archetypes.length];
+      const x = c * TILE_SIZE + TILE_SIZE / 2;
+      const y = r * TILE_SIZE + TILE_SIZE / 2;
+
+      let enemy: PooledEnemySprite | undefined;
+      const enemyChildren = this.enemies.getChildren();
+      for (let ei = 0; ei < enemyChildren.length; ei++) {
+        const pe = enemyChildren[ei] as unknown as PooledEnemySprite;
+        if (pe && !pe.active && pe.scene && pe.archetype === archetype) {
+          enemy = pe;
+          break;
         }
+      }
 
-        this.scratchSpawnedTilesMask[tileIdx] = 1;
-        const archetype = archetypes[spawned % archetypes.length];
-        const x = c * TILE_SIZE + TILE_SIZE / 2;
-        const y = r * TILE_SIZE + TILE_SIZE / 2;
-
-        let enemy: PooledEnemySprite | undefined;
-        const enemyChildren = this.enemies.getChildren();
-        for (let ei = 0; ei < enemyChildren.length; ei++) {
-          const pe = enemyChildren[ei] as unknown as PooledEnemySprite;
-          if (pe && !pe.active && pe.archetype === archetype) {
-            enemy = pe;
-            break;
-          }
-        }
-
-        if (enemy) {
+      if (enemy) {
+        if (typeof enemy.reviveAt === 'function') {
+          enemy.reviveAt(x, y);
+        } else {
           enemy.enableBody(true, x, y, true, true);
           if (enemy.reset) {
             enemy.reset();
           } else {
             enemy.hp = enemy.maxHp;
           }
-          if (!enemy.dropShadow || !enemy.dropShadow.active) {
-            this.attachEntityDropShadow(enemy);
-          }
-        } else {
-          enemy = createEnemy(this, archetype, x, y);
-          enemy.archetype = archetype;
-          this.enemies.add(enemy);
-          this.attachEntityDropShadow(enemy);
         }
-        spawned++;
+        if (!enemy.dropShadow || !enemy.dropShadow.active) {
+          this.attachEntityDropShadow(enemy, enemy.dropShadowScale || 1.0);
+        }
+      } else {
+        enemy = createEnemy(this, archetype, x, y);
+        enemy.archetype = archetype;
+        this.enemies.add(enemy);
+        this.attachEntityDropShadow(enemy, enemy.dropShadowScale || 1.0);
+      }
+      spawned++;
+    };
+
+    let attempts = 0;
+    const maxAttempts = Math.max(256, targetCount * 32);
+    while (spawned < targetCount && attempts < maxAttempts) {
+      attempts++;
+      const r = Phaser.Math.Between(5, ROWS - 2);
+      const c = Phaser.Math.Between(5, COLS - 2);
+      const tileIdx = r * COLS + c;
+      if (this.map[r]?.[c] === TILE_EMPTY && this.scratchSpawnedTilesMask[tileIdx] === 0) {
+        placeEnemyAt(r, c);
+      }
+    }
+
+    // Deterministic scan fallback if random picks missed remaining valid empty tiles
+    if (spawned < targetCount) {
+      for (let r = 5; r <= ROWS - 2 && spawned < targetCount; r++) {
+        for (let c = 5; c <= COLS - 2 && spawned < targetCount; c++) {
+          const tileIdx = r * COLS + c;
+          if (this.map[r]?.[c] === TILE_EMPTY && this.scratchSpawnedTilesMask[tileIdx] === 0) {
+            placeEnemyAt(r, c);
+          }
+        }
       }
     }
   }
 
   spawnNeutrals(count: number = 2) {
+    if (!Number.isFinite(count) || count <= 0) return;
+    const targetCount = Math.floor(count);
     let spawned = 0;
     this.scratchSpawnedTilesMask.fill(0);
     const types = GameScene.SPAWN_NEUTRAL_TYPES;
 
-    while (spawned < count) {
+    const placeNeutralAt = (r: number, c: number) => {
+      const tileIdx = r * COLS + c;
+      this.scratchSpawnedTilesMask[tileIdx] = 1;
+      const type = types[spawned % types.length];
+      const x = c * TILE_SIZE + TILE_SIZE / 2;
+      const y = r * TILE_SIZE + TILE_SIZE / 2;
+
+      let neutral: BaseEntity | undefined;
+      const neutralChildren = this.neutrals.getChildren();
+      for (let ni = 0; ni < neutralChildren.length; ni++) {
+        const pn = neutralChildren[ni] as unknown as BaseEntity;
+        if (pn && !pn.active && pn.scene && pn.entityType === type) {
+          neutral = pn;
+          break;
+        }
+      }
+
+      if (neutral) {
+        neutral.reviveAt(x, y);
+        if (!neutral.dropShadow || !neutral.dropShadow.active) {
+          this.attachEntityDropShadow(neutral, neutral.dropShadowScale || 1.0);
+        }
+      } else {
+        neutral = createNeutral(this, type, x, y);
+        this.neutrals.add(neutral);
+        this.attachEntityDropShadow(neutral, neutral.dropShadowScale || 1.0);
+      }
+      spawned++;
+    };
+
+    let attempts = 0;
+    const maxAttempts = Math.max(256, targetCount * 32);
+    while (spawned < targetCount && attempts < maxAttempts) {
+      attempts++;
       const r = Phaser.Math.Between(3, ROWS - 3);
       const c = Phaser.Math.Between(3, COLS - 3);
       const tileIdx = r * COLS + c;
 
-      if (this.map[r][c] === TILE_EMPTY && this.scratchSpawnedTilesMask[tileIdx] === 0) {
-        this.scratchSpawnedTilesMask[tileIdx] = 1;
-        const type = types[spawned % types.length];
-        const x = c * TILE_SIZE + TILE_SIZE / 2;
-        const y = r * TILE_SIZE + TILE_SIZE / 2;
+      if (this.map[r]?.[c] === TILE_EMPTY && this.scratchSpawnedTilesMask[tileIdx] === 0) {
+        placeNeutralAt(r, c);
+      }
+    }
 
-        const neutral = createNeutral(this, type, x, y);
-        this.neutrals.add(neutral);
-        this.attachEntityDropShadow(neutral);
-        spawned++;
+    if (spawned < targetCount) {
+      for (let r = 3; r <= ROWS - 3 && spawned < targetCount; r++) {
+        for (let c = 3; c <= COLS - 3 && spawned < targetCount; c++) {
+          const tileIdx = r * COLS + c;
+          if (this.map[r]?.[c] === TILE_EMPTY && this.scratchSpawnedTilesMask[tileIdx] === 0) {
+            placeNeutralAt(r, c);
+          }
+        }
       }
     }
   }
 
   spawnAllies(count: number = 1) {
+    if (!Number.isFinite(count) || count <= 0) return;
+    const targetCount = Math.floor(count);
     let spawned = 0;
     this.scratchSpawnedTilesMask.fill(0);
     const types = GameScene.SPAWN_ALLY_TYPES;
 
-    while (spawned < count) {
+    const placeAllyAt = (r: number, c: number) => {
+      const tileIdx = r * COLS + c;
+      this.scratchSpawnedTilesMask[tileIdx] = 1;
+      const type = types[spawned % types.length];
+      const x = c * TILE_SIZE + TILE_SIZE / 2;
+      const y = r * TILE_SIZE + TILE_SIZE / 2;
+
+      let ally: BaseEntity | undefined;
+      const allyChildren = this.allies.getChildren();
+      for (let ai = 0; ai < allyChildren.length; ai++) {
+        const pa = allyChildren[ai] as unknown as BaseEntity;
+        if (pa && !pa.active && pa.scene && pa.entityType === type) {
+          ally = pa;
+          break;
+        }
+      }
+
+      if (ally) {
+        ally.reviveAt(x, y);
+        if (!ally.dropShadow || !ally.dropShadow.active) {
+          this.attachEntityDropShadow(ally, ally.dropShadowScale || 1.0);
+        }
+      } else {
+        ally = createAlly(this, type, x, y);
+        this.allies.add(ally);
+        this.attachEntityDropShadow(ally, ally.dropShadowScale || 1.0);
+      }
+      spawned++;
+    };
+
+    let attempts = 0;
+    const maxAttempts = Math.max(128, targetCount * 24);
+    while (spawned < targetCount && attempts < maxAttempts) {
+      attempts++;
       const r = Phaser.Math.Clamp(1 + Phaser.Math.Between(0, 2), 1, ROWS - 2);
       const c = Phaser.Math.Clamp(1 + Phaser.Math.Between(0, 2), 1, COLS - 2);
       const tileIdx = r * COLS + c;
 
-      if (this.map[r][c] === TILE_EMPTY && this.scratchSpawnedTilesMask[tileIdx] === 0) {
-        this.scratchSpawnedTilesMask[tileIdx] = 1;
-        const type = types[spawned % types.length];
-        const x = c * TILE_SIZE + TILE_SIZE / 2;
-        const y = r * TILE_SIZE + TILE_SIZE / 2;
+      if (this.map[r]?.[c] === TILE_EMPTY && this.scratchSpawnedTilesMask[tileIdx] === 0) {
+        placeAllyAt(r, c);
+      }
+    }
 
-        const ally = createAlly(this, type, x, y);
-        this.allies.add(ally);
-        this.attachEntityDropShadow(ally);
-        spawned++;
+    if (spawned < targetCount) {
+      for (let r = 1; r <= ROWS - 2 && spawned < targetCount; r++) {
+        for (let c = 1; c <= COLS - 2 && spawned < targetCount; c++) {
+          const tileIdx = r * COLS + c;
+          if (this.map[r]?.[c] === TILE_EMPTY && this.scratchSpawnedTilesMask[tileIdx] === 0) {
+            placeAllyAt(r, c);
+          }
+        }
       }
     }
   }
@@ -3115,7 +3220,7 @@ export default class GameScene extends Phaser.Scene {
             this.map[r][c] = TILE_EMPTY;
           }
           // Keep conveyor corridor open
-          else if (this.conveyors.some((cv) => cv.row === r && cv.col === c)) {
+          else if (this.getConveyorAt(r, c) !== undefined) {
             this.map[r][c] = TILE_EMPTY;
           } else if (Math.random() < 0.6) {
             this.map[r][c] = TILE_BLOCK;
@@ -3141,7 +3246,8 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // Conveyor belt overlays
-    this.conveyors.forEach((cv) => {
+    for (let ci = 0; ci < this.conveyors.length; ci++) {
+      const cv = this.conveyors[ci];
       const cx = cv.col * TILE_SIZE + TILE_SIZE / 2;
       const cy = cv.row * TILE_SIZE + TILE_SIZE / 2;
       const marker = this.add.text(cx, cy, '⏩', {
@@ -3152,7 +3258,7 @@ export default class GameScene extends Phaser.Scene {
       marker.setDepth(RENDER_DEPTH.WALLS);
       marker.setAlpha(0.65);
       this.mapDecorations.push(marker);
-    });
+    }
 
     // Portal visual runes
     const pA = DEFAULT_PORTALS.portalA;
@@ -4177,17 +4283,31 @@ export default class GameScene extends Phaser.Scene {
         }
       }
 
-      // Boss crater / bomb collision stun check (AI-BOSS-01)
+      // Boss crater / bomb collision stun check (AI-BOSS-01 & PHYS-06: 1 hit per bombId)
       const bombsList = this.bombs.getChildren();
       for (let bi = 0; bi < bombsList.length; bi++) {
         const bomb = bombsList[bi] as Phaser.Physics.Arcade.Sprite;
         if (bomb.active && this.activeBoss) {
           const bDist = Phaser.Math.Distance.Between(bomb.x, bomb.y, this.activeBoss.x, this.activeBoss.y);
           if (bDist < bossRadius + 16) {
-            this.activeBoss.takeBombDamage(1, 'bomb');
-            this.activeBoss.applyStun(2.5);
-            if (this.bossHUD) {
-              this.bossHUD.triggerStun(2.5, 'Bomb Collision Stun!');
+            const bId = typeof bomb.getData === 'function' ? (bomb.getData('id') as string | undefined) : undefined;
+            if (!bId || !this.bossHitBombIds.has(bId)) {
+              if (bId) {
+                this.bossHitBombIds.add(bId);
+                this.time.delayedCall(1000, () => {
+                  this.bossHitBombIds.delete(bId);
+                });
+              }
+              const hit = this.activeBoss.takeBombDamage(1, 'bomb');
+              if (hit && this.bossHUD) {
+                this.bossHUD.setHp(this.activeBoss.currentHp);
+              }
+            }
+            if (this.activeBoss && (this.activeBoss.bossState as BossState) !== BossState.DEFEATED) {
+              this.activeBoss.applyStun(2.5);
+              if (this.bossHUD) {
+                this.bossHUD.triggerStun(2.5, 'Bomb Collision Stun!');
+              }
             }
             const bCol = Math.floor(bomb.x / TILE_SIZE);
             const bRow = Math.floor(bomb.y / TILE_SIZE);
@@ -5143,6 +5263,55 @@ export default class GameScene extends Phaser.Scene {
           this.crisisGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
           this.crisisGraphics.lineStyle(1.5, 0x6366f1, 0.6);
           this.crisisGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          break;
+        }
+        case HazardType.CONVEYOR_BELT: {
+          this.crisisGraphics.fillStyle(0xd97706, 0.24);
+          this.crisisGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          this.crisisGraphics.lineStyle(1.5, 0xfbbf24, 0.7);
+          this.crisisGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          break;
+        }
+        case HazardType.DYNAMO_CONDUIT: {
+          const isCharged = hazard.data === 1;
+          const pulse = 0.8 + 0.2 * Math.sin(time / 150 + hazard.idx);
+          this.crisisGraphics.fillStyle(isCharged ? 0x22c55e : 0xf59e0b, 0.28 * pulse);
+          this.crisisGraphics.fillCircle(x, y, 16 * pulse);
+          this.crisisGraphics.lineStyle(2, isCharged ? 0x4ade80 : 0xfde047, 0.9);
+          this.crisisGraphics.strokeCircle(x, y, 13);
+          this.crisisGraphics.fillStyle(0xffffff, 0.85);
+          this.crisisGraphics.fillCircle(x, y, 4);
+          break;
+        }
+        case HazardType.UPLINK_TERMINAL: {
+          const isOverridden = hazard.data === 1;
+          const pulse = 0.8 + 0.2 * Math.sin(time / 160 + hazard.idx);
+          this.crisisGraphics.fillStyle(isOverridden ? 0x10b981 : 0x38bdf8, 0.26 * pulse);
+          this.crisisGraphics.fillRect(left + 4, top + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+          this.crisisGraphics.lineStyle(2, isOverridden ? 0x34d399 : 0x7dd3fc, 0.9);
+          this.crisisGraphics.strokeRect(left + 4, top + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+          this.crisisGraphics.fillStyle(0xffffff, 0.85);
+          this.crisisGraphics.fillCircle(x, y, 3.5);
+          break;
+        }
+        case HazardType.CALDERA_VALVE: {
+          const pulse = 0.8 + 0.2 * Math.sin(time / 140 + hazard.idx);
+          this.crisisGraphics.fillStyle(0xef4444, 0.32 * pulse);
+          this.crisisGraphics.fillCircle(x, y, 17 * pulse);
+          this.crisisGraphics.lineStyle(2, 0xfacc15, 0.9);
+          this.crisisGraphics.strokeCircle(x, y, 14);
+          this.crisisGraphics.lineBetween(x - 10, y, x + 10, y);
+          this.crisisGraphics.lineBetween(x, y - 10, x, y + 10);
+          break;
+        }
+        case HazardType.DIMENSIONAL_WARP: {
+          const pulse = 0.8 + 0.2 * Math.sin(time / 170 + hazard.idx);
+          this.crisisGraphics.fillStyle(0x8b5cf6, 0.30 * pulse);
+          this.crisisGraphics.fillCircle(x, y, 17 * pulse);
+          this.crisisGraphics.lineStyle(2, 0xc4b5fd, 0.88);
+          this.crisisGraphics.strokeCircle(x, y, 14 * pulse);
+          this.crisisGraphics.lineStyle(1.5, 0x38bdf8, 0.8);
+          this.crisisGraphics.strokeCircle(x, y, 8);
           break;
         }
         case HazardType.EMP_PULSE:

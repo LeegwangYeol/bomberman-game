@@ -1027,8 +1027,8 @@ export class OrbitalCrisisAudio {
     this.reset();
     if (this.ownsPool && this.pool) {
       this.pool.destroy();
-      this.pool = null;
     }
+    this.pool = null;
     OrbitalCrisisAudio.cachedNoiseBuffer = null;
     OrbitalCrisisAudio.cachedNoiseSampleRate = 0;
     if (OrbitalCrisisAudio.instance === this) {

@@ -1336,8 +1336,8 @@ export class VoidCrisisAudio {
     this.clearPendingNodes();
     if (this.ownsPool && this.pool) {
       this.pool.destroy();
-      this.pool = null;
     }
+    this.pool = null;
     this.ctx = null;
     VoidCrisisAudio.cachedNoiseBuffer = null;
     VoidCrisisAudio.cachedNoiseSampleRate = 0;

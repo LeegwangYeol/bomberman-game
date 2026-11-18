@@ -811,8 +811,8 @@ export class ClockworkCrisisAudio {
     this.stop();
     if (this.ownsPool && this.pool) {
       this.pool.destroy();
-      this.pool = null;
     }
+    this.pool = null;
     this.ctx = null;
     ClockworkCrisisAudio.cachedNoiseBuffer = null;
     ClockworkCrisisAudio.cachedNoiseSampleRate = 0;

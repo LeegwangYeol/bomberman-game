@@ -10,6 +10,9 @@ import {
   findEscapePathBFS,
   getBlastTiles,
   FlatHazardMask,
+  clearCoordPathInPlace,
+  shiftCoordPathInPlace,
+  copyCoordPathInPlace,
 } from '../pathfinding.ts';
 import type { ItemType } from '../gameplay_mechanics.ts';
 
@@ -28,6 +31,7 @@ const sharedMerchantBlastMask = new FlatHazardMask(ROWS * COLS);
 const sharedMerchantPosScratch: GridCoord = { r: 0, c: 0 };
 const sharedBombScratch: GridCoord = { r: 0, c: 0 };
 const sharedOpenDirs: Array<{ x: number; y: number }> = [];
+const sharedMerchantTempEscapeScratch: GridCoord[] = [];
 
 /**
  * 1. Wandering Merchant ("Pops"):
@@ -59,6 +63,18 @@ export class MerchantNPC extends BaseEntity {
     this.moveSpeed = this.config.walkSpeed;
     this.mass = 2.0;
     this.collisionRadius = 14;
+    this.setTint(0xf59e0b);
+    this.overheadUI.setIntent('🛒', true);
+  }
+
+  public override reset(): void {
+    super.reset();
+    this.moveSpeed = this.config.walkSpeed;
+    this.droppedLoot.length = 0;
+    this.currentDirection = CARDINAL_STEP_DIRS[0];
+    this.pauseTimer = 0;
+    this.isTrading = false;
+    this.fleePath = clearCoordPathInPlace(this.fleePath);
     this.setTint(0xf59e0b);
     this.overheadUI.setIntent('🛒', true);
   }
@@ -165,8 +181,18 @@ export class MerchantNPC extends BaseEntity {
       if (this.fleePath.length === 0 || isDestDangerous) {
         sharedMerchantPosScratch.r = mr;
         sharedMerchantPosScratch.c = mc;
-        const escape = findEscapePathBFS(sharedMerchantPosScratch, sharedMerchantBlastMask, map, bombTiles, 8);
-        if (escape && escape.length > 0) this.fleePath = escape;
+        const escape = findEscapePathBFS(
+          sharedMerchantPosScratch,
+          sharedMerchantBlastMask,
+          map,
+          bombTiles,
+          8,
+          undefined,
+          sharedMerchantTempEscapeScratch
+        );
+        if (escape && escape.length > 0) {
+          this.fleePath = copyCoordPathInPlace(this.fleePath, escape);
+        }
       }
 
       if (this.fleePath.length > 0) {
@@ -184,7 +210,7 @@ export class MerchantNPC extends BaseEntity {
         }
 
         if (Math.abs(dx) < 4 && Math.abs(dy) < 4) {
-          this.fleePath.shift();
+          shiftCoordPathInPlace(this.fleePath);
         }
         return;
       }
@@ -299,6 +325,17 @@ export class CritterNPC extends BaseEntity {
     this.setTint(0xec4899);
     this.setScale(0.8, 0.8);
     applyPhysicsBodyInvariantGuard(this, 20, 20, 10, 10);
+    this.overheadUI.setIntent('🐾', true);
+  }
+
+  public override reset(): void {
+    super.reset();
+    this.moveSpeed = this.config.hopSpeed;
+    this.hopTimer = 0;
+    this.isHopping = false;
+    this.hopDirection = CARDINAL_STEP_DIRS[0];
+    this.setTint(0xec4899);
+    this.setScale(0.8, 0.8);
     this.overheadUI.setIntent('🐾', true);
   }
 

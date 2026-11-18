@@ -1269,11 +1269,117 @@ function populateMaskFromSetOrArray(
   }
 }
 
+const COORD_NODE_POOL_MAX = 1024;
+const sharedCoordNodePool: GridCoord[] = [];
+
+function acquirePooledCoord(r: number, c: number): GridCoord {
+  const node = sharedCoordNodePool.pop();
+  if (node) {
+    node.r = r;
+    node.c = c;
+    return node;
+  }
+  return { r, c };
+}
+
+function populateCoordPathInPlace(
+  outPath: GridCoord[],
+  buffer: Int16Array,
+  len: number
+): GridCoord[] {
+  const prevLen = outPath.length;
+  if (prevLen > len) {
+    for (let i = len; i < prevLen; i++) {
+      const stale = outPath[i];
+      if (stale && !Object.isFrozen(stale) && sharedCoordNodePool.length < COORD_NODE_POOL_MAX) {
+        sharedCoordNodePool.push(stale);
+      }
+    }
+    outPath.length = len;
+  }
+  for (let i = 0; i < len; i++) {
+    const idx = buffer[i];
+    const r = (idx / COLS) | 0;
+    const c = idx % COLS;
+    if (i < prevLen && outPath[i] && !Object.isFrozen(outPath[i])) {
+      outPath[i].r = r;
+      outPath[i].c = c;
+    } else {
+      outPath[i] = acquirePooledCoord(r, c);
+    }
+  }
+  return outPath;
+}
+
+/**
+ * Zero-GC helper: clears a mutable GridCoord[] path in place, recycling its coordinate nodes.
+ */
+export function clearCoordPathInPlace(path: GridCoord[]): GridCoord[] {
+  if (!path || Object.isFrozen(path)) {
+    return [];
+  }
+  for (let i = 0; i < path.length; i++) {
+    const node = path[i];
+    if (node && !Object.isFrozen(node) && sharedCoordNodePool.length < COORD_NODE_POOL_MAX) {
+      sharedCoordNodePool.push(node);
+    }
+  }
+  path.length = 0;
+  return path;
+}
+
+/**
+ * Zero-GC helper: removes the head step of a mutable GridCoord[] path in place, recycling its node.
+ */
+export function shiftCoordPathInPlace(path: GridCoord[]): void {
+  if (!path || Object.isFrozen(path) || path.length === 0) return;
+  const head = path[0];
+  const lastIdx = path.length - 1;
+  for (let i = 0; i < lastIdx; i++) {
+    path[i] = path[i + 1];
+  }
+  path.length = lastIdx;
+  if (head && !Object.isFrozen(head) && sharedCoordNodePool.length < COORD_NODE_POOL_MAX) {
+    sharedCoordNodePool.push(head);
+  }
+}
+
+/**
+ * Zero-GC helper: copies `source` coordinates into `target` in place using pooled nodes.
+ */
+export function copyCoordPathInPlace(target: GridCoord[], source: readonly GridCoord[]): GridCoord[] {
+  if (!target || Object.isFrozen(target)) {
+    return source.map((s) => ({ r: s.r, c: s.c }));
+  }
+  const srcLen = source.length;
+  const prevLen = target.length;
+  if (prevLen > srcLen) {
+    for (let i = srcLen; i < prevLen; i++) {
+      const stale = target[i];
+      if (stale && !Object.isFrozen(stale) && sharedCoordNodePool.length < COORD_NODE_POOL_MAX) {
+        sharedCoordNodePool.push(stale);
+      }
+    }
+    target.length = srcLen;
+  }
+  for (let i = 0; i < srcLen; i++) {
+    const s = source[i];
+    if (i < prevLen && target[i] && !Object.isFrozen(target[i])) {
+      target[i].r = s.r;
+      target[i].c = s.c;
+    } else {
+      target[i] = acquirePooledCoord(s.r, s.c);
+    }
+  }
+  return target;
+}
+
 /**
  * Backward-compatible findPathBFS:
  * Grid-based BFS pathfinding on discrete 13x15 arena avoiding walls, blocks, and active bombs.
  * Includes nearest-frontier Manhattan fallback when player is enclosed by breakable blocks.
- * Accepts optional hazardMask (or multi-hazard values in bombTiles) to strictly avoid lethal cells.
+ * Accepts optional hazardMask (or multi-hazard values in bombTiles) to strictly avoid lethal cells,
+ * and optional outPath to reuse an existing GridCoord[] buffer with zero heap allocations.
  */
 export function findPathBFS(
   start: GridCoord,
@@ -1281,8 +1387,10 @@ export function findPathBFS(
   map: number[][],
   bombTiles: Set<string> | Uint8Array | FlatHazardMask,
   ignoreBlocks: boolean = false,
-  hazardMask?: Set<string> | Uint8Array | FlatHazardMask
+  hazardMask?: Set<string> | Uint8Array | FlatHazardMask,
+  outPath?: GridCoord[]
 ): GridCoord[] {
+  const canReuseOut = Array.isArray(outPath) && !Object.isFrozen(outPath);
   if (
     !start || !target || !map ||
     !Number.isInteger(start.r) || !Number.isInteger(start.c) ||
@@ -1290,10 +1398,12 @@ export function findPathBFS(
     start.r < 0 || start.r >= ROWS || start.c < 0 || start.c >= COLS ||
     target.r < 0 || target.r >= ROWS || target.c < 0 || target.c >= COLS
   ) {
-    return EMPTY_PATH as GridCoord[];
+    return canReuseOut ? clearCoordPathInPlace(outPath!) : (EMPTY_PATH as GridCoord[]);
   }
 
-  if (start.r === target.r && start.c === target.c) return EMPTY_PATH as GridCoord[];
+  if (start.r === target.r && start.c === target.c) {
+    return canReuseOut ? clearCoordPathInPlace(outPath!) : (EMPTY_PATH as GridCoord[]);
+  }
 
   populateObstacleMask(map, sharedObstacleMask);
   populateMaskFromSetOrArray(bombTiles, sharedBombMask);
@@ -1317,7 +1427,13 @@ export function findPathBFS(
     lethalMask
   );
 
-  if (len === 0) return EMPTY_PATH as GridCoord[];
+  if (len === 0) {
+    return canReuseOut ? clearCoordPathInPlace(outPath!) : (EMPTY_PATH as GridCoord[]);
+  }
+
+  if (canReuseOut) {
+    return populateCoordPathInPlace(outPath!, outPathBuffer, len);
+  }
 
   const path: GridCoord[] = new Array(len);
   for (let i = 0; i < len; i++) {
@@ -1412,14 +1528,17 @@ export function findEscapePathBFS(
   map: number[][],
   existingBombs: Set<string> | Uint8Array | FlatHazardMask,
   maxSteps: number = 8,
-  lethalHazardMask?: Set<string> | Uint8Array | FlatHazardMask
+  lethalHazardMask?: Set<string> | Uint8Array | FlatHazardMask,
+  outPath?: GridCoord[]
 ): GridCoord[] | null {
+  const canReuseOut = Array.isArray(outPath) && !Object.isFrozen(outPath);
   if (
     !start || !map ||
     !Number.isInteger(start.r) || !Number.isInteger(start.c) ||
     start.r < 0 || start.r >= ROWS || start.c < 0 || start.c >= COLS ||
     !Number.isFinite(maxSteps) || maxSteps <= 0
   ) {
+    if (canReuseOut) clearCoordPathInPlace(outPath!);
     return null;
   }
 
@@ -1445,8 +1564,17 @@ export function findEscapePathBFS(
     lethalMask
   );
 
-  if (len === -1) return null;
-  if (len === 0) return EMPTY_PATH as GridCoord[];
+  if (len === -1) {
+    if (canReuseOut) clearCoordPathInPlace(outPath!);
+    return null;
+  }
+  if (len === 0) {
+    return canReuseOut ? clearCoordPathInPlace(outPath!) : (EMPTY_PATH as GridCoord[]);
+  }
+
+  if (canReuseOut) {
+    return populateCoordPathInPlace(outPath!, outPathBuffer, len);
+  }
 
   const path: GridCoord[] = new Array(len);
   for (let i = 0; i < len; i++) {
@@ -1741,8 +1869,10 @@ export function getSafeDemolitionApproaches(
   bombTiles?: Set<string> | Uint8Array | FlatHazardMask,
   bombPower: number = 2,
   maxEscapeSteps: number = 8,
-  hazardMask?: Set<string> | Uint8Array | FlatHazardMask
+  hazardMask?: Set<string> | Uint8Array | FlatHazardMask,
+  outApproaches?: GridCoord[]
 ): GridCoord[] {
+  const canReuseOut = Array.isArray(outApproaches) && !Object.isFrozen(outApproaches);
   if (
     !targetBlock || !map ||
     !Number.isInteger(targetBlock.r) || !Number.isInteger(targetBlock.c) ||
@@ -1750,8 +1880,41 @@ export function getSafeDemolitionApproaches(
     !Number.isFinite(bombPower) || bombPower <= 0 ||
     !Number.isFinite(maxEscapeSteps) || maxEscapeSteps <= 0
   ) {
-    return EMPTY_PATH as GridCoord[];
+    return canReuseOut ? clearCoordPathInPlace(outApproaches!) : (EMPTY_PATH as GridCoord[]);
   }
+  if (canReuseOut) {
+    let writeIdx = 0;
+    const prevLen = outApproaches!.length;
+    for (let di = 0; di < 4; di++) {
+      const d = BLAST_CARDINAL_DIRECTIONS[di];
+      const r = targetBlock.r + d.dr;
+      const c = targetBlock.c + d.dc;
+      if (r >= 0 && r < ROWS && c >= 0 && c < COLS && map[r]?.[c] === TILE_EMPTY) {
+        const isBomb = isTileInHazardMask(bombTiles, r, c);
+        const isLethalHazard = isTileLethalInHazardMask(hazardMask, r, c);
+        if (!isBomb && !isLethalHazard && canSafelyPlaceBomb(r * COLS + c, bombPower, map, bombTiles, maxEscapeSteps, hazardMask)) {
+          if (writeIdx < prevLen && outApproaches![writeIdx] && !Object.isFrozen(outApproaches![writeIdx])) {
+            outApproaches![writeIdx].r = r;
+            outApproaches![writeIdx].c = c;
+          } else {
+            outApproaches![writeIdx] = acquirePooledCoord(r, c);
+          }
+          writeIdx++;
+        }
+      }
+    }
+    if (prevLen > writeIdx) {
+      for (let i = writeIdx; i < prevLen; i++) {
+        const stale = outApproaches![i];
+        if (stale && !Object.isFrozen(stale) && sharedCoordNodePool.length < COORD_NODE_POOL_MAX) {
+          sharedCoordNodePool.push(stale);
+        }
+      }
+      outApproaches!.length = writeIdx;
+    }
+    return outApproaches!;
+  }
+
   const safe: GridCoord[] = [];
   for (let di = 0; di < 4; di++) {
     const d = BLAST_CARDINAL_DIRECTIONS[di];
@@ -1874,9 +2037,13 @@ export function getSafeBombEscapePath(
   map: number[][],
   existingBombs?: Set<string> | Uint8Array | FlatHazardMask,
   maxEscapeSteps: number = 8,
-  hazardMask?: Set<string> | Uint8Array | FlatHazardMask
+  hazardMask?: Set<string> | Uint8Array | FlatHazardMask,
+  outPath?: GridCoord[]
 ): GridCoord[] | null {
-  if (!pos || !map) return null;
+  if (!pos || !map) {
+    if (Array.isArray(outPath) && !Object.isFrozen(outPath)) clearCoordPathInPlace(outPath);
+    return null;
+  }
   const r = typeof pos === 'number'
     ? (Number.isInteger(pos) && pos >= 0 && pos < TOTAL_TILES ? (pos / COLS) | 0 : NaN)
     : (typeof pos === 'object' && pos !== null ? pos.r : NaN);
@@ -1891,11 +2058,15 @@ export function getSafeBombEscapePath(
     !Number.isFinite(power) || power <= 0 ||
     !Number.isFinite(maxEscapeSteps) || maxEscapeSteps <= 0
   ) {
+    if (Array.isArray(outPath) && !Object.isFrozen(outPath)) clearCoordPathInPlace(outPath);
     return null;
   }
 
   const startTileVal = map[r]?.[c];
-  if (startTileVal === TILE_WALL || startTileVal === TILE_BLOCK) return null;
+  if (startTileVal === TILE_WALL || startTileVal === TILE_BLOCK) {
+    if (Array.isArray(outPath) && !Object.isFrozen(outPath)) clearCoordPathInPlace(outPath);
+    return null;
+  }
 
   sharedEscapeDangerMask.clear();
   sharedPosScratch.r = r;
@@ -1987,7 +2158,15 @@ export function getSafeBombEscapePath(
 
   sharedPosScratch.r = r;
   sharedPosScratch.c = c;
-  return findEscapePathBFS(sharedPosScratch, sharedEscapeDangerMask, map, sharedSimulatedBombsMask, maxEscapeSteps);
+  return findEscapePathBFS(
+    sharedPosScratch,
+    sharedEscapeDangerMask,
+    map,
+    sharedSimulatedBombsMask,
+    maxEscapeSteps,
+    undefined,
+    outPath
+  );
 }
 
 /**
@@ -2130,7 +2309,8 @@ export function findCorneringBombTile(
   map: number[][],
   bombTiles?: Set<string> | Uint8Array | FlatHazardMask,
   allowOpenPursuit: boolean = false,
-  hazardMask?: Set<string> | Uint8Array | FlatHazardMask
+  hazardMask?: Set<string> | Uint8Array | FlatHazardMask,
+  outCoord?: GridCoord
 ): GridCoord | null {
   if (
     !enemyPos || !playerPos || !map ||
@@ -2231,6 +2411,11 @@ export function findCorneringBombTile(
 
     if (coversPlayerOrExit) {
       if (canSafelyPlaceBomb(candIdx, 2, map, bombTiles, 8, hazardMask)) {
+        if (outCoord && !Object.isFrozen(outCoord)) {
+          outCoord.r = cr;
+          outCoord.c = cc;
+          return outCoord;
+        }
         return { r: cr, c: cc };
       }
     }
@@ -2247,8 +2432,9 @@ export function findOffensiveBombTile(
   playerPos: GridCoord,
   map: number[][],
   bombTiles?: Set<string> | Uint8Array | FlatHazardMask,
-  hazardMask?: Set<string> | Uint8Array | FlatHazardMask
+  hazardMask?: Set<string> | Uint8Array | FlatHazardMask,
+  outCoord?: GridCoord
 ): GridCoord | null {
-  return findCorneringBombTile(enemyPos, playerPos, map, bombTiles, true, hazardMask);
+  return findCorneringBombTile(enemyPos, playerPos, map, bombTiles, true, hazardMask, outCoord);
 }
 

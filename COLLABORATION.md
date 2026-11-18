@@ -2883,3 +2883,22 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - `tests/daily_cycle41_zerogc_gravity_renderer_pool_harmonization.test.mjs` 신규 구축 (9개 통합 회귀 시나리오 및 10,000프레임 Zero-GC 소크 테스트 전수 통과).
     - 전체 테스트 스위트: **2,351 / 2,351 PASS (100% 통과, 0 실패, 0 스킵, +9 테스트 순증)**.
     - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링)**.
+
+### 42) 일일 정기 무한 진화(단일 에이전트 경량 유지보수): `pathfinding.ts` `outPath`/좌표 노드 풀링 무할당화, 철거 AI 캐시·`BomberEnemy` 쿨다운 게이트, `BaseEntity.die()`/`reviveAt()` 실전 엔티티 풀링 완성(적군·`MiniSplitter` `0.72` 그림자·아군 3종·중립 2종 + 무한루프 방지 스폰), 보스 폭탄 충돌 `PHYS-06` 단일 타격 보정, 5종 위기 타일 비차폐(`<= 0.40` 알파) 절차적 렌더러·`RiftCrisis` 인플레이스 재사용 및 보스·위기 오디오 수명주기 정리 완결 (Daily Auto-Maintenance: 2026-11-19 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 세션명: `[세션명: 봄버맨 일일 무한 진화]` (스케줄 백그라운드 단일 에이전트 자율 유지보수, 서브에이전트 스웜 미사용).
+  - **핵심 성능·Zero-GC 풀링 및 무결성 수리 내역**:
+    1. **경로탐색(`pathfinding.ts`) 및 전 엔티티 AI Zero-GC 인플레이스 버퍼화 (`pathfinding.ts`, `EnemyEntities.ts`, `AllyEntities.ts`, `NeutralEntities.ts`)**:
+       - `findPathBFS`, `findEscapePathBFS`, `getSafeBombEscapePath`, `getSafeDemolitionApproaches`, `findCorneringBombTile` / `findOffensiveBombTile`에 선택적 인플레이스 출력 버퍼(`outPath`, `outApproaches`, `outCoord`)와 상한 좌표 노드 풀(`sharedCoordNodePool`, `clearCoordPathInPlace`, `shiftCoordPathInPlace`, `copyCoordPathInPlace`)을 도입하여 기존 호출부 하위 호환성을 100% 유지하면서 엔티티 AI의 경로 배열·좌표 객체 매 호출 할당 및 `.shift()`/`= []` 배열 폐기를 원천 제거.
+       - `ChaserEnemy`·`BomberEnemy`에서 소프트 블록에 막혔을 때 매 16ms 프레임마다 무제한 실행되던 철거 경로 탐색에 타일·블록·폭탄 즉시 무효화 기반 `approachPath` 캐시를 적용하고, `BomberEnemy`의 코너링 폭탄 탐색(`findCorneringBombTile`)을 폭탄 설치 가능 상태(`canDropBombs && bombCooldownTimer <= 0 && activeBombs < maxBombs`) 내부로 게이팅하여 쿨다운 중 불필요한 60FPS BFS 연산을 제거.
+    2. **`BaseEntity.die()`/`reviveAt()` 실전 엔티티 풀링 완성 및 고밀도 맵 스폰 무한루프 원천 차단 (`BaseEntity.ts`, `EnemyEntities.ts`, `AllyEntities.ts`, `NeutralEntities.ts`, `GameScene.ts`)**:
+       - `BaseEntity.die()` 말미의 `this.destroy()`가 `Sprite`/`Arcade.Body`를 영구 파괴하여 그룹 풀 재사용을 무력화하던 결함을 수리하여 풀 안전 비활성화(`disableBody`) + 통합 부활 헬퍼 `BaseEntity.reviveAt(x, y)`로 전환.
+       - 아군 3종(`MiniBomberAlly`, `PetDroneAlly`, `ShieldGuardAlly`) 및 중립 2종(`MerchantNPC`, `CritterNPC`) 전수에 `override reset()`을 구현하고, `SplitterEnemy.onDeath`에서 비활성 `MiniSplitterEnemy` 풀 재사용 및 `0.72` `dropShadowScale` 보존, `spawnEnemies()`·`spawnNeutrals()`·`spawnAllies()`의 풀 재활용 및 고밀도 블록 맵에서도 절대 멈추지 않는 `maxAttempts` + 결정론적 그리드 폴백 종료 보장을 완결.
+    3. **보스 폭탄 충돌 이중 타격(`PHYS-06`) 수리, 5종 위기 타일 비차폐 렌더러 및 보스/오디오 정리 (`GameScene.ts`, `RiftCrisis.ts`, `SteamToyTitanBoss.ts`, `MutantFloraBoss.ts`, `*CrisisAudio.ts`)**:
+       - `GameScene.update()`의 보스 폭탄 충돌 스턴 판정에서 `explodeBomb()` 호출 전 `bossHitBombIds`에 폭탄 ID를 등록하여 150ms 콤보 버퍼 구간 내 동일 폭탄의 2중 데미지 버그를 1타로 정밀 보정하고, 치명타로 `DEFEATED` 전환 시 스턴 덮어쓰기를 차단.
+       - `GameScene.renderCrisisHazards()`에서 `default` 보라색 사각형으로 빠지던 5종 위기 핵심 타일(`CONVEYOR_BELT`, `DYNAMO_CONDUIT`, `UPLINK_TERMINAL`, `CALDERA_VALVE`, `DIMENSIONAL_WARP`)의 전용 절차적 렌더링을 추가하되 바닥 채움 알파를 `<= 0.40`으로 제한하여 폭탄·UI 텍스트 가림(Occlusion) 0건을 보장. 또한 재진입 `GameScene.create()`의 `releaseAllItemShadows()` 누락 보완, `generateMap()`/`captureRunState()` 클로저 제거, `RiftCrisis.resetRiftsAndSpiresInPlace()` 인플레이스 재사용 적용.
+       - `SteamToyTitanBoss.destroy()`·`MutantFloraBoss.destroy()`의 활성 전투 플래그·속도·텔레그래프 초기화 및 `Clockwork`·`Orbital`·`VoidCrisisAudio.destroy()`의 외부 공유 `AudioVoicePool` 참조(`this.pool = null`) 해제를 완결.
+  - **신규 영구 방어 테스트 및 검증 지표**:
+    - `tests/daily_cycle42_zerogc_pathfinding_entity_crisis_harmonization.test.mjs` 신규 구축 (10대 통합 회귀 시나리오 및 10,000프레임 다중 엔티티·경로탐색·위기·풀 Zero-GC 소크 테스트 전수 통과).
+    - 전체 테스트 스위트: **2,361 / 2,361 PASS (100% 통과, 0 실패, 0 스킵, +10 테스트 순증)**.
+    - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링)**.

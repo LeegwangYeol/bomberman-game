@@ -16,6 +16,9 @@ import {
   getSafeBombEscapePath,
   FlatHazardMask,
   isTileInHazardMask,
+  clearCoordPathInPlace,
+  shiftCoordPathInPlace,
+  copyCoordPathInPlace,
 } from '../pathfinding.ts';
 
 /**
@@ -65,13 +68,12 @@ const MINI_SPLITTER_CONFIG = Object.freeze({
 
 const sharedEnemyPosScratch: GridCoord = { r: 0, c: 0 };
 const sharedEnemyTargetScratch: GridCoord = { r: 0, c: 0 };
+const sharedTrapTileScratch: GridCoord = { r: 0, c: 0 };
+const sharedTempPathScratch: GridCoord[] = [];
+const sharedAltApproachesScratch: GridCoord[] = [];
 
 function clearPathInPlace(path: GridCoord[]): GridCoord[] {
-  if (!Object.isFrozen(path)) {
-    path.length = 0;
-    return path;
-  }
-  return [];
+  return clearCoordPathInPlace(path);
 }
 
 /**
@@ -92,6 +94,14 @@ export class ChaserEnemy extends BaseEntity {
   private stateTimer: number = 0;
   private pathRecalcTimer: number = 0;
   private currentPath: GridCoord[] = [];
+  private approachPath: GridCoord[] = [];
+  private demoRecalcTimer: number = 0;
+  private lastDemoEr: number = -1;
+  private lastDemoEc: number = -1;
+  private lastDemoPr: number = -1;
+  private lastDemoPc: number = -1;
+  private cachedDemoBlockR: number = -1;
+  private cachedDemoBlockC: number = -1;
   private attackDir: { x: number; y: number } = { x: 0, y: 0 };
   private dashTargetTile: GridCoord | null = null;
 
@@ -122,6 +132,14 @@ export class ChaserEnemy extends BaseEntity {
     this.bombCooldownTimer = 2000;
     this.escapePath = clearPathInPlace(this.escapePath);
     this.currentPath = clearPathInPlace(this.currentPath);
+    this.approachPath = clearPathInPlace(this.approachPath);
+    this.demoRecalcTimer = 0;
+    this.lastDemoEr = -1;
+    this.lastDemoEc = -1;
+    this.lastDemoPr = -1;
+    this.lastDemoPc = -1;
+    this.cachedDemoBlockR = -1;
+    this.cachedDemoBlockC = -1;
     this.evadeTimeoutMs = 0;
     this.stateTimer = 0;
     this.pathRecalcTimer = 0;
@@ -185,7 +203,7 @@ export class ChaserEnemy extends BaseEntity {
       this.activeBombs--;
     }
     if (this.aiState === EnemyState.EVADING && this.activeBombs === 0) {
-      this.escapePath = [];
+      this.escapePath = clearPathInPlace(this.escapePath);
       this.changeState(EnemyState.TRACKING);
     }
   }
@@ -230,7 +248,7 @@ export class ChaserEnemy extends BaseEntity {
     if (this.aiState === EnemyState.EVADING) {
       this.evadeTimeoutMs -= delta;
       if (this.evadeTimeoutMs <= 0) {
-        this.escapePath = [];
+        this.escapePath = clearPathInPlace(this.escapePath);
         this.changeState(EnemyState.TRACKING);
         return;
       }
@@ -249,7 +267,7 @@ export class ChaserEnemy extends BaseEntity {
         }
 
         if (Math.abs(dx) < 4 && Math.abs(dy) < 4) {
-          this.escapePath.shift();
+          shiftCoordPathInPlace(this.escapePath);
           if (this.escapePath.length === 0) {
             this.setVelocity(0, 0);
           }
@@ -293,7 +311,7 @@ export class ChaserEnemy extends BaseEntity {
           }
         }
 
-        // BFS pathfinding towards player
+        // BFS pathfinding towards player (Zero-GC in-place path buffer)
         this.pathRecalcTimer -= delta;
         if (this.pathRecalcTimer <= 0) {
           this.pathRecalcTimer = 200;
@@ -301,7 +319,15 @@ export class ChaserEnemy extends BaseEntity {
           sharedEnemyPosScratch.c = ec;
           sharedEnemyTargetScratch.r = pr;
           sharedEnemyTargetScratch.c = pc;
-          this.currentPath = findPathBFS(sharedEnemyPosScratch, sharedEnemyTargetScratch, map, bombTiles);
+          this.currentPath = findPathBFS(
+            sharedEnemyPosScratch,
+            sharedEnemyTargetScratch,
+            map,
+            bombTiles,
+            false,
+            undefined,
+            this.currentPath
+          );
         }
 
         const hasDirectPath =
@@ -310,6 +336,7 @@ export class ChaserEnemy extends BaseEntity {
           this.currentPath[this.currentPath.length - 1].c === pc;
 
         if (hasDirectPath) {
+          this.demoRecalcTimer = 0;
           // Offensive Cornering / Trap Bombing (R2):
           if (
             this.canDropBombs &&
@@ -321,17 +348,33 @@ export class ChaserEnemy extends BaseEntity {
             sharedEnemyPosScratch.c = ec;
             sharedEnemyTargetScratch.r = pr;
             sharedEnemyTargetScratch.c = pc;
-            const trapTile = findCorneringBombTile(sharedEnemyPosScratch, sharedEnemyTargetScratch, map, bombTiles, true);
+            const trapTile = findCorneringBombTile(
+              sharedEnemyPosScratch,
+              sharedEnemyTargetScratch,
+              map,
+              bombTiles,
+              true,
+              undefined,
+              sharedTrapTileScratch
+            );
             if (trapTile && trapTile.r === er && trapTile.c === ec) {
               sharedEnemyPosScratch.r = er;
               sharedEnemyPosScratch.c = ec;
-              const safeEscape = getSafeBombEscapePath(sharedEnemyPosScratch, this.bombPower, map, bombTiles, 8);
+              const safeEscape = getSafeBombEscapePath(
+                sharedEnemyPosScratch,
+                this.bombPower,
+                map,
+                bombTiles,
+                8,
+                undefined,
+                sharedTempPathScratch
+              );
               if (safeEscape && safeEscape.length > 0) {
                 const placed = dropBombCallback ? dropBombCallback(er, ec, 2000) : false;
                 if (placed) {
                   this.activeBombs++;
                   this.bombCooldownTimer = 2500;
-                  this.escapePath = safeEscape;
+                  this.escapePath = copyCoordPathInPlace(this.escapePath, safeEscape);
                   this.changeState(EnemyState.EVADING);
                   return;
                 }
@@ -354,45 +397,107 @@ export class ChaserEnemy extends BaseEntity {
           }
         } else {
           // Path to player is blocked by soft blocks: Aggressive Demolition (R1)!
+          this.demoRecalcTimer -= delta;
+          const isBombReady =
+            this.canDropBombs &&
+            this.bombCooldownTimer <= 0 &&
+            this.activeBombs < this.maxBombs;
+
+          const canReuseCachedApproach =
+            !isBombReady &&
+            this.demoRecalcTimer > 0 &&
+            er === this.lastDemoEr &&
+            ec === this.lastDemoEc &&
+            pr === this.lastDemoPr &&
+            pc === this.lastDemoPc &&
+            this.cachedDemoBlockR >= 0 &&
+            map[this.cachedDemoBlockR]?.[this.cachedDemoBlockC] === TILE_BLOCK &&
+            this.approachPath.length > 0 &&
+            map[this.approachPath[0].r]?.[this.approachPath[0].c] === TILE_EMPTY &&
+            !isTileInHazardMask(bombTiles, this.approachPath[0].r, this.approachPath[0].c);
+
+          if (canReuseCachedApproach) {
+            const next = this.approachPath[0];
+            const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
+            const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
+            const dx = targetX - this.x;
+            const dy = targetY - this.y;
+            if (Math.abs(dx) > Math.abs(dy)) {
+              this.setVelocity(Math.sign(dx) * this.config.trackSpeed, 0);
+            } else {
+              this.setVelocity(0, Math.sign(dy) * this.config.trackSpeed);
+            }
+            return;
+          }
+
           sharedEnemyPosScratch.r = er;
           sharedEnemyPosScratch.c = ec;
           sharedEnemyTargetScratch.r = pr;
           sharedEnemyTargetScratch.c = pc;
           const demoTarget = findTargetBlockBFS(sharedEnemyPosScratch, sharedEnemyTargetScratch, map, bombTiles);
+          this.lastDemoEr = er;
+          this.lastDemoEc = ec;
+          this.lastDemoPr = pr;
+          this.lastDemoPc = pc;
+          this.demoRecalcTimer = 180;
+
           if (demoTarget) {
             const { targetBlock, approachTile } = demoTarget;
+            this.cachedDemoBlockR = targetBlock.r;
+            this.cachedDemoBlockC = targetBlock.c;
             const isAtApproach = er === approachTile.r && ec === approachTile.c;
             const isAdjacentToBlock = Math.abs(er - targetBlock.r) + Math.abs(ec - targetBlock.c) === 1;
 
-            if (
-              (isAtApproach || isAdjacentToBlock) &&
-              this.canDropBombs &&
-              this.bombCooldownTimer <= 0 &&
-              this.activeBombs < this.maxBombs
-            ) {
+            if ((isAtApproach || isAdjacentToBlock) && isBombReady) {
               sharedEnemyPosScratch.r = er;
               sharedEnemyPosScratch.c = ec;
-              const safeEscape = getSafeBombEscapePath(sharedEnemyPosScratch, this.bombPower, map, bombTiles, 8);
+              const safeEscape = getSafeBombEscapePath(
+                sharedEnemyPosScratch,
+                this.bombPower,
+                map,
+                bombTiles,
+                8,
+                undefined,
+                sharedTempPathScratch
+              );
 
               if (safeEscape && safeEscape.length > 0) {
                 const placed = dropBombCallback ? dropBombCallback(er, ec, 2000) : false;
                 if (placed) {
                   this.activeBombs++;
                   this.bombCooldownTimer = 2500;
-                  this.escapePath = safeEscape;
+                  this.escapePath = copyCoordPathInPlace(this.escapePath, safeEscape);
                   this.changeState(EnemyState.EVADING);
                   return;
                 }
               } else {
                 // Multi-angle evaluation: check alternative safe approach tiles for this block
-                const safeApproaches = getSafeDemolitionApproaches(targetBlock, map, bombTiles, this.bombPower, 8);
-                for (const alt of safeApproaches) {
+                const safeApproaches = getSafeDemolitionApproaches(
+                  targetBlock,
+                  map,
+                  bombTiles,
+                  this.bombPower,
+                  8,
+                  undefined,
+                  sharedAltApproachesScratch
+                );
+                for (let ai = 0; ai < safeApproaches.length; ai++) {
+                  const alt = safeApproaches[ai];
                   if (alt.r === er && alt.c === ec) continue;
                   sharedEnemyPosScratch.r = er;
                   sharedEnemyPosScratch.c = ec;
-                  const pathToAlt = findPathBFS(sharedEnemyPosScratch, alt, map, bombTiles);
+                  const pathToAlt = findPathBFS(
+                    sharedEnemyPosScratch,
+                    alt,
+                    map,
+                    bombTiles,
+                    false,
+                    undefined,
+                    sharedTempPathScratch
+                  );
                   if (pathToAlt.length > 0 && pathToAlt[pathToAlt.length - 1].r === alt.r && pathToAlt[pathToAlt.length - 1].c === alt.c) {
-                    const next = pathToAlt[0];
+                    this.approachPath = copyCoordPathInPlace(this.approachPath, pathToAlt);
+                    const next = this.approachPath[0];
                     const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
                     const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
                     const dx = targetX - this.x;
@@ -411,7 +516,15 @@ export class ChaserEnemy extends BaseEntity {
             if (!isAtApproach) {
               sharedEnemyPosScratch.r = er;
               sharedEnemyPosScratch.c = ec;
-              const pathToApproach = findPathBFS(sharedEnemyPosScratch, approachTile, map, bombTiles);
+              const pathToApproach = findPathBFS(
+                sharedEnemyPosScratch,
+                approachTile,
+                map,
+                bombTiles,
+                false,
+                undefined,
+                this.approachPath
+              );
               if (pathToApproach.length > 0) {
                 const next = pathToApproach[0];
                 const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
@@ -426,7 +539,13 @@ export class ChaserEnemy extends BaseEntity {
                 }
                 return;
               }
+            } else {
+              this.approachPath = clearPathInPlace(this.approachPath);
             }
+          } else {
+            this.cachedDemoBlockR = -1;
+            this.cachedDemoBlockC = -1;
+            this.approachPath = clearPathInPlace(this.approachPath);
           }
 
           if (this.currentPath.length > 0) {
@@ -534,9 +653,17 @@ export class BomberEnemy extends BaseEntity {
   public bombPower: number = 2;
 
   private currentPath: GridCoord[] = [];
+  private approachPath: GridCoord[] = [];
   private escapePath: GridCoord[] = [];
   private escapeTargetTile: GridCoord | null = null;
   private pathRecalcTimer: number = 0;
+  private demoRecalcTimer: number = 0;
+  private lastDemoEr: number = -1;
+  private lastDemoEc: number = -1;
+  private lastDemoPr: number = -1;
+  private lastDemoPc: number = -1;
+  private cachedDemoBlockR: number = -1;
+  private cachedDemoBlockC: number = -1;
   public evadeTimeoutMs: number = 0;
 
   constructor(scene: Phaser.Scene, x: number, y: number, texture: string = 'enemy') {
@@ -565,9 +692,17 @@ export class BomberEnemy extends BaseEntity {
     this.activeBombs = 0;
     this.bombCooldownTimer = 2500;
     this.currentPath = clearPathInPlace(this.currentPath);
+    this.approachPath = clearPathInPlace(this.approachPath);
     this.escapePath = clearPathInPlace(this.escapePath);
     this.escapeTargetTile = null;
     this.pathRecalcTimer = 0;
+    this.demoRecalcTimer = 0;
+    this.lastDemoEr = -1;
+    this.lastDemoEc = -1;
+    this.lastDemoPr = -1;
+    this.lastDemoPc = -1;
+    this.cachedDemoBlockR = -1;
+    this.cachedDemoBlockC = -1;
     this.evadeTimeoutMs = 0;
     this.setTint(0xc084fc);
     this.aiState = EnemyState.PATROL;
@@ -603,7 +738,7 @@ export class BomberEnemy extends BaseEntity {
       this.activeBombs--;
     }
     if (this.aiState === EnemyState.EVADING && this.activeBombs === 0) {
-      this.escapePath = [];
+      this.escapePath = clearPathInPlace(this.escapePath);
       this.changeState(this.hp === 1 ? EnemyState.ENRAGED : EnemyState.HUNTING);
     }
   }
@@ -649,7 +784,7 @@ export class BomberEnemy extends BaseEntity {
       // AI-04: Watchdog timeout to prevent evasion deadlock
       this.evadeTimeoutMs -= delta;
       if (this.evadeTimeoutMs <= 0) {
-        this.escapePath = [];
+        this.escapePath = clearPathInPlace(this.escapePath);
         this.changeState(this.hp === 1 ? EnemyState.ENRAGED : EnemyState.HUNTING);
         return;
       }
@@ -670,7 +805,7 @@ export class BomberEnemy extends BaseEntity {
         }
 
         if (Math.abs(dx) < 4 && Math.abs(dy) < 4) {
-          this.escapePath.shift();
+          shiftCoordPathInPlace(this.escapePath);
           if (this.escapePath.length === 0) {
             this.setVelocity(0, 0);
           }
@@ -681,7 +816,7 @@ export class BomberEnemy extends BaseEntity {
       return;
     }
 
-    // Update pathfinding towards player
+    // Update pathfinding towards player (Zero-GC in-place path buffer)
     this.pathRecalcTimer -= delta;
     if (this.pathRecalcTimer <= 0) {
       this.pathRecalcTimer = 250;
@@ -689,7 +824,15 @@ export class BomberEnemy extends BaseEntity {
       sharedEnemyPosScratch.c = ec;
       sharedEnemyTargetScratch.r = pr;
       sharedEnemyTargetScratch.c = pc;
-      this.currentPath = findPathBFS(sharedEnemyPosScratch, sharedEnemyTargetScratch, map, bombTiles);
+      this.currentPath = findPathBFS(
+        sharedEnemyPosScratch,
+        sharedEnemyTargetScratch,
+        map,
+        bombTiles,
+        false,
+        undefined,
+        this.currentPath
+      );
     }
 
     const hasDirectPath =
@@ -698,33 +841,53 @@ export class BomberEnemy extends BaseEntity {
       this.currentPath[this.currentPath.length - 1].c === pc;
 
     if (hasDirectPath) {
-      // Offensive Bombing & Cornering (R2):
-      // When close to player (dist <= 2 or dist <= 3 in corridor/corner)
-      sharedEnemyPosScratch.r = er;
-      sharedEnemyPosScratch.c = ec;
-      sharedEnemyTargetScratch.r = pr;
-      sharedEnemyTargetScratch.c = pc;
-      const trapTile = findCorneringBombTile(sharedEnemyPosScratch, sharedEnemyTargetScratch, map, bombTiles, true);
-      const isAtTrapTile = trapTile !== null && trapTile.r === er && trapTile.c === ec;
+      this.demoRecalcTimer = 0;
+      // Offensive Bombing & Cornering (R2): gated on bomb readiness to avoid redundant 60-FPS checks
       if (
         this.canDropBombs &&
         this.bombCooldownTimer <= 0 &&
-        this.activeBombs < this.maxBombs &&
-        (dist <= this.bombPower || isAtTrapTile)
+        this.activeBombs < this.maxBombs
       ) {
-        sharedEnemyPosScratch.r = er;
-        sharedEnemyPosScratch.c = ec;
-        const safeEscape = getSafeBombEscapePath(sharedEnemyPosScratch, this.bombPower, map, bombTiles, 8);
+        let shouldAttemptPlant = dist <= this.bombPower;
+        if (!shouldAttemptPlant) {
+          sharedEnemyPosScratch.r = er;
+          sharedEnemyPosScratch.c = ec;
+          sharedEnemyTargetScratch.r = pr;
+          sharedEnemyTargetScratch.c = pc;
+          const trapTile = findCorneringBombTile(
+            sharedEnemyPosScratch,
+            sharedEnemyTargetScratch,
+            map,
+            bombTiles,
+            true,
+            undefined,
+            sharedTrapTileScratch
+          );
+          shouldAttemptPlant = trapTile !== null && trapTile.r === er && trapTile.c === ec;
+        }
+        if (shouldAttemptPlant) {
+          sharedEnemyPosScratch.r = er;
+          sharedEnemyPosScratch.c = ec;
+          const safeEscape = getSafeBombEscapePath(
+            sharedEnemyPosScratch,
+            this.bombPower,
+            map,
+            bombTiles,
+            8,
+            undefined,
+            sharedTempPathScratch
+          );
 
-        if (safeEscape && safeEscape.length > 0) {
-          const fuseMs = this.hp === 1 ? this.config.quickFuseMs : 2500;
-          const placed = dropBombCallback ? dropBombCallback(er, ec, fuseMs) : false;
-          if (placed) {
-            this.activeBombs++;
-            this.bombCooldownTimer = this.hp === 1 ? 1800 : 3000;
-            this.escapePath = safeEscape;
-            this.changeState(EnemyState.EVADING);
-            return;
+          if (safeEscape && safeEscape.length > 0) {
+            const fuseMs = this.hp === 1 ? this.config.quickFuseMs : 2500;
+            const placed = dropBombCallback ? dropBombCallback(er, ec, fuseMs) : false;
+            if (placed) {
+              this.activeBombs++;
+              this.bombCooldownTimer = this.hp === 1 ? 1800 : 3000;
+              this.escapePath = copyCoordPathInPlace(this.escapePath, safeEscape);
+              this.changeState(EnemyState.EVADING);
+              return;
+            }
           }
         }
       }
@@ -746,25 +909,70 @@ export class BomberEnemy extends BaseEntity {
       }
     } else {
       // Blocked by soft blocks: Aggressive Territory Expansion & Demolition (R1)!
+      this.demoRecalcTimer -= delta;
+      const isBombReady =
+        this.canDropBombs &&
+        this.bombCooldownTimer <= 0 &&
+        this.activeBombs < this.maxBombs;
+
+      const canReuseCachedApproach =
+        !isBombReady &&
+        this.demoRecalcTimer > 0 &&
+        er === this.lastDemoEr &&
+        ec === this.lastDemoEc &&
+        pr === this.lastDemoPr &&
+        pc === this.lastDemoPc &&
+        this.cachedDemoBlockR >= 0 &&
+        map[this.cachedDemoBlockR]?.[this.cachedDemoBlockC] === TILE_BLOCK &&
+        this.approachPath.length > 0 &&
+        map[this.approachPath[0].r]?.[this.approachPath[0].c] === TILE_EMPTY &&
+        !isTileInHazardMask(bombTiles, this.approachPath[0].r, this.approachPath[0].c);
+
+      if (canReuseCachedApproach) {
+        const next = this.approachPath[0];
+        const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
+        const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
+        const dx = targetX - this.x;
+        const dy = targetY - this.y;
+        const currentSpeed = this.hp === 1 ? this.config.enragedSpeed : this.config.trackSpeed;
+        if (Math.abs(dx) > Math.abs(dy)) {
+          this.setVelocity(Math.sign(dx) * currentSpeed, 0);
+        } else {
+          this.setVelocity(0, Math.sign(dy) * currentSpeed);
+        }
+        return;
+      }
+
       sharedEnemyPosScratch.r = er;
       sharedEnemyPosScratch.c = ec;
       sharedEnemyTargetScratch.r = pr;
       sharedEnemyTargetScratch.c = pc;
       const demoTarget = findTargetBlockBFS(sharedEnemyPosScratch, sharedEnemyTargetScratch, map, bombTiles);
+      this.lastDemoEr = er;
+      this.lastDemoEc = ec;
+      this.lastDemoPr = pr;
+      this.lastDemoPc = pc;
+      this.demoRecalcTimer = 180;
+
       if (demoTarget) {
         const { targetBlock, approachTile } = demoTarget;
+        this.cachedDemoBlockR = targetBlock.r;
+        this.cachedDemoBlockC = targetBlock.c;
         const isAtApproach = er === approachTile.r && ec === approachTile.c;
         const isAdjacentToBlock = Math.abs(er - targetBlock.r) + Math.abs(ec - targetBlock.c) === 1;
 
-        if (
-          this.canDropBombs &&
-          (isAtApproach || isAdjacentToBlock) &&
-          this.bombCooldownTimer <= 0 &&
-          this.activeBombs < this.maxBombs
-        ) {
+        if ((isAtApproach || isAdjacentToBlock) && isBombReady) {
           sharedEnemyPosScratch.r = er;
           sharedEnemyPosScratch.c = ec;
-          const safeEscape = getSafeBombEscapePath(sharedEnemyPosScratch, this.bombPower, map, bombTiles, 8);
+          const safeEscape = getSafeBombEscapePath(
+            sharedEnemyPosScratch,
+            this.bombPower,
+            map,
+            bombTiles,
+            8,
+            undefined,
+            sharedTempPathScratch
+          );
 
           if (safeEscape && safeEscape.length > 0) {
             const fuseMs = this.hp === 1 ? this.config.quickFuseMs : 2500;
@@ -772,20 +980,38 @@ export class BomberEnemy extends BaseEntity {
             if (placed) {
               this.activeBombs++;
               this.bombCooldownTimer = this.hp === 1 ? 1800 : 3000;
-              this.escapePath = safeEscape;
+              this.escapePath = copyCoordPathInPlace(this.escapePath, safeEscape);
               this.changeState(EnemyState.EVADING);
               return;
             }
           } else {
             // Multi-angle evaluation: check alternative safe approach tiles for this block
-            const safeApproaches = getSafeDemolitionApproaches(targetBlock, map, bombTiles, this.bombPower, 8);
-            for (const alt of safeApproaches) {
+            const safeApproaches = getSafeDemolitionApproaches(
+              targetBlock,
+              map,
+              bombTiles,
+              this.bombPower,
+              8,
+              undefined,
+              sharedAltApproachesScratch
+            );
+            for (let ai = 0; ai < safeApproaches.length; ai++) {
+              const alt = safeApproaches[ai];
               if (alt.r === er && alt.c === ec) continue;
               sharedEnemyPosScratch.r = er;
               sharedEnemyPosScratch.c = ec;
-              const pathToAlt = findPathBFS(sharedEnemyPosScratch, alt, map, bombTiles);
+              const pathToAlt = findPathBFS(
+                sharedEnemyPosScratch,
+                alt,
+                map,
+                bombTiles,
+                false,
+                undefined,
+                sharedTempPathScratch
+              );
               if (pathToAlt.length > 0 && pathToAlt[pathToAlt.length - 1].r === alt.r && pathToAlt[pathToAlt.length - 1].c === alt.c) {
-                const next = pathToAlt[0];
+                this.approachPath = copyCoordPathInPlace(this.approachPath, pathToAlt);
+                const next = this.approachPath[0];
                 const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
                 const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
                 const dx = targetX - this.x;
@@ -805,7 +1031,15 @@ export class BomberEnemy extends BaseEntity {
         if (!isAtApproach) {
           sharedEnemyPosScratch.r = er;
           sharedEnemyPosScratch.c = ec;
-          const pathToApproach = findPathBFS(sharedEnemyPosScratch, approachTile, map, bombTiles);
+          const pathToApproach = findPathBFS(
+            sharedEnemyPosScratch,
+            approachTile,
+            map,
+            bombTiles,
+            false,
+            undefined,
+            this.approachPath
+          );
           if (pathToApproach.length > 0) {
             const next = pathToApproach[0];
             const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
@@ -821,7 +1055,13 @@ export class BomberEnemy extends BaseEntity {
             }
             return;
           }
+        } else {
+          this.approachPath = clearPathInPlace(this.approachPath);
         }
+      } else {
+        this.cachedDemoBlockR = -1;
+        this.cachedDemoBlockC = -1;
+        this.approachPath = clearPathInPlace(this.approachPath);
       }
 
       // Fallback: move along whatever currentPath exists
@@ -995,7 +1235,15 @@ export class TankEnemy extends BaseEntity {
       sharedEnemyPosScratch.c = ec;
       sharedEnemyTargetScratch.r = pr;
       sharedEnemyTargetScratch.c = pc;
-      this.currentPath = findPathBFS(sharedEnemyPosScratch, sharedEnemyTargetScratch, map, bombTiles, true);
+      this.currentPath = findPathBFS(
+        sharedEnemyPosScratch,
+        sharedEnemyTargetScratch,
+        map,
+        bombTiles,
+        true,
+        undefined,
+        this.currentPath
+      );
     }
 
     if (this.currentPath.length > 0) {
@@ -1112,7 +1360,15 @@ export class GhostEnemy extends BaseEntity {
       sharedEnemyPosScratch.c = ec;
       sharedEnemyTargetScratch.r = pr;
       sharedEnemyTargetScratch.c = pc;
-      this.currentPath = findPathBFS(sharedEnemyPosScratch, sharedEnemyTargetScratch, map, bombTiles, true);
+      this.currentPath = findPathBFS(
+        sharedEnemyPosScratch,
+        sharedEnemyTargetScratch,
+        map,
+        bombTiles,
+        true,
+        undefined,
+        this.currentPath
+      );
     }
 
     // AI-05: Ether dash if close and off cooldown
@@ -1253,27 +1509,45 @@ export class SplitterEnemy extends BaseEntity {
         }
       }
 
-      const mini1 = new MiniSplitterEnemy(
-        this.scene,
-        p1c * TILE_SIZE + TILE_SIZE / 2,
-        p1r * TILE_SIZE + TILE_SIZE / 2
-      );
-      const mini2 = new MiniSplitterEnemy(
-        this.scene,
-        p2c * TILE_SIZE + TILE_SIZE / 2,
-        p2r * TILE_SIZE + TILE_SIZE / 2
-      );
-
-      this.spawnedMinis = [mini1, mini2];
-
       const sceneRef = this.scene as unknown as {
         enemies?: Phaser.Physics.Arcade.Group;
         attachEntityDropShadow?: (entity: Phaser.GameObjects.Sprite, scale?: number) => void;
       };
-      if (sceneRef.enemies) {
-        sceneRef.enemies.add(mini1);
-        sceneRef.enemies.add(mini2);
-      }
+      const acquireMini = (spawnX: number, spawnY: number): MiniSplitterEnemy => {
+        if (sceneRef.enemies && typeof sceneRef.enemies.getChildren === 'function') {
+          const children = sceneRef.enemies.getChildren();
+          for (let i = 0; i < children.length; i++) {
+            const candidate = children[i] as unknown as MiniSplitterEnemy;
+            if (
+              candidate &&
+              !candidate.active &&
+              candidate.scene &&
+              candidate instanceof MiniSplitterEnemy
+            ) {
+              return candidate.reviveAt(spawnX, spawnY);
+            }
+          }
+        }
+        const created = new MiniSplitterEnemy(this.scene, spawnX, spawnY);
+        (created as unknown as { archetype?: string }).archetype = 'SPLITTER_MINI';
+        if (sceneRef.enemies && typeof sceneRef.enemies.add === 'function') {
+          sceneRef.enemies.add(created);
+        }
+        return created;
+      };
+
+      const mini1 = acquireMini(
+        p1c * TILE_SIZE + TILE_SIZE / 2,
+        p1r * TILE_SIZE + TILE_SIZE / 2
+      );
+      const mini2 = acquireMini(
+        p2c * TILE_SIZE + TILE_SIZE / 2,
+        p2r * TILE_SIZE + TILE_SIZE / 2
+      );
+
+      this.spawnedMinis.length = 0;
+      this.spawnedMinis.push(mini1, mini2);
+
       if (typeof sceneRef.attachEntityDropShadow === 'function') {
         sceneRef.attachEntityDropShadow(mini1, 0.72);
         sceneRef.attachEntityDropShadow(mini2, 0.72);
@@ -1313,7 +1587,15 @@ export class SplitterEnemy extends BaseEntity {
       sharedEnemyPosScratch.c = ec;
       sharedEnemyTargetScratch.r = pr;
       sharedEnemyTargetScratch.c = pc;
-      this.currentPath = findPathBFS(sharedEnemyPosScratch, sharedEnemyTargetScratch, map, bombTiles);
+      this.currentPath = findPathBFS(
+        sharedEnemyPosScratch,
+        sharedEnemyTargetScratch,
+        map,
+        bombTiles,
+        false,
+        undefined,
+        this.currentPath
+      );
     }
 
     if (this.currentPath.length > 0) {
@@ -1358,6 +1640,7 @@ export class MiniSplitterEnemy extends BaseEntity {
     this.moveSpeed = 100;
     this.mass = 0.4;
     this.collisionRadius = 8;
+    this.dropShadowScale = 0.72;
     this.setTint(0x84cc16);
     this.setScale(0.7, 0.7);
     applyPhysicsBodyInvariantGuard(this, 18, 18, 11, 11);
@@ -1367,6 +1650,7 @@ export class MiniSplitterEnemy extends BaseEntity {
   public override reset(): void {
     super.reset();
     this.moveSpeed = 100;
+    this.dropShadowScale = 0.72;
     this.pathRecalcTimer = 0;
     this.currentPath = clearPathInPlace(this.currentPath);
     this.setTint(0x84cc16);
@@ -1406,7 +1690,15 @@ export class MiniSplitterEnemy extends BaseEntity {
       sharedEnemyPosScratch.c = ec;
       sharedEnemyTargetScratch.r = pr;
       sharedEnemyTargetScratch.c = pc;
-      this.currentPath = findPathBFS(sharedEnemyPosScratch, sharedEnemyTargetScratch, map, bombTiles);
+      this.currentPath = findPathBFS(
+        sharedEnemyPosScratch,
+        sharedEnemyTargetScratch,
+        map,
+        bombTiles,
+        false,
+        undefined,
+        this.currentPath
+      );
     }
 
     if (this.currentPath.length > 0) {

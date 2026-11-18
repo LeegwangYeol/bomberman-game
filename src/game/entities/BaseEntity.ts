@@ -200,6 +200,37 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
   }
 
   /**
+   * Revives an inactive pooled BaseEntity at `(x, y)` in both real Phaser Arcade Worlds
+   * and lightweight headless physics mocks, then resets all entity state via `reset()`.
+   */
+  public reviveAt(x: number, y: number): this {
+    const bodyRef = this.body as (Phaser.Physics.Arcade.Body & {
+      gameObject?: unknown;
+      reset?: (rx: number, ry: number) => void;
+    }) | undefined;
+    if (
+      bodyRef &&
+      bodyRef.gameObject &&
+      typeof bodyRef.reset === 'function' &&
+      typeof this.enableBody === 'function'
+    ) {
+      this.enableBody(true, x, y, true, true);
+    } else {
+      if (bodyRef) {
+        if (typeof bodyRef.reset === 'function') {
+          bodyRef.reset(x, y);
+        }
+        bodyRef.enable = true;
+      }
+      this.setPosition(x, y);
+      this.setActive(true);
+      this.setVisible(true);
+    }
+    this.reset();
+    return this;
+  }
+
+  /**
    * Resets a pooled/inactive BaseEntity back to clean live defaults without leaking
    * stale death, stun, speed-debuff, velocity, or destroyed OverheadUI state.
    */
@@ -397,7 +428,32 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
       }
     }
 
-    this.destroy();
+    const sceneTweens = (
+      this.scene as unknown as { tweens?: { killTweensOf?: (target: unknown) => void } } | undefined
+    )?.tweens;
+    if (sceneTweens && typeof sceneTweens.killTweensOf === 'function') {
+      sceneTweens.killTweensOf(this);
+    }
+
+    const bodyRef = this.body as (Phaser.Physics.Arcade.Body & { stop?: () => void }) | undefined;
+    if (bodyRef) {
+      if (typeof bodyRef.stop === 'function' && typeof this.disableBody === 'function') {
+        this.disableBody(true, true);
+      } else {
+        if (typeof bodyRef.setVelocity === 'function') {
+          bodyRef.setVelocity(0, 0);
+        } else if (bodyRef.velocity) {
+          bodyRef.velocity.x = 0;
+          bodyRef.velocity.y = 0;
+        }
+        bodyRef.enable = false;
+        this.setActive(false);
+        this.setVisible(false);
+      }
+    } else {
+      this.setActive(false);
+      this.setVisible(false);
+    }
   }
 
   protected onDeath(_currentTime?: number): void {

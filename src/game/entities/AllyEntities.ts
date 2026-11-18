@@ -11,12 +11,16 @@ import {
   findEscapePathBFS,
   FlatHazardMask,
   cloneBombTilesAsSet,
+  clearCoordPathInPlace,
+  shiftCoordPathInPlace,
+  copyCoordPathInPlace,
 } from '../pathfinding.ts';
 
 const sharedMiniBomberBlastMask = new FlatHazardMask(ROWS * COLS);
 const sharedMiniBomberSimBombsMask = new FlatHazardMask(ROWS * COLS);
 const sharedAllyPosScratch: GridCoord = { r: 0, c: 0 };
 const sharedPlayerPosScratch: GridCoord = { r: 0, c: 0 };
+const sharedAllyTempEscapeScratch: GridCoord[] = [];
 
 /**
  * 1. Mini-Bomber Buddy ("Pom-Pom"):
@@ -55,12 +59,25 @@ export class MiniBomberAlly extends BaseEntity {
     this.overheadUI.setIntent('🛡️', true);
   }
 
+  public override reset(): void {
+    super.reset();
+    this.moveSpeed = 100;
+    this.activeBombs = 0;
+    this.bombCooldownTimer = 3000;
+    this.pathRecalcTimer = 0;
+    this.currentPath = clearCoordPathInPlace(this.currentPath);
+    this.escapePath = clearCoordPathInPlace(this.escapePath);
+    this.evadeTimeoutMs = 0;
+    this.setTint(0x06b6d4);
+    this.overheadUI.setIntent('🛡️', true);
+  }
+
   public onBombExploded(): void {
     if (this.activeBombs > 0) {
       this.activeBombs--;
     }
     if (this.activeBombs === 0) {
-      this.escapePath = [];
+      this.escapePath = clearCoordPathInPlace(this.escapePath);
       this.overheadUI.setIntent('🛡️', true);
     }
   }
@@ -93,7 +110,7 @@ export class MiniBomberAlly extends BaseEntity {
     if (this.escapePath.length > 0) {
       this.evadeTimeoutMs -= delta;
       if (this.evadeTimeoutMs <= 0) {
-        this.escapePath = [];
+        this.escapePath = clearCoordPathInPlace(this.escapePath);
         this.overheadUI.setIntent('🛡️', true);
         return;
       }
@@ -113,7 +130,7 @@ export class MiniBomberAlly extends BaseEntity {
       }
 
       if (Math.abs(dx) < 4 && Math.abs(dy) < 4) {
-        this.escapePath.shift();
+        shiftCoordPathInPlace(this.escapePath);
         if (this.escapePath.length === 0) {
           this.overheadUI.setIntent('🛡️', true);
         }
@@ -141,7 +158,9 @@ export class MiniBomberAlly extends BaseEntity {
           sharedMiniBomberBlastMask,
           map,
           sharedMiniBomberSimBombsMask,
-          4
+          4,
+          undefined,
+          sharedAllyTempEscapeScratch
         );
 
         if (escape && escape.length > 0) {
@@ -149,7 +168,7 @@ export class MiniBomberAlly extends BaseEntity {
           if (placed) {
             this.activeBombs++;
             this.bombCooldownTimer = 4500;
-            this.escapePath = escape;
+            this.escapePath = copyCoordPathInPlace(this.escapePath, escape);
             this.evadeTimeoutMs = 2500; // AI-04: 2500ms evasion watchdog
             this.overheadUI.setIntent('💣', true);
             return;
@@ -174,7 +193,15 @@ export class MiniBomberAlly extends BaseEntity {
         sharedAllyPosScratch.c = ac;
         sharedPlayerPosScratch.r = pr;
         sharedPlayerPosScratch.c = pc;
-        this.currentPath = findPathBFS(sharedAllyPosScratch, sharedPlayerPosScratch, map, bombTiles);
+        this.currentPath = findPathBFS(
+          sharedAllyPosScratch,
+          sharedPlayerPosScratch,
+          map,
+          bombTiles,
+          false,
+          undefined,
+          this.currentPath
+        );
       }
 
       if (this.currentPath.length > 0) {
@@ -223,6 +250,17 @@ export class PetDroneAlly extends BaseEntity {
     this.mass = 0.3;
     this.collisionRadius = 8;
     this.isPhasing = true;
+    this.setTint(0x38bdf8);
+    this.setScale(0.75, 0.75);
+    this.overheadUI.setIntent('🚁', true);
+  }
+
+  public override reset(): void {
+    super.reset();
+    this.moveSpeed = this.config.flightSpeed;
+    this.isPhasing = true;
+    this.shootTimer = 3000;
+    this.orbitAngle = 0;
     this.setTint(0x38bdf8);
     this.setScale(0.75, 0.75);
     this.overheadUI.setIntent('🚁', true);
@@ -443,6 +481,15 @@ export class ShieldGuardAlly extends BaseEntity {
     this.moveSpeed = 90;
     this.mass = 4.0;
     this.collisionRadius = 16;
+    this.setTint(0x3b82f6);
+    this.setScale(1.1, 1.1);
+    this.overheadUI.setIntent('🛡️', true);
+  }
+
+  public override reset(): void {
+    super.reset();
+    this.moveSpeed = 90;
+    this.tauntTimer = 4000;
     this.setTint(0x3b82f6);
     this.setScale(1.1, 1.1);
     this.overheadUI.setIntent('🛡️', true);

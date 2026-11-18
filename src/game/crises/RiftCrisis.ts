@@ -37,6 +37,34 @@ export class RiftCrisis extends BaseCrisis {
     super(CrisisType.DIMENSIONAL_RIFTS);
   }
 
+  private resetRiftsAndSpiresInPlace(): void {
+    const initial = RiftCrisis.INITIAL_RIFT_POSITIONS;
+    if (this.rifts.length === initial.length) {
+      for (let i = 0; i < initial.length; i++) {
+        this.rifts[i].r = initial[i].r;
+        this.rifts[i].c = initial[i].c;
+      }
+    } else {
+      this.rifts = initial.map((r) => ({ r: r.r, c: r.c }));
+    }
+
+    if (this.spires.length === this.rifts.length) {
+      for (let i = 0; i < this.rifts.length; i++) {
+        this.spires[i].r = this.rifts[i].r;
+        this.spires[i].c = this.rifts[i].c;
+        this.spires[i].isPolarized = false;
+        this.spires[i].hitTimestampMs = 0;
+      }
+    } else {
+      this.spires = this.rifts.map((r) => ({
+        r: r.r,
+        c: r.c,
+        isPolarized: false,
+        hitTimestampMs: 0,
+      }));
+    }
+  }
+
   protected onInit(): void {
     RiftCrisisAudio.getInstance().reset();
     this.isQuantumSyncActive = false;
@@ -44,13 +72,7 @@ export class RiftCrisis extends BaseCrisis {
     this.phantomsActive = false;
     this.warpsPerformedCount = 0;
 
-    this.rifts = RiftCrisis.INITIAL_RIFT_POSITIONS.map((r) => ({ ...r }));
-    this.spires = this.rifts.map((r) => ({
-      r: r.r,
-      c: r.c,
-      isPolarized: false,
-      hitTimestampMs: 0,
-    }));
+    this.resetRiftsAndSpiresInPlace();
 
     this.objectives = [
       {
@@ -197,7 +219,13 @@ export class RiftCrisis extends BaseCrisis {
 
     const safeR = Math.floor(r);
     const safeC = Math.floor(c);
-    const idx = this.rifts.findIndex((rift) => rift.r === safeR && rift.c === safeC);
+    let idx = -1;
+    for (let i = 0; i < this.rifts.length; i++) {
+      if (this.rifts[i].r === safeR && this.rifts[i].c === safeC) {
+        idx = i;
+        break;
+      }
+    }
     if (idx === -1) return null;
 
     const nextIdx = (idx + 1) % this.rifts.length;
@@ -474,9 +502,6 @@ export class RiftCrisis extends BaseCrisis {
     this.quantumSyncTimerMs = 0;
     this.phantomsActive = false;
     this.warpsPerformedCount = 0;
-    for (const spire of this.spires) {
-      spire.isPolarized = false;
-      spire.hitTimestampMs = 0;
-    }
+    this.resetRiftsAndSpiresInPlace();
   }
 }
