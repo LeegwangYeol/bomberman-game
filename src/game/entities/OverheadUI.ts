@@ -57,6 +57,9 @@ export class OverheadUI {
   private hpGraphicsFromPool: boolean = false;
   private nameTagFromPool: boolean = false;
   private indicatorFromPool: boolean = false;
+  private hpGraphicsPoolRef: ISceneOverheadPools['graphicsPool'] | null = null;
+  private nameTagPoolRef: ISceneOverheadPools['nameTagTextPool'] | null = null;
+  private indicatorPoolRef: ISceneOverheadPools['intentBadgeTextPool'] | null = null;
 
   private lastRenderedHp: number = -1;
   private lastRenderedMaxHp: number = -1;
@@ -86,106 +89,155 @@ export class OverheadUI {
     this.barHeight = 4;
     this.hpBarColor = hpBarColor;
 
-    if (scene && scene.add) {
-      const sceneWithPool = scene as unknown as ISceneOverheadPools;
+    this.acquireRenderObjects();
+  }
 
-      // Tier 1: HP Bar Graphics
-      if (typeof scene.add.graphics === 'function') {
-        if (sceneWithPool.graphicsPool) {
-          const pooledG = sceneWithPool.graphicsPool.acquire();
-          if (pooledG) {
-            this.hpGraphics = pooledG;
-            this.hpGraphicsFromPool = true;
-          }
-        }
-        if (!this.hpGraphics) {
-          this.hpGraphics = scene.add.graphics();
-          this.hpGraphicsFromPool = false;
-        }
-        if (this.hpGraphics) {
-          if (typeof this.hpGraphics.setActive === 'function') this.hpGraphics.setActive(true);
-          if (typeof this.hpGraphics.setVisible === 'function') this.hpGraphics.setVisible(true);
-          if (typeof this.hpGraphics.setAlpha === 'function') {
-            this.hpGraphics.setAlpha(this.currentAlpha);
-          }
-          this.hpGraphics.setDepth(RENDER_DEPTH.ENTITY_Y_BASE + RENDER_DEPTH.OFFSET_HP_BAR);
+  private getFactionNameColor(): string {
+    return this.faction === 'enemy' ? '#fb923c' : this.faction === 'ally' ? '#22d3ee' : '#fbbf24';
+  }
+
+  private resetRenderCache(): void {
+    this.lastRenderedHp = -1;
+    this.lastRenderedMaxHp = -1;
+    this.lastRenderedBarX = -999999;
+    this.lastRenderedBarY = -999999;
+    this.lastRenderedWidth = -1;
+    this.lastRenderedFaction = undefined;
+    this.lastRenderedColor = undefined;
+    this.lastRenderedVisible = true;
+  }
+
+  private acquireRenderObjects(): void {
+    const scene = this.scene;
+    if (!scene || !scene.add) return;
+
+    const sceneWithPool = scene as unknown as ISceneOverheadPools;
+
+    // Tier 1: HP Bar Graphics
+    if (!this.hpGraphics && typeof scene.add.graphics === 'function') {
+      if (sceneWithPool.graphicsPool) {
+        const pooledG = sceneWithPool.graphicsPool.acquire();
+        if (pooledG) {
+          this.hpGraphics = pooledG;
+          this.hpGraphicsFromPool = true;
+          this.hpGraphicsPoolRef = sceneWithPool.graphicsPool;
         }
       }
-
-      // Tier 2: Name Tag Text (Zero-GC pooled when scene.nameTagTextPool has capacity)
-      const nameColor =
-        faction === 'enemy' ? '#fb923c' : faction === 'ally' ? '#22d3ee' : '#fbbf24';
-
-      if (sceneWithPool.nameTagTextPool) {
-        const pooledName = sceneWithPool.nameTagTextPool.acquire();
-        if (pooledName) {
-          this.nameTag = pooledName;
-          this.nameTagFromPool = true;
-          if (typeof this.nameTag.setActive === 'function') this.nameTag.setActive(true);
-          if (typeof this.nameTag.setVisible === 'function') this.nameTag.setVisible(true);
-          if (typeof this.nameTag.setAlpha === 'function') this.nameTag.setAlpha(this.currentAlpha);
-          if (typeof this.nameTag.setScale === 'function') this.nameTag.setScale(1, 1);
-          if (typeof this.nameTag.setOrigin === 'function') this.nameTag.setOrigin(0.5, 0.5);
-          if (typeof this.nameTag.setColor === 'function') this.nameTag.setColor(nameColor);
-          if (typeof this.nameTag.setText === 'function') this.nameTag.setText(name);
-          if (typeof this.nameTag.setDepth === 'function') {
-            this.nameTag.setDepth(RENDER_DEPTH.ENTITY_Y_BASE + RENDER_DEPTH.OFFSET_NAME_TAG);
-          }
-        }
-      }
-      if (!this.nameTag && typeof scene.add.text === 'function') {
-        this.nameTag = scene.add
-          .text(0, 0, name, {
-            fontSize: '9px',
-            fontStyle: 'bold',
-            fontFamily: 'monospace, "Press Start 2P", Arial, sans-serif',
-            color: nameColor,
-            backgroundColor: 'rgba(15, 23, 42, 0.85)',
-            padding: { x: 3, y: 1 },
-            stroke: '#000000',
-            strokeThickness: 2,
-          })
-          .setOrigin(0.5, 0.5)
-          .setDepth(RENDER_DEPTH.ENTITY_Y_BASE + RENDER_DEPTH.OFFSET_NAME_TAG);
-        this.nameTagFromPool = false;
-      }
-
-      // Tier 3: Intent Indicator Badge (Zero-GC pooled when scene.intentBadgeTextPool has capacity)
-      if (sceneWithPool.intentBadgeTextPool) {
-        const pooledBadge = sceneWithPool.intentBadgeTextPool.acquire();
-        if (pooledBadge) {
-          this.indicator = pooledBadge;
-          this.indicatorFromPool = true;
-          if (typeof this.indicator.setActive === 'function') this.indicator.setActive(true);
-          if (typeof this.indicator.setVisible === 'function') this.indicator.setVisible(false);
-          if (typeof this.indicator.setAlpha === 'function') {
-            this.indicator.setAlpha(this.currentAlpha);
-          }
-          if (typeof this.indicator.setScale === 'function') this.indicator.setScale(1, 1);
-          if (typeof this.indicator.setOrigin === 'function') this.indicator.setOrigin(0.5, 0.5);
-          if (typeof this.indicator.setColor === 'function') this.indicator.setColor('#FFD700');
-          if (typeof this.indicator.setText === 'function') this.indicator.setText('');
-          if (typeof this.indicator.setDepth === 'function') {
-            this.indicator.setDepth(RENDER_DEPTH.ENTITY_Y_BASE + RENDER_DEPTH.OFFSET_INTENT_BADGE);
-          }
-        }
-      }
-      if (!this.indicator && typeof scene.add.text === 'function') {
-        this.indicator = scene.add
-          .text(0, 0, '', {
-            fontSize: '13px',
-            fontStyle: 'bold',
-            fontFamily: 'monospace, Arial, sans-serif',
-            color: '#FFD700',
-            stroke: '#000000',
-            strokeThickness: 2,
-          })
-          .setOrigin(0.5, 0.5)
-          .setDepth(RENDER_DEPTH.ENTITY_Y_BASE + RENDER_DEPTH.OFFSET_INTENT_BADGE)
-          .setVisible(false);
-        this.indicatorFromPool = false;
+      if (!this.hpGraphics) {
+        this.hpGraphics = scene.add.graphics();
+        this.hpGraphicsFromPool = false;
+        this.hpGraphicsPoolRef = null;
       }
     }
+    if (this.hpGraphics) {
+      if (typeof this.hpGraphics.setActive === 'function') this.hpGraphics.setActive(true);
+      if (typeof this.hpGraphics.setVisible === 'function') this.hpGraphics.setVisible(true);
+      if (typeof this.hpGraphics.setAlpha === 'function') {
+        this.hpGraphics.setAlpha(this.currentAlpha);
+      }
+      this.hpGraphics.setDepth(RENDER_DEPTH.ENTITY_Y_BASE + RENDER_DEPTH.OFFSET_HP_BAR);
+    }
+
+    // Tier 2: Name Tag Text (Zero-GC pooled when scene.nameTagTextPool has capacity)
+    const nameColor = this.getFactionNameColor();
+
+    if (!this.nameTag && sceneWithPool.nameTagTextPool) {
+      const pooledName = sceneWithPool.nameTagTextPool.acquire();
+      if (pooledName) {
+        this.nameTag = pooledName;
+        this.nameTagFromPool = true;
+        this.nameTagPoolRef = sceneWithPool.nameTagTextPool;
+      }
+    }
+    if (!this.nameTag && typeof scene.add.text === 'function') {
+      this.nameTag = scene.add
+        .text(0, 0, this.fullName, {
+          fontSize: '9px',
+          fontStyle: 'bold',
+          fontFamily: 'monospace, "Press Start 2P", Arial, sans-serif',
+          color: nameColor,
+          backgroundColor: 'rgba(15, 23, 42, 0.85)',
+          padding: { x: 3, y: 1 },
+          stroke: '#000000',
+          strokeThickness: 2,
+        })
+        .setOrigin(0.5, 0.5)
+        .setDepth(RENDER_DEPTH.ENTITY_Y_BASE + RENDER_DEPTH.OFFSET_NAME_TAG);
+      this.nameTagFromPool = false;
+      this.nameTagPoolRef = null;
+    }
+    if (this.nameTag) {
+      if (typeof this.nameTag.setActive === 'function') this.nameTag.setActive(true);
+      if (typeof this.nameTag.setVisible === 'function') this.nameTag.setVisible(true);
+      if (typeof this.nameTag.setAlpha === 'function') this.nameTag.setAlpha(this.currentAlpha);
+      if (typeof this.nameTag.setScale === 'function') this.nameTag.setScale(1, 1);
+      if (typeof this.nameTag.setOrigin === 'function') this.nameTag.setOrigin(0.5, 0.5);
+      if (typeof this.nameTag.setColor === 'function') this.nameTag.setColor(nameColor);
+      if (typeof this.nameTag.setText === 'function') this.nameTag.setText(this.fullName);
+      if (typeof this.nameTag.setDepth === 'function') {
+        this.nameTag.setDepth(RENDER_DEPTH.ENTITY_Y_BASE + RENDER_DEPTH.OFFSET_NAME_TAG);
+      }
+    }
+
+    // Tier 3: Intent Indicator Badge (Zero-GC pooled when scene.intentBadgeTextPool has capacity)
+    if (!this.indicator && sceneWithPool.intentBadgeTextPool) {
+      const pooledBadge = sceneWithPool.intentBadgeTextPool.acquire();
+      if (pooledBadge) {
+        this.indicator = pooledBadge;
+        this.indicatorFromPool = true;
+        this.indicatorPoolRef = sceneWithPool.intentBadgeTextPool;
+      }
+    }
+    if (!this.indicator && typeof scene.add.text === 'function') {
+      this.indicator = scene.add
+        .text(0, 0, '', {
+          fontSize: '13px',
+          fontStyle: 'bold',
+          fontFamily: 'monospace, Arial, sans-serif',
+          color: '#FFD700',
+          stroke: '#000000',
+          strokeThickness: 2,
+        })
+        .setOrigin(0.5, 0.5)
+        .setDepth(RENDER_DEPTH.ENTITY_Y_BASE + RENDER_DEPTH.OFFSET_INTENT_BADGE)
+        .setVisible(false);
+      this.indicatorFromPool = false;
+      this.indicatorPoolRef = null;
+    }
+    if (this.indicator) {
+      if (typeof this.indicator.setActive === 'function') this.indicator.setActive(true);
+      if (typeof this.indicator.setVisible === 'function') this.indicator.setVisible(false);
+      if (typeof this.indicator.setAlpha === 'function') {
+        this.indicator.setAlpha(this.currentAlpha);
+      }
+      if (typeof this.indicator.setScale === 'function') this.indicator.setScale(1, 1);
+      if (typeof this.indicator.setOrigin === 'function') this.indicator.setOrigin(0.5, 0.5);
+      if (typeof this.indicator.setColor === 'function') this.indicator.setColor('#FFD700');
+      if (typeof this.indicator.setText === 'function') this.indicator.setText('');
+      if (typeof this.indicator.setDepth === 'function') {
+        this.indicator.setDepth(RENDER_DEPTH.ENTITY_Y_BASE + RENDER_DEPTH.OFFSET_INTENT_BADGE);
+      }
+    }
+  }
+
+  /**
+   * Zero-GC revival for pooled entities: resets all transient offsets, alpha, LOD,
+   * intent badge, and render cache in-place, re-acquiring pooled display objects if destroyed.
+   */
+  public revive(maxHp?: number, faction?: EntityFaction): void {
+    if (maxHp !== undefined && maxHp > 0) this.maxHp = maxHp;
+    if (faction !== undefined) this.faction = faction;
+    this.currentHp = this.maxHp;
+    this.customOffsetX = 0;
+    this.customOffsetY = 0;
+    this.currentAlpha = 1.0;
+    this.targetAlpha = 1.0;
+    this.lodMode = 'full';
+    this.intentGlyph = '';
+    this.isIntentVisible = false;
+    this.isDestroyed = false;
+    this.resetRenderCache();
+    this.acquireRenderObjects();
   }
 
   public update(
@@ -410,31 +462,46 @@ export class OverheadUI {
     this.isDestroyed = true;
     const sceneWithPool = this.scene as unknown as ISceneOverheadPools | undefined;
     if (this.hpGraphics) {
-      if (this.hpGraphicsFromPool && sceneWithPool?.graphicsPool) {
-        sceneWithPool.graphicsPool.release(this.hpGraphics);
+      if (
+        this.hpGraphicsFromPool &&
+        this.hpGraphicsPoolRef &&
+        sceneWithPool?.graphicsPool === this.hpGraphicsPoolRef
+      ) {
+        this.hpGraphicsPoolRef.release(this.hpGraphics);
       } else if (typeof this.hpGraphics.destroy === 'function') {
         this.hpGraphics.destroy();
       }
       this.hpGraphics = null;
       this.hpGraphicsFromPool = false;
+      this.hpGraphicsPoolRef = null;
     }
     if (this.nameTag) {
-      if (this.nameTagFromPool && sceneWithPool?.nameTagTextPool) {
-        sceneWithPool.nameTagTextPool.release(this.nameTag);
+      if (
+        this.nameTagFromPool &&
+        this.nameTagPoolRef &&
+        sceneWithPool?.nameTagTextPool === this.nameTagPoolRef
+      ) {
+        this.nameTagPoolRef.release(this.nameTag);
       } else if (typeof this.nameTag.destroy === 'function') {
         this.nameTag.destroy();
       }
       this.nameTag = null;
       this.nameTagFromPool = false;
+      this.nameTagPoolRef = null;
     }
     if (this.indicator) {
-      if (this.indicatorFromPool && sceneWithPool?.intentBadgeTextPool) {
-        sceneWithPool.intentBadgeTextPool.release(this.indicator);
+      if (
+        this.indicatorFromPool &&
+        this.indicatorPoolRef &&
+        sceneWithPool?.intentBadgeTextPool === this.indicatorPoolRef
+      ) {
+        this.indicatorPoolRef.release(this.indicator);
       } else if (typeof this.indicator.destroy === 'function') {
         this.indicator.destroy();
       }
       this.indicator = null;
       this.indicatorFromPool = false;
+      this.indicatorPoolRef = null;
     }
   }
 }

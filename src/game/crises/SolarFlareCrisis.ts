@@ -370,8 +370,7 @@ export class SolarFlareCrisis extends BaseCrisis {
     }
   }
 
-  public override reset(): void {
-    super.reset();
+  protected override onReset(): void {
     SolarFlareCrisisAudio.getInstance().reset();
     this.cmeTimerMs = 0;
     this.isCmeWarningActive = false;
@@ -379,5 +378,10 @@ export class SolarFlareCrisis extends BaseCrisis {
     this.cmeSweepRemainingMs = 0;
     this.sweepsSurvivedCount = 0;
     this.resetVentsInPlace();
+    this.objectives.length = 0;
+  }
+
+  public override reset(): void {
+    super.reset();
   }
 }

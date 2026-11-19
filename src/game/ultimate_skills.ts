@@ -574,13 +574,17 @@ export class WebAudioSynth {
     this.playSubBassBoom(0.65, 120, 25);
   }
 
+  private static readonly NUCLEAR_LAUNCH_FREQS: readonly number[] = Object.freeze([320, 440, 560, 680]);
+  private static readonly AEGIS_CHIME_NOTES: readonly number[] = Object.freeze([523.25, 659.25, 783.99, 1046.50]); // C5 - E5 - G5 - C6
+  private static readonly ULTIMATE_READY_NOTES: readonly number[] = Object.freeze([880, 1320, 1760]);
+
   public playNuclearLaunch(): void {
     const ctx = this.getContext();
     if (!ctx) return;
 
     try {
-      const freqs = [320, 440, 560, 680];
-      freqs.forEach((freq, idx) => {
+      for (let idx = 0; idx < WebAudioSynth.NUCLEAR_LAUNCH_FREQS.length; idx++) {
+        const freq = WebAudioSynth.NUCLEAR_LAUNCH_FREQS[idx];
         const now = ctx.currentTime + idx * 0.04;
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
@@ -594,7 +598,7 @@ export class WebAudioSynth {
         this.wireAutoDisconnect(osc, gain, undefined, 0.07 + idx * 0.04);
         osc.start(now);
         osc.stop(now + 0.07);
-      });
+      }
     } catch {}
   }
 
@@ -608,8 +612,8 @@ export class WebAudioSynth {
     if (!ctx) return;
 
     try {
-      const notes = [523.25, 659.25, 783.99, 1046.50]; // C5 - E5 - G5 - C6
-      notes.forEach((freq, idx) => {
+      for (let idx = 0; idx < WebAudioSynth.AEGIS_CHIME_NOTES.length; idx++) {
+        const freq = WebAudioSynth.AEGIS_CHIME_NOTES[idx];
         const now = ctx.currentTime + idx * 0.06;
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
@@ -622,7 +626,7 @@ export class WebAudioSynth {
         this.wireAutoDisconnect(osc, gain, undefined, 0.35 + idx * 0.06);
         osc.start(now);
         osc.stop(now + 0.35);
-      });
+      }
     } catch {}
   }
 
@@ -652,8 +656,8 @@ export class WebAudioSynth {
     if (!ctx) return;
 
     try {
-      const notes = [880, 1320, 1760];
-      notes.forEach((freq, idx) => {
+      for (let idx = 0; idx < WebAudioSynth.ULTIMATE_READY_NOTES.length; idx++) {
+        const freq = WebAudioSynth.ULTIMATE_READY_NOTES[idx];
         const now = ctx.currentTime + idx * 0.08;
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
@@ -666,7 +670,7 @@ export class WebAudioSynth {
         this.wireAutoDisconnect(osc, gain, undefined, 0.25 + idx * 0.08);
         osc.start(now);
         osc.stop(now + 0.25);
-      });
+      }
     } catch {}
   }
 
@@ -779,7 +783,7 @@ export function renderMeteorReticle(
     callback: () => {
       elapsed += 16;
       const progress = Math.min(1.0, elapsed / safeWarningMs);
-      if (!g || !g.active) {
+      if (!g || !g.active || (scene as unknown as { isGameOver?: boolean }).isGameOver) {
         releaseReticle();
         timer?.remove();
         return;
@@ -932,7 +936,9 @@ export function renderMeteorStreak(
     },
     onComplete: () => {
       releaseStreak();
-      if (onTouchdown) onTouchdown();
+      if (onTouchdown && !(scene as unknown as { isGameOver?: boolean }).isGameOver) {
+        onTouchdown();
+      }
     },
     onStop: releaseStreak,
   });

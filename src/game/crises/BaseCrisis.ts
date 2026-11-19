@@ -142,7 +142,7 @@ export abstract class BaseCrisis implements ICrisis {
     this.isVictorious = false;
     this.isDefeated = false;
     this.clearAllHazards();
-    this.objectives = [];
+    this.objectives.length = 0;
     this.activeAlert = null;
 
     this.cachedSummary = `${this.name} (${this.stage})`;
@@ -531,7 +531,7 @@ export abstract class BaseCrisis implements ICrisis {
     this.isVictorious = false;
     this.isDefeated = false;
     this.clearAllHazards();
-    this.objectives = [];
+    this.objectives.length = 0;
     this.activeAlert = null;
     this.cachedSummary = `${this.name} (${this.stage})`;
     this.onReset();
@@ -679,7 +679,7 @@ export abstract class BaseCrisis implements ICrisis {
     // Reinitialize subclass state (timers, pending craters, counts, etc.)
     this.onInit();
     // Keep objectives empty while crisis remains INACTIVE
-    this.objectives = [];
+    this.objectives.length = 0;
   }
 
   // Helper grid bounds checks

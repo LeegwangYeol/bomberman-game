@@ -454,9 +454,16 @@ export abstract class BaseBoss {
    */
   public applyStun(durationSec: number): void {
     if (!Number.isFinite(durationSec) || durationSec <= 0) return;
-    if (this.bossState === BossState.DEFEATED) return;
-    if (this.bossState !== BossState.STUNNED) {
-      this.previousStateBeforeStun = this.bossState;
+    if (
+      this.bossState === BossState.INTRO ||
+      this.bossState === BossState.INTERMISSION ||
+      this.bossState === BossState.DEFEATED
+    ) {
+      return;
+    }
+    const prevState = this.bossState;
+    if (prevState !== BossState.STUNNED) {
+      this.previousStateBeforeStun = prevState;
     }
     this.bossState = BossState.STUNNED;
     this.stunDurationMs = durationSec * 1000;
@@ -466,6 +473,9 @@ export abstract class BaseBoss {
     // ARCH-02: Stun opens vulnerability window — clear i-frames immediately
     this.isInvulnerable = false;
     this.iFrameTimerMs = 0;
+    if (prevState !== BossState.STUNNED) {
+      this.onStateChanged(prevState, BossState.STUNNED);
+    }
   }
 
   /**

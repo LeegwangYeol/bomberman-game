@@ -260,7 +260,7 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
     this.setScale(this.baseScaleX, this.baseScaleY);
     super.setVelocity(0, 0);
 
-    if (!this.overheadUI || this.overheadUI.isDestroyed) {
+    if (!this.overheadUI) {
       this.overheadUI = new OverheadUI(
         this.scene,
         this.entityName,
@@ -270,8 +270,8 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
         this.overheadHpBarColor
       );
     } else {
-      this.overheadUI.setVisible(true);
-      this.overheadUI.setIntent('', false);
+      this.overheadUI.scene = this.scene;
+      this.overheadUI.revive(this.maxHp, this.faction);
       this.overheadUI.update(this.x, this.y, this.hp);
     }
   }

@@ -301,8 +301,9 @@ export default function BombermanGame() {
       setStats(runState.player.stats);
       setSelectedMode(runState.meta.gameMode);
       if (phaserGameRef.current) {
-        phaserGameRef.current.events.emit('resume-run-state', runState);
+        // Emit mode-changed FIRST so onResumeRunState restores crisis/boss state AFTER mode setup
         phaserGameRef.current.events.emit('mode-changed', runState.meta.gameMode);
+        phaserGameRef.current.events.emit('resume-run-state', runState);
       }
       showToast(`▶ Run resumed! Score: ${runState.meta.score}`);
     } else {
@@ -787,7 +788,7 @@ export default function BombermanGame() {
         });
 
         manager.on('move', (evt) => {
-          if (!window.mobileInput) return;
+          if (!window.mobileInput || isAnyModalOpenRef.current) return;
           const angle = evt.data.angle?.degree ?? 0;
           const dir = resolveJoystickDirection(angle, evt.data.distance);
           window.mobileInput.up = dir.up;

@@ -2902,3 +2902,23 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - `tests/daily_cycle42_zerogc_pathfinding_entity_crisis_harmonization.test.mjs` 신규 구축 (10대 통합 회귀 시나리오 및 10,000프레임 다중 엔티티·경로탐색·위기·풀 Zero-GC 소크 테스트 전수 통과).
     - 전체 테스트 스위트: **2,361 / 2,361 PASS (100% 통과, 0 실패, 0 스킵, +10 테스트 순증)**.
     - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링)**.
+
+### 43) 일일 정기 무한 진화(단일 에이전트 경량 유지보수): `OverheadUI.revive()` 엔티티 부활 무할당 재사용 및 풀 세대 가드, `pathfinding.ts` 무효 경계 즉시 단락(`Audit Suite 4.4` 복구), 아군·중립 전종 스턴 정지 및 `TankEnemy`·`MerchantNPC` Zero-GC화, 5대 보스 컷신 스턴 면역·선(先)스턴 폭탄 충돌 데미지 순서 보정, 4대 위기 `extraState` 직렬화·Zero-GC `onReset()` 및 이어하기(`mode-changed` 선행) 상태 보존 완결 (Daily Auto-Maintenance: 2026-11-20 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 세션명: `[세션명: 봄버맨 일일 무한 진화]` (스케줄 백그라운드 단일 에이전트 자율 유지보수, 서브에이전트 스웜 미사용).
+  - **핵심 성능·Zero-GC 풀링 및 무결성 수리 내역**:
+    1. **`OverheadUI.revive()` 무할당 부활 재사용, 경로탐색 무효 경계 단락 및 VFX·엔티티 Zero-GC 강화 (`OverheadUI.ts`, `BaseEntity.ts`, `pathfinding.ts`, `EnemyEntities.ts`, `NeutralEntities.ts`, `ultimate_skills.ts`, `GameScene.ts`)**:
+       - `BaseEntity.die()` $\to$ `reviveAt()` 부활 시마다 `new OverheadUI(...)`가 새로 할당되고 오프셋(`customOffsetX/Y`)·투명도(`currentAlpha`)·`lodMode`가 잔류할 수 있던 구조를 `OverheadUI.revive()` 인플레이스 초기화 + 풀 디스플레이 객체 재획득으로 개편하여 부활 시 `OverheadUI` 인스턴스 할당을 `0`건으로 제거하고, `hpGraphicsPoolRef`·`nameTagPoolRef`·`indicatorPoolRef` 풀 세대 일치 검증으로 재진입 `create()` 시 구세대 객체의 신규 풀 오염을 차단.
+       - `ZeroGCPathfinder.setObstacles()`의 `.subarray()` 뷰 할당을 제거하고, `findPathWithDemolition()`에서 `startIdx`/`targetIdx`가 무효(`-1`)이거나 동일 타일일 때 195타일 2D `populateObstacleMask()` 스캔 전에 즉시 반환하도록 단락 처리하여 `Audit Suite 4.4` 10,000회 경계 퍼징 힙 드리프트 회귀를 근본 해결.
+       - `TankEnemy` 스톰프 시 매번 생성되던 `scene.time.delayedCall(1200)` 클로저·타이머를 프레임 델타 차감 `stompIntentTimerMs`로 전환, `MerchantNPC.onDeath()`의 드롭 전리품 배열·슬롯 객체 2개를 영구 재사용, `WebAudioSynth` 음계 상수 정적 동결화, `spawnPickupParticles`의 `.replace('#', '0x')` 문자열 할당을 `parseHexColorFast()` `charCodeAt` 파서로 교체, 재활용 폭발 스프라이트의 `expCleanupTimer` 취소 및 `spawnFloatingText`·`spawnPickupParticles`·`abyssalProc` 풀 참조 가드 적용.
+    2. **아군·중립 스턴 불변식, 5대 보스 컷신 면역 및 폭탄 충돌 선(先)스턴 데미지 순서 보정 (`AllyEntities.ts`, `NeutralEntities.ts`, `BaseBoss.ts`, `GameScene.ts`)**:
+       - 아군 3종(`MiniBomberAlly`, `PetDroneAlly`, `ShieldGuardAlly`) 및 중립 2종(`MerchantNPC`, `CritterNPC`)의 `updateAI()`에 `isStunned` 즉시 정지 가드를 적용하고, `PetDroneAlly`가 더 긴 기존 적 스턴을 800ms로 단축하지 않도록 `Math.max` 보존 + 400ms `'🎯'` 배지 유지(`shotIntentTimerMs`) + `ShieldGuardAlly` 도발 시 기절 적의 `'💫'` 배지 보존 적용.
+       - `BaseBoss.applyStun()`에 `INTRO`·`INTERMISSION`·`DEFEATED` 컷신 면역 가드와 `onStateChanged(prevState, BossState.STUNNED)` 호출을 추가하여 `HamsterBoss` 외부 스턴 시 돌진(`isDashing`/`isReving`)이 즉시 해제되도록 통일.
+       - `GameScene.handleBombBossCollision()`(정지 폭탄 및 슬라이딩 킥 폭탄 공통)에서 `applyStun(2.5)`을 `takeBombDamage(1, 'bomb')`보다 **먼저** 적용하여 실드·비행 보스(`HamsterBoss`, `GummyBearBoss`, `QueenBeeBoss`)가 폭탄 충돌 시 0 데미지로 씹히던 결함을 1타 정밀 데미지로 수리하고, 막타 처치 시 `BossState.DEFEATED` 상태를 온전히 유지하도록 보정.
+    3. **위기 모듈 세이브/로드 `extraState` 완비 및 `BombermanGame.tsx` 이어하기 이벤트 순서 수리 (`BaseCrisis.ts`, `VoidCrisis.ts`, `ClockworkCrisis.ts`, `OrbitalCrisis.ts`, `LavaCrisis.ts`, `SolarFlareCrisis.ts`, `BombermanGame.tsx`, `GameScene.ts`)**:
+       - `VoidCrisis`, `ClockworkCrisis`, `OrbitalCrisis`에 `getExtraSerializedState()` / `applyExtraSerializedState()`와 무할당 `onReset()`을 완비하고(`Lava`·`SolarFlare` 포함 전 위기 `reset()` 무할당화), `LavaCrisis` 모서리 중복 카운트 제거·`CALDERA_VALVE` 덮어쓰기 방어·흑요석 냉각 시 `lavaTilesCount` 차감을 보정.
+       - `BombermanGame.handleResumeRun`에서 `'resume-run-state'` 뒤에 발행되던 `'mode-changed'`가 방금 복원한 위기/보스 상태를 즉시 리셋해 버리던 치명적 결함을 수정하여 `'mode-changed'`를 먼저 발행한 뒤 `'resume-run-state'`를 복원하도록 순서를 바로잡음. 아울러 단조 증가 `allocBombId()`, 은신(`isCloaked`) 중 마스터리 만료 시 `0.35` 알파 유지, 컨베이어 벨트 폭탄 이동 시 `body.position` 동기화, 모달 오픈 중 가상 조이스틱 이동 차단, 재진입 `create()`의 타이머·트윈 일괄 정리 및 `isGameOver` 시 `renderMeteorReticle` 즉시 중단을 적용.
+  - **신규 영구 방어 테스트 및 검증 지표**:
+    - `tests/daily_cycle43_zerogc_overhead_boss_crisis_persistence.test.mjs` 신규 구축 (6대 통합 회귀 시나리오 및 10,000프레임 6종 엔티티 600회 사망/부활·위기 리셋·VFX Zero-GC 소크 테스트 전수 통과 — `OverheadUI` 재할당 `0`회 및 풀 누수 `0`건 검증).
+    - 전체 테스트 스위트: **2,367 / 2,367 PASS (100% 통과, 0 실패, 0 스킵, +6 테스트 순증)**.
+    - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 4/4 정적 라우트 사전 렌더링)**.

@@ -455,9 +455,15 @@ export class ZeroGCPathfinder {
       return;
     }
     const copyLen = Math.min(this.obstacleMask.length, walkableBitmask.length);
-    this.obstacleMask.set(walkableBitmask.subarray(0, copyLen));
-    if (this.obstacleMask.length > copyLen) {
-      this.obstacleMask.fill(0, copyLen);
+    if (walkableBitmask.length <= this.obstacleMask.length) {
+      this.obstacleMask.set(walkableBitmask);
+      if (this.obstacleMask.length > copyLen) {
+        this.obstacleMask.fill(0, copyLen);
+      }
+    } else {
+      for (let i = 0; i < copyLen; i++) {
+        this.obstacleMask[i] = walkableBitmask[i];
+      }
     }
   }
 
@@ -2008,6 +2014,10 @@ export function findPathWithDemolition(
     const bombMask = (blockPenaltyOrBombMask instanceof Uint8Array) ? blockPenaltyOrBombMask : null;
     const penalty = typeof maybeBlockPenalty === 'number' && Number.isFinite(maybeBlockPenalty) ? maybeBlockPenalty : 8;
     return zeroGCPathfinder.findPathWithDemolition(startIdx, targetIdx, mapOrOutPath, obstacleMask, bombMask, penalty);
+  }
+
+  if (startIdx === -1 || targetIdx === -1 || startIdx === targetIdx) {
+    return zeroGCPathfinder.findPathWithDemolition(startIdx, targetIdx, outPathBuffer, sharedObstacleMask, null, 8);
   }
 
   if (Array.isArray(mapOrOutPath)) {

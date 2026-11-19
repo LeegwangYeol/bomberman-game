@@ -146,10 +146,18 @@ export class LavaCrisis extends BaseCrisis {
     if (!Number.isFinite(r) || !Number.isFinite(c)) return;
     if (this.isPillar(r, c) || this.isPerimeter(r, c)) return;
     const current = this.getHazardAt(r, c);
-    if (current && current.type === HazardType.OBSIDIAN_BLOCK) return; // Obsidian resists lava
+    if (
+      current &&
+      (current.type === HazardType.OBSIDIAN_BLOCK || current.type === HazardType.CALDERA_VALVE)
+    ) {
+      return; // Obsidian and Central Caldera Valve resist lava overwrite
+    }
+    const wasLava = current !== null && current.type === HazardType.LAVA_SURFACE;
 
     this.setHazardTile(r, c, HazardType.LAVA_SURFACE, 1.0, 0, 0);
-    this.lavaTilesCount++;
+    if (!wasLava) {
+      this.lavaTilesCount++;
+    }
   }
 
   /**
@@ -180,6 +188,7 @@ export class LavaCrisis extends BaseCrisis {
           if (h && h.type === HazardType.LAVA_SURFACE) {
             // Transform molten lava into walkable obsidian block
             this.setHazardTile(tr, tc, HazardType.OBSIDIAN_BLOCK, 0.6, 0, 0);
+            this.lavaTilesCount = Math.max(0, this.lavaTilesCount - 1);
             this.obsidianSolidifiedCount++;
             this.resolveObjective('solidify_lava');
             LavaCrisisAudio.getInstance().playObsidianQuenched(this.obsidianSolidifiedCount);
@@ -255,13 +264,17 @@ export class LavaCrisis extends BaseCrisis {
     this.isCalderaSealed = Boolean(extra.isCalderaSealed);
   }
 
-  public override reset(): void {
-    super.reset();
+  protected override onReset(): void {
     LavaCrisisAudio.getInstance().reset();
     this.lavaAdvanceTimerMs = 0;
     this.currentLavaRing = 1;
     this.lavaTilesCount = 0;
     this.obsidianSolidifiedCount = 0;
     this.isCalderaSealed = false;
+    this.objectives.length = 0;
+  }
+
+  public override reset(): void {
+    super.reset();
   }
 }

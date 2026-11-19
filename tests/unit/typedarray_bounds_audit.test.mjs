@@ -862,15 +862,17 @@ test('Audit Suite 4.4: Zero-GC Soak Test: 10,000 chaotic boundary & NaN fuzz cyc
     Infinity,
   ];
 
-  // Warmup JIT
-  for (let i = 0; i < 50; i++) {
+  const validTarget = { r: 1, c: 1 };
+
+  // Warmup JIT across all fuzz shapes so TurboFan background compilation finishes before heap measurement
+  for (let i = 0; i < 500; i++) {
     const input = fuzzInputs[i % fuzzInputs.length];
-    findPathBFS(input, { r: 1, c: 1 }, map, emptyMask);
+    findPathBFS(input, validTarget, map, emptyMask);
     findEscapePathBFS(input, emptyMask, map, emptyMask);
-    findPathWithDemolition(input, { r: 1, c: 1 }, map, emptyMask);
+    findPathWithDemolition(input, validTarget, map, emptyMask);
     canSafelyPlaceBomb(input, 2, map);
     getSafeBombEscapePath(input, 2, map);
-    isTileInBlastRange(input, { r: 1, c: 1 }, 2, map);
+    isTileInBlastRange(input, validTarget, 2, map);
     getSafeDemolitionApproaches(input, map);
   }
 
@@ -881,12 +883,12 @@ test('Audit Suite 4.4: Zero-GC Soak Test: 10,000 chaotic boundary & NaN fuzz cyc
   const ITERATIONS = 10000;
   for (let i = 0; i < ITERATIONS; i++) {
     const input = fuzzInputs[i % fuzzInputs.length];
-    findPathBFS(input, { r: 1, c: 1 }, map, emptyMask);
+    findPathBFS(input, validTarget, map, emptyMask);
     findEscapePathBFS(input, emptyMask, map, emptyMask);
-    findPathWithDemolition(input, { r: 1, c: 1 }, map, emptyMask);
+    findPathWithDemolition(input, validTarget, map, emptyMask);
     canSafelyPlaceBomb(input, 2, map);
     getSafeBombEscapePath(input, 2, map);
-    isTileInBlastRange(input, { r: 1, c: 1 }, 2, map);
+    isTileInBlastRange(input, validTarget, 2, map);
     getSafeDemolitionApproaches(input, map);
   }
 

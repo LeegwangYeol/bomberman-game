@@ -93,6 +93,11 @@ export class MiniBomberAlly extends BaseEntity {
     if (this.isDead || !this.active) return;
     this.updateEntity(delta, currentTime);
 
+    if (this.isStunned) {
+      this.setVelocity(0, 0);
+      return;
+    }
+
     this.bombCooldownTimer -= delta;
 
     if (!player || !player.active) {
@@ -231,6 +236,7 @@ export class MiniBomberAlly extends BaseEntity {
 export class PetDroneAlly extends BaseEntity {
   public config = ALLY_ARCHETYPES.PET_DRONE;
   private shootTimer: number = 3000;
+  private shotIntentTimerMs: number = 0;
   private orbitAngle: number = 0;
 
   constructor(scene: Phaser.Scene, x: number, y: number, texture: string = 'player') {
@@ -260,6 +266,7 @@ export class PetDroneAlly extends BaseEntity {
     this.moveSpeed = this.config.flightSpeed;
     this.isPhasing = true;
     this.shootTimer = 3000;
+    this.shotIntentTimerMs = 0;
     this.orbitAngle = 0;
     this.setTint(0x38bdf8);
     this.setScale(0.75, 0.75);
@@ -275,6 +282,15 @@ export class PetDroneAlly extends BaseEntity {
   ) {
     if (this.isDead || !this.active) return;
     this.updateEntity(delta, currentTime);
+
+    if (this.isStunned) {
+      this.setVelocity(0, 0);
+      return;
+    }
+
+    if (this.shotIntentTimerMs > 0) {
+      this.shotIntentTimerMs = Math.max(0, this.shotIntentTimerMs - delta);
+    }
 
     if (!player || !player.active) {
       this.setVelocity(0, 0);
@@ -375,9 +391,16 @@ export class PetDroneAlly extends BaseEntity {
       }
 
       if (targetEnemy) {
+        this.shotIntentTimerMs = 400;
         this.overheadUI.setIntent('🎯', true);
         targetEnemy.isStunned = true;
-        targetEnemy.stunUntil = currentTime + this.config.stunDurationMs;
+        targetEnemy.stunUntil = Math.max(
+          targetEnemy.stunUntil || 0,
+          currentTime + this.config.stunDurationMs
+        );
+        if (typeof targetEnemy.setVelocity === 'function') {
+          targetEnemy.setVelocity(0, 0);
+        }
         targetEnemy.overheadUI.setIntent('💫', true);
 
         // Visual plasma projectile (Zero-GC pooled via scene.circlePool)
@@ -444,7 +467,9 @@ export class PetDroneAlly extends BaseEntity {
     const dx = targetX - this.x;
     const dy = targetY - this.y;
     this.setVelocity(dx * 4, dy * 4);
-    this.overheadUI.setIntent('🚁', true);
+    if (this.shotIntentTimerMs <= 0) {
+      this.overheadUI.setIntent('🚁', true);
+    }
   }
 }
 
@@ -504,6 +529,11 @@ export class ShieldGuardAlly extends BaseEntity {
   ) {
     if (this.isDead || !this.active) return;
     this.updateEntity(delta, currentTime);
+
+    if (this.isStunned) {
+      this.setVelocity(0, 0);
+      return;
+    }
 
     if (!player || !player.active) {
       this.setVelocity(0, 0);
@@ -574,7 +604,7 @@ export class ShieldGuardAlly extends BaseEntity {
       for (const e of enemies) {
         if (e && e.active && !e.isDead) {
           const dist = Phaser.Math.Distance.Between(this.x, this.y, e.x, e.y);
-          if (dist <= this.config.tauntRadiusTiles * TILE_SIZE) {
+          if (dist <= this.config.tauntRadiusTiles * TILE_SIZE && !e.isStunned) {
             e.overheadUI.setIntent('💢', true);
           }
         }

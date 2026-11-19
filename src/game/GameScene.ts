@@ -515,6 +515,12 @@ export default class GameScene extends Phaser.Scene {
   public baseSpeedBonus: number = 0;
   public destroyedBlocksThisTick: Set<string> = new Set();
   public bossHitBombIds: Set<string> = new Set();
+  private nextBombUid: number = 0;
+
+  private allocBombId(prefix: string = 'bomb'): string {
+    this.nextBombUid = (this.nextBombUid + 1) >>> 0;
+    return `${prefix}_${this.nextBombUid}`;
+  }
 
   // Scratch vectors & buffers for Zero-GC hot loops
   private readonly scratchPlayerPos = { r: 0, c: 0, x: 0, y: 0 };
@@ -1622,6 +1628,7 @@ export default class GameScene extends Phaser.Scene {
     this.scratchMeteorUsedMask.fill(0);
     this.destroyedBlocksThisTick.clear();
     this.bossHitBombIds.clear();
+    this.nextBombUid = 0;
     this.scratchActiveEntities.length = 0;
     this.scratchActiveEnemies.length = 0;
     this.scratchActiveItems.length = 0;
@@ -1862,6 +1869,7 @@ export default class GameScene extends Phaser.Scene {
     this.scratchMeteorUsedMask.fill(0);
     this.lastAbyssalRelicAudioMs = -9999;
     this.bossHitBombIds.clear();
+    this.nextBombUid = 0;
     this.destroyedBlocksThisTick.clear();
     this.scratchActiveEntities.length = 0;
     this.scratchActiveEnemies.length = 0;
@@ -2037,7 +2045,11 @@ export default class GameScene extends Phaser.Scene {
   }
 
   create() {
-    // If re-created without prior shutdown, ensure previous groups, visuals, and pools are cleaned up
+    // If re-created without prior shutdown, ensure previous timers, tweens, groups, visuals, and pools are cleaned up
+    if (this.player || this.circlePool || this.bombs) {
+      this.time?.removeAllEvents?.();
+      this.tweens?.killAll?.();
+    }
     if (this.aegisDomeVisual) {
       this.aegisDomeVisual.destroy();
       this.aegisDomeVisual = null;
@@ -2352,6 +2364,7 @@ export default class GameScene extends Phaser.Scene {
     this.baseSpeedBonus = this.appliedPerkBonuses?.baseSpeedBonus || 0;
     this.destroyedBlocksThisTick.clear();
     this.bossHitBombIds.clear();
+    this.nextBombUid = 0;
     this.statsTimerAccumulator = 0;
     this.itemsCollected = {
       speedUp: 0,
@@ -3924,6 +3937,11 @@ export default class GameScene extends Phaser.Scene {
               const eRadius = enemy.collisionRadius || 16;
               if (eDist < eRadius + 16) {
                 hitEnemyProximity = true;
+                if (bomb.getData('kineticPinballEnemyBonus')) {
+                  const curPower = (bomb.getData('power') as number) || this.bombPower;
+                  bomb.setData('power', curPower + 1);
+                  this.spawnFloatingText(bomb.x, bomb.y - 20, '🎯 KINETIC PINBALL (+1 RANGE)!', '#fbbf24');
+                }
                 this.explodeBomb(bomb, bRow, bCol);
                 break;
               }
@@ -3936,7 +3954,7 @@ export default class GameScene extends Phaser.Scene {
         if (this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED) {
           const bossDist = Phaser.Math.Distance.Between(bomb.x, bomb.y, this.activeBoss.x, this.activeBoss.y);
           if (bossDist < (this.activeBoss.config.colliderRadius || 35) + 16) {
-            this.explodeBomb(bomb, bRow, bCol);
+            this.handleBombBossCollision(bomb, bRow, bCol, true);
             continue;
           }
         }
@@ -4012,8 +4030,17 @@ export default class GameScene extends Phaser.Scene {
             this.map[Math.floor((leadY - perpY) / TILE_SIZE)]?.[Math.floor((leadX - perpX) / TILE_SIZE)] === TILE_EMPTY;
 
           if (canMove) {
-            bomb.x = nextX;
-            bomb.y = nextY;
+            if (typeof bomb.setPosition === 'function') {
+              bomb.setPosition(nextX, nextY);
+            } else {
+              bomb.x = nextX;
+              bomb.y = nextY;
+            }
+            const bBody = bomb.body as Phaser.Physics.Arcade.Body | undefined;
+            if (bBody?.position) {
+              bBody.position.x = nextX - (bBody.halfWidth ?? 16);
+              bBody.position.y = nextY - (bBody.halfHeight ?? 16);
+            }
           }
         }
       }
@@ -4290,28 +4317,9 @@ export default class GameScene extends Phaser.Scene {
         if (bomb.active && this.activeBoss) {
           const bDist = Phaser.Math.Distance.Between(bomb.x, bomb.y, this.activeBoss.x, this.activeBoss.y);
           if (bDist < bossRadius + 16) {
-            const bId = typeof bomb.getData === 'function' ? (bomb.getData('id') as string | undefined) : undefined;
-            if (!bId || !this.bossHitBombIds.has(bId)) {
-              if (bId) {
-                this.bossHitBombIds.add(bId);
-                this.time.delayedCall(1000, () => {
-                  this.bossHitBombIds.delete(bId);
-                });
-              }
-              const hit = this.activeBoss.takeBombDamage(1, 'bomb');
-              if (hit && this.bossHUD) {
-                this.bossHUD.setHp(this.activeBoss.currentHp);
-              }
-            }
-            if (this.activeBoss && (this.activeBoss.bossState as BossState) !== BossState.DEFEATED) {
-              this.activeBoss.applyStun(2.5);
-              if (this.bossHUD) {
-                this.bossHUD.triggerStun(2.5, 'Bomb Collision Stun!');
-              }
-            }
             const bCol = Math.floor(bomb.x / TILE_SIZE);
             const bRow = Math.floor(bomb.y / TILE_SIZE);
-            this.explodeBomb(bomb, bRow, bCol);
+            this.handleBombBossCollision(bomb, bRow, bCol, false);
           }
         }
       }
@@ -5430,7 +5438,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.scheduleDebuffTintClear('QUANTUM_PHASE_INVULN', TUNNELING_INVULNERABILITY_MS, () => {
       if (this.player && this.player.active) {
-        this.player.setAlpha(1.0);
+        this.player.setAlpha(this.isCloaked ? 0.35 : 1.0);
         this.player.clearTint();
         if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
           this.isInvulnerable = false;
@@ -5479,7 +5487,7 @@ export default class GameScene extends Phaser.Scene {
       ESCAPE_VELOCITY_INVULN_MS,
       () => {
         if (this.player && this.player.active) {
-          this.player.setAlpha(1.0);
+          this.player.setAlpha(this.isCloaked ? 0.35 : 1.0);
           this.player.clearTint();
           if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
             this.isInvulnerable = false;
@@ -5535,7 +5543,7 @@ export default class GameScene extends Phaser.Scene {
       THERMAL_BREAK_INVULN_MS,
       () => {
         if (this.player && this.player.active) {
-          this.player.setAlpha(1.0);
+          this.player.setAlpha(this.isCloaked ? 0.35 : 1.0);
           this.player.clearTint();
           if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
             this.isInvulnerable = false;
@@ -5650,7 +5658,7 @@ export default class GameScene extends Phaser.Scene {
       SUPERCONDUCTOR_DASH_INVULN_MS,
       () => {
         if (this.player && this.player.active) {
-          this.player.setAlpha(1.0);
+          this.player.setAlpha(this.isCloaked ? 0.35 : 1.0);
           this.player.clearTint();
           if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
             this.isInvulnerable = false;
@@ -5758,7 +5766,7 @@ export default class GameScene extends Phaser.Scene {
       MAGMA_SURF_INVULN_MS,
       () => {
         if (this.player && this.player.active) {
-          this.player.setAlpha(1.0);
+          this.player.setAlpha(this.isCloaked ? 0.35 : 1.0);
           this.player.clearTint();
           if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
             this.isInvulnerable = false;
@@ -5869,7 +5877,7 @@ export default class GameScene extends Phaser.Scene {
       SPORE_SURGE_INVULN_MS,
       () => {
         if (this.player && this.player.active) {
-          this.player.setAlpha(1.0);
+          this.player.setAlpha(this.isCloaked ? 0.35 : 1.0);
           this.player.clearTint();
           if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
             this.isInvulnerable = false;
@@ -5972,7 +5980,7 @@ export default class GameScene extends Phaser.Scene {
       CHRONO_SURGE_INVULN_MS,
       () => {
         if (this.player && this.player.active) {
-          this.player.setAlpha(1.0);
+          this.player.setAlpha(this.isCloaked ? 0.35 : 1.0);
           this.player.clearTint();
           if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
             this.isInvulnerable = false;
@@ -6075,7 +6083,7 @@ export default class GameScene extends Phaser.Scene {
       SOLAR_SURF_INVULN_MS,
       () => {
         if (this.player && this.player.active) {
-          this.player.setAlpha(1.0);
+          this.player.setAlpha(this.isCloaked ? 0.35 : 1.0);
           this.player.clearTint();
           if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
             this.isInvulnerable = false;
@@ -6177,7 +6185,7 @@ export default class GameScene extends Phaser.Scene {
       ASTRAL_GLIDE_INVULN_MS,
       () => {
         if (this.player && this.player.active) {
-          this.player.setAlpha(1.0);
+          this.player.setAlpha(this.isCloaked ? 0.35 : 1.0);
           this.player.clearTint();
           if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
             this.isInvulnerable = false;
@@ -6280,7 +6288,7 @@ export default class GameScene extends Phaser.Scene {
       AQUA_GLIDE_INVULN_MS,
       () => {
         if (this.player && this.player.active) {
-          this.player.setAlpha(1.0);
+          this.player.setAlpha(this.isCloaked ? 0.35 : 1.0);
           this.player.clearTint();
           if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
             this.isInvulnerable = false;
@@ -6439,7 +6447,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.scheduleDebuffTintClear('DISTORTION_BARRIER', durationMs, () => {
       if (this.player && this.player.active) {
-        this.player.setAlpha(1.0);
+        this.player.setAlpha(this.isCloaked ? 0.35 : 1.0);
         this.player.clearTint();
         if ((this.time?.now ?? Date.now()) >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
           this.isInvulnerable = false;
@@ -7066,7 +7074,7 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    const bombId = `bomb_${Date.now()}_${Math.random()}`;
+    const bombId = this.allocBombId('bomb');
     bomb.setData('id', bombId);
     bomb.setData('owner', 'player');
     bomb.setData('power', this.bombPower);
@@ -7384,7 +7392,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.populateBombIgnoringColliders(bomb, enemy as Phaser.GameObjects.GameObject);
 
-    const bombId = `bomb_e_${Date.now()}_${Math.random()}`;
+    const bombId = this.allocBombId('bomb_e');
     bomb.setData('id', bombId);
     bomb.setData('owner', 'enemy');
     bomb.setData('enemy', enemy);
@@ -7485,7 +7493,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.populateBombIgnoringColliders(bomb, ally as Phaser.GameObjects.GameObject);
 
-    const bombId = `bomb_a_${Date.now()}_${Math.random()}`;
+    const bombId = this.allocBombId('bomb_a');
     bomb.setData('id', bombId);
     bomb.setData('owner', 'ally');
     bomb.setData('ally', ally);
@@ -7559,6 +7567,55 @@ export default class GameScene extends Phaser.Scene {
     return true;
   }
 
+  private handleBombBossCollision(
+    bomb: Phaser.Physics.Arcade.Sprite,
+    bRow: number,
+    bCol: number,
+    detonateInCutscene: boolean = false
+  ): void {
+    if (!bomb.active || !this.activeBoss) return;
+    const st = this.activeBoss.bossState;
+    if (st === BossState.DEFEATED) return;
+    if (st === BossState.INTRO || st === BossState.INTERMISSION) {
+      if (detonateInCutscene) {
+        this.explodeBomb(bomb, bRow, bCol);
+      }
+      return;
+    }
+
+    // 1. Stun FIRST so kinetic/aerial/shielded bosses (Hamster, GummyBear, QueenBee, Titan, Flora)
+    // open their tactical vulnerability window before single-hit bomb collision damage is applied.
+    this.activeBoss.applyStun(2.5);
+
+    // 2. Single-hit bomb damage guard (1 hit per bombId across collision + blast)
+    const bId =
+      typeof bomb.getData === 'function' ? (bomb.getData('id') as string | undefined) : undefined;
+    if (!bId || !this.bossHitBombIds.has(bId)) {
+      if (bId) {
+        this.bossHitBombIds.add(bId);
+        this.time.delayedCall(1000, () => {
+          this.bossHitBombIds.delete(bId);
+        });
+      }
+      const hit = this.activeBoss.takeBombDamage(1, 'bomb');
+      if (hit && this.bossHUD) {
+        this.bossHUD.setHp(this.activeBoss.currentHp);
+      }
+    }
+
+    // 3. Trigger stun HUD only if boss survived and remains STUNNED (preserves DEFEATED on lethal hit)
+    if (
+      this.activeBoss &&
+      (this.activeBoss.bossState as BossState) === BossState.STUNNED &&
+      this.bossHUD
+    ) {
+      this.bossHUD.triggerStun(2.5, 'Bomb Collision Stun!');
+    }
+
+    // 4. Detonate bomb
+    this.explodeBomb(bomb, bRow, bCol);
+  }
+
   explodeBomb(bomb: Phaser.Physics.Arcade.Sprite, row?: number, col?: number) {
     if (!bomb.active) return;
 
@@ -7580,7 +7637,7 @@ export default class GameScene extends Phaser.Scene {
 
     const owner = (bomb.getData('owner') as string) || 'player';
     const bombPower = (bomb.getData('power') as number) || this.bombPower;
-    const bombId = (bomb.getData('id') as string) || `bomb_${Date.now()}_${Math.random()}`;
+    const bombId = (bomb.getData('id') as string) || this.allocBombId('bomb');
 
     // Compute dynamic detonation coordinates from sprite position (PHYS-02)
     const curCol = Math.floor(bomb.x / TILE_SIZE);
@@ -8049,7 +8106,8 @@ export default class GameScene extends Phaser.Scene {
 
           // Pooled Zero-GC concentric maelstrom vortex rings
           if (this.circlePool && this.tweens) {
-            const outerRing = this.circlePool.acquire();
+            const cPool = this.circlePool;
+            const outerRing = cPool.acquire();
             if (outerRing) {
               outerRing
                 .setActive(true)
@@ -8066,7 +8124,9 @@ export default class GameScene extends Phaser.Scene {
                 if (outerReleased) return;
                 outerReleased = true;
                 outerRing.setStrokeStyle(0, 0, 0);
-                this.circlePool?.release(outerRing);
+                if (this.circlePool === cPool) {
+                  cPool.release(outerRing);
+                }
               };
               this.tweens.add({
                 targets: outerRing,
@@ -8378,6 +8438,22 @@ export default class GameScene extends Phaser.Scene {
   public createExplosionSprite(x: number, y: number, owner: string = 'player'): Phaser.Physics.Arcade.Sprite | null {
     const exp = this.acquirePooledGroupSprite(this.explosions, x, y, 'explosion');
     if (!exp) return null;
+    const prevCleanup =
+      typeof exp.getData === 'function'
+        ? (exp.getData('expCleanupTimer') as Phaser.Time.TimerEvent | undefined)
+        : undefined;
+    if (prevCleanup && prevCleanup !== (exp as unknown)) {
+      prevCleanup.paused = false;
+      prevCleanup.remove?.(false);
+      if (typeof (this.time as unknown as { removeEvent?: (ev: Phaser.Time.TimerEvent) => void })?.removeEvent === 'function') {
+        this.time.removeEvent(prevCleanup);
+      }
+      exp.setData('expCleanupTimer', undefined);
+    }
+    this.tweens?.killTweensOf?.(exp);
+    exp.setAlpha?.(1);
+    exp.setScale?.(1, 1);
+    exp.clearTint?.();
     exp.setDepth(RENDER_DEPTH.EXPLOSIONS);
     exp.setData('owner', owner);
 
@@ -9172,9 +9248,11 @@ export default class GameScene extends Phaser.Scene {
 
           const exp = this.createExplosionSprite(targetX, targetY, 'player');
           if (exp) {
-            this.time.delayedCall(280, () => {
+            const cleanupTimer = this.time.delayedCall(280, () => {
+              exp.setData?.('expCleanupTimer', undefined);
               if (exp.active) { exp.disableBody(true, true); }
             });
+            exp.setData?.('expCleanupTimer', cleanupTimer);
           }
         });
 
@@ -9751,8 +9829,9 @@ export default class GameScene extends Phaser.Scene {
         : Date.now();
     const clampedX = Math.max(36, Math.min(COLS * TILE_SIZE - 36, x));
 
-    const floating = this.floatingTextPool
-      ? this.floatingTextPool.acquire()
+    const fPool = this.floatingTextPool;
+    const floating = fPool
+      ? fPool.acquire()
       : this.add?.text
         ? this.add
             .text(clampedX, y, text, {
@@ -9781,8 +9860,10 @@ export default class GameScene extends Phaser.Scene {
     const releaseFloating = () => {
       if (released) return;
       released = true;
-      if (this.floatingTextPool) {
-        this.floatingTextPool.release(floating);
+      if (fPool) {
+        if (this.floatingTextPool === fPool) {
+          fPool.release(floating);
+        }
       } else {
         floating.destroy();
       }
@@ -9804,10 +9885,12 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private spawnPickupParticles(x: number, y: number, colorStr: string) {
-    const colorNum = parseInt(colorStr.replace('#', '0x'), 16) || 0xffffff;
+    const colorNum = parseHexColorFast(colorStr);
+    const cPool = this.circlePool;
+    if (!cPool) return;
     for (let i = 0; i < 6; i++) {
       const angle = (i / 6) * Math.PI * 2;
-      const spark = this.circlePool ? this.circlePool.acquire() : null;
+      const spark = cPool.acquire();
       if (!spark) continue;
       spark.setStrokeStyle?.(0, 0, 0);
       spark.setActive(true).setVisible(true).setPosition(x, y).setRadius(3).setFillStyle(colorNum, 1).setAlpha(1).setScale(1);
@@ -9816,7 +9899,9 @@ export default class GameScene extends Phaser.Scene {
       const releaseSpark = () => {
         if (sparkReleased) return;
         sparkReleased = true;
-        if (this.circlePool) this.circlePool.release(spark);
+        if (this.circlePool === cPool) {
+          cPool.release(spark);
+        }
       };
       if (this.tweens?.add) {
         this.tweens.add({
@@ -9842,5 +9927,32 @@ export default class GameScene extends Phaser.Scene {
   public ensureJuiceTextures(): void {
     ensureProceduralJuiceTextures(this);
   }
+}
+
+function parseHexColorFast(colorStr: string): number {
+  if (!colorStr) return 0xffffff;
+  let start = 0;
+  const c0 = colorStr.charCodeAt(0);
+  if (c0 === 35) {
+    start = 1;
+  } else if (
+    c0 === 48 &&
+    (colorStr.charCodeAt(1) === 120 || colorStr.charCodeAt(1) === 88)
+  ) {
+    start = 2;
+  }
+  let val = 0;
+  let digits = 0;
+  for (let i = start; i < colorStr.length && digits < 6; i++) {
+    const code = colorStr.charCodeAt(i);
+    let nibble = -1;
+    if (code >= 48 && code <= 57) nibble = code - 48;
+    else if (code >= 65 && code <= 70) nibble = code - 55;
+    else if (code >= 97 && code <= 102) nibble = code - 87;
+    else break;
+    val = (val << 4) | nibble;
+    digits++;
+  }
+  return digits > 0 ? val >>> 0 : 0xffffff;
 }
 

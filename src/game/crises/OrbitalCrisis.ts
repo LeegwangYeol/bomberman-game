@@ -7,6 +7,7 @@
 
 import { BaseCrisis } from './BaseCrisis.ts';
 import { CrisisType, CrisisStage, HazardType } from './CrisisTypes.ts';
+import { ROWS, COLS } from '../pathfinding.ts';
 import { OrbitalCrisisAudio } from './OrbitalCrisisAudio.ts';
 
 export interface UplinkTerminal {
@@ -39,6 +40,7 @@ export class OrbitalCrisis extends BaseCrisis {
     for (let i = 0; i < 16; i++) {
       this.craterPool.push({ r: 0, c: 0, remainingMs: 0 });
     }
+    this.resetUplinksInPlace();
   }
 
   private clearPendingCratersToPool(): void {
@@ -50,13 +52,7 @@ export class OrbitalCrisis extends BaseCrisis {
     }
   }
 
-  protected onInit(): void {
-    OrbitalCrisisAudio.getInstance().reset();
-    this.salvoTimerMs = 0;
-    this.salvosEvadedCount = 0;
-    this.macrocannonCharge = 0;
-    this.clearPendingCratersToPool();
-
+  private resetUplinksInPlace(): void {
     if (this.uplinks.length === OrbitalCrisis.UPLINK_POSITIONS.length) {
       for (let i = 0; i < OrbitalCrisis.UPLINK_POSITIONS.length; i++) {
         const src = OrbitalCrisis.UPLINK_POSITIONS[i];
@@ -72,6 +68,15 @@ export class OrbitalCrisis extends BaseCrisis {
         isOverridden: false,
       }));
     }
+  }
+
+  protected onInit(): void {
+    OrbitalCrisisAudio.getInstance().reset();
+    this.salvoTimerMs = 0;
+    this.salvosEvadedCount = 0;
+    this.macrocannonCharge = 0;
+    this.clearPendingCratersToPool();
+    this.resetUplinksInPlace();
 
     this.objectives = [
       {
@@ -284,9 +289,91 @@ export class OrbitalCrisis extends BaseCrisis {
     }
   }
 
+  protected override getExtraSerializedState(): Record<string, unknown> {
+    return {
+      salvoTimerMs: this.salvoTimerMs,
+      salvosEvadedCount: this.salvosEvadedCount,
+      macrocannonCharge: this.macrocannonCharge,
+      uplinks: this.uplinks.map((u) => ({
+        r: u.r,
+        c: u.c,
+        isOverridden: u.isOverridden,
+      })),
+      pendingCraters: this.pendingCraters.map((c) => ({
+        r: c.r,
+        c: c.c,
+        remainingMs: c.remainingMs,
+      })),
+    };
+  }
+
+  protected override applyExtraSerializedState(extra: Record<string, unknown>): void {
+    if (typeof extra.salvoTimerMs === 'number' && Number.isFinite(extra.salvoTimerMs)) {
+      this.salvoTimerMs = Math.max(0, extra.salvoTimerMs);
+    }
+    if (typeof extra.salvosEvadedCount === 'number' && Number.isFinite(extra.salvosEvadedCount)) {
+      this.salvosEvadedCount = Math.max(0, Math.floor(extra.salvosEvadedCount));
+    }
+    if (typeof extra.macrocannonCharge === 'number' && Number.isFinite(extra.macrocannonCharge)) {
+      this.macrocannonCharge = Math.max(0, Math.min(100, extra.macrocannonCharge));
+    }
+    this.resetUplinksInPlace();
+    if (Array.isArray(extra.uplinks)) {
+      const len = Math.min(this.uplinks.length, extra.uplinks.length);
+      for (let i = 0; i < len; i++) {
+        const src = extra.uplinks[i] as Partial<UplinkTerminal> | null;
+        if (src && typeof src === 'object') {
+          const dst = this.uplinks[i];
+          if (typeof src.r === 'number' && Number.isInteger(src.r) && src.r >= 0 && src.r < ROWS) {
+            dst.r = src.r;
+          }
+          if (typeof src.c === 'number' && Number.isInteger(src.c) && src.c >= 0 && src.c < COLS) {
+            dst.c = src.c;
+          }
+          dst.isOverridden = Boolean(src.isOverridden);
+        }
+      }
+    }
+    this.clearPendingCratersToPool();
+    if (Array.isArray(extra.pendingCraters)) {
+      for (let i = 0; i < extra.pendingCraters.length; i++) {
+        const src = extra.pendingCraters[i] as { r?: number; c?: number; remainingMs?: number } | null;
+        if (
+          src &&
+          typeof src === 'object' &&
+          typeof src.r === 'number' &&
+          typeof src.c === 'number' &&
+          Number.isInteger(src.r) &&
+          Number.isInteger(src.c) &&
+          src.r >= 0 &&
+          src.r < ROWS &&
+          src.c >= 0 &&
+          src.c < COLS
+        ) {
+          const slot = this.craterPool.pop() || { r: 0, c: 0, remainingMs: 0 };
+          slot.r = src.r;
+          slot.c = src.c;
+          slot.remainingMs =
+            typeof src.remainingMs === 'number' && Number.isFinite(src.remainingMs)
+              ? Math.max(0, src.remainingMs)
+              : 1000;
+          this.pendingCraters.push(slot);
+        }
+      }
+    }
+  }
+
+  protected override onReset(): void {
+    OrbitalCrisisAudio.getInstance().reset();
+    this.salvoTimerMs = 0;
+    this.salvosEvadedCount = 0;
+    this.macrocannonCharge = 0;
+    this.clearPendingCratersToPool();
+    this.resetUplinksInPlace();
+    this.objectives.length = 0;
+  }
+
   public override reset(): void {
     super.reset();
-    OrbitalCrisisAudio.getInstance().reset();
-    this.clearPendingCratersToPool();
   }
 }

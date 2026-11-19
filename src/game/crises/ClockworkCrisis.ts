@@ -56,18 +56,10 @@ export class ClockworkCrisis extends BaseCrisis {
 
   constructor() {
     super(CrisisType.CLOCKWORK_REBELLION);
+    this.resetConduitsInPlace();
   }
 
-  protected onInit(): void {
-    this.empTimerMs = 0;
-    this.isEmpWarningActive = false;
-    this.totalEmpPulsesFired = 0;
-    this.bonusBombSlotsGranted = false;
-    this.isOverloadWindowActive = false;
-    this.overloadWindowTimerMs = 0;
-
-    ClockworkCrisisAudio.getInstance().reset();
-
+  private resetConduitsInPlace(): void {
     if (this.conduits.length === ClockworkCrisis.DYNAMO_CONDUITS.length) {
       for (let i = 0; i < ClockworkCrisis.DYNAMO_CONDUITS.length; i++) {
         const src = ClockworkCrisis.DYNAMO_CONDUITS[i];
@@ -85,6 +77,18 @@ export class ClockworkCrisis extends BaseCrisis {
         hitTimestampMs: 0,
       }));
     }
+  }
+
+  protected onInit(): void {
+    this.empTimerMs = 0;
+    this.isEmpWarningActive = false;
+    this.totalEmpPulsesFired = 0;
+    this.bonusBombSlotsGranted = false;
+    this.isOverloadWindowActive = false;
+    this.overloadWindowTimerMs = 0;
+
+    ClockworkCrisisAudio.getInstance().reset();
+    this.resetConduitsInPlace();
 
     this.objectives = [
       {
@@ -334,5 +338,79 @@ export class ClockworkCrisis extends BaseCrisis {
     } else if (objectiveId === 'survive_emp') {
       this.adjustThreat(-5);
     }
+  }
+
+  protected override getExtraSerializedState(): Record<string, unknown> {
+    return {
+      empTimerMs: this.empTimerMs,
+      isEmpWarningActive: this.isEmpWarningActive,
+      totalEmpPulsesFired: this.totalEmpPulsesFired,
+      overloadWindowTimerMs: this.overloadWindowTimerMs,
+      isOverloadWindowActive: this.isOverloadWindowActive,
+      bonusBombSlotsGranted: this.bonusBombSlotsGranted,
+      conduits: this.conduits.map((c) => ({
+        r: c.r,
+        c: c.c,
+        isHit: c.isHit,
+        hitTimestampMs: c.hitTimestampMs,
+      })),
+    };
+  }
+
+  protected override applyExtraSerializedState(extra: Record<string, unknown>): void {
+    if (typeof extra.empTimerMs === 'number' && Number.isFinite(extra.empTimerMs)) {
+      this.empTimerMs = Math.max(0, extra.empTimerMs);
+    }
+    if (typeof extra.isEmpWarningActive === 'boolean') {
+      this.isEmpWarningActive = extra.isEmpWarningActive;
+    }
+    if (typeof extra.totalEmpPulsesFired === 'number' && Number.isFinite(extra.totalEmpPulsesFired)) {
+      this.totalEmpPulsesFired = Math.max(0, Math.floor(extra.totalEmpPulsesFired));
+    }
+    if (typeof extra.overloadWindowTimerMs === 'number' && Number.isFinite(extra.overloadWindowTimerMs)) {
+      this.overloadWindowTimerMs = Math.max(0, extra.overloadWindowTimerMs);
+    }
+    if (typeof extra.isOverloadWindowActive === 'boolean') {
+      this.isOverloadWindowActive = extra.isOverloadWindowActive;
+    }
+    if (typeof extra.bonusBombSlotsGranted === 'boolean') {
+      this.bonusBombSlotsGranted = extra.bonusBombSlotsGranted;
+    }
+    this.resetConduitsInPlace();
+    if (Array.isArray(extra.conduits)) {
+      const len = Math.min(this.conduits.length, extra.conduits.length);
+      for (let i = 0; i < len; i++) {
+        const src = extra.conduits[i] as Partial<DynamoConduit> | null;
+        if (src && typeof src === 'object') {
+          const dst = this.conduits[i];
+          if (typeof src.r === 'number' && Number.isInteger(src.r) && src.r >= 0 && src.r < ROWS) {
+            dst.r = src.r;
+          }
+          if (typeof src.c === 'number' && Number.isInteger(src.c) && src.c >= 0 && src.c < COLS) {
+            dst.c = src.c;
+          }
+          dst.isHit = Boolean(src.isHit);
+          if (typeof src.hitTimestampMs === 'number' && Number.isFinite(src.hitTimestampMs)) {
+            dst.hitTimestampMs = Math.max(0, src.hitTimestampMs);
+          }
+        }
+      }
+    }
+  }
+
+  protected override onReset(): void {
+    ClockworkCrisisAudio.getInstance().reset();
+    this.empTimerMs = 0;
+    this.isEmpWarningActive = false;
+    this.totalEmpPulsesFired = 0;
+    this.bonusBombSlotsGranted = false;
+    this.isOverloadWindowActive = false;
+    this.overloadWindowTimerMs = 0;
+    this.resetConduitsInPlace();
+    this.objectives.length = 0;
+  }
+
+  public override reset(): void {
+    super.reset();
   }
 }

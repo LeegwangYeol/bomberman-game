@@ -41,6 +41,18 @@ const sharedMerchantTempEscapeScratch: GridCoord[] = [];
 export class MerchantNPC extends BaseEntity {
   public config = NEUTRAL_ARCHETYPES.MERCHANT;
   public droppedLoot: Array<{ type: ItemType; r: number; c: number; spawnTime: number }> = [];
+  private readonly lootSlot0: { type: ItemType; r: number; c: number; spawnTime: number } = {
+    type: 'SPEED_UP',
+    r: 0,
+    c: 0,
+    spawnTime: 0,
+  };
+  private readonly lootSlot1: { type: ItemType; r: number; c: number; spawnTime: number } = {
+    type: 'SHIELD',
+    r: 0,
+    c: 0,
+    spawnTime: 0,
+  };
 
   private currentDirection: { x: number; y: number } = { x: 1, y: 0 };
   private pauseTimer: number = 0;
@@ -85,18 +97,28 @@ export class MerchantNPC extends BaseEntity {
 
     const rightC = Math.min(COLS - 2, ec + 1);
 
-    // Drop 2 protected power-ups upon cart destruction
-    this.droppedLoot = [
-      { type: 'SPEED_UP', r: er, c: ec, spawnTime: currentTime },
-      { type: 'SHIELD', r: er, c: rightC, spawnTime: currentTime },
-    ];
+    // Drop 2 protected power-ups upon cart destruction (Zero-GC reusable slots)
+    this.lootSlot0.type = 'SPEED_UP';
+    this.lootSlot0.r = er;
+    this.lootSlot0.c = ec;
+    this.lootSlot0.spawnTime = currentTime;
+
+    this.lootSlot1.type = 'SHIELD';
+    this.lootSlot1.r = er;
+    this.lootSlot1.c = rightC;
+    this.lootSlot1.spawnTime = currentTime;
+
+    this.droppedLoot.length = 2;
+    this.droppedLoot[0] = this.lootSlot0;
+    this.droppedLoot[1] = this.lootSlot1;
 
     // Spawn items into scene if available
     const sceneWithItems = this.scene as unknown as {
       spawnSpecificItem?: (type: ItemType, r: number, c: number, spawnTime: number) => void;
     };
     if (sceneWithItems && typeof sceneWithItems.spawnSpecificItem === 'function') {
-      for (const loot of this.droppedLoot) {
+      for (let i = 0; i < this.droppedLoot.length; i++) {
+        const loot = this.droppedLoot[i];
         sceneWithItems.spawnSpecificItem(loot.type, loot.r, loot.c, loot.spawnTime);
       }
     }
@@ -111,6 +133,11 @@ export class MerchantNPC extends BaseEntity {
   ) {
     if (this.isDead || !this.active) return;
     this.updateEntity(delta, currentTime);
+
+    if (this.isStunned) {
+      this.setVelocity(0, 0);
+      return;
+    }
 
     const mr = Math.floor(this.y / TILE_SIZE);
     const mc = Math.floor(this.x / TILE_SIZE);
@@ -350,6 +377,11 @@ export class CritterNPC extends BaseEntity {
   public updateAI(delta: number, currentTime: number, map: number[][]) {
     if (this.isDead || !this.active) return;
     this.updateEntity(delta, currentTime);
+
+    if (this.isStunned) {
+      this.setVelocity(0, 0);
+      return;
+    }
 
     this.hopTimer -= delta;
     if (this.hopTimer <= 0) {

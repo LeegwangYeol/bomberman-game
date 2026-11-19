@@ -1116,6 +1116,7 @@ export class BomberEnemy extends BaseEntity {
 export class TankEnemy extends BaseEntity {
   public config = ENEMY_ARCHETYPES.TANK;
   private stompTimer: number = 4500;
+  private stompIntentTimerMs: number = 0;
   private pathRecalcTimer: number = 0;
   private currentPath: GridCoord[] = [];
 
@@ -1147,6 +1148,7 @@ export class TankEnemy extends BaseEntity {
     this.iFrameDurationMs = this.config.iFrameMs;
     this.moveSpeed = this.config.walkSpeed;
     this.stompTimer = 4500;
+    this.stompIntentTimerMs = 0;
     this.pathRecalcTimer = 0;
     this.currentPath = clearPathInPlace(this.currentPath);
     this.setTint(0x64748b);
@@ -1169,6 +1171,16 @@ export class TankEnemy extends BaseEntity {
     if (this.isStunned) {
       this.setVelocity(0, 0);
       return;
+    }
+
+    if (this.stompIntentTimerMs > 0) {
+      this.stompIntentTimerMs -= delta;
+      if (this.stompIntentTimerMs <= 0) {
+        this.stompIntentTimerMs = 0;
+        this.overheadUI.setIntent('🛡️', true);
+      }
+    } else if (!this.overheadUI.isIntentVisible) {
+      this.overheadUI.setIntent('🛡️', true);
     }
 
     const er = Math.floor(this.y / TILE_SIZE);
@@ -1200,6 +1212,7 @@ export class TankEnemy extends BaseEntity {
     this.stompTimer -= delta;
     if (this.stompTimer <= 0) {
       this.stompTimer = 5000;
+      this.stompIntentTimerMs = 1200;
       this.overheadUI.setIntent('💥', true);
 
       if (player && player.active) {
@@ -1209,14 +1222,6 @@ export class TankEnemy extends BaseEntity {
         if (dist <= 4 && applyStompSlowCallback) {
           applyStompSlowCallback(this.config.stompSlowPct, this.config.stompDurationMs);
         }
-      }
-
-      if (this.scene) {
-        this.scene.time.delayedCall(1200, () => {
-          if (this.active && !this.isDead) {
-            this.overheadUI.setIntent('🛡️', true);
-          }
-        });
       }
     }
 

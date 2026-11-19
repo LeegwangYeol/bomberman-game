@@ -48,18 +48,10 @@ export class VoidCrisis extends BaseCrisis {
 
   constructor() {
     super(CrisisType.PASTEL_VOID);
+    this.resetPrismsInPlace();
   }
 
-  protected onInit(): void {
-    this.voidCreepCount = 0;
-    this.creepTimerMs = 0;
-    this.avatarSpawned = false;
-    this.avatarHp = 3;
-    this.avatarShieldActive = true;
-    this.supernovaCleansed = false;
-
-    VoidCrisisAudio.getInstance().reset();
-
+  private resetPrismsInPlace(): void {
     if (this.prisms.length === VoidCrisis.PRISM_POSITIONS.length) {
       for (let i = 0; i < VoidCrisis.PRISM_POSITIONS.length; i++) {
         const src = VoidCrisis.PRISM_POSITIONS[i];
@@ -79,6 +71,18 @@ export class VoidCrisis extends BaseCrisis {
         isCharged: false,
       }));
     }
+  }
+
+  protected onInit(): void {
+    this.voidCreepCount = 0;
+    this.creepTimerMs = 0;
+    this.avatarSpawned = false;
+    this.avatarHp = 3;
+    this.avatarShieldActive = true;
+    this.supernovaCleansed = false;
+
+    VoidCrisisAudio.getInstance().reset();
+    this.resetPrismsInPlace();
 
     this.objectives = [
       {
@@ -520,5 +524,83 @@ export class VoidCrisis extends BaseCrisis {
         this.resolveCrisis('Supernova Cleanse shattered the Void Avatar and purified the cosmos!');
       }
     }
+  }
+
+  protected override getExtraSerializedState(): Record<string, unknown> {
+    return {
+      voidCreepCount: this.voidCreepCount,
+      creepTimerMs: this.creepTimerMs,
+      avatarSpawned: this.avatarSpawned,
+      avatarHp: this.avatarHp,
+      avatarShieldActive: this.avatarShieldActive,
+      supernovaCleansed: this.supernovaCleansed,
+      prisms: this.prisms.map((p) => ({
+        r: p.r,
+        c: p.c,
+        charge: p.charge,
+        hits: p.hits,
+        isCharged: p.isCharged,
+      })),
+    };
+  }
+
+  protected override applyExtraSerializedState(extra: Record<string, unknown>): void {
+    if (typeof extra.voidCreepCount === 'number' && Number.isFinite(extra.voidCreepCount)) {
+      this.voidCreepCount = Math.max(0, Math.floor(extra.voidCreepCount));
+    }
+    if (typeof extra.creepTimerMs === 'number' && Number.isFinite(extra.creepTimerMs)) {
+      this.creepTimerMs = Math.max(0, extra.creepTimerMs);
+    }
+    if (typeof extra.avatarSpawned === 'boolean') {
+      this.avatarSpawned = extra.avatarSpawned;
+    }
+    if (typeof extra.avatarHp === 'number' && Number.isFinite(extra.avatarHp)) {
+      this.avatarHp = Math.max(0, Math.floor(extra.avatarHp));
+    }
+    if (typeof extra.avatarShieldActive === 'boolean') {
+      this.avatarShieldActive = extra.avatarShieldActive;
+    }
+    if (typeof extra.supernovaCleansed === 'boolean') {
+      this.supernovaCleansed = extra.supernovaCleansed;
+    }
+    this.resetPrismsInPlace();
+    if (Array.isArray(extra.prisms)) {
+      const len = Math.min(this.prisms.length, extra.prisms.length);
+      for (let i = 0; i < len; i++) {
+        const src = extra.prisms[i] as Partial<PrismState> | null;
+        if (src && typeof src === 'object') {
+          const dst = this.prisms[i];
+          if (typeof src.r === 'number' && Number.isInteger(src.r) && src.r >= 0 && src.r < ROWS) {
+            dst.r = src.r;
+          }
+          if (typeof src.c === 'number' && Number.isInteger(src.c) && src.c >= 0 && src.c < COLS) {
+            dst.c = src.c;
+          }
+          if (typeof src.charge === 'number' && Number.isFinite(src.charge)) {
+            dst.charge = Math.max(0, Math.min(100, src.charge));
+          }
+          if (typeof src.hits === 'number' && Number.isFinite(src.hits)) {
+            dst.hits = Math.max(0, Math.floor(src.hits));
+          }
+          dst.isCharged = Boolean(src.isCharged);
+        }
+      }
+    }
+  }
+
+  protected override onReset(): void {
+    VoidCrisisAudio.getInstance().reset();
+    this.voidCreepCount = 0;
+    this.creepTimerMs = 0;
+    this.avatarSpawned = false;
+    this.avatarHp = 3;
+    this.avatarShieldActive = true;
+    this.supernovaCleansed = false;
+    this.resetPrismsInPlace();
+    this.objectives.length = 0;
+  }
+
+  public override reset(): void {
+    super.reset();
   }
 }
