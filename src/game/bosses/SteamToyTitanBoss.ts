@@ -206,12 +206,23 @@ export class SteamToyTitanBoss extends BaseBoss {
   }
 
   public override applyStun(durationSec: number): void {
-    if (!Number.isFinite(durationSec) || durationSec <= 0 || this.bossState === BossState.DEFEATED) {
+    if (
+      !Number.isFinite(durationSec) ||
+      durationSec <= 0 ||
+      this.bossState === BossState.DEFEATED ||
+      this.bossState === BossState.INTERMISSION
+    ) {
+      return;
+    }
+    if (this.bossState === BossState.INTRO) {
+      this.shockwavePool.releaseAll();
       return;
     }
     this.isMalletWindingUp = false;
     this.malletImpactActive = false;
     this.gearShieldActive = false;
+    this.isSteamVenting = false;
+    this.steamVentDurationTimerMs = 0;
     for (let i = 0; i < this.preallocatedTelegraphs.length; i++) {
       this.preallocatedTelegraphs[i].active = false;
     }
@@ -296,6 +307,8 @@ export class SteamToyTitanBoss extends BaseBoss {
     } else if (nextState === BossState.INTERMISSION) {
       this.isMalletWindingUp = false;
       this.malletImpactActive = false;
+      this.isSteamVenting = false;
+      this.steamVentDurationTimerMs = 0;
       for (let i = 0; i < this.preallocatedTelegraphs.length; i++) {
         this.preallocatedTelegraphs[i].active = false;
       }
@@ -306,6 +319,8 @@ export class SteamToyTitanBoss extends BaseBoss {
       this.isMalletWindingUp = false;
       this.malletImpactActive = false;
       this.gearShieldActive = false;
+      this.isSteamVenting = false;
+      this.steamVentDurationTimerMs = 0;
       for (let i = 0; i < this.preallocatedTelegraphs.length; i++) {
         this.preallocatedTelegraphs[i].active = false;
       }
@@ -332,6 +347,7 @@ export class SteamToyTitanBoss extends BaseBoss {
     this.malletImpactActive = false;
     this.gearShieldActive = false;
     this.isSteamVenting = false;
+    this.steamVentDurationTimerMs = 0;
     for (let i = 0; i < this.preallocatedTelegraphs.length; i++) {
       this.preallocatedTelegraphs[i].active = false;
     }

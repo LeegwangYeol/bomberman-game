@@ -177,13 +177,15 @@ export class MutantFloraBoss extends BaseBoss {
     const safeRadius = Number.isFinite(radius) && radius >= 0 ? radius : 1;
 
     let cleansed = 0;
-    this.rootPool.forEachActive((root) => {
+    for (let i = this.rootPool.activeCount - 1; i >= 0; i--) {
+      const root = this.rootPool.getActive(i);
+      if (!root) continue;
       const dist = Math.max(Math.abs(root.row - r), Math.abs(root.col - c));
       if (dist <= safeRadius) {
         this.rootPool.release(root);
         cleansed++;
       }
-    });
+    }
 
     this.activeRoots = this.rootPool.activeCount;
 
@@ -369,7 +371,9 @@ export class MutantFloraBoss extends BaseBoss {
    * Ticks active pooled root hazards with Zero-GC.
    */
   private updatePooledRoots(dt: number): void {
-    this.rootPool.forEachActive((root) => {
+    for (let i = this.rootPool.activeCount - 1; i >= 0; i--) {
+      const root = this.rootPool.getActive(i);
+      if (!root) continue;
       root.timerMs -= dt;
       if (root.timerMs <= 1500) {
         root.isTelegraph = false; // Transition from warning to active hazard
@@ -377,7 +381,7 @@ export class MutantFloraBoss extends BaseBoss {
       if (root.timerMs <= 0) {
         this.rootPool.release(root);
       }
-    });
+    }
 
     // Unconditionally synchronize activeRoots count with pool
     this.activeRoots = this.rootPool.activeCount;

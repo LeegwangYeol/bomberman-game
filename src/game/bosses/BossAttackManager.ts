@@ -43,10 +43,18 @@ export class BossAttackManager {
       }),
       reset: (p) => {
         p.active = false;
+        p.type = BossProjectileType.GATLING_SEED;
+        p.x = 0;
+        p.y = 0;
         p.vx = 0;
         p.vy = 0;
+        p.radius = 6;
+        p.damage = 1;
         p.timerMs = 0;
+        p.maxDurationMs = 3000;
         p.homing = false;
+        p.targetX = 0;
+        p.targetY = 0;
       },
     });
 
@@ -66,7 +74,12 @@ export class BossAttackManager {
       }),
       reset: (s) => {
         s.active = false;
+        s.originX = 0;
+        s.originY = 0;
         s.currentRadius = 0;
+        s.maxRadius = 160;
+        s.expansionSpeed = 200;
+        s.damage = 1;
         s.affectedTilesBitmask.fill(0);
       },
     });
@@ -90,7 +103,13 @@ export class BossAttackManager {
       }),
       reset: (m) => {
         m.active = false;
+        m.x = 0;
+        m.y = 0;
+        m.vx = 0;
+        m.vy = 0;
         m.hp = 1;
+        m.maxHp = 1;
+        m.state = 0;
         m.targetTileIdx = -1;
         m.carriedBombId = -1;
       },
@@ -110,7 +129,11 @@ export class BossAttackManager {
       }),
       reset: (t) => {
         t.active = false;
+        t.row = 0;
+        t.col = 0;
+        t.tier = 1;
         t.timerMs = 0;
+        t.durationMs = 2000;
       },
     });
   }
@@ -234,11 +257,13 @@ export class BossAttackManager {
     const dtSec = safeDt / 1000;
     const validPlayerPos = Number.isFinite(playerX) && Number.isFinite(playerY);
 
-    // 1. Update Projectiles
-    this.projectilePool.forEachActive((p) => {
+    // 1. Update Projectiles (Zero-GC reverse indexed iteration)
+    for (let i = this.projectilePool.activeCount - 1; i >= 0; i--) {
+      const p = this.projectilePool.getActive(i);
+      if (!p) continue;
       if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.timerMs)) {
         this.projectilePool.release(p);
-        return;
+        continue;
       }
       p.x += p.vx * dtSec;
       p.y += p.vy * dtSec;
@@ -251,20 +276,22 @@ export class BossAttackManager {
         if (dx * dx + dy * dy <= (p.radius + 12) * (p.radius + 12)) {
           onPlayerHit(p.damage);
           this.projectilePool.release(p);
-          return;
+          continue;
         }
       }
 
       if (p.timerMs <= 0 || p.x < 0 || p.x > 600 || p.y < 0 || p.y > 520) {
         this.projectilePool.release(p);
       }
-    });
+    }
 
-    // 2. Update Shockwaves
-    this.shockwavePool.forEachActive((s) => {
+    // 2. Update Shockwaves (Zero-GC reverse indexed iteration)
+    for (let i = this.shockwavePool.activeCount - 1; i >= 0; i--) {
+      const s = this.shockwavePool.getActive(i);
+      if (!s) continue;
       if (!Number.isFinite(s.currentRadius) || !Number.isFinite(s.maxRadius) || s.expansionSpeed <= 0) {
         this.shockwavePool.release(s);
-        return;
+        continue;
       }
       s.currentRadius += s.expansionSpeed * dtSec;
       if (validPlayerPos) {
@@ -280,13 +307,15 @@ export class BossAttackManager {
       if (s.currentRadius >= s.maxRadius) {
         this.shockwavePool.release(s);
       }
-    });
+    }
 
-    // 3. Update Telegraphs (Progression Tier 1 -> Tier 2 -> Tier 3)
-    this.telegraphPool.forEachActive((t) => {
+    // 3. Update Telegraphs (Progression Tier 1 -> Tier 2 -> Tier 3, Zero-GC reverse indexed iteration)
+    for (let i = this.telegraphPool.activeCount - 1; i >= 0; i--) {
+      const t = this.telegraphPool.getActive(i);
+      if (!t) continue;
       if (!Number.isFinite(t.timerMs)) {
         this.telegraphPool.release(t);
-        return;
+        continue;
       }
       t.timerMs -= safeDt;
       const safeDur = Number.isFinite(t.durationMs) && t.durationMs > 0 ? t.durationMs : 1;
@@ -302,7 +331,7 @@ export class BossAttackManager {
       if (t.timerMs <= 0) {
         this.telegraphPool.release(t);
       }
-    });
+    }
   }
 
   public resetAll(): void {

@@ -515,7 +515,9 @@ export class CrisisManager {
         this.activeCrisis.reset();
         this.activeCrisis = null;
       }
+      this.previousStage = CrisisStage.INACTIVE;
       this.hasCountedResolution = false;
+      this.hasEmittedFailure = false;
       return true;
     }
 
@@ -536,7 +538,9 @@ export class CrisisManager {
       this.activeCrisis.init();
     }
 
+    this.previousStage = this.activeCrisis.getStage();
     this.hasCountedResolution = Boolean(saved.isVictorious && saved.stage === CrisisStage.RESOLVED);
+    this.hasEmittedFailure = Boolean(saved.isDefeated && saved.stage === CrisisStage.FAILED);
     return true;
   }
 

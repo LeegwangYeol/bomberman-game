@@ -37,6 +37,7 @@ import {
   ITEM_DEFINITIONS,
   type ActiveBuff,
   createInitialPlayerStats,
+  calculateSpeedLevel,
   calculateClampedPlayerSpeed,
   type SpeedCalculationOptions,
   updateInvulnerabilityExpiry,
@@ -697,6 +698,45 @@ export default class GameScene extends Phaser.Scene {
         this.scratchActiveEntities.push(e);
       }
     }
+  }
+
+  private snapBombToTileCenter(bomb: Phaser.Physics.Arcade.Sprite, col: number, row: number): void {
+    const safeCol = Math.max(0, Math.min(COLS - 1, col));
+    const safeRow = Math.max(0, Math.min(ROWS - 1, row));
+    const cx = safeCol * TILE_SIZE + TILE_SIZE / 2;
+    const cy = safeRow * TILE_SIZE + TILE_SIZE / 2;
+    if (typeof bomb.setPosition === 'function') {
+      bomb.setPosition(cx, cy);
+    } else {
+      bomb.x = cx;
+      bomb.y = cy;
+    }
+    const bBody = bomb.body as Phaser.Physics.Arcade.Body | undefined;
+    if (bBody?.position) {
+      bBody.position.x = cx - (bBody.halfWidth ?? 16);
+      bBody.position.y = cy - (bBody.halfHeight ?? 16);
+    }
+  }
+
+  private vaporizeMinionByHazard(
+    enemy: BaseEntity,
+    damage: number,
+    scoreBonus: number,
+    ultimateChargeBonus: number,
+    floatingText: string,
+    color: string,
+    yOffset: number = 14
+  ): void {
+    if (typeof enemy.takeDamage === 'function') {
+      enemy.takeDamage(damage, 'hazard', this.time.now);
+    }
+    if (enemy.active && !enemy.isDead && typeof enemy.die === 'function') {
+      enemy.die(this.time.now);
+    }
+    this.score += scoreBonus || 0;
+    this.addUltimateCharge(ultimateChargeBonus || 0);
+    this.emitStatsUpdate();
+    this.spawnFloatingText(enemy.x, enemy.y - yOffset, floatingText, color);
   }
 
   private isTilePassableForPlayer(r: number, c: number, playerRow: number, playerCol: number): boolean {
@@ -1414,14 +1454,67 @@ export default class GameScene extends Phaser.Scene {
       }
       if (state.player.stats) {
         const s = state.player.stats;
-        if (typeof s.bombPower === 'number') this.bombPower = s.bombPower;
-        if (typeof s.maxBombs === 'number') this.maxBombs = s.maxBombs;
+        if (typeof s.speed === 'number' && Number.isFinite(s.speed) && s.speed > 0) {
+          this.playerSpeed = s.speed;
+        }
+        if (typeof s.speedLevel === 'number' && Number.isFinite(s.speedLevel) && s.speedLevel >= 1) {
+          this.speedLevel = s.speedLevel;
+        } else {
+          this.speedLevel = calculateSpeedLevel(Math.max(BASE_PLAYER_SPEED, this.playerSpeed - this.baseSpeedBonus));
+        }
+        if (typeof s.bombPower === 'number' && Number.isFinite(s.bombPower)) this.bombPower = s.bombPower;
+        if (typeof s.maxBombs === 'number' && Number.isFinite(s.maxBombs)) this.maxBombs = s.maxBombs;
         if (typeof s.hasKick === 'boolean') this.hasKick = s.hasKick;
         if (typeof s.hasShield === 'boolean') this.hasShield = s.hasShield;
-        if (typeof s.shieldCharges === 'number') this.shieldCharges = s.shieldCharges;
+        if (typeof s.shieldCharges === 'number' && Number.isFinite(s.shieldCharges)) this.shieldCharges = s.shieldCharges;
+        if (typeof s.maxShields === 'number' && Number.isFinite(s.maxShields) && s.maxShields >= 1) {
+          this.maxShields = s.maxShields;
+        }
         if (typeof s.hasWallPass === 'boolean') this.hasWallPass = s.hasWallPass;
         if (typeof s.hasBombPass === 'boolean') this.hasBombPass = s.hasBombPass;
-        if (typeof s.extraLives === 'number') this.extraLives = s.extraLives;
+        if (typeof s.hasMagnet === 'boolean') this.hasMagnet = s.hasMagnet;
+        if (typeof s.hasBlastDeflector === 'boolean') this.hasBlastDeflector = s.hasBlastDeflector;
+        if (typeof s.hasBlastResist === 'boolean') this.hasBlastResist = s.hasBlastResist;
+        if (typeof s.hasVampiric === 'boolean') this.hasVampiric = s.hasVampiric;
+        if (typeof s.activeBombType === 'string' && s.activeBombType.length > 0) {
+          this.activeBombType = s.activeBombType;
+        }
+        if (typeof s.extraLives === 'number' && Number.isFinite(s.extraLives)) this.extraLives = s.extraLives;
+        if (typeof s.ultimateMax === 'number' && Number.isFinite(s.ultimateMax) && s.ultimateMax > 0) {
+          this.ultimateMax = s.ultimateMax;
+        }
+        if (typeof s.ultimateGauge === 'number' && Number.isFinite(s.ultimateGauge)) {
+          this.ultimateGauge = Math.max(0, Math.min(this.ultimateMax, s.ultimateGauge));
+        }
+        if (typeof s.ultimateLockoutRemaining === 'number' && Number.isFinite(s.ultimateLockoutRemaining)) {
+          this.ultimateLockoutRemaining = Math.max(0, s.ultimateLockoutRemaining);
+        }
+        if (typeof s.isUltimateReady === 'boolean') {
+          this.isUltimateReady = s.isUltimateReady && this.ultimateLockoutRemaining <= 0;
+        } else {
+          this.isUltimateReady = this.ultimateGauge >= this.ultimateMax && this.ultimateLockoutRemaining <= 0;
+        }
+        if (typeof s.activeUltimate === 'string' && s.activeUltimate in ULTIMATE_SKILLS) {
+          this.activeUltimate = s.activeUltimate as UltimateSkillId;
+        }
+        if (typeof s.itemsCollectedTotal === 'number' && Number.isFinite(s.itemsCollectedTotal)) {
+          this.itemsCollectedTotal = Math.max(0, s.itemsCollectedTotal);
+        }
+        if (s.inventory && typeof s.inventory === 'object') {
+          this.inventory = { ...createInitialPlayerStats().inventory, ...s.inventory };
+        }
+        if (s.itemsCollected && typeof s.itemsCollected === 'object') {
+          this.itemsCollected = {
+            speedUp: typeof s.itemsCollected.speedUp === 'number' ? s.itemsCollected.speedUp : this.itemsCollected.speedUp,
+            bombUp: typeof s.itemsCollected.bombUp === 'number' ? s.itemsCollected.bombUp : this.itemsCollected.bombUp,
+            fireUp: typeof s.itemsCollected.fireUp === 'number' ? s.itemsCollected.fireUp : this.itemsCollected.fireUp,
+            kick: typeof s.itemsCollected.kick === 'number' ? s.itemsCollected.kick : this.itemsCollected.kick,
+            shield: typeof s.itemsCollected.shield === 'number' ? s.itemsCollected.shield : this.itemsCollected.shield,
+          };
+        }
+        if ((!state.meta || typeof state.meta.score !== 'number') && typeof s.score === 'number' && Number.isFinite(s.score)) {
+          this.score = s.score;
+        }
       }
     }
 
@@ -1431,7 +1524,16 @@ export default class GameScene extends Phaser.Scene {
       this.items.clear(true, true);
       for (const it of state.activeItems) {
         if (it && typeof it.row === 'number' && typeof it.col === 'number' && it.itemType) {
-          this.spawnItem(it.row, it.col, it.itemType as ItemType);
+          const rawType = String(it.itemType);
+          const upperType = rawType.toUpperCase();
+          const resolvedType = (
+            rawType in ITEM_DEFINITIONS
+              ? rawType
+              : upperType in ITEM_DEFINITIONS
+                ? upperType
+                : 'BOMB_UP'
+          ) as ItemType;
+          this.spawnItem(it.row, it.col, resolvedType);
         }
       }
     }
@@ -1514,7 +1616,7 @@ export default class GameScene extends Phaser.Scene {
           serializedItems.push({
             row,
             col,
-            itemType: item.itemType || dataItemType || 'bomb_up',
+            itemType: item.itemType || dataItemType || 'BOMB_UP',
             spawnTime: typeof dataSpawnTime === 'number' ? dataSpawnTime : Date.now(),
           });
         }
@@ -2045,10 +2147,16 @@ export default class GameScene extends Phaser.Scene {
   }
 
   create() {
-    // If re-created without prior shutdown, ensure previous timers, tweens, groups, visuals, and pools are cleaned up
-    if (this.player || this.circlePool || this.bombs) {
+    // If re-created without prior shutdown, ensure previous timers, tweens, active encounters, groups, visuals, and pools are cleaned up
+    if (this.player || this.circlePool || this.bombs || this.activeBoss) {
       this.time?.removeAllEvents?.();
       this.tweens?.killAll?.();
+      if (this.activeBoss) {
+        this.dismissBoss();
+      }
+      if (this.crisisManager?.isCrisisActive()) {
+        this.stopCrisisMode();
+      }
     }
     if (this.aegisDomeVisual) {
       this.aegisDomeVisual.destroy();
@@ -2354,9 +2462,21 @@ export default class GameScene extends Phaser.Scene {
     this.isUltimateReady = false;
     this.ultimateLockoutRemaining = 0;
     this.activeUltimate = 'METEOR_STRIKE';
-    this.cameraTrauma = new CameraTraumaSimulator();
-    this.overheadUIManager = new OverheadUIManager(true);
-    this.floatingTextManager = new FloatingTextManager();
+    if (this.cameraTrauma) {
+      this.cameraTrauma.reset();
+    } else {
+      this.cameraTrauma = new CameraTraumaSimulator();
+    }
+    if (this.overheadUIManager) {
+      this.overheadUIManager.reset();
+    } else {
+      this.overheadUIManager = new OverheadUIManager(true);
+    }
+    if (this.floatingTextManager) {
+      this.floatingTextManager.reset();
+    } else {
+      this.floatingTextManager = new FloatingTextManager();
+    }
     this.lastSurvivalTickMs = 0;
     this.isAegisOverdriveActive = false;
     this.aegisDurationMs = 0;
@@ -2716,7 +2836,7 @@ export default class GameScene extends Phaser.Scene {
         bomb.setVelocity(0, 0);
         bomb.setData('isSliding', false);
         (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(true);
-        bomb.setPosition(bCol * TILE_SIZE + TILE_SIZE / 2, bRow * TILE_SIZE + TILE_SIZE / 2);
+        this.snapBombToTileCenter(bomb, bCol, bRow);
       }
     });
 
@@ -2729,7 +2849,7 @@ export default class GameScene extends Phaser.Scene {
         bomb.setVelocity(0, 0);
         bomb.setData('isSliding', false);
         (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(true);
-        bomb.setPosition(bCol * TILE_SIZE + TILE_SIZE / 2, bRow * TILE_SIZE + TILE_SIZE / 2);
+        this.snapBombToTileCenter(bomb, bCol, bRow);
       }
     });
 
@@ -3971,7 +4091,7 @@ export default class GameScene extends Phaser.Scene {
             // Clean tile snapping to safe boundary tile before reflection
             const safeCol = Math.max(0, Math.min(COLS - 1, stopCol));
             const safeRow = Math.max(0, Math.min(ROWS - 1, stopRow));
-            bomb.setPosition(safeCol * TILE_SIZE + TILE_SIZE / 2, safeRow * TILE_SIZE + TILE_SIZE / 2);
+            this.snapBombToTileCenter(bomb, safeCol, safeRow);
             bomb.setVelocity(dir.x * currentSpeed, dir.y * currentSpeed);
 
             this.spawnFloatingText(bomb.x, bomb.y - 18, '🔄 RICOCHET', '#22c55e');
@@ -3988,9 +4108,7 @@ export default class GameScene extends Phaser.Scene {
             bomb.setVelocity(0, 0);
             bomb.setData('isSliding', false);
             (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(true);
-            const safeCol = Math.max(0, Math.min(COLS - 1, stopCol));
-            const safeRow = Math.max(0, Math.min(ROWS - 1, stopRow));
-            bomb.setPosition(safeCol * TILE_SIZE + TILE_SIZE / 2, safeRow * TILE_SIZE + TILE_SIZE / 2);
+            this.snapBombToTileCenter(bomb, stopCol, stopRow);
           }
         }
       } else {
@@ -4180,48 +4298,6 @@ export default class GameScene extends Phaser.Scene {
           }
         }
       }
-
-      if (this.allies) {
-        this.scratchActiveEnemies.length = 0;
-        for (let ei = 0; ei < enemiesList.length; ei++) {
-          const c = enemiesList[ei];
-          if (c && c.active && c instanceof BaseEntity) {
-            this.scratchActiveEnemies.push(c);
-          }
-        }
-
-        this.scratchActiveItems.length = 0;
-        const itemChildren = this.items.getChildren();
-        for (let ii = 0; ii < itemChildren.length; ii++) {
-          const c = itemChildren[ii] as Phaser.Physics.Arcade.Sprite;
-          if (c && c.active) {
-            this.scratchActiveItems.push(c);
-          }
-        }
-        const activeEnemies = this.scratchActiveEnemies;
-        const activeItems = this.scratchActiveItems;
-
-        const alliesList = this.allies.getChildren();
-        for (let ai = 0; ai < alliesList.length; ai++) {
-          const child = alliesList[ai] as Phaser.GameObjects.GameObject;
-          if (child && child.active) {
-            if (child instanceof MiniBomberAlly) {
-              const placeBombCb = ((child as unknown as { _placeBombCb?: (r: number, c: number, power: number) => boolean })._placeBombCb ??= (r, c, power) => {
-                return this.placeAllyBomb(child, r, c, power);
-              });
-              child.updateAI(delta, _time, this.player, this.map, bombTiles, placeBombCb);
-            } else if (child instanceof PetDroneAlly) {
-              child.updateAI(delta, _time, this.player, activeItems, activeEnemies);
-            } else if (child instanceof ShieldGuardAlly) {
-              child.updateAI(delta, _time, this.player, this.playerFacing, activeEnemies);
-            } else if (child instanceof BaseEntity) {
-              child.updateEntity(delta, _time);
-            }
-          }
-        }
-        this.scratchActiveEnemies.length = 0;
-        this.scratchActiveItems.length = 0;
-      }
     } else {
       for (let ei = 0; ei < enemiesList.length; ei++) {
         const enemy = enemiesList[ei] as Phaser.Physics.Arcade.Sprite;
@@ -4238,6 +4314,49 @@ export default class GameScene extends Phaser.Scene {
           }
         }
       }
+    }
+
+    // Player companion allies continue assisting smoothly regardless of player TIME_FREEZE / CHRONO_FREEZE
+    if (this.allies) {
+      this.scratchActiveEnemies.length = 0;
+      for (let ei = 0; ei < enemiesList.length; ei++) {
+        const c = enemiesList[ei];
+        if (c && c.active && c instanceof BaseEntity) {
+          this.scratchActiveEnemies.push(c);
+        }
+      }
+
+      this.scratchActiveItems.length = 0;
+      const itemChildren = this.items.getChildren();
+      for (let ii = 0; ii < itemChildren.length; ii++) {
+        const c = itemChildren[ii] as Phaser.Physics.Arcade.Sprite;
+        if (c && c.active) {
+          this.scratchActiveItems.push(c);
+        }
+      }
+      const activeEnemies = this.scratchActiveEnemies;
+      const activeItems = this.scratchActiveItems;
+
+      const alliesList = this.allies.getChildren();
+      for (let ai = 0; ai < alliesList.length; ai++) {
+        const child = alliesList[ai] as Phaser.GameObjects.GameObject;
+        if (child && child.active) {
+          if (child instanceof MiniBomberAlly) {
+            const placeBombCb = ((child as unknown as { _placeBombCb?: (r: number, c: number, power: number) => boolean })._placeBombCb ??= (r, c, power) => {
+              return this.placeAllyBomb(child, r, c, power);
+            });
+            child.updateAI(delta, _time, this.player, this.map, bombTiles, placeBombCb);
+          } else if (child instanceof PetDroneAlly) {
+            child.updateAI(delta, _time, this.player, activeItems, activeEnemies);
+          } else if (child instanceof ShieldGuardAlly) {
+            child.updateAI(delta, _time, this.player, this.playerFacing, activeEnemies);
+          } else if (child instanceof BaseEntity) {
+            child.updateEntity(delta, _time);
+          }
+        }
+      }
+      this.scratchActiveEnemies.length = 0;
+      this.scratchActiveItems.length = 0;
     }
 
     // 10b. Continuous 2.5D dynamic Y-sorting & OverheadUIManager declutter pass
@@ -4743,12 +4862,14 @@ export default class GameScene extends Phaser.Scene {
             const enemyHit = this.frostHazard.checkEnemyCollision(er, ec, isBoss);
             if (enemyHit.hit) {
               if (enemyHit.isShattered) {
-                if (typeof enemy.takeDamage === 'function') {
-                  enemy.takeDamage(enemyHit.damage, 'hazard', this.time.now);
-                }
-                this.score += enemyHit.scoreBonus;
-                this.addUltimateCharge(enemyHit.ultimateChargeBonus);
-                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#38bdf8');
+                this.vaporizeMinionByHazard(
+                  enemy,
+                  enemyHit.damage,
+                  enemyHit.scoreBonus,
+                  enemyHit.ultimateChargeBonus,
+                  enemyHit.floatingText,
+                  '#38bdf8'
+                );
               } else if (enemyHit.isFrozenStunned && isBoss && this.activeBoss) {
                 this.handleBossHazardHit(enemy.x, enemy.y, BOSS_FROST_DAMAGE_RATIO, enemyHit.stunDurationMs, enemyHit.floatingText, '#38bdf8', 'Deep Freeze Stasis!');
               }
@@ -4790,12 +4911,14 @@ export default class GameScene extends Phaser.Scene {
             const enemyHit = this.gravityHazard.checkEnemyCollision(er, ec, isBoss);
             if (enemyHit.hit) {
               if (enemyHit.isSpaghettified || enemyHit.isCrushed) {
-                if (typeof enemy.takeDamage === 'function') {
-                  enemy.takeDamage(enemyHit.damage, 'hazard', this.time.now);
-                }
-                this.score += enemyHit.scoreBonus ?? 0;
-                this.addUltimateCharge(enemyHit.ultimateChargeBonus ?? 0);
-                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText || 'Spaghettified!', '#a855f7');
+                this.vaporizeMinionByHazard(
+                  enemy,
+                  enemyHit.damage,
+                  enemyHit.scoreBonus ?? 0,
+                  enemyHit.ultimateChargeBonus ?? 0,
+                  enemyHit.floatingText || 'Spaghettified!',
+                  '#a855f7'
+                );
                 this.gravityHazardAudio?.playMinionSpaghettification();
               } else if (enemyHit.isStunned && isBoss && this.activeBoss) {
                 this.handleBossHazardHit(enemy.x, enemy.y, BOSS_GRAVITY_DAMAGE_RATIO, enemyHit.stunDurationMs, enemyHit.floatingText || 'Gravitational Stasis!', '#a855f7', 'Gravitational Stasis!');
@@ -4880,12 +5003,14 @@ export default class GameScene extends Phaser.Scene {
             const enemyHit = this.voltHazard.checkEnemyCollision(er, ec, isBoss, this.time.now);
             if (enemyHit.hit) {
               if (enemyHit.isVaporized) {
-                if (typeof enemy.takeDamage === 'function') {
-                  enemy.takeDamage(enemyHit.damage, 'hazard', this.time.now);
-                }
-                this.score += enemyHit.scoreBonus;
-                this.addUltimateCharge(enemyHit.ultimateChargeBonus);
-                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#facc15');
+                this.vaporizeMinionByHazard(
+                  enemy,
+                  enemyHit.damage,
+                  enemyHit.scoreBonus,
+                  enemyHit.ultimateChargeBonus,
+                  enemyHit.floatingText,
+                  '#facc15'
+                );
               } else if (enemyHit.isEmpStunned && isBoss && this.activeBoss) {
                 this.handleBossHazardHit(enemy.x, enemy.y, BOSS_VOLT_DAMAGE_RATIO, enemyHit.stunDurationMs, enemyHit.floatingText, '#facc15', 'EMP Overload Stasis!');
               }
@@ -4926,12 +5051,14 @@ export default class GameScene extends Phaser.Scene {
             const enemyHit = this.magmaHazard.checkEnemyCollision(er, ec, isBoss, this.time.now);
             if (enemyHit.hit) {
               if (enemyHit.isIncinerated) {
-                if (typeof enemy.takeDamage === 'function') {
-                  enemy.takeDamage(enemyHit.damage, 'hazard', this.time.now);
-                }
-                this.score += enemyHit.scoreBonus;
-                this.addUltimateCharge(enemyHit.ultimateChargeBonus);
-                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#f97316');
+                this.vaporizeMinionByHazard(
+                  enemy,
+                  enemyHit.damage,
+                  enemyHit.scoreBonus,
+                  enemyHit.ultimateChargeBonus,
+                  enemyHit.floatingText,
+                  '#f97316'
+                );
               } else if (enemyHit.isMeltdownStunned && isBoss && this.activeBoss) {
                 this.handleBossHazardHit(enemy.x, enemy.y, BOSS_MAGMA_DAMAGE_RATIO, enemyHit.stunDurationMs, enemyHit.floatingText, '#f97316', 'Magma Meltdown Stasis!');
               }
@@ -4972,12 +5099,14 @@ export default class GameScene extends Phaser.Scene {
             const enemyHit = this.miasmaHazard.checkEnemyCollision(er, ec, isBoss, this.time.now);
             if (enemyHit.hit) {
               if (enemyHit.isDissolved || enemyHit.isDecomposed) {
-                if (typeof enemy.takeDamage === 'function') {
-                  enemy.takeDamage(enemyHit.damage, 'hazard', this.time.now);
-                }
-                this.score += enemyHit.scoreBonus;
-                this.addUltimateCharge(enemyHit.ultimateChargeBonus);
-                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#10b981');
+                this.vaporizeMinionByHazard(
+                  enemy,
+                  enemyHit.damage,
+                  enemyHit.scoreBonus,
+                  enemyHit.ultimateChargeBonus,
+                  enemyHit.floatingText,
+                  '#10b981'
+                );
               } else if ((enemyHit.isStunned || enemyHit.isSporeStunned) && isBoss && this.activeBoss) {
                 this.handleBossHazardHit(enemy.x, enemy.y, BOSS_MIASMA_DAMAGE_RATIO, enemyHit.stunDurationMs, enemyHit.floatingText, '#10b981', 'Spore Overgrowth Stasis!');
               }
@@ -5018,12 +5147,14 @@ export default class GameScene extends Phaser.Scene {
             const enemyHit = this.chronoHazard.checkEnemyCollision(er, ec, isBoss, this.time.now);
             if (enemyHit.hit) {
               if (enemyHit.isDissolved || enemyHit.isDecomposed) {
-                if (typeof enemy.takeDamage === 'function') {
-                  enemy.takeDamage(enemyHit.damage, 'hazard', this.time.now);
-                }
-                this.score += enemyHit.scoreBonus;
-                this.addUltimateCharge(enemyHit.ultimateChargeBonus);
-                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#818cf8');
+                this.vaporizeMinionByHazard(
+                  enemy,
+                  enemyHit.damage,
+                  enemyHit.scoreBonus,
+                  enemyHit.ultimateChargeBonus,
+                  enemyHit.floatingText,
+                  '#818cf8'
+                );
               } else if (enemyHit.isStunned && isBoss && this.activeBoss) {
                 this.handleBossHazardHit(enemy.x, enemy.y, BOSS_CHRONO_DAMAGE_RATIO, enemyHit.stunDurationMs, enemyHit.floatingText, '#818cf8', 'Temporal Stasis Distortion!');
               }
@@ -5064,12 +5195,14 @@ export default class GameScene extends Phaser.Scene {
             const enemyHit = this.solarHazard.checkEnemyCollision(er, ec, isBoss, this.time.now);
             if (enemyHit.hit) {
               if (enemyHit.isDissolved || enemyHit.isDecomposed) {
-                if (typeof enemy.takeDamage === 'function') {
-                  enemy.takeDamage(enemyHit.damage, 'hazard', this.time.now);
-                }
-                this.score += enemyHit.scoreBonus;
-                this.addUltimateCharge(enemyHit.ultimateChargeBonus);
-                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#f59e0b');
+                this.vaporizeMinionByHazard(
+                  enemy,
+                  enemyHit.damage,
+                  enemyHit.scoreBonus,
+                  enemyHit.ultimateChargeBonus,
+                  enemyHit.floatingText,
+                  '#f59e0b'
+                );
               } else if (enemyHit.isStunned && isBoss && this.activeBoss) {
                 this.handleBossHazardHit(enemy.x, enemy.y, BOSS_SOLAR_DAMAGE_RATIO, enemyHit.stunDurationMs, enemyHit.floatingText, '#f59e0b', 'Solar Corona Stasis!');
               }
@@ -5109,13 +5242,15 @@ export default class GameScene extends Phaser.Scene {
             if (isBoss) hitActiveBossInGroup = true;
             const enemyHit = this.nebulaHazard.checkEnemyCollision(er, ec, isBoss, this.time.now);
             if (enemyHit.hit) {
-              if (enemyHit.isDissolved || enemyHit.isDecomposed) {
-                if (typeof enemy.takeDamage === 'function') {
-                  enemy.takeDamage(enemyHit.damage, 'hazard', this.time.now);
-                }
-                this.score += enemyHit.scoreBonus;
-                this.addUltimateCharge(enemyHit.ultimateChargeBonus);
-                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#a855f7');
+              if (enemyHit.isVaporized || enemyHit.isDissolved || enemyHit.isDecomposed) {
+                this.vaporizeMinionByHazard(
+                  enemy,
+                  enemyHit.damage,
+                  enemyHit.scoreBonus,
+                  enemyHit.ultimateChargeBonus,
+                  enemyHit.floatingText,
+                  '#a855f7'
+                );
               } else if (enemyHit.isStunned && isBoss && this.activeBoss) {
                 this.handleBossHazardHit(enemy.x, enemy.y, BOSS_NEBULA_DAMAGE_RATIO, enemyHit.stunDurationMs, enemyHit.floatingText, '#a855f7', 'Astral Stasis!');
               }
@@ -5156,12 +5291,14 @@ export default class GameScene extends Phaser.Scene {
             const enemyHit = this.abyssalHazard.checkEnemyCollision(er, ec, isBoss, this.time.now);
             if (enemyHit.hit) {
               if (enemyHit.isCrushed || enemyHit.isVaporized || enemyHit.isDissolved || enemyHit.isDecomposed) {
-                if (typeof enemy.takeDamage === 'function') {
-                  enemy.takeDamage(enemyHit.damage, 'hazard', this.time.now);
-                }
-                this.score += enemyHit.scoreBonus;
-                this.addUltimateCharge(enemyHit.ultimateChargeBonus);
-                this.spawnFloatingText(enemy.x, enemy.y - 14, enemyHit.floatingText, '#0ea5e9');
+                this.vaporizeMinionByHazard(
+                  enemy,
+                  enemyHit.damage,
+                  enemyHit.scoreBonus,
+                  enemyHit.ultimateChargeBonus,
+                  enemyHit.floatingText,
+                  '#0ea5e9'
+                );
               } else if (enemyHit.isStunned && isBoss && this.activeBoss) {
                 this.handleBossHazardHit(enemy.x, enemy.y, BOSS_ABYSSAL_DAMAGE_RATIO, enemyHit.stunDurationMs, enemyHit.floatingText, '#0ea5e9', 'Trench Stasis!');
               }

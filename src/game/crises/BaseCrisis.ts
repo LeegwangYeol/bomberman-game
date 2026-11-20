@@ -622,6 +622,8 @@ export abstract class BaseCrisis implements ICrisis {
     this.threatTrend = state.threatTrend || 'stable';
     this.isVictorious = Boolean(state.isVictorious);
     this.isDefeated = Boolean(state.isDefeated);
+    this.lastThreatValue = this.threatMeter;
+    this.cachedSummary = `${this.name} (${this.stage})`;
 
     if (Array.isArray(state.objectives)) {
       this.objectives = state.objectives

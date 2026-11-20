@@ -258,6 +258,9 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
     this.setAngle(0);
     this.setAlpha(1.0);
     this.setScale(this.baseScaleX, this.baseScaleY);
+    if (typeof this.clearTint === 'function') {
+      this.clearTint();
+    }
     super.setVelocity(0, 0);
 
     if (!this.overheadUI) {

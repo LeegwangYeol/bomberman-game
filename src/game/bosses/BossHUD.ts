@@ -154,6 +154,30 @@ export class BossHUD {
     const defaultTotal = meta.phaseHpSegments.reduce((a, b) => a + b, 0);
     const maxHp = Number.isFinite(startingHp) && (startingHp as number) > 0 ? (startingHp as number) : defaultTotal;
 
+    let phaseHpSegments: number[];
+    if (maxHp === defaultTotal || defaultTotal <= 0 || meta.phaseHpSegments.length === 0) {
+      phaseHpSegments = [...meta.phaseHpSegments];
+    } else {
+      const segCount = meta.phaseHpSegments.length;
+      if (maxHp >= segCount) {
+        phaseHpSegments = new Array<number>(segCount);
+        let allocated = 0;
+        for (let i = 0; i < segCount - 1; i++) {
+          const remainingSegs = segCount - i - 1;
+          const maxAllowed = Math.max(1, maxHp - allocated - remainingSegs);
+          const scaled = Math.min(
+            maxAllowed,
+            Math.max(1, Math.round((meta.phaseHpSegments[i] * maxHp) / defaultTotal))
+          );
+          phaseHpSegments[i] = scaled;
+          allocated += scaled;
+        }
+        phaseHpSegments[segCount - 1] = Math.max(1, maxHp - allocated);
+      } else {
+        phaseHpSegments = [...meta.phaseHpSegments];
+      }
+    }
+
     this.state = {
       ...this.createDefaultState(),
       isActive: true,
@@ -166,8 +190,8 @@ export class BossHUD {
       currentHp: maxHp,
       maxHp,
       phase: 1,
-      maxPhase: meta.phaseHpSegments.length,
-      phaseHpSegments: [...meta.phaseHpSegments],
+      maxPhase: phaseHpSegments.length,
+      phaseHpSegments,
       enrageGauge: 0,
       isEnraged: false,
     };
@@ -368,7 +392,7 @@ export class BossHUD {
       if (currentHp <= accumulated || i === segments.length - 1) {
         this.state.activeSegmentIndex = i;
         const prevCap = accumulated - segCap;
-        this.state.activeSegmentHp = Math.max(0, currentHp - prevCap);
+        this.state.activeSegmentHp = Math.min(segCap, Math.max(0, currentHp - prevCap));
         this.state.activeSegmentMaxHp = segCap;
         break;
       }

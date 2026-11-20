@@ -181,6 +181,16 @@ export class CameraTraumaSimulator {
     this.trauma = Math.min(1.0, Math.max(0.0, this.trauma + amount));
   }
 
+  public reset(): void {
+    this.trauma = 0.0;
+    this._scratchOffsets.x = 0;
+    this._scratchOffsets.y = 0;
+    this._scratchOffsets.angle = 0;
+    this._scratchMagnitude.trauma = 0;
+    this._scratchMagnitude.offsetPx = 0;
+    this._scratchMagnitude.angleDeg = 0;
+  }
+
   public update(deltaSec: number): void {
     if (this.trauma > 0) {
       this.trauma = Math.max(0.0, this.trauma - this.decayRate * deltaSec);

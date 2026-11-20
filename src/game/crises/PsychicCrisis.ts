@@ -54,6 +54,14 @@ export class PsychicCrisis extends BaseCrisis {
   public manifestations: PsionicManifestation[] = [];
   public phantomTimerMs: number = 0;
   public pulseTimerMs: number = 0;
+  private readonly defaultObjective = {
+    id: 'resist_psionics',
+    title: 'Psionic Resistance',
+    description: 'Destroy 3 Psionic Manifestations before climax.',
+    targetCount: 3,
+    currentCount: 0,
+    isCompleted: false,
+  };
 
   constructor() {
     super(CrisisType.PSYCHIC_INVASION);
@@ -61,16 +69,14 @@ export class PsychicCrisis extends BaseCrisis {
   }
 
   private initDefaultObjectives(): void {
-    this.objectives = [
-      {
-        id: 'resist_psionics',
-        title: 'Psionic Resistance',
-        description: 'Destroy 3 Psionic Manifestations before climax.',
-        targetCount: 3,
-        currentCount: 0,
-        isCompleted: false,
-      },
-    ];
+    this.defaultObjective.id = 'resist_psionics';
+    this.defaultObjective.title = 'Psionic Resistance';
+    this.defaultObjective.description = 'Destroy 3 Psionic Manifestations before climax.';
+    this.defaultObjective.targetCount = 3;
+    this.defaultObjective.currentCount = 0;
+    this.defaultObjective.isCompleted = false;
+    this.objectives.length = 0;
+    this.objectives.push(this.defaultObjective);
   }
 
   protected onInit(): void {
@@ -107,7 +113,61 @@ export class PsychicCrisis extends BaseCrisis {
       p.isDestroyed = false;
     }
     this.manifestations = this.manifestationPool;
-    this.objectives = [];
+    this.objectives.length = 0;
+  }
+
+  protected override getExtraSerializedState(): Record<string, unknown> {
+    return {
+      phantomTimerMs: this.phantomTimerMs,
+      pulseTimerMs: this.pulseTimerMs,
+      manifestations: this.manifestationPool.map((m) => ({
+        id: m.id,
+        r: m.r,
+        c: m.c,
+        hp: m.hp,
+        maxHp: m.maxHp,
+        isDestroyed: m.isDestroyed,
+      })),
+    };
+  }
+
+  protected override applyExtraSerializedState(extra: Record<string, unknown>): void {
+    this.phantomTimerMs =
+      typeof extra.phantomTimerMs === 'number' && Number.isFinite(extra.phantomTimerMs)
+        ? Math.max(0, extra.phantomTimerMs)
+        : 0;
+    this.pulseTimerMs =
+      typeof extra.pulseTimerMs === 'number' && Number.isFinite(extra.pulseTimerMs)
+        ? Math.max(0, extra.pulseTimerMs)
+        : 0;
+
+    if (Array.isArray(extra.manifestations)) {
+      const len = Math.min(this.manifestationPool.length, extra.manifestations.length);
+      for (let i = 0; i < len; i++) {
+        const raw = extra.manifestations[i];
+        const target = this.manifestationPool[i];
+        const defaultPos = PsychicCrisis.MANIFESTATION_POSITIONS[i];
+        if (raw && typeof raw === 'object') {
+          const item = raw as Partial<PsionicManifestation>;
+          target.id =
+            typeof item.id === 'number' && Number.isFinite(item.id) ? Math.floor(item.id) : i + 1;
+          target.r =
+            typeof item.r === 'number' && Number.isInteger(item.r) ? item.r : defaultPos.r;
+          target.c =
+            typeof item.c === 'number' && Number.isInteger(item.c) ? item.c : defaultPos.c;
+          target.maxHp =
+            typeof item.maxHp === 'number' && Number.isFinite(item.maxHp) && item.maxHp > 0
+              ? item.maxHp
+              : 1;
+          target.hp =
+            typeof item.hp === 'number' && Number.isFinite(item.hp)
+              ? Math.max(0, Math.min(target.maxHp, item.hp))
+              : target.maxHp;
+          target.isDestroyed = Boolean(item.isDestroyed);
+        }
+      }
+    }
+    this.manifestations = this.manifestationPool;
   }
 
   public getSafeAreaRatio(): number {
