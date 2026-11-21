@@ -114,8 +114,17 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
   public baseScaleY: number = 1.0;
   private _isSquashStretching: boolean = false;
   protected _isMovingAnimation: boolean = false;
+  protected _lastEntityTimeMs: number = -1;
   public dropShadow?: Phaser.GameObjects.Sprite;
   public dropShadowScale: number = 1.0;
+
+  protected getEntityClockNow(): number {
+    if (this._lastEntityTimeMs >= 0 && Number.isFinite(this._lastEntityTimeMs)) {
+      return this._lastEntityTimeMs;
+    }
+    const sceneNow = this.scene?.time?.now;
+    return typeof sceneNow === 'number' && Number.isFinite(sceneNow) ? sceneNow : 0;
+  }
 
   public override setVelocity(x?: number, y?: number): this {
     if (this.isStunned) {
@@ -130,7 +139,7 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
   public applyStun(durationMs: number): void {
     if (!Number.isFinite(durationMs) || durationMs <= 0 || this.isDead) return;
     this.isStunned = true;
-    const now = this.scene?.time?.now ?? Date.now();
+    const now = this.getEntityClockNow();
     this.stunUntil = Math.max(this.stunUntil, now + durationMs);
     super.setVelocity(0, 0);
     if (this.overheadUI) {
@@ -141,7 +150,7 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
   public applySpeedMultiplier(multiplier: number, durationMs: number): void {
     if (!Number.isFinite(multiplier) || multiplier <= 0 || !Number.isFinite(durationMs) || durationMs <= 0 || this.isDead) return;
     this.speedMultiplier = Math.min(this.speedMultiplier, multiplier);
-    const now = this.scene?.time?.now ?? Date.now();
+    const now = this.getEntityClockNow();
     this.speedMultiplierUntilMs = Math.max(this.speedMultiplierUntilMs, now + durationMs);
   }
 
@@ -253,6 +262,7 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
     this.bobOffset = 0;
     this._isSquashStretching = false;
     this._isMovingAnimation = false;
+    this._lastEntityTimeMs = -1;
     this.displayOriginY = this.baseDisplayOriginY;
 
     this.setAngle(0);
@@ -487,6 +497,9 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
    */
   public updateEntity(delta: number, currentTime: number = 0): void {
     if (this.isDead || !this.active) return;
+    if (typeof currentTime === 'number' && Number.isFinite(currentTime)) {
+      this._lastEntityTimeMs = currentTime;
+    }
 
     if (this.invulnerableTimer > 0) {
       this.invulnerableTimer = Math.max(0, this.invulnerableTimer - delta);

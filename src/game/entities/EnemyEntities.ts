@@ -187,7 +187,7 @@ export class ChaserEnemy extends BaseEntity {
         this.overheadUI.setIntent('💫', true);
         this.setVelocity(0, 0);
         this.isStunned = true;
-        this.stunUntil = (this.scene?.time?.now || 0) + this.config.stunMs;
+        this.stunUntil = this.getEntityClockNow() + this.config.stunMs;
         this.stateTimer = this.config.stunMs;
         break;
       case EnemyState.STUNNED:

@@ -89,11 +89,14 @@ export class MutantFloraBoss extends BaseBoss {
       }),
       reset: (r) => {
         r.active = false;
-        r.timerMs = 0;
         r.x = 0;
         r.y = 0;
         r.col = 0;
         r.row = 0;
+        r.radius = 20;
+        r.timerMs = 0;
+        r.durationMs = 25000;
+        r.damage = 1;
         r.isTelegraph = true;
       },
     });

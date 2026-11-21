@@ -380,6 +380,13 @@ export class WaveDirector {
 
     // 2. Update Active Boss
     if (this.activeBoss) {
+      if (this.activeBoss instanceof SteamToyTitanBoss) {
+        this.activeBoss.setClockworkCrisis(
+          (this.activeCrisisType === CrisisType.CLOCKWORK_REBELLION ||
+            this.crisisManager.getCurrentCrisisType() === CrisisType.CLOCKWORK_REBELLION) &&
+            this.crisisManager.isCrisisActive()
+        );
+      }
       const px = playerPos?.x ?? 300;
       const py = playerPos?.y ?? 260;
       this.activeBoss.update(safeDelta, px, py);

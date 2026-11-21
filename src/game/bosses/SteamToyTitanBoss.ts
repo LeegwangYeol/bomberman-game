@@ -150,6 +150,9 @@ export class SteamToyTitanBoss extends BaseBoss {
         sw.originX = 0;
         sw.originY = 0;
         sw.currentRadius = 0;
+        sw.maxRadius = SteamToyTitanBoss.MALLET_RADIUS_PX;
+        sw.expansionSpeed = 300;
+        sw.damage = 1;
         sw.affectedTilesBitmask.fill(0);
       },
     });
@@ -175,11 +178,18 @@ export class SteamToyTitanBoss extends BaseBoss {
       }),
       reset: (gp) => {
         gp.active = false;
+        gp.type = BossProjectileType.GEAR_SHARD;
         gp.x = 0;
         gp.y = 0;
         gp.vx = 0;
         gp.vy = 0;
+        gp.radius = 12;
+        gp.damage = 1;
         gp.timerMs = 0;
+        gp.maxDurationMs = 3000;
+        gp.homing = false;
+        gp.targetX = 0;
+        gp.targetY = 0;
       },
     });
 
@@ -372,6 +382,14 @@ export class SteamToyTitanBoss extends BaseBoss {
     // 1. If currently in windup
     if (this.isMalletWindingUp) {
       this.malletWindupTimerMs -= dt;
+      const nextTier: 1 | 2 | 3 = this.malletWindupTimerMs <= 500 ? 3 : 2;
+      const clampedRem = Math.max(0, this.malletWindupTimerMs);
+      for (let i = 0; i < this.preallocatedTelegraphs.length; i++) {
+        const t = this.preallocatedTelegraphs[i];
+        if (!t.active) break;
+        t.timerMs = clampedRem;
+        t.tier = nextTier;
+      }
       if (this.malletWindupTimerMs <= 0) {
         this.isMalletWindingUp = false;
         this.executeMalletSlam(this.malletImpactX, this.malletImpactY);
@@ -436,7 +454,7 @@ export class SteamToyTitanBoss extends BaseBoss {
             t.row = r;
             t.col = c;
             t.tier = 2; // Amber active threat
-            t.timerMs = 0;
+            t.timerMs = SteamToyTitanBoss.MALLET_WINDUP_MS;
             t.durationMs = SteamToyTitanBoss.MALLET_WINDUP_MS;
           }
         }
@@ -458,9 +476,9 @@ export class SteamToyTitanBoss extends BaseBoss {
     this.malletImpactX = impactX;
     this.malletImpactY = impactY;
 
-    // Deactivate telegraphs
-    for (const t of this.preallocatedTelegraphs) {
-      t.active = false;
+    // Deactivate telegraphs (Zero-GC indexed iteration)
+    for (let i = 0; i < this.preallocatedTelegraphs.length; i++) {
+      this.preallocatedTelegraphs[i].active = false;
     }
 
     // Allocate shockwave from pool

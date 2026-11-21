@@ -151,9 +151,10 @@ export interface JoystickDeadzoneResult {
 export function resolveJoystickDeadzone(
   dx: number,
   dy: number,
-  deadzone: number = 5
+  deadzone: number = 5,
+  out?: JoystickDeadzoneResult
 ): JoystickDeadzoneResult {
-  const result: JoystickDeadzoneResult = {
+  const result: JoystickDeadzoneResult = out ?? {
     up: false,
     down: false,
     left: false,
@@ -162,6 +163,15 @@ export function resolveJoystickDeadzone(
     distance: 0,
     isActive: false,
   };
+  if (out) {
+    result.up = false;
+    result.down = false;
+    result.left = false;
+    result.right = false;
+    result.angle = 0;
+    result.distance = 0;
+    result.isActive = false;
+  }
 
   // Guard against non-numeric, NaN, or non-finite coordinates & deadzone
   if (
@@ -253,7 +263,10 @@ export interface CornerSlideResult {
  * Protects against division by zero on tile sizing, subnormal coordinate deltas,
  * and NaN velocity injection.
  */
-export function resolvePlayerCornerSlide(params: CornerSlideParams): CornerSlideResult {
+export function resolvePlayerCornerSlide(
+  params: CornerSlideParams,
+  out?: CornerSlideResult
+): CornerSlideResult {
   const {
     px,
     py,
@@ -370,9 +383,19 @@ export function resolvePlayerCornerSlide(params: CornerSlideParams): CornerSlide
     }
   }
 
+  const finalVx = Number.isFinite(vx) ? (Math.abs(vx) < FLOAT_EPSILON ? 0 : vx) : 0;
+  const finalVy = Number.isFinite(vy) ? (Math.abs(vy) < FLOAT_EPSILON ? 0 : vy) : 0;
+  if (out) {
+    out.vx = finalVx;
+    out.vy = finalVy;
+    out.snappedX = snappedX;
+    out.snappedY = snappedY;
+    out.facing = facing;
+    return out;
+  }
   return {
-    vx: Number.isFinite(vx) ? (Math.abs(vx) < FLOAT_EPSILON ? 0 : vx) : 0,
-    vy: Number.isFinite(vy) ? (Math.abs(vy) < FLOAT_EPSILON ? 0 : vy) : 0,
+    vx: finalVx,
+    vy: finalVy,
     snappedX,
     snappedY,
     facing,

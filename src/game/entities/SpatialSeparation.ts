@@ -75,6 +75,8 @@ export interface SpatialSeparationStats {
   durationMs: number;
 }
 
+const EMPTY_SEPARATION_OPTIONS: Readonly<SpatialSeparationOptions> = Object.freeze({});
+
 /**
  * High-performance Zero-GC uniform grid for spatial neighbor queries.
  */
@@ -192,7 +194,7 @@ export class SpatialSeparationGrid {
    */
   public resolveSeparation(
     entities: SeparableEntity[],
-    options: SpatialSeparationOptions = {}
+    options: SpatialSeparationOptions = EMPTY_SEPARATION_OPTIONS
   ): SpatialSeparationStats {
     const startTs = Date.now();
 

@@ -62,6 +62,7 @@ export interface SerializedBomb {
   power: number;
   owner: string;
   bombType: string;
+  isGhostBomb?: boolean;
 }
 
 export interface SerializedEntity {

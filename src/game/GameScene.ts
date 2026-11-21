@@ -93,6 +93,7 @@ import {
   type EnemyType,
   type NeutralType,
   type AllyType,
+  EnemyState,
   ChaserEnemy,
   BomberEnemy,
   TankEnemy,
@@ -133,6 +134,7 @@ import {
   BaseBoss,
   BossState,
   type BossId,
+  GummyBearBoss,
   GummyBearAudio,
   HamsterAudio,
   QueenBeeBoss,
@@ -451,8 +453,10 @@ export default class GameScene extends Phaser.Scene {
   public dashSpeedBurstMultiplier: number = 1.0;
   public appliedPerkBonuses: AppliedPerkBonuses | null = null;
   public dashStartTime: number = 0;
+  public dashElapsedMs: number = 0;
+  private lastFrameTimeMs: number = -1;
   public phaseJitterRemaining: number = 0;
-  public lastQuantumTunnelTimestampMs: number = 0;
+  public lastQuantumTunnelTimestampMs: number = -9999;
   public isInvulnerable: boolean = false;
   public shieldInvulnerableUntil: number = 0;
   public portalCooldown: number = 0;
@@ -565,6 +569,86 @@ export default class GameScene extends Phaser.Scene {
       }
     }
   }
+
+  private releaseAllActiveBombResources(): void {
+    if (!this.bombs || typeof this.bombs.getChildren !== 'function') return;
+    const children = this.bombs.getChildren();
+    for (let i = 0; i < children.length; i++) {
+      const b = children[i] as Phaser.Physics.Arcade.Sprite | undefined;
+      if (b) {
+        this.resetPooledBombState(b);
+      }
+    }
+  }
+
+  private handlePlayerEnemyKillRewards(
+    target?: BaseEntity | Phaser.GameObjects.GameObject | null,
+    grantUltimateCharge: boolean = true
+  ): void {
+    if (grantUltimateCharge) {
+      const targetEntity = target as unknown as { isTracker?: boolean; archetype?: string; entityType?: string } | null | undefined;
+      const isTracker = Boolean(
+        targetEntity &&
+          (targetEntity.isTracker || targetEntity.archetype === 'TANK' || targetEntity.entityType === 'TANK')
+      );
+      this.addUltimateCharge(isTracker ? CHARGE_VALUES.TRACKER_DEFEATED : CHARGE_VALUES.ENEMY_DEFEATED);
+    }
+    const nowMs =
+      typeof this.time?.now === 'number' && Number.isFinite(this.time.now)
+        ? this.time.now
+        : Date.now();
+    const shieldCap = Math.max(3, this.maxShields || 1);
+    if (this.relicManager) {
+      const killRes = this.relicManager.onEnemyKilled(nowMs);
+      if (killRes.shieldGranted) {
+        this.shieldCharges = Math.min(shieldCap, this.shieldCharges + 1);
+        this.hasShield = true;
+        this.emitStatsUpdate();
+        if (this.player) {
+          this.spawnFloatingText(this.player.x, this.player.y - 20, '🛡️ VAMPIRIC SHIELD!', '#ec4899');
+        }
+      }
+    }
+    if (this.hasVampiric && Math.random() < 0.35) {
+      this.shieldCharges = Math.min(shieldCap, this.shieldCharges + 1);
+      this.hasShield = true;
+      this.emitStatsUpdate();
+      if (this.player) {
+        this.spawnFloatingText(this.player.x, this.player.y - 20, '🧛 VAMPIRIC SIPHON!', '#a855f7');
+      }
+    }
+  }
+
+  private readonly _gummyLandingBombCheck = (): boolean => {
+    const boss = this.activeBoss;
+    if (!(boss instanceof GummyBearBoss) || !this.bombs) return false;
+    const landX = Number.isFinite(boss.targetLandingX) ? boss.targetLandingX : boss.x;
+    const landY = Number.isFinite(boss.targetLandingY) ? boss.targetLandingY : boss.y;
+    const bossRadius = boss.config.colliderRadius || 35;
+    const bombsList = this.bombs.getChildren();
+    for (let bi = 0; bi < bombsList.length; bi++) {
+      const bomb = bombsList[bi] as Phaser.Physics.Arcade.Sprite | undefined;
+      if (bomb && bomb.active) {
+        const dist = Phaser.Math.Distance.Between(bomb.x, bomb.y, landX, landY);
+        if (dist < bossRadius + 16) {
+          const bId =
+            typeof bomb.getData === 'function' ? (bomb.getData('id') as string | undefined) : undefined;
+          if (bId) {
+            this.bossHitBombIds.add(bId);
+            this.time?.delayedCall?.(1000, () => {
+              this.bossHitBombIds.delete(bId);
+            });
+          }
+          const bCol = Math.floor(bomb.x / TILE_SIZE);
+          const bRow = Math.floor(bomb.y / TILE_SIZE);
+          this.explodeBomb(bomb, bRow, bCol);
+          this.spawnFloatingText(landX, landY - 24, '👑 MASTERPLAY LURE (4.0s STUN)!', '#fbbf24');
+          return true;
+        }
+      }
+    }
+    return false;
+  };
 
   private detonateStackedChainRange(stackBase: number): void {
     const stackEnd = this.scratchChainStackTop;
@@ -1448,6 +1532,7 @@ export default class GameScene extends Phaser.Scene {
       if (typeof state.player.x === 'number' && typeof state.player.y === 'number' && this.player) {
         this.player.setPosition(state.player.x, state.player.y);
         this.player.body?.reset(state.player.x, state.player.y);
+        this.playerDropShadow?.setPosition?.(state.player.x, state.player.y + 14);
       }
       if (state.player.facing) {
         this.playerFacing = state.player.facing;
@@ -1512,6 +1597,27 @@ export default class GameScene extends Phaser.Scene {
             shield: typeof s.itemsCollected.shield === 'number' ? s.itemsCollected.shield : this.itemsCollected.shield,
           };
         }
+        if (Array.isArray(s.activeBuffs)) {
+          this.activeBuffs = [];
+          for (let bi = 0; bi < s.activeBuffs.length; bi++) {
+            const b = s.activeBuffs[bi];
+            if (b && typeof b.id === 'string' && typeof b.remainingMs === 'number' && b.remainingMs > 0) {
+              this.activeBuffs.push({
+                id: b.id,
+                name: b.name || b.id,
+                icon: b.icon || '✨',
+                color: b.color || '#38bdf8',
+                remainingMs: b.remainingMs,
+                totalMs: typeof b.totalMs === 'number' && b.totalMs > 0 ? b.totalMs : b.remainingMs,
+              });
+            }
+          }
+          this.isTimeFrozen = this.hasBuff('TIME_FREEZE') || this.isUltimateChronoFrozen;
+          this.isCloaked = this.hasBuff('CLOAK');
+          if (this.player) {
+            this.player.setAlpha?.(this.isCloaked ? 0.35 : 1.0);
+          }
+        }
         if ((!state.meta || typeof state.meta.score !== 'number') && typeof s.score === 'number' && Number.isFinite(s.score)) {
           this.score = s.score;
         }
@@ -1536,6 +1642,126 @@ export default class GameScene extends Phaser.Scene {
           this.spawnItem(it.row, it.col, resolvedType);
         }
       }
+    }
+
+    // 4b. Restore active enemies when explicitly serialized
+    if (this.enemies && Array.isArray(state.activeEntities)) {
+      this.enemies.clear(true, true);
+      for (let ei = 0; ei < state.activeEntities.length; ei++) {
+        const se = state.activeEntities[ei];
+        if (!se || (se.faction && se.faction !== 'enemy')) continue;
+        const sx = typeof se.x === 'number' && Number.isFinite(se.x) ? se.x : 5 * TILE_SIZE + TILE_SIZE / 2;
+        const sy = typeof se.y === 'number' && Number.isFinite(se.y) ? se.y : 5 * TILE_SIZE + TILE_SIZE / 2;
+        const rawArch = String(se.archetype || 'CHASER').toUpperCase();
+        let ent: PooledEnemySprite;
+        if (rawArch === 'SPLITTER_MINI' || rawArch === 'MINISPLITTER') {
+          ent = new MiniSplitterEnemy(this, sx, sy) as PooledEnemySprite;
+          ent.archetype = 'SPLITTER_MINI';
+        } else {
+          const validArch: EnemyType =
+            rawArch === 'BOMBER' || rawArch === 'TANK' || rawArch === 'GHOST' || rawArch === 'SPLITTER'
+              ? rawArch
+              : 'CHASER';
+          ent = createEnemy(this, validArch, sx, sy) as PooledEnemySprite;
+          ent.archetype = validArch;
+        }
+        if (typeof se.maxHp === 'number' && Number.isFinite(se.maxHp) && se.maxHp >= 1) {
+          ent.maxHp = se.maxHp;
+        }
+        if (typeof se.hp === 'number' && Number.isFinite(se.hp) && se.hp >= 1) {
+          ent.hp = Math.min(ent.maxHp, se.hp);
+        }
+        if (ent.overheadUI) {
+          ent.overheadUI.maxHp = ent.maxHp;
+          ent.overheadUI.update(ent.x, ent.y, ent.hp);
+        }
+        if (ent instanceof BomberEnemy && ent.hp === 1) {
+          ent.changeState(EnemyState.ENRAGED);
+        }
+        this.enemies.add(ent);
+        this.attachEntityDropShadow(ent, ent.dropShadowScale || 1.0);
+      }
+    }
+
+    // 4c. Restore active bombs when explicitly serialized
+    if (this.bombs && Array.isArray(state.activeBombs)) {
+      this.releaseAllActiveBombResources();
+      this.bombs.clear(true, true);
+      this.activeBombs = 0;
+      for (let bi = 0; bi < state.activeBombs.length; bi++) {
+        const sb = state.activeBombs[bi];
+        if (!sb) continue;
+        const bCol = typeof sb.col === 'number' && Number.isFinite(sb.col) ? sb.col : Math.floor((sb.x || 0) / TILE_SIZE);
+        const bRow = typeof sb.row === 'number' && Number.isFinite(sb.row) ? sb.row : Math.floor((sb.y || 0) / TILE_SIZE);
+        const bx = typeof sb.x === 'number' && Number.isFinite(sb.x) ? sb.x : bCol * TILE_SIZE + TILE_SIZE / 2;
+        const by = typeof sb.y === 'number' && Number.isFinite(sb.y) ? sb.y : bRow * TILE_SIZE + TILE_SIZE / 2;
+        const bomb = this.acquirePooledGroupSprite(this.bombs, bx, by, 'bomb');
+        if (!bomb) continue;
+        this.resetPooledBombState(bomb);
+        bomb.setDepth(RENDER_DEPTH.BOMBS);
+        (bomb.body as Phaser.Physics.Arcade.Body)?.setSize(32, 32).setOffset(4, 4);
+        (bomb.body as Phaser.Physics.Arcade.Body)?.setImmovable(true);
+        applyPhysicsBodyInvariantGuard(bomb, 32, 32, 4, 4);
+
+        const resolvedOwner = sb.owner || 'player';
+        this.populateBombIgnoringColliders(bomb, resolvedOwner === 'player' ? this.player : undefined);
+
+        const restoredId =
+          sb.id !== undefined && sb.id !== null && String(sb.id).length > 0
+            ? String(sb.id)
+            : this.allocBombId('bomb');
+        const lastUnderscore = restoredId.lastIndexOf('_');
+        if (lastUnderscore >= 0 && lastUnderscore + 1 < restoredId.length) {
+          const parsedUid = Number(restoredId.slice(lastUnderscore + 1));
+          if (Number.isInteger(parsedUid) && parsedUid > this.nextBombUid) {
+            this.nextBombUid = parsedUid;
+          }
+        }
+        const resolvedPower =
+          typeof sb.power === 'number' && Number.isFinite(sb.power) && sb.power >= 1
+            ? sb.power
+            : this.bombPower;
+        const rawBombType = sb.bombType ? String(sb.bombType) : 'REGULAR';
+        const resolvedBombType = rawBombType === 'standard' ? 'REGULAR' : rawBombType;
+
+        const isGhost = Boolean(sb.isGhostBomb);
+        bomb.setData('id', restoredId);
+        bomb.setData('owner', resolvedOwner);
+        bomb.setData('power', resolvedPower);
+        bomb.setData('type', resolvedBombType);
+        bomb.setData('isGhostBomb', isGhost);
+
+        if (isGhost) {
+          bomb.setTint(0x00ffff);
+          bomb.setAlpha(0.8);
+        } else if (resolvedOwner === 'enemy') {
+          bomb.setTint(0xd946ef);
+        } else if (resolvedOwner === 'ally') {
+          bomb.setTint(0x06b6d4);
+        }
+
+        const fuseMs =
+          typeof sb.fuseRemainingMs === 'number' && Number.isFinite(sb.fuseRemainingMs)
+            ? Math.max(50, sb.fuseRemainingMs)
+            : 2000;
+        const fuseTimer = this.time?.delayedCall?.(fuseMs, () => {
+          if (bomb && bomb.active) {
+            const curCol = Math.floor(bomb.x / TILE_SIZE);
+            const curRow = Math.floor(bomb.y / TILE_SIZE);
+            this.explodeBomb(bomb, curRow, curCol);
+          }
+        });
+        if (this.isTimeFrozen && fuseTimer) {
+          fuseTimer.paused = true;
+        }
+        bomb.setData('fuseTimer', fuseTimer);
+
+        if (resolvedOwner === 'player' && !isGhost) {
+          this.activeBombs++;
+        }
+      }
+    } else if (this.isTimeFrozen) {
+      this.setActiveBombsFrozen(true);
     }
 
     // 5. Restore crisis & situation log state
@@ -1579,6 +1805,7 @@ export default class GameScene extends Phaser.Scene {
           const dataPower = typeof bomb.getData === 'function' ? (bomb.getData('power') as number | undefined) : undefined;
           const dataOwner = typeof bomb.getData === 'function' ? (bomb.getData('owner') as string | undefined) : undefined;
           const dataType = typeof bomb.getData === 'function' ? (bomb.getData('type') as string | undefined) : undefined;
+          const dataGhost = typeof bomb.getData === 'function' ? Boolean(bomb.getData('isGhostBomb')) : false;
           const fuseTimer = typeof bomb.getData === 'function'
             ? (bomb.getData('fuseTimer') as { getRemaining?: () => number } | undefined)
             : undefined;
@@ -1598,6 +1825,7 @@ export default class GameScene extends Phaser.Scene {
             power: typeof bomb.power === 'number' ? bomb.power : typeof dataPower === 'number' ? dataPower : this.bombPower,
             owner: (bomb.owner || dataOwner || 'player') as SerializedBomb['owner'],
             bombType: (bomb.bombType || dataType || 'standard') as SerializedBomb['bombType'],
+            ...(dataGhost ? { isGhostBomb: true } : {}),
           });
         }
       }
@@ -1637,9 +1865,13 @@ export default class GameScene extends Phaser.Scene {
           aiState?: string;
         };
         if (enemy && enemy.active) {
+          const resolvedArchetype =
+            enemy.archetype ||
+            (enemy as unknown as { entityType?: string }).entityType ||
+            'CHASER';
           serializedEntities.push({
             id: enemy.id || enemy.entityId || this.getStableEntityId(enemy),
-            archetype: enemy.archetype || 'slime',
+            archetype: resolvedArchetype,
             faction: enemy.faction || 'enemy',
             x: enemy.x,
             y: enemy.y,
@@ -1710,6 +1942,7 @@ export default class GameScene extends Phaser.Scene {
     this.conveyors = [...DEFAULT_CONVEYORS];
     this.persistentHazardMask.clear();
     this.lastGravitationalEscapeTimestampMs = 0;
+    this.lastQuantumTunnelTimestampMs = -9999;
     this.lastFrostChillFloatingTextMs = -9999;
     this.lastStaticShockFloatingTextMs = -9999;
     this.lastThermalSingeFloatingTextMs = -9999;
@@ -1731,6 +1964,8 @@ export default class GameScene extends Phaser.Scene {
     this.destroyedBlocksThisTick.clear();
     this.bossHitBombIds.clear();
     this.nextBombUid = 0;
+    this.dashElapsedMs = 0;
+    this.lastFrameTimeMs = -1;
     this.scratchActiveEntities.length = 0;
     this.scratchActiveEnemies.length = 0;
     this.scratchActiveItems.length = 0;
@@ -1972,6 +2207,8 @@ export default class GameScene extends Phaser.Scene {
     this.lastAbyssalRelicAudioMs = -9999;
     this.bossHitBombIds.clear();
     this.nextBombUid = 0;
+    this.dashElapsedMs = 0;
+    this.lastFrameTimeMs = -1;
     this.destroyedBlocksThisTick.clear();
     this.scratchActiveEntities.length = 0;
     this.scratchActiveEnemies.length = 0;
@@ -2008,6 +2245,7 @@ export default class GameScene extends Phaser.Scene {
 
     // Clear entity physics groups BEFORE destroying object pools so drop shadows & AO shadows release cleanly
     this.releaseAllItemShadows();
+    this.releaseAllActiveBombResources();
     this.releaseGroupAoShadows(this.blocks);
     this.releaseGroupAoShadows(this.walls);
     this.enemies?.clear(true, true);
@@ -2172,6 +2410,7 @@ export default class GameScene extends Phaser.Scene {
     this.releaseGroupAoShadows(this.blocks);
     this.releaseGroupAoShadows(this.walls);
     this.releaseAllItemShadows();
+    this.releaseAllActiveBombResources();
     this.enemies?.clear(true, true);
     this.neutrals?.clear(true, true);
     this.allies?.clear(true, true);
@@ -2444,8 +2683,10 @@ export default class GameScene extends Phaser.Scene {
     this.dashSpeedBurstRemaining = 0;
     this.dashSpeedBurstMultiplier = 1.0;
     this.dashStartTime = 0;
+    this.dashElapsedMs = 0;
+    this.lastFrameTimeMs = -1;
     this.phaseJitterRemaining = 0;
-    this.lastQuantumTunnelTimestampMs = 0;
+    this.lastQuantumTunnelTimestampMs = -9999;
     this.isInvulnerable = false;
     this.shieldInvulnerableUntil = 0;
     this.portalCooldown = 0;
@@ -2861,10 +3102,17 @@ export default class GameScene extends Phaser.Scene {
         const enemy = enemyObj as BaseEntity;
         if (enemy && enemy.active) {
           if ('takeDamage' in enemy && typeof (enemy as BaseEntity).takeDamage === 'function') {
-            (enemy as BaseEntity).takeDamage(ULTIMATE_SKILLS.AEGIS_OVERDRIVE.reflectDamage ?? 100, 'player', this.time.now);
+            const died = (enemy as BaseEntity).takeDamage(
+              ULTIMATE_SKILLS.AEGIS_OVERDRIVE.reflectDamage ?? 100,
+              'player',
+              this.time.now
+            );
+            if (died) {
+              this.handlePlayerEnemyKillRewards(enemy, true);
+            }
           } else {
             if (enemy.active) { enemy['disableBody'](true, true); }
-            this.addUltimateCharge(CHARGE_VALUES.ENEMY_DEFEATED);
+            this.handlePlayerEnemyKillRewards(enemy, true);
           }
         }
         return;
@@ -2942,44 +3190,12 @@ export default class GameScene extends Phaser.Scene {
         if ('takeDamage' in target && typeof (target as BaseEntity).takeDamage === 'function') {
           const died = (target as BaseEntity).takeDamage(1, owner, this.time.now);
           if (died && owner === 'player') {
-            const targetEntity = target as unknown as { isTracker?: boolean; archetype?: string };
-            const isTracker = Boolean(targetEntity.isTracker || targetEntity.archetype === 'TANK');
-            this.addUltimateCharge(isTracker ? CHARGE_VALUES.TRACKER_DEFEATED : CHARGE_VALUES.ENEMY_DEFEATED);
-            if (this.relicManager) {
-              const killRes = this.relicManager.onEnemyKilled(Date.now());
-              if (killRes.shieldGranted) {
-                this.shieldCharges = Math.min(3, this.shieldCharges + 1);
-                this.hasShield = true;
-                this.emitStatsUpdate();
-                this.spawnFloatingText(this.player.x, this.player.y - 20, '🛡️ VAMPIRIC SHIELD!', '#ec4899');
-              }
-            }
-            if (this.hasVampiric && Math.random() < 0.35) {
-              this.shieldCharges = Math.min(3, this.shieldCharges + 1);
-              this.hasShield = true;
-              this.emitStatsUpdate();
-              this.spawnFloatingText(this.player.x, this.player.y - 20, '🧛 VAMPIRIC SIPHON!', '#a855f7');
-            }
+            this.handlePlayerEnemyKillRewards(target, true);
           }
         } else {
           if (target.active) { target['disableBody'](true, true); }
           if (owner === 'player') {
-            this.addUltimateCharge(CHARGE_VALUES.ENEMY_DEFEATED);
-            if (this.relicManager) {
-              const killRes = this.relicManager.onEnemyKilled(Date.now());
-              if (killRes.shieldGranted) {
-                this.shieldCharges = Math.min(3, this.shieldCharges + 1);
-                this.hasShield = true;
-                this.emitStatsUpdate();
-                this.spawnFloatingText(this.player.x, this.player.y - 20, '🛡️ VAMPIRIC SHIELD!', '#ec4899');
-              }
-            }
-            if (this.hasVampiric && Math.random() < 0.35) {
-              this.shieldCharges = Math.min(3, this.shieldCharges + 1);
-              this.hasShield = true;
-              this.emitStatsUpdate();
-              this.spawnFloatingText(this.player.x, this.player.y - 20, '🧛 VAMPIRIC SIPHON!', '#a855f7');
-            }
+            this.handlePlayerEnemyKillRewards(target, true);
           }
         }
       }
@@ -3528,6 +3744,17 @@ export default class GameScene extends Phaser.Scene {
     const startY = 260;
 
     this.activeBoss = WaveDirector.createBoss(bossId, startX, startY);
+    if (this.activeBoss instanceof GummyBearBoss) {
+      this.activeBoss.landingBombCheck = this._gummyLandingBombCheck;
+    }
+    if (this.activeBoss instanceof SteamToyTitanBoss) {
+      this.activeBoss.setClockworkCrisis(
+        Boolean(
+          this.crisisManager?.isCrisisActive() &&
+            this.crisisManager.getCurrentCrisisType() === CrisisType.CLOCKWORK_REBELLION
+        )
+      );
+    }
 
     if (this.bossHUD) {
       this.bossHUD.initBoss(this.activeBoss.config.id as BossId, this.activeBoss.maxHp);
@@ -3561,6 +3788,8 @@ export default class GameScene extends Phaser.Scene {
 
   update(_time: number, delta: number) {
     if (typeof delta !== 'number' || !Number.isFinite(delta) || delta <= 0) return;
+    this.lastFrameTimeMs = Number.isFinite(_time) ? _time : (this.time?.now ?? 0);
+    this.dashElapsedMs = this.isDashing ? this.dashElapsedMs + delta : 0;
     this.destroyedBlocksThisTick.clear();
 
     // Fail-safe reset for extra-life/shield invulnerability
@@ -4070,12 +4299,19 @@ export default class GameScene extends Phaser.Scene {
         }
         if (hitEnemyProximity || !bomb.active) continue;
 
-        // Check collision with active boss
+        // Check collision with active boss (grounded / surfaced only)
         if (this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED) {
-          const bossDist = Phaser.Math.Distance.Between(bomb.x, bomb.y, this.activeBoss.x, this.activeBoss.y);
-          if (bossDist < (this.activeBoss.config.colliderRadius || 35) + 16) {
-            this.handleBombBossCollision(bomb, bRow, bCol, true);
-            continue;
+          const bossUntargetableOnFloor =
+            (this.activeBoss instanceof MutantFloraBoss && this.activeBoss.isUnderground) ||
+            (this.activeBoss instanceof GummyBearBoss &&
+              this.activeBoss.isAirborne &&
+              this.activeBoss.leapElevation > 20);
+          if (!bossUntargetableOnFloor) {
+            const bossDist = Phaser.Math.Distance.Between(bomb.x, bomb.y, this.activeBoss.x, this.activeBoss.y);
+            if (bossDist < (this.activeBoss.config.colliderRadius || 35) + 16) {
+              this.handleBombBossCollision(bomb, bRow, bCol, true);
+              continue;
+            }
           }
         }
 
@@ -4414,31 +4650,68 @@ export default class GameScene extends Phaser.Scene {
 
     // 11. Update Active Boss & Telegraphs
     if (this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED) {
+      if (this.activeBoss instanceof SteamToyTitanBoss) {
+        this.activeBoss.setClockworkCrisis(
+          Boolean(
+            this.crisisManager?.isCrisisActive() &&
+              this.crisisManager.getCurrentCrisisType() === CrisisType.CLOCKWORK_REBELLION
+          )
+        );
+      }
+      if (this.activeBoss instanceof GummyBearBoss && !this.activeBoss.landingBombCheck) {
+        this.activeBoss.landingBombCheck = this._gummyLandingBombCheck;
+      }
+
       this.activeBoss.update(delta, this.player.x, this.player.y);
+
+      if (
+        this.activeBoss instanceof GummyBearBoss &&
+        this.activeBoss.bossState === BossState.STUNNED &&
+        this.activeBoss.stunTimerMs >= 3900 &&
+        this.bossHUD &&
+        !this.bossHUD.getState().isStunned
+      ) {
+        this.bossHUD.setHp(this.activeBoss.currentHp);
+        this.bossHUD.triggerStun(4.0, '👑 Masterplay Landing Lure!');
+      }
 
       if (this.activeBoss instanceof QueenBeeBoss && this.activeBoss.isFlying) {
         this.activeBoss.audio.playFlightBuzz(this.time?.now ?? Date.now());
       }
 
+      const bossUntargetableOnFloor =
+        (this.activeBoss instanceof MutantFloraBoss && this.activeBoss.isUnderground) ||
+        (this.activeBoss instanceof GummyBearBoss &&
+          this.activeBoss.isAirborne &&
+          this.activeBoss.leapElevation > 20);
+      const bossInCutscene =
+        this.activeBoss.bossState === BossState.INTRO ||
+        this.activeBoss.bossState === BossState.INTERMISSION ||
+        (this.activeBoss.bossState as BossState) === BossState.DEFEATED;
+
       // Boss contact damage to player (AI-BOSS-01)
       const bossRadius = this.activeBoss.config.colliderRadius || 35;
-      const bossDist = Phaser.Math.Distance.Between(this.player.x, this.player.y, this.activeBoss.x, this.activeBoss.y);
-      if (bossDist < bossRadius + 14) {
-        if (!this.isInvulnerable && !this.isAegisOverdriveActive && this.activeBoss.bossState !== BossState.STUNNED) {
-          this.playerDie();
+      if (!bossInCutscene && !bossUntargetableOnFloor) {
+        const bossDist = Phaser.Math.Distance.Between(this.player.x, this.player.y, this.activeBoss.x, this.activeBoss.y);
+        if (bossDist < bossRadius + 14) {
+          if (!this.isInvulnerable && !this.isAegisOverdriveActive && this.activeBoss.bossState !== BossState.STUNNED) {
+            this.playerDie();
+          }
         }
       }
 
       // Boss crater / bomb collision stun check (AI-BOSS-01 & PHYS-06: 1 hit per bombId)
       const bombsList = this.bombs.getChildren();
-      for (let bi = 0; bi < bombsList.length; bi++) {
-        const bomb = bombsList[bi] as Phaser.Physics.Arcade.Sprite;
-        if (bomb.active && this.activeBoss) {
-          const bDist = Phaser.Math.Distance.Between(bomb.x, bomb.y, this.activeBoss.x, this.activeBoss.y);
-          if (bDist < bossRadius + 16) {
-            const bCol = Math.floor(bomb.x / TILE_SIZE);
-            const bRow = Math.floor(bomb.y / TILE_SIZE);
-            this.handleBombBossCollision(bomb, bRow, bCol, false);
+      if (!bossUntargetableOnFloor && (this.activeBoss.bossState as BossState) !== BossState.DEFEATED) {
+        for (let bi = 0; bi < bombsList.length; bi++) {
+          const bomb = bombsList[bi] as Phaser.Physics.Arcade.Sprite;
+          if (bomb.active && this.activeBoss) {
+            const bDist = Phaser.Math.Distance.Between(bomb.x, bomb.y, this.activeBoss.x, this.activeBoss.y);
+            if (bDist < bossRadius + 16) {
+              const bCol = Math.floor(bomb.x / TILE_SIZE);
+              const bRow = Math.floor(bomb.y / TILE_SIZE);
+              this.handleBombBossCollision(bomb, bRow, bCol, false);
+            }
           }
         }
       }
@@ -4575,53 +4848,143 @@ export default class GameScene extends Phaser.Scene {
         const radius = this.activeBoss.config.colliderRadius || 35;
 
         const isFlora = this.activeBoss instanceof MutantFloraBoss || this.activeBoss.config.id === 'boss_mutant_flora';
+        const isTitan = this.activeBoss instanceof SteamToyTitanBoss || this.activeBoss.config.id === 'steam_toy_titan';
+        const floraBoss = this.activeBoss instanceof MutantFloraBoss ? this.activeBoss : null;
+        const titanBoss = this.activeBoss instanceof SteamToyTitanBoss ? this.activeBoss : null;
 
-        // Outer glow / aura
-        const themeColor =
-          this.activeBoss.bossState === BossState.ENRAGED
-            ? 0xff0044
-            : this.activeBoss.bossState === BossState.STUNNED
-              ? 0xf59e0b
-              : isFlora
-                ? 0x10b981
-                : 0x9333ea;
+        // 1. Subterranean Root & Mallet Telegraph Floor Overlays (strictly clamped alpha <= 0.40)
+        if (titanBoss) {
+          const telegraphs = titanBoss.getActiveTelegraphs();
+          for (let ti = 0; ti < telegraphs.length; ti++) {
+            const t = telegraphs[ti];
+            if (!t || !t.active) continue;
+            const tx = t.col * TILE_SIZE;
+            const ty = t.row * TILE_SIZE;
+            const isRedFlash = t.tier >= 3;
+            const fillColor = isRedFlash ? 0xef4444 : 0xf59e0b;
+            const strokeColor = isRedFlash ? 0xfef08a : 0xfde047;
+            const fillAlpha = isRedFlash
+              ? Math.max(0.22, Math.min(0.40, 0.31 + 0.09 * Math.sin(_time * 0.02)))
+              : Math.max(0.18, Math.min(0.34, 0.25 + 0.07 * Math.sin(_time * 0.01)));
+            this.bossGraphics.fillStyle(fillColor, fillAlpha);
+            this.bossGraphics.fillRect(tx + 2, ty + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+            this.bossGraphics.lineStyle(2, strokeColor, 0.85);
+            this.bossGraphics.strokeRect(tx + 2, ty + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          }
 
-        this.bossGraphics.fillStyle(themeColor, 0.3);
-        this.bossGraphics.fillCircle(this.activeBoss.x, this.activeBoss.y, radius + 8);
-
-        // Mutant Flora Bloom Petals
-        if (isFlora) {
-          this.bossGraphics.fillStyle(0xf43f5e, 0.65);
-          for (let p = 0; p < 6; p++) {
-            const pAngle = (_time / 800) + (p * Math.PI / 3);
-            const px = this.activeBoss.x + Math.cos(pAngle) * (radius + 6);
-            const py = this.activeBoss.y + Math.sin(pAngle) * (radius + 6);
-            this.bossGraphics.fillCircle(px, py, 7);
+          for (let si = 0; si < titanBoss.shockwavePool.activeCount; si++) {
+            const sw = titanBoss.shockwavePool.getActive(si);
+            if (!sw || !sw.active) continue;
+            this.bossGraphics.lineStyle(3, 0xfbbf24, 0.85);
+            this.bossGraphics.strokeCircle(sw.originX, sw.originY, Math.max(8, sw.currentRadius));
           }
         }
 
-        // Core body
-        this.bossGraphics.fillStyle(themeColor, 0.9);
-        this.bossGraphics.fillCircle(this.activeBoss.x, this.activeBoss.y, radius);
-
-        if (isFlora) {
-          // Emerald Core Center
-          this.bossGraphics.fillStyle(0x059669, 0.95);
-          this.bossGraphics.fillCircle(this.activeBoss.x, this.activeBoss.y, radius - 8);
+        if (floraBoss) {
+          for (let ri = 0; ri < floraBoss.rootPool.activeCount; ri++) {
+            const root = floraBoss.rootPool.getActive(ri);
+            if (!root || !root.active) continue;
+            if (root.isTelegraph) {
+              const pulseAlpha = Math.max(0.18, Math.min(0.36, 0.27 + 0.08 * Math.sin(_time * 0.014)));
+              this.bossGraphics.fillStyle(0xd97706, pulseAlpha);
+              this.bossGraphics.fillCircle(root.x, root.y, root.radius);
+              this.bossGraphics.lineStyle(2, 0xfbbf24, 0.8);
+              this.bossGraphics.strokeCircle(root.x, root.y, root.radius);
+            } else {
+              this.bossGraphics.fillStyle(0x065f46, 0.36);
+              this.bossGraphics.fillCircle(root.x, root.y, root.radius);
+              this.bossGraphics.lineStyle(2.5, 0x10b981, 0.9);
+              this.bossGraphics.strokeCircle(root.x, root.y, root.radius);
+            }
+          }
         }
 
-        // Health ring / border
-        this.bossGraphics.lineStyle(3, 0xffffff, 0.8);
-        this.bossGraphics.strokeCircle(this.activeBoss.x, this.activeBoss.y, radius);
+        if (floraBoss && floraBoss.isUnderground) {
+          // Burrowed earthen tremor ring while underground
+          this.bossGraphics.fillStyle(0x78350f, 0.32);
+          this.bossGraphics.fillCircle(this.activeBoss.x, this.activeBoss.y, radius * 0.85);
+          this.bossGraphics.lineStyle(2, 0xd97706, 0.75);
+          this.bossGraphics.strokeCircle(this.activeBoss.x, this.activeBoss.y, radius * 0.85);
+        } else {
+          const elevOffset =
+            this.activeBoss instanceof GummyBearBoss && this.activeBoss.isAirborne
+              ? Math.min(48, this.activeBoss.leapElevation * 0.5)
+              : 0;
+          const drawY = this.activeBoss.y - elevOffset;
 
-        // Stun Stars if stunned
-        if (this.activeBoss.bossState === BossState.STUNNED) {
-          this.bossGraphics.fillStyle(0xfff500, 1.0);
-          for (let i = 0; i < 3; i++) {
-            const starAngle = _time / 200 + (i * (Math.PI * 2)) / 3;
-            const sx = this.activeBoss.x + Math.cos(starAngle) * (radius + 12);
-            const sy = this.activeBoss.y - 10 + Math.sin(starAngle) * 8;
-            this.bossGraphics.fillCircle(sx, sy, 4);
+          if (elevOffset > 0) {
+            this.bossGraphics.fillStyle(0x000000, 0.32);
+            this.bossGraphics.fillCircle(this.activeBoss.x, this.activeBoss.y, Math.max(14, radius - elevOffset * 0.25));
+          }
+
+          // Outer glow / aura
+          const themeColor =
+            this.activeBoss.bossState === BossState.ENRAGED
+              ? 0xff0044
+              : this.activeBoss.bossState === BossState.STUNNED
+                ? 0xf59e0b
+                : isFlora
+                  ? 0x10b981
+                  : isTitan
+                    ? 0xd97706
+                    : 0x9333ea;
+
+          this.bossGraphics.fillStyle(themeColor, 0.3);
+          this.bossGraphics.fillCircle(this.activeBoss.x, drawY, radius + 8);
+
+          // Mutant Flora Bloom Petals
+          if (isFlora) {
+            this.bossGraphics.fillStyle(0xf43f5e, 0.65);
+            for (let p = 0; p < 6; p++) {
+              const pAngle = (_time / 800) + (p * Math.PI / 3);
+              const px = this.activeBoss.x + Math.cos(pAngle) * (radius + 6);
+              const py = drawY + Math.sin(pAngle) * (radius + 6);
+              this.bossGraphics.fillCircle(px, py, 7);
+            }
+          }
+
+          // Core body
+          this.bossGraphics.fillStyle(themeColor, 0.9);
+          this.bossGraphics.fillCircle(this.activeBoss.x, drawY, radius);
+
+          if (isFlora) {
+            // Emerald Core Center
+            this.bossGraphics.fillStyle(0x059669, 0.95);
+            this.bossGraphics.fillCircle(this.activeBoss.x, drawY, radius - 8);
+          } else if (titanBoss) {
+            // Brass Boiler Core & Frontal Gear Shield Arc
+            this.bossGraphics.fillStyle(0x92400e, 0.95);
+            this.bossGraphics.fillCircle(this.activeBoss.x, drawY, radius - 10);
+            if (titanBoss.gearShieldActive) {
+              const facingAngle = Math.atan2(titanBoss.vy, titanBoss.vx);
+              const shieldR = radius + 10;
+              this.bossGraphics.lineStyle(4, 0xfbbf24, 0.95);
+              let prevX = this.activeBoss.x + Math.cos(facingAngle - Math.PI / 3) * shieldR;
+              let prevY = drawY + Math.sin(facingAngle - Math.PI / 3) * shieldR;
+              for (let seg = 1; seg <= 6; seg++) {
+                const a = facingAngle - Math.PI / 3 + (seg * (2 * Math.PI)) / 18;
+                const nx = this.activeBoss.x + Math.cos(a) * shieldR;
+                const ny = drawY + Math.sin(a) * shieldR;
+                this.bossGraphics.lineBetween(prevX, prevY, nx, ny);
+                prevX = nx;
+                prevY = ny;
+              }
+            }
+          }
+
+          // Health ring / border
+          this.bossGraphics.lineStyle(3, 0xffffff, 0.8);
+          this.bossGraphics.strokeCircle(this.activeBoss.x, drawY, radius);
+
+          // Stun Stars if stunned
+          if (this.activeBoss.bossState === BossState.STUNNED) {
+            this.bossGraphics.fillStyle(0xfff500, 1.0);
+            for (let i = 0; i < 3; i++) {
+              const starAngle = _time / 200 + (i * (Math.PI * 2)) / 3;
+              const sx = this.activeBoss.x + Math.cos(starAngle) * (radius + 12);
+              const sy = drawY - 10 + Math.sin(starAngle) * 8;
+              this.bossGraphics.fillCircle(sx, sy, 4);
+            }
           }
         }
       }
@@ -4786,7 +5149,12 @@ export default class GameScene extends Phaser.Scene {
       if (this.dynamicHazard.getState() === HazardLifecycleState.ACTIVE && !this.isGameOver) {
         const playerRow = Math.floor(this.player.y / TILE_SIZE);
         const playerCol = Math.floor(this.player.x / TILE_SIZE);
-        const dashElapsed = this.isDashing ? (_time - this.dashStartTime) : 0;
+        const rawDashDiff = _time - this.dashStartTime;
+        const dashElapsed = this.isDashing
+          ? Number.isFinite(rawDashDiff) && rawDashDiff >= 0 && rawDashDiff <= DASH_DURATION_MS * 2
+            ? rawDashDiff
+            : this.dashElapsedMs
+          : 0;
         const playerHit = this.dynamicHazard.checkPlayerCollision(playerRow, playerCol, this.isDashing, dashElapsed);
 
         if (playerHit.tunneled && playerHit.phaseShiftGranted) {
@@ -7825,6 +8193,7 @@ export default class GameScene extends Phaser.Scene {
     // 2. Synchronized Entanglement Detonation
     let effectivePower = bombPower;
     let isPiercing = bomb.getData('type') === 'PIERCING_BOMB';
+    const entanglementStackBase = this.scratchChainStackTop;
 
     if (this.dynamicHazard) {
       const detResult = this.dynamicHazard.onBombDetonated(bombId, actualRow, actualCol, bombPower);
@@ -7837,9 +8206,8 @@ export default class GameScene extends Phaser.Scene {
         this.spawnFloatingText(cX, cY - 25, '⚡ TACHYON OVERCHARGE (+2)', '#38bdf8');
       }
 
-      // Synchronized Entanglement Detonation: Trigger paired ghost bomb / parent bomb immediately (Zero-GC re-entrant stack)
+      // Queue synchronized entanglement partners so this bomb evaluates its own epicenter relics first
       if (detResult.pairedGhostBombIds && detResult.pairedGhostBombIds.length > 0) {
-        const stackBase = this.scratchChainStackTop;
         const allBombs = this.bombs.getChildren();
         for (let i = 0; i < allBombs.length; i++) {
           const b = allBombs[i] as Phaser.Physics.Arcade.Sprite;
@@ -7851,7 +8219,6 @@ export default class GameScene extends Phaser.Scene {
             }
           }
         }
-        this.detonateStackedChainRange(stackBase);
       }
     }
 
@@ -8105,10 +8472,13 @@ export default class GameScene extends Phaser.Scene {
             if (!e || !e.active || e.isDead) continue;
             const eId = this.getStableEntityId(e);
             if (warpProc.warpedEnemyIds.includes(eId)) {
+              let died = false;
               if (typeof e.takeDamage === 'function') {
-                e.takeDamage(warpProc.damage, 'player', detNowMs);
+                died = Boolean(e.takeDamage(warpProc.damage, 'player', detNowMs));
               }
-              if (warpProc.singularityPull && e.active && !e.isDead) {
+              if (died || e.isDead || !e.active) {
+                this.handlePlayerEnemyKillRewards(e, false);
+              } else if (warpProc.singularityPull && e.active && !e.isDead) {
                 const angle = Phaser.Math.Angle.Between(e.x, e.y, cX, cY);
                 e.setVelocity(Math.cos(angle) * 180, Math.sin(angle) * 180);
               }
@@ -8135,13 +8505,16 @@ export default class GameScene extends Phaser.Scene {
             if (!e || !e.active || e.isDead) continue;
             const eId = this.getStableEntityId(e);
             if (cryoProc.chilledEnemyIds.includes(eId)) {
+              let died = false;
               if (typeof e.takeDamage === 'function') {
-                e.takeDamage(cryoProc.damage, 'player', detNowMs);
+                died = Boolean(e.takeDamage(cryoProc.damage, 'player', detNowMs));
               }
               const slowable = e as unknown as {
                 applySpeedMultiplier?: (ratio: number, durationMs: number) => void;
               };
-              if (e.active && !e.isDead && typeof slowable.applySpeedMultiplier === 'function') {
+              if (died || e.isDead || !e.active) {
+                this.handlePlayerEnemyKillRewards(e, false);
+              } else if (e.active && !e.isDead && typeof slowable.applySpeedMultiplier === 'function') {
                 slowable.applySpeedMultiplier(1.0 - cryoProc.slowRatio, cryoProc.chillDurationMs);
               }
             }
@@ -8171,10 +8544,13 @@ export default class GameScene extends Phaser.Scene {
             if (!e || !e.active || e.isDead) continue;
             const eId = this.getStableEntityId(e);
             if (teslaProc.shockedEnemyIds.includes(eId)) {
+              let died = false;
               if (typeof e.takeDamage === 'function') {
-                e.takeDamage(teslaProc.damage, 'player', detNowMs);
+                died = Boolean(e.takeDamage(teslaProc.damage, 'player', detNowMs));
               }
-              if (e.active && !e.isDead) {
+              if (died || e.isDead || !e.active) {
+                this.handlePlayerEnemyKillRewards(e, false);
+              } else if (e.active && !e.isDead) {
                 if (typeof e.applySpeedMultiplier === 'function') {
                   e.applySpeedMultiplier(1.0 - teslaProc.slowRatio, teslaProc.shockDurationMs);
                 }
@@ -8209,10 +8585,13 @@ export default class GameScene extends Phaser.Scene {
             if (!e || !e.active || e.isDead) continue;
             const eId = this.getStableEntityId(e);
             if (miasmaProc.poisonedEnemyIds.includes(eId)) {
+              let died = false;
               if (typeof e.takeDamage === 'function') {
-                e.takeDamage(miasmaProc.damage, 'player', detNowMs);
+                died = Boolean(e.takeDamage(miasmaProc.damage, 'player', detNowMs));
               }
-              if (e.active && !e.isDead) {
+              if (died || e.isDead || !e.active) {
+                this.handlePlayerEnemyKillRewards(e, false);
+              } else if (e.active && !e.isDead) {
                 if (typeof e.applySpeedMultiplier === 'function') {
                   e.applySpeedMultiplier(1.0 - miasmaProc.slowRatio, miasmaProc.poisonDurationMs);
                 }
@@ -8292,11 +8671,13 @@ export default class GameScene extends Phaser.Scene {
                 const vy = (dy / dist) * abyssalProc.pullSpeedPx;
                 e.setVelocity(vx, vy);
               }
+              let died = false;
               if (typeof e.takeDamage === 'function') {
-                e.takeDamage(abyssalProc.damage, 'player', detNowMs);
+                died = Boolean(e.takeDamage(abyssalProc.damage, 'player', detNowMs));
               }
-              if (wasAlive && (e.isDead || !e.active)) {
+              if (wasAlive && (died || e.isDead || !e.active)) {
                 maelstromKills++;
+                this.handlePlayerEnemyKillRewards(e, false);
               } else if (e.active && !e.isDead) {
                 if (typeof e.applySpeedMultiplier === 'function') {
                   e.applySpeedMultiplier(1.0 - abyssalProc.slowRatio, abyssalProc.undertowDurationMs);
@@ -8356,6 +8737,8 @@ export default class GameScene extends Phaser.Scene {
         }
       }
     }
+
+    this.detonateStackedChainRange(entanglementStackBase);
 
     // 1. Tactile Camera Trauma & Debounced Hit-Stop (Juice M3)
     if (this.cameraTrauma) {
@@ -8643,6 +9026,9 @@ export default class GameScene extends Phaser.Scene {
 
     // Check hit on active boss (PHYS-06: exactly 1 hit per bombId)
     if (this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED) {
+      if (this.activeBoss instanceof MutantFloraBoss) {
+        this.activeBoss.cleanseRootsAt(row, col, 0);
+      }
       const dist = Phaser.Math.Distance.Between(x, y, this.activeBoss.x, this.activeBoss.y);
       if (dist < (this.activeBoss.config.colliderRadius || 35) + 20) {
         if (!bombId || !this.bossHitBombIds.has(bombId)) {
@@ -8652,11 +9038,15 @@ export default class GameScene extends Phaser.Scene {
               this.bossHitBombIds.delete(bombId);
             });
           }
-          const hit = this.activeBoss.takeBombDamage(1, 'bomb');
-          if (hit && this.bossHUD) {
-            this.bossHUD.setHp(this.activeBoss.currentHp);
-            if (this.activeBoss.bossState === BossState.STUNNED) {
-              this.bossHUD.triggerStun(this.activeBoss.stunTimerMs / 1000, 'Bomb Blast Combo!');
+          if (this.activeBoss instanceof SteamToyTitanBoss && this.activeBoss.checkGearDeflection(x, y)) {
+            this.spawnFloatingText(this.activeBoss.x, this.activeBoss.y - 24, '⚙️ GEAR DEFLECTED!', '#f59e0b');
+          } else {
+            const hit = this.activeBoss.takeBombDamage(1, 'bomb');
+            if (hit && this.bossHUD) {
+              this.bossHUD.setHp(this.activeBoss.currentHp);
+              if (this.activeBoss.bossState === BossState.STUNNED) {
+                this.bossHUD.triggerStun(this.activeBoss.stunTimerMs / 1000, 'Bomb Blast Combo!');
+              }
             }
           }
         }
@@ -9148,10 +9538,13 @@ export default class GameScene extends Phaser.Scene {
                       if (er === tr && ec === tc) {
                         const targetEntity = e as unknown as { takeDamage?: (damage: number, source: string, time: number) => boolean };
                         if (typeof targetEntity.takeDamage === 'function') {
-                          targetEntity.takeDamage(100, 'player', this.time.now);
+                          const died = targetEntity.takeDamage(100, 'player', this.time.now);
+                          if (died) {
+                            this.handlePlayerEnemyKillRewards(e as unknown as BaseEntity, true);
+                          }
                         } else {
                           if (e.active) { e['disableBody'](true, true); }
-                          this.addUltimateCharge(CHARGE_VALUES.ENEMY_DEFEATED);
+                          this.handlePlayerEnemyKillRewards(e as unknown as BaseEntity, true);
                         }
                       }
                     }
@@ -9226,10 +9619,13 @@ export default class GameScene extends Phaser.Scene {
                   if (er === r && ec === c) {
                     const targetEntity = enemy as unknown as { takeDamage?: (damage: number, source: string, time: number) => boolean };
                     if (typeof targetEntity.takeDamage === 'function') {
-                      targetEntity.takeDamage(100, 'player', this.time.now);
+                      const died = targetEntity.takeDamage(100, 'player', this.time.now);
+                      if (died) {
+                        this.handlePlayerEnemyKillRewards(enemy as unknown as BaseEntity, true);
+                      }
                     } else {
                       if (enemy.active) { enemy['disableBody'](true, true); }
-                      this.addUltimateCharge(CHARGE_VALUES.ENEMY_DEFEATED);
+                      this.handlePlayerEnemyKillRewards(enemy as unknown as BaseEntity, true);
                     }
                   }
                 }
@@ -9374,10 +9770,13 @@ export default class GameScene extends Phaser.Scene {
               if (er === r && ec === c) {
                 const targetEntity = enemy as unknown as { takeDamage?: (damage: number, source: string, time: number) => boolean };
                 if (typeof targetEntity.takeDamage === 'function') {
-                  targetEntity.takeDamage(100, 'player', this.time.now);
+                  const died = targetEntity.takeDamage(100, 'player', this.time.now);
+                  if (died) {
+                    this.handlePlayerEnemyKillRewards(enemy as unknown as BaseEntity, true);
+                  }
                 } else {
                   if (enemy.active) { enemy['disableBody'](true, true); }
-                  this.addUltimateCharge(CHARGE_VALUES.ENEMY_DEFEATED);
+                  this.handlePlayerEnemyKillRewards(enemy as unknown as BaseEntity, true);
                 }
               }
             }
@@ -9415,7 +9814,8 @@ export default class GameScene extends Phaser.Scene {
   private performDash() {
     this.isDashing = true;
     this.isInvulnerable = true;
-    this.dashStartTime = this.time?.now || Date.now();
+    this.dashElapsedMs = 0;
+    this.dashStartTime = this.lastFrameTimeMs >= 0 ? this.lastFrameTimeMs : (this.time?.now ?? 0);
     const perkReduction = this.appliedPerkBonuses?.dashCooldownReductionMs || 0;
     this.dashCooldownRemaining = Math.max(1500, DASH_COOLDOWN_MS - perkReduction);
 
@@ -9531,6 +9931,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.time.delayedCall(DASH_DURATION_MS, () => {
       this.isDashing = false;
+      this.dashElapsedMs = 0;
       if (this.time.now >= this.shieldInvulnerableUntil && !this.isAegisOverdriveActive) {
         this.isInvulnerable = false;
       }

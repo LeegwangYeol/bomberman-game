@@ -883,6 +883,13 @@ export function renderMeteorStreak(
   if (meteor) targets.push(meteor);
   if (corona) targets.push(corona);
 
+  if (targets.length === 0) {
+    if (onTouchdown && !(scene as unknown as { isGameOver?: boolean }).isGameOver) {
+      onTouchdown();
+    }
+    return;
+  }
+
   let streakReleased = false;
   const releaseStreak = () => {
     if (streakReleased) return;
