@@ -32,6 +32,20 @@ export class RiftCrisis extends BaseCrisis {
   public quantumSyncTimerMs: number = 0;
   public phantomsActive: boolean = false;
   public warpsPerformedCount: number = 0;
+  private readonly _coordResultRing: Array<{ r: number; c: number }> = [
+    { r: 1, c: 1 },
+    { r: 1, c: 1 },
+    { r: 1, c: 1 },
+    { r: 1, c: 1 },
+  ];
+  private _coordRingCursor: number = 0;
+
+  private writeCoordResult(r: number, c: number, out?: { r: number; c: number }): { r: number; c: number } {
+    const slot = out ?? this._coordResultRing[this._coordRingCursor++ & 3];
+    slot.r = r;
+    slot.c = c;
+    return slot;
+  }
 
   constructor() {
     super(CrisisType.DIMENSIONAL_RIFTS);
@@ -118,7 +132,8 @@ export class RiftCrisis extends BaseCrisis {
       this.phantomsActive = true;
 
       // Deploy 3 Subspace Rifts
-      for (const rift of this.rifts) {
+      for (let i = 0; i < this.rifts.length; i++) {
+        const rift = this.rifts[i];
         this.setHazardTile(rift.r, rift.c, HazardType.DIMENSIONAL_WARP, 0.8, 0, 0);
       }
     } else if (stage === CrisisStage.CLIMAX) {
@@ -132,7 +147,8 @@ export class RiftCrisis extends BaseCrisis {
       );
 
       // Deploy 3 Spires at the rift loci
-      for (const spire of this.spires) {
+      for (let i = 0; i < this.spires.length; i++) {
+        const spire = this.spires[i];
         this.setHazardTile(spire.r, spire.c, HazardType.QUANTUM_SPIRE, 1.0, 0, 0);
       }
     } else if (stage === CrisisStage.RESOLVED || stage === CrisisStage.FAILED || stage === CrisisStage.INACTIVE) {
@@ -158,7 +174,8 @@ export class RiftCrisis extends BaseCrisis {
   public resolveSafeSpawnLocation(
     candidateR: number,
     candidateC: number,
-    isOccupiedFn?: (r: number, c: number) => boolean
+    isOccupiedFn?: (r: number, c: number) => boolean,
+    out?: { r: number; c: number }
   ): { r: number; c: number } {
     const safeCandidateR = Number.isFinite(candidateR)
       ? Math.max(1, Math.min(ROWS - 2, Math.floor(candidateR)))
@@ -168,7 +185,7 @@ export class RiftCrisis extends BaseCrisis {
       : 1;
 
     if (!isOccupiedFn || !isOccupiedFn(safeCandidateR, safeCandidateC)) {
-      return { r: safeCandidateR, c: safeCandidateC };
+      return this.writeCoordResult(safeCandidateR, safeCandidateC, out);
     }
 
     // Search 1-tile Chebyshev radius
@@ -177,12 +194,12 @@ export class RiftCrisis extends BaseCrisis {
         const nr = safeCandidateR + dr;
         const nc = safeCandidateC + dc;
         if (this.isWalkableTile(nr, nc) && !isOccupiedFn(nr, nc)) {
-          return { r: nr, c: nc };
+          return this.writeCoordResult(nr, nc, out);
         }
       }
     }
 
-    return { r: safeCandidateR, c: safeCandidateC };
+    return this.writeCoordResult(safeCandidateR, safeCandidateC, out);
   }
 
   /**
@@ -190,12 +207,16 @@ export class RiftCrisis extends BaseCrisis {
    * Crossing top edge wraps to bottom, left edge wraps to right.
    * Sanitized against NaN, Infinity, and non-numeric inputs.
    */
-  public wrapToroidalPosition(r: number, c: number): { r: number; c: number } {
+  public wrapToroidalPosition(
+    r: number,
+    c: number,
+    out?: { r: number; c: number }
+  ): { r: number; c: number } {
     const validR = Number.isFinite(r) ? r : 1;
     const validC = Number.isFinite(c) ? c : 1;
 
     if (this.stage !== CrisisStage.OUTBREAK && this.stage !== CrisisStage.CLIMAX) {
-      return { r: validR, c: validC };
+      return this.writeCoordResult(validR, validC, out);
     }
 
     let wrappedR = validR;
@@ -207,14 +228,18 @@ export class RiftCrisis extends BaseCrisis {
     if (validC <= 0) wrappedC = COLS - 2;
     else if (validC >= COLS - 1) wrappedC = 1;
 
-    return { r: wrappedR, c: wrappedC };
+    return this.writeCoordResult(wrappedR, wrappedC, out);
   }
 
   /**
    * Teleportation across subspace rifts:
    * Stepping onto a rift teleports to the next rift in the network.
    */
-  public teleportThroughRift(r: number, c: number): { r: number; c: number } | null {
+  public teleportThroughRift(
+    r: number,
+    c: number,
+    out?: { r: number; c: number }
+  ): { r: number; c: number } | null {
     if (!Number.isFinite(r) || !Number.isFinite(c)) return null;
 
     const safeR = Math.floor(r);
@@ -232,7 +257,8 @@ export class RiftCrisis extends BaseCrisis {
     this.warpsPerformedCount++;
     this.resolveObjective('navigate_rifts');
     RiftCrisisAudio.getInstance().playTeleport();
-    return { ...this.rifts[nextIdx] };
+    const target = this.rifts[nextIdx];
+    return this.writeCoordResult(target.r, target.c, out);
   }
 
   protected onBombBlast(r: number, c: number, radius: number): void {
@@ -244,7 +270,8 @@ export class RiftCrisis extends BaseCrisis {
     const safeRadius = Math.max(0, Math.floor(radius));
 
     let hitAny = false;
-    for (const spire of this.spires) {
+    for (let i = 0; i < this.spires.length; i++) {
+      const spire = this.spires[i];
       if (spire.isPolarized) continue;
 
       const dist = Math.abs(spire.r - safeR) + Math.abs(spire.c - safeC);
@@ -297,7 +324,8 @@ export class RiftCrisis extends BaseCrisis {
   private resetQuantumSync(): void {
     this.isQuantumSyncActive = false;
     this.quantumSyncTimerMs = 0;
-    for (const spire of this.spires) {
+    for (let i = 0; i < this.spires.length; i++) {
+      const spire = this.spires[i];
       spire.isPolarized = false;
       this.setHazardTile(spire.r, spire.c, HazardType.QUANTUM_SPIRE, 0.7, 0, 0);
     }
@@ -478,7 +506,8 @@ export class RiftCrisis extends BaseCrisis {
     }
 
     if (this.stage === CrisisStage.CLIMAX) {
-      for (const spire of this.spires) {
+      for (let i = 0; i < this.spires.length; i++) {
+        const spire = this.spires[i];
         this.setHazardTile(
           spire.r,
           spire.c,
@@ -489,7 +518,8 @@ export class RiftCrisis extends BaseCrisis {
         );
       }
     } else if (this.stage === CrisisStage.OUTBREAK) {
-      for (const rift of this.rifts) {
+      for (let i = 0; i < this.rifts.length; i++) {
+        const rift = this.rifts[i];
         this.setHazardTile(rift.r, rift.c, HazardType.DIMENSIONAL_WARP, 0.8, 0, 0);
       }
     }

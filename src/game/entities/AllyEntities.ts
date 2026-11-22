@@ -302,8 +302,8 @@ export class PetDroneAlly extends BaseEntity {
     let closestItemDist = Infinity;
     const maxFetchDistPx = this.config.fetchRadiusTiles * TILE_SIZE;
 
-    for (const itemObj of items) {
-      const item = itemObj as Phaser.Physics.Arcade.Sprite;
+    for (let ii = 0; ii < items.length; ii++) {
+      const item = items[ii] as Phaser.Physics.Arcade.Sprite;
       if (item && item.active) {
         const dist = Phaser.Math.Distance.Between(this.x, this.y, item.x, item.y);
         if (dist <= maxFetchDistPx && dist < closestItemDist) {
@@ -380,7 +380,8 @@ export class PetDroneAlly extends BaseEntity {
       let targetEnemy: BaseEntity | null = null;
       let closestEnemyDist = Infinity;
 
-      for (const e of enemies) {
+      for (let ei = 0; ei < enemies.length; ei++) {
+        const e = enemies[ei];
         if (e && e.active && !e.isDead) {
           const dist = Phaser.Math.Distance.Between(this.x, this.y, e.x, e.y);
           if (dist <= 5 * TILE_SIZE && dist < closestEnemyDist) {
@@ -601,7 +602,8 @@ export class ShieldGuardAlly extends BaseEntity {
       }
 
       // Force enemies within radius to target Aegis
-      for (const e of enemies) {
+      for (let ei = 0; ei < enemies.length; ei++) {
+        const e = enemies[ei];
         if (e && e.active && !e.isDead) {
           const dist = Phaser.Math.Distance.Between(this.x, this.y, e.x, e.y);
           if (dist <= this.config.tauntRadiusTiles * TILE_SIZE && !e.isStunned) {

@@ -111,6 +111,48 @@ export class TelegraphEngine {
   private nextAttackId: number = 1;
   private onImpactCallback: ((attackId: number, tileIdx: number) => void) | null = null;
 
+  // 8. Pre-allocated Zero-GC Result Ring Buffers (eliminates per-call heap allocations while keeping consecutive return refs distinct)
+  private readonly _scratchInternalCoverage: {
+    valid: boolean;
+    projectedDanger: number;
+    maxAllowed: number;
+  } = { valid: true, projectedDanger: 0, maxAllowed: 0 };
+  private readonly _coverageResultRing: Array<{
+    valid: boolean;
+    projectedDanger: number;
+    maxAllowed: number;
+  }> = [
+    { valid: true, projectedDanger: 0, maxAllowed: 0 },
+    { valid: true, projectedDanger: 0, maxAllowed: 0 },
+    { valid: true, projectedDanger: 0, maxAllowed: 0 },
+    { valid: true, projectedDanger: 0, maxAllowed: 0 },
+  ];
+  private _coverageRingCursor: number = 0;
+
+  private readonly _registrationResultRing: AttackRegistrationResult[] = [
+    { success: false },
+    { success: false },
+    { success: false },
+    { success: false },
+    { success: false },
+    { success: false },
+    { success: false },
+    { success: false },
+  ];
+  private _registrationRingCursor: number = 0;
+
+  private acquireRegistrationResult(out?: AttackRegistrationResult): AttackRegistrationResult {
+    const slot = out ?? this._registrationResultRing[this._registrationRingCursor++ & 7];
+    slot.success = false;
+    slot.attackId = undefined;
+    slot.registeredTileCount = undefined;
+    slot.reason = undefined;
+    slot.activeDangerCount = undefined;
+    slot.maxAllowedDanger = undefined;
+    slot.safeRatio = undefined;
+    return slot;
+  }
+
   constructor(renderer?: ITelegraphRenderer, initialWalkableMask?: Uint8Array) {
     if (renderer) {
       this.renderer = renderer;
@@ -208,7 +250,10 @@ export class TelegraphEngine {
   /**
    * Validates if a proposed set of tiles satisfies the Fair Encounter Guarantee (>= 40% safe area)
    */
-  public validateSafeCoverage(targetTiles: readonly number[]): {
+  public validateSafeCoverage(
+    targetTiles: readonly number[],
+    out?: { valid: boolean; projectedDanger: number; maxAllowed: number }
+  ): {
     valid: boolean;
     projectedDanger: number;
     maxAllowed: number;
@@ -234,11 +279,11 @@ export class TelegraphEngine {
     const projectedDanger = this._activeWalkableDangerCount + newlyMarkedWalkable;
     const maxAllowed = Math.floor(MAX_DANGER_AREA_RATIO * this._totalWalkableTiles);
 
-    return {
-      valid: projectedDanger <= maxAllowed,
-      projectedDanger,
-      maxAllowed,
-    };
+    const res = out ?? this._coverageResultRing[this._coverageRingCursor++ & 3];
+    res.valid = projectedDanger <= maxAllowed;
+    res.projectedDanger = projectedDanger;
+    res.maxAllowed = maxAllowed;
+    return res;
   }
 
   /**
@@ -357,43 +402,42 @@ export class TelegraphEngine {
     attackIdOrZero: number,
     targetTiles: readonly number[],
     durationMs: number = STANDARD_TOTAL_DURATION_MS,
-    allowTrimming: boolean = true
+    allowTrimming: boolean = true,
+    out?: AttackRegistrationResult
   ): AttackRegistrationResult {
+    const res = this.acquireRegistrationResult(out);
     if (
       !targetTiles ||
       targetTiles.length === 0 ||
       durationMs <= 0 ||
       isNaN(durationMs)
     ) {
-      return { success: false, reason: 'INVALID_PARAMS' };
+      res.reason = 'INVALID_PARAMS';
+      return res;
     }
 
     const attackId = attackIdOrZero > 0 ? attackIdOrZero : this.nextAttackId++;
-    const validation = this.validateSafeCoverage(targetTiles);
+    const validation = this.validateSafeCoverage(targetTiles, this._scratchInternalCoverage);
 
     let tilesSource: ArrayLike<number> = targetTiles;
     let tilesLength = targetTiles.length;
     if (!validation.valid) {
       if (!allowTrimming) {
-        return {
-          success: false,
-          reason: 'EXCEEDS_SAFE_BUDGET',
-          activeDangerCount: this._activeWalkableDangerCount,
-          maxAllowedDanger: validation.maxAllowed,
-          safeRatio: this.getSafeWalkableRatio(),
-        };
+        res.reason = 'EXCEEDS_SAFE_BUDGET';
+        res.activeDangerCount = this._activeWalkableDangerCount;
+        res.maxAllowedDanger = validation.maxAllowed;
+        res.safeRatio = this.getSafeWalkableRatio();
+        return res;
       }
 
       // Trimming policy: retain only up to allowed budget
       const budgetRemaining = validation.maxAllowed - this._activeWalkableDangerCount;
       if (budgetRemaining <= 0) {
-        return {
-          success: false,
-          reason: 'ZERO_BUDGET_REMAINING',
-          activeDangerCount: this._activeWalkableDangerCount,
-          maxAllowedDanger: validation.maxAllowed,
-          safeRatio: this.getSafeWalkableRatio(),
-        };
+        res.reason = 'ZERO_BUDGET_REMAINING';
+        res.activeDangerCount = this._activeWalkableDangerCount;
+        res.maxAllowedDanger = validation.maxAllowed;
+        res.safeRatio = this.getSafeWalkableRatio();
+        return res;
       }
 
       // Filter and trim tiles into pre-allocated typed scratch buffer (Zero-GC)
@@ -413,7 +457,8 @@ export class TelegraphEngine {
 
     // Check capacity
     if (this._activeCount + tilesLength > MAX_TELEGRAPH_TILES) {
-      return { success: false, reason: 'CAPACITY_EXHAUSTED' };
+      res.reason = 'CAPACITY_EXHAUSTED';
+      return res;
     }
 
     // Allocate and commit slots
@@ -454,13 +499,12 @@ export class TelegraphEngine {
 
     this.rebuildSpatialDominance();
 
-    return {
-      success: true,
-      attackId,
-      registeredTileCount: registeredCount,
-      activeDangerCount: this._activeWalkableDangerCount,
-      safeRatio: this.getSafeWalkableRatio(),
-    };
+    res.success = true;
+    res.attackId = attackId;
+    res.registeredTileCount = registeredCount;
+    res.activeDangerCount = this._activeWalkableDangerCount;
+    res.safeRatio = this.getSafeWalkableRatio();
+    return res;
   }
 
   /**

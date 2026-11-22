@@ -122,11 +122,13 @@ export class VoidCrisis extends BaseCrisis {
         4000
       );
       // Spawn 4 Void Rifts
-      for (const rift of VoidCrisis.RIFTS) {
+      for (let i = 0; i < VoidCrisis.RIFTS.length; i++) {
+        const rift = VoidCrisis.RIFTS[i];
         this.setHazardTile(rift.r, rift.c, HazardType.VOID_RIFT, 0.5, 0, 0);
       }
       // Place initial prism markers
-      for (const prism of this.prisms) {
+      for (let i = 0; i < this.prisms.length; i++) {
+        const prism = this.prisms[i];
         this.setHazardTile(prism.r, prism.c, HazardType.PURIFICATION_PRISM, 0.3, 0, 0);
       }
     } else if (stage === CrisisStage.OUTBREAK) {
@@ -139,7 +141,8 @@ export class VoidCrisis extends BaseCrisis {
         5000
       );
       // Seed initial creep adjacent to rifts
-      for (const rift of VoidCrisis.RIFTS) {
+      for (let i = 0; i < VoidCrisis.RIFTS.length; i++) {
+        const rift = VoidCrisis.RIFTS[i];
         this.spreadCreepFrom(rift.r, rift.c);
       }
     } else if (stage === CrisisStage.CLIMAX) {
@@ -359,7 +362,8 @@ export class VoidCrisis extends BaseCrisis {
     ) {
       return false;
     }
-    for (const prism of this.prisms) {
+    for (let i = 0; i < this.prisms.length; i++) {
+      const prism = this.prisms[i];
       if (prism.isCharged) {
         if (Math.abs(prism.r - r) <= 1 && Math.abs(prism.c - c) <= 1) {
           return true;

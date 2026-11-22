@@ -86,6 +86,7 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
   public readonly entityId: string;
   public hp: number;
   public maxHp: number;
+  public readonly baseMaxHp: number;
   public faction: EntityFaction;
   public entityType: string;
   public entityName: string;
@@ -185,6 +186,7 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
     this.entityId = `ent_${BaseEntity._nextEntityUid++}`;
     this.faction = faction;
     this.maxHp = Math.max(1, maxHp);
+    this.baseMaxHp = this.maxHp;
     this.hp = this.maxHp;
     this.entityName = entityName;
     this.entityType = entityType;
@@ -252,6 +254,7 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
     }
 
     this.isDead = false;
+    this.maxHp = this.baseMaxHp;
     this.hp = this.maxHp;
     this.invulnerableTimer = 0;
     this.isStunned = false;

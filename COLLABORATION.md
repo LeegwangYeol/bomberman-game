@@ -2960,3 +2960,26 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - `tests/daily_cycle45_zerogc_clock_domain_titan_gummy_resume.test.mjs` 신규 구축 (7대 통합 회귀 시나리오 및 10,000프레임 `SteamToyTitanBoss`·`MutantFloraBoss`·`GummyBearBoss`·`SpatialSeparationGrid`·`PlayerMovementPhysics` 연속 Zero-GC 소크 테스트 전수 통과 — 풀 누수 `0`건 및 힙 증가 한계 검증).
     - 전체 테스트 스위트: **2,381 / 2,381 PASS (100% 통과, 0 실패, 0 스킵, +7 테스트 순증)**.
     - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 1195ms 컴파일, 4/4 정적 라우트 사전 렌더링)**.
+
+
+### 46) 일일 정기 무한 진화(단일 에이전트 경량 유지보수): `TelegraphEngine`·`RiftCrisis`·`ClockworkCrisis`·`OverheadUI`·`BossHUD`·`rollItemDrop` Zero-GC 링 풀/정적 슬롯 재사용, `BaseEntity.baseMaxHp` 풀 복원 및 `onResumeRunState` 인플레이스 엔티티 재활용·`relicState` 복구, `QueenBeeBoss`·`HamsterBoss`·`MutantFloraBoss` + `BossAttackManager` 실전 전투 연동, 연쇄 폭발 유물 후보군 실시간 갱신 및 공격 궁극기 보스 타격·보상 일원화 완결 (Daily Auto-Maintenance: 2026-11-23 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 세션명: `[세션명: 봄버맨 일일 무한 진화]` (스케줄 백그라운드 단일 에이전트 자율 유지보수, 서브에이전트 스웜 미사용).
+  - **핵심 성능·Zero-GC 풀링 및 무결성 수리 내역**:
+    1. **텔레그래프·위기·UI·드롭 테이블 Zero-GC 링 버퍼화 및 60FPS 이터레이터 제거 (`TelegraphEngine.ts`, `RiftCrisis.ts`, `ClockworkCrisis.ts`, `OverheadUI.ts`, `OverheadUIManager.ts`, `BossHUD.ts`, `BossAttackManager.ts`, `gameplay_mechanics.ts`, `Ally/Neutral/EnemyEntities.ts`, `Psychic/Orbital/SolarFlare/VoidCrisis.ts`)**:
+       - `TelegraphEngine`의 `validateSafeCoverage()`(4슬롯 `_coverageResultRing` + 내부 `_scratchInternalCoverage`)·`registerAttack()`(8슬롯 `_registrationResultRing`) 및 `RiftCrisis`의 `resolveSafeSpawnLocation()`·`wrapToroidalPosition()`·`teleportThroughRift()`(4슬롯 `_coordResultRing`)에 무할당 링 슬롯 + 선택적 `out` 인자 재사용을 도입하여 연속 호출 간 참조 충돌 없이 힙 객체 할당을 `0`건으로 제거.
+       - `ClockworkCrisis.evaluateBombEmpInteraction()`의 매 호출 객체 할당을 정적 동결 `EMP_DETONATE_RESULT` / `EMP_DISARM_RESULT`로 대체하고, `OverheadUI.getRenderLayers(includeOffsets)`에 2개의 캐시 뷰(`_cachedRenderLayersBase` / `_cachedRenderLayersOffset`), `BossHUD`에 단일 재사용 `_alertSlot`, `BossAttackManager.minionPool` `reset`에 `m.type = 'GUMMY_CUB'` 초기화, `rollItemDrop()`에 모듈 스크래치 버퍼(`scratchFilteredTierItems`) 및 무할당 가중치 합산 루프를 적용하였으며, 60FPS 핫패스(`OverheadUIManager.update`, 아군·중립·적군 AI, 6대 위기 업데이트)의 `for...of` 이터레이터 할당을 전수 인덱스 루프로 치환.
+       - `BaseEntity`에 `readonly baseMaxHp`를 도입하여 `reset()` 시 스케일링/로드된 `maxHp`가 풀 부활 엔티티를 오염시키지 않도록 원상 복구하고, `GameScene.deactivateGroupEntities()`를 통해 `onResumeRunState` 시 스프라이트 파괴 없이 기존 풀링된 `BaseEntity` 인스턴스를 `reviveAt()`으로 인플레이스 재활용(드롭 섀도·`OverheadUI` 누수 원천 차단)하도록 개선.
+    2. **`QueenBeeBoss`·`HamsterBoss`·`MutantFloraBoss` 및 `BossAttackManager` 실전 전투 완결 연동 (`QueenBeeBoss.ts`, `MutantFloraBoss.ts`, `BossHUD.ts`, `SituationLog.ts`, `GameScene.ts`)**:
+       - `GameScene`에 `bossAttackManager` 인스턴스 생성·리셋·해제 및 프레임 업데이트/렌더링(풀링된 텔레그래프·충격파·투사체 + `GummyBearBoss` 착지 레티클 + `QueenBeeBoss` 비행 고도/그림자/4중 회전 설탕 실드/다이브 레티클 + `HamsterBoss` 레브업 돌진 회랑 경고 및 자이로 림 — 모든 바닥 텔레그래프 채우기 알파 `[0.18, 0.40]` 엄격 클램핑)을 정식 연결.
+       - `QueenBeeBoss`: 순항 비행 중(`isFlying && !isDiving && altitude > 20`) 바닥 폭탄 조기 충돌 및 2D 접촉 즉사를 차단하고, 폭발 시 `popShield()`(4개 설탕 실드 전수 파괴 시 3.0초 추락 스턴 + `BossHUD` 동기화)와 `diveCraterBombCheck`(로열 다이브 폭탄 함정 적중 시 3.5초 스턴 + 단일 1타 데미지 보장)를 실전 연동.
+       - `HamsterBoss`: `headOnBombCheck`(돌진 중 설치 폭탄 정면 충돌 시 3.0초 스턴 + 40px 반동 후퇴 + 단일 1타 데미지 + `BossHUD` 동기화) 및 비스턴 원거리 폭발 시 `'🛞 GYRO SHIELD DEFLECTED!'` 피드백 연동.
+       - `MutantFloraBoss`: 생성자 제3인자(`attackManager`) 정식 지원 + `GameScene` 바인딩 + 지하 잠복 중(`isUnderground`) 지상 꽃가루/덩굴 발사 차단 + 성숙한 지하 가시뿌리(`!root.isTelegraph`) 플레이어 이동속도 둔화(Snare) 연동. 아울러 `BossHUD.setBossState()`에서 `STUNNED` 이탈 시 잔류 스턴 플래그를 즉시 해제하고 `SituationLog`가 `scene.restart()` 후 시계 역행(`currentTimeMs < lastEmitTime`)에도 동결되지 않도록 방어.
+    3. **연쇄 폭발 유물 후보군 실시간 갱신, 공격 궁극기 보스/위기 타격 및 세이브/로드 `relicState` 복구 (`GameScene.ts`, `PersistenceTypes.ts`)**:
+       - 동일 폭탄 폭발 내 순차 발동하는 5대 유물(`QuantumWarp` $\to$ `Cryo` $\to$ `Tesla` $\to$ `Miasma` $\to$ `Abyssal`)에서 선행 유물이 적을 처치한 즉시 `activeEnemies = gatherRelicEnemyCandidates()`를 재수집하여, 이미 죽은 시체에 후속 유물 타겟 슬롯이나 `AbyssalPearl` 500ms ICD가 허비되는 결함을 원천 차단하고 방금 분열된 `MiniSplitterEnemy` 슬라임까지 동일 폭발 내에서 즉시 연쇄 타격하도록 고도화.
+       - 6개 분산 보스 처치 경로를 `handleActiveBossDefeated()`로 일원화(`+5000` 점수, `+50` `starCandies`, `+25` `cosmicEssence`, `'currency-reward'` 이벤트 방출)하고, 3대 공격 궁극기(`METEOR_STRIKE`, `SUPER_NOVA`, `NUCLEAR_BARRAGE`)가 `activeBoss`·동적 해저드·위기 목표물에도 정상 타격을 가하도록 연결.
+       - `SerializedRunState.relicState`(`SerializedRelicRuntimeState`) 직렬화·역직렬화 및 이어하기 시 구세대 `lastProcTimes` ICD 초기화를 추가하고, `relicManager.update()` 단조 시계(`this.time?.now ?? Date.now()`) + `maxShields` 상한 준수 및 피격 무적/블링크/히트스톱 종료 시 은신(`isCloaked`) `0.35` 알파 유지를 완결.
+  - **신규 영구 방어 테스트 및 검증 지표**:
+    - `tests/daily_cycle46_zerogc_queen_hamster_flora_relic_resume.test.mjs` 신규 구축 (8대 통합 회귀 시나리오 및 10,000프레임 `QueenBeeBoss`·`HamsterBoss`·`MutantFloraBoss`·`BossAttackManager`·`TelegraphEngine`·`RiftCrisis`·`ClockworkCrisis`·`OverheadUI` 연속 Zero-GC 소크 테스트 전수 통과 — 풀 누수 `0`건 및 힙 증가 한계 검증).
+    - 전체 테스트 스위트: **2,389 / 2,389 PASS (100% 통과, 0 실패, 0 스킵, +8 테스트 순증)**.
+    - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 1238ms 컴파일, 4/4 정적 라우트 사전 렌더링)**.

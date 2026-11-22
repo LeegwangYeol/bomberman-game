@@ -118,7 +118,8 @@ export class SolarFlareCrisis extends BaseCrisis {
         6000
       );
 
-      for (const vent of this.vents) {
+      for (let i = 0; i < this.vents.length; i++) {
+        const vent = this.vents[i];
         this.setHazardTile(vent.r, vent.c, HazardType.THERMAL_VENT, 0.9, 0, 0);
       }
     } else if (stage === CrisisStage.RESOLVED || stage === CrisisStage.FAILED || stage === CrisisStage.INACTIVE) {
@@ -215,7 +216,8 @@ export class SolarFlareCrisis extends BaseCrisis {
 
     // In Climax stage, guarantee thermal vent tiles are restored to their active/cooled states
     if (this.stage === CrisisStage.CLIMAX) {
-      for (const vent of this.vents) {
+      for (let i = 0; i < this.vents.length; i++) {
+        const vent = this.vents[i];
         this.setHazardTile(vent.r, vent.c, HazardType.THERMAL_VENT, vent.isCooled ? 0.4 : 0.9, 0, vent.isCooled ? 1 : 0);
       }
     }

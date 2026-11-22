@@ -133,7 +133,8 @@ export class ClockworkCrisis extends BaseCrisis {
       );
 
       // Deploy 8 Reinforced Brass Cogs
-      for (const pos of ClockworkCrisis.COG_POSITIONS) {
+      for (let i = 0; i < ClockworkCrisis.COG_POSITIONS.length; i++) {
+        const pos = ClockworkCrisis.COG_POSITIONS[i];
         this.setHazardTile(pos.r, pos.c, HazardType.BRASS_COG, 1.0, 0, 0);
       }
 
@@ -160,7 +161,8 @@ export class ClockworkCrisis extends BaseCrisis {
       );
 
       // Place Dynamo Conduits around (6, 7)
-      for (const conduit of this.conduits) {
+      for (let i = 0; i < this.conduits.length; i++) {
+        const conduit = this.conduits[i];
         this.setHazardTile(conduit.r, conduit.c, HazardType.DYNAMO_CONDUIT, 0.9, 0, 0);
       }
     }
@@ -231,6 +233,11 @@ export class ClockworkCrisis extends BaseCrisis {
     }
   }
 
+  private static readonly EMP_DETONATE_RESULT: { action: 'detonate' | 'disarm'; refundSlot: boolean } =
+    Object.freeze({ action: 'detonate', refundSlot: false });
+  private static readonly EMP_DISARM_RESULT: { action: 'detonate' | 'disarm'; refundSlot: boolean } =
+    Object.freeze({ action: 'disarm', refundSlot: true });
+
   /**
    * Evaluates Edge Case 10: Bomb interaction with EMP Pulse.
    * If bomb fuse <= 50ms, normal detonation executes.
@@ -239,10 +246,10 @@ export class ClockworkCrisis extends BaseCrisis {
   public evaluateBombEmpInteraction(bombFuseMs: number): { action: 'detonate' | 'disarm'; refundSlot: boolean } {
     if (bombFuseMs <= 50) {
       ClockworkCrisisAudio.getInstance().playBombForcedDetonate();
-      return { action: 'detonate', refundSlot: false };
+      return ClockworkCrisis.EMP_DETONATE_RESULT;
     }
     ClockworkCrisisAudio.getInstance().playBombDisarm();
-    return { action: 'disarm', refundSlot: true };
+    return ClockworkCrisis.EMP_DISARM_RESULT;
   }
 
   protected onBombBlast(r: number, c: number, radius: number): void {
@@ -250,7 +257,8 @@ export class ClockworkCrisis extends BaseCrisis {
 
     // Check hit on Dynamo Conduits
     let hitAny = false;
-    for (const conduit of this.conduits) {
+    for (let i = 0; i < this.conduits.length; i++) {
+      const conduit = this.conduits[i];
       if (conduit.isHit) continue;
 
       const dist = Math.abs(conduit.r - r) + Math.abs(conduit.c - c);
@@ -305,7 +313,8 @@ export class ClockworkCrisis extends BaseCrisis {
     this.isOverloadWindowActive = false;
     this.overloadWindowTimerMs = 0;
     ClockworkCrisisAudio.getInstance().playConduitReset();
-    for (const conduit of this.conduits) {
+    for (let i = 0; i < this.conduits.length; i++) {
+      const conduit = this.conduits[i];
       conduit.isHit = false;
       this.setHazardTile(conduit.r, conduit.c, HazardType.DYNAMO_CONDUIT, 0.5, 0, 0);
     }

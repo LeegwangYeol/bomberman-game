@@ -131,7 +131,8 @@ export class OrbitalCrisis extends BaseCrisis {
       );
 
       // Deploy Uplink terminals
-      for (const u of this.uplinks) {
+      for (let i = 0; i < this.uplinks.length; i++) {
+        const u = this.uplinks[i];
         this.setHazardTile(u.r, u.c, HazardType.UPLINK_TERMINAL, 0.8, 0, 0);
       }
 

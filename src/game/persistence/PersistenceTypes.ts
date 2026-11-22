@@ -93,6 +93,15 @@ export interface SerializedRunMeta {
   bossEncounterActive?: boolean;
 }
 
+export interface SerializedRelicRuntimeState {
+  equippedRelics: string[];
+  discoveredRelics: string[];
+  maxSlots: number;
+  vampiricKillStreak: number;
+  solarChargeElapsedMs: number;
+  hasSolarShield: boolean;
+}
+
 export interface SerializedRunState {
   version: number;
   timestamp: number;
@@ -106,6 +115,7 @@ export interface SerializedRunState {
   progression?: RunProgressionState;
   crisis?: SerializedCrisisState | null;
   situationLog?: SituationLogState | null;
+  relicState?: SerializedRelicRuntimeState | null;
   checksum: string;
 }
 

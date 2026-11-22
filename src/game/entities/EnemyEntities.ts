@@ -563,7 +563,8 @@ export class ChaserEnemy extends BaseEntity {
           } else {
             // Anti-freeze fallback patrol: wander/patrol to an adjacent open tile
             let moved = false;
-            for (const pd of CARDINAL_PATROL_DIRS) {
+            for (let pi = 0; pi < CARDINAL_PATROL_DIRS.length; pi++) {
+              const pd = CARDINAL_PATROL_DIRS[pi];
               const nr = er + pd.dr;
               const nc = ec + pd.dc;
               if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && map[nr][nc] === TILE_EMPTY) {
@@ -1081,7 +1082,8 @@ export class BomberEnemy extends BaseEntity {
       } else {
         // Anti-freeze fallback patrol: wander/patrol to an adjacent open tile
         let moved = false;
-        for (const pd of CARDINAL_PATROL_DIRS) {
+        for (let pi = 0; pi < CARDINAL_PATROL_DIRS.length; pi++) {
+          const pd = CARDINAL_PATROL_DIRS[pi];
           const nr = er + pd.dr;
           const nc = ec + pd.dc;
           if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && map[nr][nc] === TILE_EMPTY) {
@@ -1187,7 +1189,8 @@ export class TankEnemy extends BaseEntity {
     const ec = Math.floor(this.x / TILE_SIZE);
 
     // Bulldoze soft blocks upon walking onto/touching them
-    for (const d of TANK_BULLDOZE_DELTAS) {
+    for (let di = 0; di < TANK_BULLDOZE_DELTAS.length; di++) {
+      const d = TANK_BULLDOZE_DELTAS[di];
       const nr = er + d.dr;
       const nc = ec + d.dc;
       if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {

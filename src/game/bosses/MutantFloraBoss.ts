@@ -47,7 +47,11 @@ export class MutantFloraBoss extends BaseBoss {
   // Optional connection to universal BossAttackManager
   public attackManager: BossAttackManager | null = null;
 
-  constructor(startX: number = 300, startY: number = 260) {
+  constructor(
+    startX: number = 300,
+    startY: number = 260,
+    attackManager: BossAttackManager | null = null
+  ) {
     const config: BossConfig = {
       id: 'boss_mutant_flora',
       name: 'Verdant Terror',
@@ -66,6 +70,7 @@ export class MutantFloraBoss extends BaseBoss {
     super(config, safeX, safeY);
 
     this.audio = MutantFloraAudio.getInstance();
+    this.attackManager = attackManager ?? null;
 
     this.rootTimerMs = 4000;
     this.pollenTimerMs = 3000;
@@ -203,7 +208,7 @@ export class MutantFloraBoss extends BaseBoss {
    * Emits an airborne pollen cloud / spore projectile toward target with safe velocity.
    */
   public emitPollenCloud(targetX: number = this.x, targetY: number = this.y): void {
-    if (!this.attackManager) return;
+    if (!this.attackManager || this.isUnderground) return;
 
     const arenaMidX = (this.minArenaX + this.maxArenaX) / 2;
     const arenaMidY = (this.minArenaY + this.maxArenaY) / 2;
@@ -256,6 +261,7 @@ export class MutantFloraBoss extends BaseBoss {
    * Executes radial Vine Whip shockwave attack.
    */
   public executeVineWhip(): void {
+    if (this.isUnderground) return;
     this.isVineWhipping = true;
     if (this.attackManager) {
       const safeOriginX = Number.isFinite(this.x)

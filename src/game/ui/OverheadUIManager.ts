@@ -44,7 +44,8 @@ export class OverheadUIManager {
     const active = this._scratchActive as DeclutterEntity[];
 
     // 1. Unified 2.5D dynamic Y-sorting depth pass
-    for (const entity of active) {
+    for (let i = 0; i < active.length; i++) {
+      const entity = active[i];
       const baseDepth = RENDER_DEPTH.ENTITY_Y_BASE + entity.y * RENDER_DEPTH.ENTITY_Y_SCALE;
       if (typeof entity.setDepth === 'function') {
         entity.setDepth(baseDepth + RENDER_DEPTH.OFFSET_SPRITE);

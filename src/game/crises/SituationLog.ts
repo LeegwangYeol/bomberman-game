@@ -84,7 +84,11 @@ export class SituationLog {
 
     this.copyState(this.state, newState);
 
-    if (isMajorChange || currentTimeMs - this.lastEmitTime >= this.emitIntervalMs) {
+    if (
+      isMajorChange ||
+      currentTimeMs < this.lastEmitTime ||
+      currentTimeMs - this.lastEmitTime >= this.emitIntervalMs
+    ) {
       this.emitUpdate();
       this.lastEmitTime = currentTimeMs;
     }

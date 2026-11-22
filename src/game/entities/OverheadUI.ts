@@ -70,6 +70,17 @@ export class OverheadUI {
   private lastRenderedColor?: number;
   private lastRenderedVisible: boolean = true;
 
+  private readonly _cachedRenderLayersBase: OverheadRenderLayers = {
+    tier1_hp: { x: 0, y: 0, width: 24, height: 4, ratio: 1, segments: 1 },
+    tier2_name: { x: 0, y: 0, text: '', color: '#fb923c' },
+    tier3_intent: { x: 0, y: 0, glyph: '', visible: false },
+  };
+  private readonly _cachedRenderLayersOffset: OverheadRenderLayers = {
+    tier1_hp: { x: 0, y: 0, width: 24, height: 4, ratio: 1, segments: 1 },
+    tier2_name: { x: 0, y: 0, text: '', color: '#fb923c' },
+    tier3_intent: { x: 0, y: 0, glyph: '', visible: false },
+  };
+
   constructor(
     scene: Phaser.Scene | null,
     name: string,
@@ -429,33 +440,27 @@ export class OverheadUI {
   public getRenderLayers(includeOffsets: boolean = false): OverheadRenderLayers {
     const effectiveX = includeOffsets ? this.x + this.customOffsetX : this.x;
     const effectiveY = includeOffsets ? this.y + this.customOffsetY : this.y;
-    return {
-      tier1_hp: {
-        x: effectiveX - this.barWidth / 2,
-        y: effectiveY + this.tier1_hp_y_offset,
-        width: this.barWidth,
-        height: this.barHeight,
-        ratio: this.maxHp > 0 ? this.currentHp / this.maxHp : 0,
-        segments: this.maxHp,
-      },
-      tier2_name: {
-        x: effectiveX,
-        y: effectiveY + this.tier2_name_y_offset,
-        text: this.name,
-        color:
-          this.faction === 'enemy'
-            ? '#fb923c'
-            : this.faction === 'ally'
-            ? '#22d3ee'
-            : '#fbbf24',
-      },
-      tier3_intent: {
-        x: effectiveX,
-        y: effectiveY + this.tier3_intent_y_offset,
-        glyph: this.intentGlyph,
-        visible: this.isIntentVisible,
-      },
-    };
+    const out = includeOffsets ? this._cachedRenderLayersOffset : this._cachedRenderLayersBase;
+    out.tier1_hp.x = effectiveX - this.barWidth / 2;
+    out.tier1_hp.y = effectiveY + this.tier1_hp_y_offset;
+    out.tier1_hp.width = this.barWidth;
+    out.tier1_hp.height = this.barHeight;
+    out.tier1_hp.ratio = this.maxHp > 0 ? this.currentHp / this.maxHp : 0;
+    out.tier1_hp.segments = this.maxHp;
+    out.tier2_name.x = effectiveX;
+    out.tier2_name.y = effectiveY + this.tier2_name_y_offset;
+    out.tier2_name.text = this.name;
+    out.tier2_name.color =
+      this.faction === 'enemy'
+        ? '#fb923c'
+        : this.faction === 'ally'
+          ? '#22d3ee'
+          : '#fbbf24';
+    out.tier3_intent.x = effectiveX;
+    out.tier3_intent.y = effectiveY + this.tier3_intent_y_offset;
+    out.tier3_intent.glyph = this.intentGlyph;
+    out.tier3_intent.visible = this.isIntentVisible;
+    return out;
   }
 
   public destroy(): void {

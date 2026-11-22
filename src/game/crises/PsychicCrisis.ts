@@ -205,7 +205,8 @@ export class PsychicCrisis extends BaseCrisis {
         4000
       );
       // Seed initial manifestation markers
-      for (const m of this.manifestations) {
+      for (let i = 0; i < this.manifestations.length; i++) {
+        const m = this.manifestations[i];
         if (!m.isDestroyed) {
           this.setHazardTile(m.r, m.c, HazardType.PSIONIC_MANIFESTATION, 0.3, 0, m.id);
         }
@@ -300,13 +301,15 @@ export class PsychicCrisis extends BaseCrisis {
   public spawnDisruptionZones(): void {
     // Deploy controlled psionic disruption zones around active manifestations
     // Strictly obeying MAX_DISRUPTED_TILES to guarantee safe area ratio >= 80%
-    for (const m of this.manifestations) {
+    for (let mi = 0; mi < this.manifestations.length; mi++) {
+      const m = this.manifestations[mi];
       if (m.isDestroyed) continue;
 
       // Keep manifestation tile active
       this.setHazardTile(m.r, m.c, HazardType.PSIONIC_MANIFESTATION, 0.9, 0, m.id);
 
-      for (const offset of PsychicCrisis.CANDIDATE_OFFSETS) {
+      for (let oi = 0; oi < PsychicCrisis.CANDIDATE_OFFSETS.length; oi++) {
+        const offset = PsychicCrisis.CANDIDATE_OFFSETS[oi];
         if (this.getActiveHazardCount() >= PsychicCrisis.MAX_DISRUPTED_TILES) {
           return; // Invariant preserved: safe area ratio strictly >= 80%
         }
@@ -349,7 +352,8 @@ export class PsychicCrisis extends BaseCrisis {
     }
 
     // Check if there is an undestroyed manifestation at this tile
-    for (const m of this.manifestations) {
+    for (let mi = 0; mi < this.manifestations.length; mi++) {
+      const m = this.manifestations[mi];
       if (!m.isDestroyed && m.r === r && m.c === c) {
         m.isDestroyed = true;
         dispelled = true;
@@ -397,7 +401,8 @@ export class PsychicCrisis extends BaseCrisis {
       let hitManifestation = false;
 
       // Check undestroyed manifestations within blast radius
-      for (const m of this.manifestations) {
+      for (let mi = 0; mi < this.manifestations.length; mi++) {
+        const m = this.manifestations[mi];
         if (!m.isDestroyed) {
           const dist = Math.max(Math.abs(m.r - r), Math.abs(m.c - c));
           if (dist <= radius) {

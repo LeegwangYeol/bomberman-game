@@ -21,6 +21,7 @@ export class QueenBeeBoss extends BaseBoss {
   public targetDiveY: number = 0;
   public flightTimeSec: number = 0;
   public timeUntilNextDiveMs: number = 5000;
+  public diveCraterBombCheck?: () => boolean;
   public audio: QueenBeeAudio;
 
   constructor(startX: number = 300, startY: number = 260) {
@@ -135,7 +136,9 @@ export class QueenBeeBoss extends BaseBoss {
       this.diveTimerMs -= safeDt;
 
       if (this.diveTimerMs <= 0) {
-        this.onDiveImpact();
+        const hasBomb =
+          typeof this.diveCraterBombCheck === 'function' ? this.diveCraterBombCheck() : false;
+        this.onDiveImpact(hasBomb);
         return;
       }
 

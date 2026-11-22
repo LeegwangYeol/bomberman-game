@@ -103,6 +103,7 @@ export class BossAttackManager {
       }),
       reset: (m) => {
         m.active = false;
+        m.type = 'GUMMY_CUB';
         m.x = 0;
         m.y = 0;
         m.vx = 0;

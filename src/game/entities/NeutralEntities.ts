@@ -267,7 +267,8 @@ export class MerchantNPC extends BaseEntity {
 
     // Count open orthogonal corridor directions, strictly filtering out any active blast hazard tiles
     sharedOpenDirs.length = 0;
-    for (const d of CARDINAL_STEP_DIRS) {
+    for (let i = 0; i < CARDINAL_STEP_DIRS.length; i++) {
+      const d = CARDINAL_STEP_DIRS[i];
       const nr = mr + d.y;
       const nc = mc + d.x;
       if (

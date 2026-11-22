@@ -721,6 +721,8 @@ export function determineItemDrop(
   }
 }
 
+const scratchFilteredTierItems: Array<{ item: ItemType; weight: number }> = [];
+
 /**
  * Dynamic 24-Item Drop Table with Tiered Weights, Gilded Chests & Anti-Snowball Cap Redirection
  */
@@ -755,32 +757,40 @@ export function rollItemDrop(
     }
   }
 
-  // Filter out items that have reached hard caps or unique unlocks (anti-snowball)
-  let pool = ITEMS_BY_TIER[tier];
+  // Filter out items that have reached hard caps or unique unlocks (Zero-GC scratch array)
+  const basePool = ITEMS_BY_TIER[tier];
+  let pool = basePool;
   if (playerStats) {
-    const filtered = pool.filter(({ item }) => {
-      if (item === 'SPEED_UP' && playerStats.speed >= MAX_PLAYER_SPEED) return false;
-      if (item === 'BOMB_UP' && playerStats.maxBombs >= MAX_BOMBS_CAP) return false;
-      if (item === 'FIRE_UP' && playerStats.bombPower >= MAX_BOMB_POWER_CAP) return false;
-      if (item === 'MEGA_FIRE' && playerStats.bombPower >= MAX_BOMB_POWER_CAP) return false;
-      if (item === 'KICK' && playerStats.hasKick) return false;
-      if (item === 'WALL_PASS' && playerStats.hasWallPass) return false;
-      if (item === 'BOMB_PASS' && playerStats.hasBombPass) return false;
-      if (item === 'MAGNET' && playerStats.hasMagnet) return false;
-      if (item === 'DEFLECTOR' && playerStats.hasBlastDeflector) return false;
-      if (item === 'BLAST_RESIST' && playerStats.hasBlastResist) return false;
-      if (item === 'VAMPIRIC' && playerStats.hasVampiric) return false;
-      if (item === 'EXTRA_LIFE' && (playerStats.extraLives ?? 0) >= 3) return false;
-      return true;
-    });
-    if (filtered.length > 0) {
-      pool = filtered;
+    scratchFilteredTierItems.length = 0;
+    for (let i = 0; i < basePool.length; i++) {
+      const entry = basePool[i];
+      const item = entry.item;
+      if (item === 'SPEED_UP' && playerStats.speed >= MAX_PLAYER_SPEED) continue;
+      if (item === 'BOMB_UP' && playerStats.maxBombs >= MAX_BOMBS_CAP) continue;
+      if (item === 'FIRE_UP' && playerStats.bombPower >= MAX_BOMB_POWER_CAP) continue;
+      if (item === 'MEGA_FIRE' && playerStats.bombPower >= MAX_BOMB_POWER_CAP) continue;
+      if (item === 'KICK' && playerStats.hasKick) continue;
+      if (item === 'WALL_PASS' && playerStats.hasWallPass) continue;
+      if (item === 'BOMB_PASS' && playerStats.hasBombPass) continue;
+      if (item === 'MAGNET' && playerStats.hasMagnet) continue;
+      if (item === 'DEFLECTOR' && playerStats.hasBlastDeflector) continue;
+      if (item === 'BLAST_RESIST' && playerStats.hasBlastResist) continue;
+      if (item === 'VAMPIRIC' && playerStats.hasVampiric) continue;
+      if (item === 'EXTRA_LIFE' && (playerStats.extraLives ?? 0) >= 3) continue;
+      scratchFilteredTierItems.push(entry);
+    }
+    if (scratchFilteredTierItems.length > 0) {
+      pool = scratchFilteredTierItems;
     }
   }
 
-  const totalWeight = pool.reduce((sum, entry) => sum + entry.weight, 0);
+  let totalWeight = 0;
+  for (let i = 0; i < pool.length; i++) {
+    totalWeight += pool[i].weight;
+  }
   let roll = getRandom() * totalWeight;
-  for (const entry of pool) {
+  for (let i = 0; i < pool.length; i++) {
+    const entry = pool[i];
     if (roll < entry.weight) {
       return entry.item;
     }

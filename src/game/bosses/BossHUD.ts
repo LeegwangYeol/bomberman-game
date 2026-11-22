@@ -113,6 +113,15 @@ export class BossHUD {
   private isDirty: boolean = false;
   private lastEmitTime: number = 0;
   private readonly emitIntervalMs: number = 50; // Throttle to max 20 updates/sec
+  private readonly _alertSlot: BossThreatAlert = {
+    id: '',
+    title: '',
+    subtitle: '',
+    level: 'info',
+    icon: '',
+    durationMs: 0,
+    remainingMs: 0,
+  };
 
   constructor(game: IGameEventEmitter | null = null) {
     this.game = game;
@@ -297,6 +306,11 @@ export class BossHUD {
       if (state === BossState.ENRAGED) {
         this.state.isEnraged = true;
       }
+      if (state !== BossState.STUNNED) {
+        this.state.isStunned = false;
+        this.state.stunRemainingMs = 0;
+        this.state.stunReason = '';
+      }
       this.emitState(true);
     }
   }
@@ -319,15 +333,15 @@ export class BossHUD {
     if (enraged) {
       this.state.enrageGauge = 100;
       this.state.state = BossState.ENRAGED;
-      this.postAlert({
-        id: 'enrage_trigger',
-        title: 'BERSERK ENRAGE ACTIVE!',
-        subtitle: 'Boss speed and attack rates boosted by 60%!',
-        level: 'critical',
-        icon: '😡🔥',
-        durationMs: 3500,
-        remainingMs: 3500,
-      });
+      this._alertSlot.id = 'enrage_trigger';
+      this._alertSlot.title = 'BERSERK ENRAGE ACTIVE!';
+      this._alertSlot.subtitle = 'Boss speed and attack rates boosted by 60%!';
+      this._alertSlot.level = 'critical';
+      this._alertSlot.icon = '😡🔥';
+      this._alertSlot.durationMs = 3500;
+      this._alertSlot.remainingMs = 3500;
+      this.state.activeAlert = this._alertSlot;
+      this.emitState(true);
       return;
     }
     this.emitState(true);
@@ -342,15 +356,15 @@ export class BossHUD {
     this.state.stunReason = reason;
     this.state.state = BossState.STUNNED;
 
-    this.postAlert({
-      id: 'stun_alert',
-      title: 'TACTICAL STUN WINDOW!',
-      subtitle: `${reason} (${durationSec.toFixed(1)}s window)`,
-      level: 'info',
-      icon: '💫',
-      durationMs: stunMs,
-      remainingMs: stunMs,
-    });
+    this._alertSlot.id = 'stun_alert';
+    this._alertSlot.title = 'TACTICAL STUN WINDOW!';
+    this._alertSlot.subtitle = `${reason} (${durationSec.toFixed(1)}s window)`;
+    this._alertSlot.level = 'info';
+    this._alertSlot.icon = '💫';
+    this._alertSlot.durationMs = stunMs;
+    this._alertSlot.remainingMs = stunMs;
+    this.state.activeAlert = this._alertSlot;
+    this.emitState(true);
   }
 
   public registerComboHit(hits: number, windowMs: number = 150): void {
@@ -363,7 +377,14 @@ export class BossHUD {
   }
 
   public postAlert(alert: BossThreatAlert): void {
-    this.state.activeAlert = { ...alert };
+    this._alertSlot.id = alert.id;
+    this._alertSlot.title = alert.title;
+    this._alertSlot.subtitle = alert.subtitle;
+    this._alertSlot.level = alert.level;
+    this._alertSlot.icon = alert.icon;
+    this._alertSlot.durationMs = alert.durationMs;
+    this._alertSlot.remainingMs = alert.remainingMs;
+    this.state.activeAlert = this._alertSlot;
     this.emitState(true);
   }
 
