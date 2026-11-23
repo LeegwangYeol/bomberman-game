@@ -13,6 +13,7 @@
 
 import { BaseBoss, type BossConfig } from './BaseBoss.ts';
 import { BossState } from './BossTypes.ts';
+import type { BossAttackManager } from './BossAttackManager.ts';
 import { GummyBearAudio } from './GummyBearAudio.ts';
 
 export class GummyBearBoss extends BaseBoss {
@@ -25,13 +26,19 @@ export class GummyBearBoss extends BaseBoss {
   public attackCooldownMs: number = 2500;
   public leapCount: number = 0;
   public activeCubCount: number = 0;
+  public pendingCubSpawns: number = 0;
   public readonly maxCubs: number = 4;
   public isSquashedPancake: boolean = false;
   public stepTimerMs: number = 0;
   public landingBombCheck?: () => boolean;
+  public attackManager: BossAttackManager | null = null;
   public audio: GummyBearAudio;
 
-  constructor(startX: number = 300, startY: number = 260) {
+  constructor(
+    startX: number = 300,
+    startY: number = 260,
+    attackManager: BossAttackManager | null = null
+  ) {
     const config: BossConfig = {
       id: 'boss_gummy_bear',
       name: 'King Gummy Bear',
@@ -50,6 +57,7 @@ export class GummyBearBoss extends BaseBoss {
     super(config, safeStartX, safeStartY);
     this.targetLandingX = safeStartX;
     this.targetLandingY = safeStartY;
+    this.attackManager = attackManager ?? null;
     this.audio = GummyBearAudio.getInstance();
   }
 
@@ -208,7 +216,10 @@ export class GummyBearBoss extends BaseBoss {
       return;
     }
 
-    // Normal Landing: Flatten into pancake and stun for 2.2s
+    // Normal Landing: Emit pooled Sugar Crush shockwave, flatten into pancake, and stun for 2.2s
+    if (this.attackManager) {
+      this.attackManager.spawnShockwave(this.x, this.y, 80, 220);
+    }
     this.isSquashedPancake = true;
     this.applyStun(2.2);
 
@@ -232,8 +243,15 @@ export class GummyBearBoss extends BaseBoss {
     const toSpawn = Math.min(safeCount, this.maxCubs - this.activeCubCount);
     if (toSpawn > 0) {
       this.activeCubCount += toSpawn;
+      this.pendingCubSpawns += toSpawn;
       this.audio.playMinionCubPop();
     }
+  }
+
+  public consumePendingCubSpawns(): number {
+    const pending = this.pendingCubSpawns;
+    this.pendingCubSpawns = 0;
+    return pending;
   }
 
   public onMinionDefeated(): void {
@@ -286,6 +304,7 @@ export class GummyBearBoss extends BaseBoss {
   protected override onDefeated(): void {
     this.isAirborne = false;
     this.isSquashedPancake = false;
+    this.pendingCubSpawns = 0;
     this.clampPosition();
     this.audio.playDefeatGelatinDissolution();
   }
@@ -293,6 +312,8 @@ export class GummyBearBoss extends BaseBoss {
   public override destroy(): void {
     this.isAirborne = false;
     this.isSquashedPancake = false;
+    this.pendingCubSpawns = 0;
+    this.attackManager = null;
     this.audio.destroy();
     super.destroy();
   }

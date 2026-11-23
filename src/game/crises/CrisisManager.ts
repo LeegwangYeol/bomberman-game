@@ -47,6 +47,9 @@ const STAGE_NAMES: Record<CrisisStage, string> = Object.freeze({
 
 export class CrisisManager {
   private crisesRegistry: Map<CrisisType, ICrisis> = new Map();
+  private readonly _registeredTypes: CrisisType[] = [];
+  private readonly _registeredInstances: ICrisis[] = [];
+  private readonly _candidateTypes: CrisisType[] = [];
   private activeCrisis: ICrisis | null = null;
   private totalCrisesResolved: number = 0;
   private hasCountedResolution: boolean = false;
@@ -158,14 +161,20 @@ export class CrisisManager {
     }
   }
 
+  private registerCrisisInstance(type: CrisisType, instance: ICrisis): void {
+    this.crisesRegistry.set(type, instance);
+    this._registeredTypes.push(type);
+    this._registeredInstances.push(instance);
+  }
+
   private registerCrises(): void {
-    this.crisesRegistry.set(CrisisType.PASTEL_VOID, new VoidCrisis());
-    this.crisesRegistry.set(CrisisType.CLOCKWORK_REBELLION, new ClockworkCrisis());
-    this.crisesRegistry.set(CrisisType.ORBITAL_BOMBARDMENT, new OrbitalCrisis());
-    this.crisesRegistry.set(CrisisType.SOLAR_FLARES, new SolarFlareCrisis());
-    this.crisesRegistry.set(CrisisType.CREEPING_LAVA, new LavaCrisis());
-    this.crisesRegistry.set(CrisisType.DIMENSIONAL_RIFTS, new RiftCrisis());
-    this.crisesRegistry.set(CrisisType.PSYCHIC_INVASION, new PsychicCrisis());
+    this.registerCrisisInstance(CrisisType.PASTEL_VOID, new VoidCrisis());
+    this.registerCrisisInstance(CrisisType.CLOCKWORK_REBELLION, new ClockworkCrisis());
+    this.registerCrisisInstance(CrisisType.ORBITAL_BOMBARDMENT, new OrbitalCrisis());
+    this.registerCrisisInstance(CrisisType.SOLAR_FLARES, new SolarFlareCrisis());
+    this.registerCrisisInstance(CrisisType.CREEPING_LAVA, new LavaCrisis());
+    this.registerCrisisInstance(CrisisType.DIMENSIONAL_RIFTS, new RiftCrisis());
+    this.registerCrisisInstance(CrisisType.PSYCHIC_INVASION, new PsychicCrisis());
   }
 
   public triggerCrisis(type: CrisisType): void {
@@ -333,7 +342,7 @@ export class CrisisManager {
   }
 
   public getRegisteredCrisisTypes(): CrisisType[] {
-    return Array.from(this.crisesRegistry.keys());
+    return [...this._registeredTypes];
   }
 
   public hasCrisis(type: CrisisType): boolean {
@@ -345,11 +354,15 @@ export class CrisisManager {
   }
 
   public triggerRandomCrisis(excludeCurrent: boolean = true): CrisisType {
-    const types = Array.from(this.crisesRegistry.keys());
-    const candidates = excludeCurrent && this.activeCrisis
-      ? types.filter((t) => t !== this.activeCrisis?.id)
-      : types;
-    const pool = candidates.length > 0 ? candidates : types;
+    this._candidateTypes.length = 0;
+    const currentId = excludeCurrent && this.activeCrisis ? this.activeCrisis.id : null;
+    for (let i = 0; i < this._registeredTypes.length; i++) {
+      const t = this._registeredTypes[i];
+      if (t !== currentId) {
+        this._candidateTypes.push(t);
+      }
+    }
+    const pool = this._candidateTypes.length > 0 ? this._candidateTypes : this._registeredTypes;
     const chosen = pool[Math.floor(Math.random() * pool.length)] ?? CrisisType.PASTEL_VOID;
     this.triggerCrisis(chosen);
     return chosen;
@@ -439,8 +452,8 @@ export class CrisisManager {
       this.activeCrisis.reset();
       this.activeCrisis = null;
     }
-    for (const crisis of this.crisesRegistry.values()) {
-      crisis.reset();
+    for (let i = 0; i < this._registeredInstances.length; i++) {
+      this._registeredInstances[i].reset();
     }
     this.totalCrisesResolved = 0;
     this.hasCountedResolution = false;

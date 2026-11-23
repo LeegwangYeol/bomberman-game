@@ -1185,8 +1185,9 @@ export class GravityHazard {
       }
     }
 
-    // 2. 8 Radial Rays
-    for (const dir of COSMIC_RADIAL_DIRECTIONS) {
+    // 2. 8 Radial Rays (Zero-GC indexed iteration)
+    for (let di = 0; di < COSMIC_RADIAL_DIRECTIONS.length; di++) {
+      const dir = COSMIC_RADIAL_DIRECTIONS[di];
       for (let step = 1; step <= power; step++) {
         const nr = centerR + dir.dr * step;
         const nc = centerC + dir.dc * step;

@@ -2983,3 +2983,23 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - `tests/daily_cycle46_zerogc_queen_hamster_flora_relic_resume.test.mjs` 신규 구축 (8대 통합 회귀 시나리오 및 10,000프레임 `QueenBeeBoss`·`HamsterBoss`·`MutantFloraBoss`·`BossAttackManager`·`TelegraphEngine`·`RiftCrisis`·`ClockworkCrisis`·`OverheadUI` 연속 Zero-GC 소크 테스트 전수 통과 — 풀 누수 `0`건 및 힙 증가 한계 검증).
     - 전체 테스트 스위트: **2,389 / 2,389 PASS (100% 통과, 0 실패, 0 스킵, +8 테스트 순증)**.
     - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 1238ms 컴파일, 4/4 정적 라우트 사전 렌더링)**.
+
+
+### 47) 일일 정기 무한 진화(단일 에이전트 경량 유지보수): `CrisisManager`·`RiftCrisis`·`GravityHazard` Zero-GC 무할당화 및 `onResumeRunState` 아이템/폭탄/다진영 인플레이스 재활용, 17종 위기 바닥 해저드 비차폐 알파(`<= 0.40`) 강제, 5대 위기(`Clockwork`·`SolarFlare`·`Lava`·`Rift`·`Orbital`) 실전 아레나 기믹 연동, `SteamToyTitanBoss`·`GummyBearBoss` 전투 완성도 및 `ShieldGuardAlly` 도발 어그로·`BOSS_RUSH`/`CRISIS_SURVIVAL` 루프 완결 (Daily Auto-Maintenance: 2026-11-24 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 세션명: `[세션명: 봄버맨 일일 무한 진화]` (스케줄 백그라운드 단일 에이전트 자율 유지보수, 서브에이전트 스웜 미사용).
+  - **핵심 성능·Zero-GC 풀링 및 무결성 수리 내역**:
+    1. **`CrisisManager`·`RiftCrisis`·`GravityHazard` Zero-GC 무할당화 및 세이브/로드 인플레이스 재활용 (`CrisisManager.ts`, `RiftCrisis.ts`, `GravityHazard.ts`, `BaseEntity.ts`, `GameScene.ts`)**:
+       - `CrisisManager`에 `_registeredTypes`·`_registeredInstances`·`_candidateTypes` 배열을 사전 할당하여 `triggerRandomCrisis()`·`reset()` 호출 시 발생하던 `Array.from()` / `.filter()` / `Map.values()` 이터레이터 할당을 `0`건으로 제거하고, `RiftCrisis.applyExtraSerializedState()`의 `.map()`·`for...of` 할당을 기존 `rifts`/`spires` 슬롯 인플레이스 재사용으로 치환하였으며, `GravityHazard.computeCosmicRadialBlast()`의 8방향 광선 순회를 인덱스 루프로 전환.
+       - `GameScene.deactivatePooledGroupSprites()`를 도입하여 `onResumeRunState()` 시 `this.items`·`this.bombs` 그룹을 `.clear(true, true)`로 파괴하지 않고 인플레이스 비활성화·재활용하도록 개선하였으며, `activeEntities` 내 명시적 `ally`·`neutral` 엔티티의 인플레이스 `reviveAt()` 복원 지원, `spawnSpecificItem()`/`spawnItem()`의 `spawnTimeOverride` 보존(`MerchantNPC.onDeath(currentTime)` 사망 시각 정밀 유지), `BaseEntity.die()`·그룹 비활성화 헬퍼의 `bodyRef.gameObject` 방어 가드 추가, `startBossEncounter()` 시 `bossAttackManager.resetAll()` 재사용, `bossHitBombIds` 최대 64개 상한(`recordBossHitBombId`)을 적용.
+    2. **5대 위기 실전 아레나 기믹 연동 및 17종 위기 바닥 해저드 비차폐 알파(`<= 0.40`) 일원화 (`GameScene.ts`)**:
+       - `ClockworkCrisis`(Row 6/Col 7 컨베이어 벨트 드리프트, 클라이맥스 임시 `+3` 폭탄 슬롯 부여 및 `captureRunState` 직렬화 시 영구 팽창 방지 차감, `totalEmpPulsesFired` 연동 폭탄 기폭/`disarmActiveBomb` 무력화 및 슬롯 환급), `SolarFlareCrisis`(기둥 엄폐 밖 노출 폭탄 `flashIgniteBomb` 즉시 유폭 및 노출 플레이어 코로나 스윕 피격), `LavaCrisis`(보호 시간 만료 아이템 소각 + 그림자 풀 반환, 용암 위 폭탄 즉시 유폭 및 흑요석 `OBSIDIAN_BLOCK` 냉각 응고, 노출 플레이어 피격), `RiftCrisis`(아공간 균열 `teleportThroughRift` $\to$ `warpPlayer` 워프), `OrbitalCrisis`(`KINETIC_CRATER` 충격파 및 `CrisisStage.FAILED` 붕괴 피격)를 `GameScene.update()`에 Zero-GC 인덱스 패스로 정식 연결하고, 활성 위기 위험 타일 및 보스 텔레그래프를 AI 회피용 `persistentHazardMask`에 병합.
+       - `renderCrisisHazards()`의 전 17개 `HazardType` 분기 바닥 채우기 알파를 `<= 0.40`으로 엄격히 클램핑(냉각된 `THERMAL_VENT` 색상 구분 포함)하여 텍스트·아이템·스프라이트 시인성 침해를 원천 차단하고, 이미 `RESOLVED`/`FAILED`된 위기 세이브 로드 시 중복 클리어 보상이 지급되던 악용 경로를 차단.
+    3. **`SteamToyTitanBoss`·`GummyBearBoss` 실전 전투 완결, `ShieldGuardAlly` 도발 어그로 및 게임 모드 루프 연동 (`SteamToyTitanBoss.ts`, `GummyBearBoss.ts`, `BaseEntity.ts`, `AllyEntities.ts`, `GameScene.ts`, `BombermanGame.tsx`)**:
+       - `SteamToyTitanBoss`: 해머 차징 정지 중에도 직전 조준각을 유지하는 `facingAngle`(`getFacingAngle()`) 도입, `update()` 내 `gearProjectilePool` 물리 갱신, 정면 기어 실드 반사 시 풀링된 기어 파편(`spawnDeflectedGearShard`) 발사·플레이어 피격·렌더링, 증기 분출(`isSteamVenting`) 근접 둔화(`applyStompSlow`)를 완결.
+       - `GummyBearBoss`: 일반 착지 시 풀링된 설탕 분쇄 충격파(`attackManager.spawnShockwave`) 방출 및 `2.2s` `BossHUD` 스턴 동기화, 행군 중 젤라틴 피부 탄성 방어 텍스트(`'🐻 GELATIN SKIN DEFLECTED!'`), 페이즈 2+ `pendingCubSpawns` 연동 풀링된 `MiniSplitterEnemy` 젤리 컵 소환 및 무클로저 `bossOwnerRef` 사망 카운트 감산(`onMinionDefeated`)을 연결.
+       - `BaseEntity`에 `tauntTarget`·`tauntedUntil`을 추가하여 `ShieldGuardAlly` 도발 파동이 반경 내 적군 AI 타겟을 2.5초간 아이기스로 강제 전환한 뒤 만료 시 자동 해제되도록 구현하고, `BOSS_RUSH` 5연전 자동 진행(+완주 보너스 `+10000`점/`+100` 캔디/`+50` 에센스), `CRISIS_SURVIVAL` 위기 연속 순환(`triggerRandomCrisis(true)`), `BombermanGame.tsx`의 유물 자동 장착·이어하기 UI 상태 동기화를 완결.
+  - **신규 영구 방어 테스트 및 검증 지표**:
+    - `tests/daily_cycle47_zerogc_crisis_arena_titan_gummy_taunt_modes.test.mjs` 신규 구축 (8대 통합 회귀 시나리오 및 10,000프레임 활성 위기 순환·`SteamToyTitanBoss`·`GummyBearBoss`·`ShieldGuardAlly` 연속 Zero-GC 소크 테스트 전수 통과 — `Set` 할당 `0`건, 풀 누수 `0`건, 힙 증가 한계 검증).
+    - 전체 테스트 스위트: **2,397 / 2,397 PASS (100% 통과, 0 실패, 0 스킵, +8 테스트 순증)**.
+    - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 1332ms 컴파일, 4/4 정적 라우트 사전 렌더링)**.

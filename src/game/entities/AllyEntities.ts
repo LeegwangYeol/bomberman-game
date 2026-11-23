@@ -601,12 +601,14 @@ export class ShieldGuardAlly extends BaseEntity {
         }
       }
 
-      // Force enemies within radius to target Aegis
+      // Force enemies within radius to target Aegis for 2.5s
       for (let ei = 0; ei < enemies.length; ei++) {
         const e = enemies[ei];
         if (e && e.active && !e.isDead) {
           const dist = Phaser.Math.Distance.Between(this.x, this.y, e.x, e.y);
           if (dist <= this.config.tauntRadiusTiles * TILE_SIZE && !e.isStunned) {
+            e.tauntTarget = this;
+            e.tauntedUntil = Math.max(e.tauntedUntil || 0, currentTime + 2500);
             e.overheadUI.setIntent('💢', true);
           }
         }
@@ -645,7 +647,8 @@ export class ShieldGuardAlly extends BaseEntity {
 
     if (distToExplosion <= this.config.domeAbsorbRadiusTiles || distToPlayer <= 2) {
       this.overheadUI.setIntent('✨', true);
-      this.takeDamage(1, sourceBombOwner || 'enemy');
+      const nowMs = (this.scene as { time?: { now?: number } } | undefined)?.time?.now ?? 0;
+      this.takeDamage(1, sourceBombOwner || 'enemy', nowMs);
       return true; // Successfully absorbed!
     }
 

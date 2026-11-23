@@ -401,10 +401,11 @@ export class RiftCrisis extends BaseCrisis {
       this.warpsPerformedCount = 0;
     }
 
-    // 3. Subspace Rifts Network Restoration
+    // 3. Subspace Rifts Network Restoration (Zero-GC indexed in-place reuse)
+    let restoredRiftCount = 0;
     if (Array.isArray(extra.rifts)) {
-      const validRifts: { r: number; c: number }[] = [];
-      for (const raw of extra.rifts) {
+      for (let i = 0; i < extra.rifts.length; i++) {
+        const raw = extra.rifts[i];
         if (!raw || typeof raw !== 'object') continue;
         const item = raw as Record<string, unknown>;
         const r = item.r;
@@ -414,21 +415,33 @@ export class RiftCrisis extends BaseCrisis {
           Number.isInteger(r) && Number.isInteger(c) &&
           r >= 0 && r < ROWS && c >= 0 && c < COLS
         ) {
-          validRifts.push({ r, c });
+          let slot = this.rifts[restoredRiftCount];
+          if (!slot) {
+            slot = { r, c };
+            this.rifts.push(slot);
+          } else {
+            slot.r = r;
+            slot.c = c;
+          }
+          restoredRiftCount++;
         }
       }
-      if (validRifts.length > 0) {
-        this.rifts = validRifts;
+      if (restoredRiftCount > 0) {
+        this.rifts.length = restoredRiftCount;
       }
     }
-    if (this.rifts.length === 0) {
-      this.rifts = RiftCrisis.INITIAL_RIFT_POSITIONS.map((r) => ({ ...r }));
+    if (restoredRiftCount === 0 && this.rifts.length === 0) {
+      const initial = RiftCrisis.INITIAL_RIFT_POSITIONS;
+      for (let i = 0; i < initial.length; i++) {
+        this.rifts.push({ r: initial[i].r, c: initial[i].c });
+      }
     }
 
-    // 4. Dimensional Spires Restoration
+    // 4. Dimensional Spires Restoration (Zero-GC indexed in-place reuse)
+    let restoredSpireCount = 0;
     if (Array.isArray(extra.spires)) {
-      const validSpires: DimensionalSpire[] = [];
-      for (const raw of extra.spires) {
+      for (let i = 0; i < extra.spires.length; i++) {
+        const raw = extra.spires[i];
         if (!raw || typeof raw !== 'object') continue;
         const item = raw as Record<string, unknown>;
         const r = item.r;
@@ -444,26 +457,33 @@ export class RiftCrisis extends BaseCrisis {
               ? Math.max(0, item.hitTimestampMs)
               : 0;
 
-          validSpires.push({
-            r,
-            c,
-            isPolarized,
-            hitTimestampMs,
-          });
+          let slot = this.spires[restoredSpireCount];
+          if (!slot) {
+            slot = { r, c, isPolarized, hitTimestampMs };
+            this.spires.push(slot);
+          } else {
+            slot.r = r;
+            slot.c = c;
+            slot.isPolarized = isPolarized;
+            slot.hitTimestampMs = hitTimestampMs;
+          }
+          restoredSpireCount++;
         }
       }
-      if (validSpires.length > 0) {
-        this.spires = validSpires;
+      if (restoredSpireCount > 0) {
+        this.spires.length = restoredSpireCount;
       }
     }
 
-    if (this.spires.length === 0) {
-      this.spires = this.rifts.map((r) => ({
-        r: r.r,
-        c: r.c,
-        isPolarized: false,
-        hitTimestampMs: 0,
-      }));
+    if (restoredSpireCount === 0 && this.spires.length === 0) {
+      for (let i = 0; i < this.rifts.length; i++) {
+        this.spires.push({
+          r: this.rifts[i].r,
+          c: this.rifts[i].c,
+          isPolarized: false,
+          hitTimestampMs: 0,
+        });
+      }
     }
 
     // 5. Quantum Sync Active & Timer

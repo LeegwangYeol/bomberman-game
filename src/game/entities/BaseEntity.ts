@@ -101,6 +101,9 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
   public stunUntil: number = 0;
   public speedMultiplier: number = 1.0;
   public speedMultiplierUntilMs: number = 0;
+  public tauntTarget: BaseEntity | null = null;
+  public tauntedUntil: number = 0;
+  public bossOwnerRef: { onMinionDefeated: () => void } | null = null;
   public isDead: boolean = false;
   public moveSpeed: number = 70;
   public collisionRadius: number = 12;
@@ -261,6 +264,9 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
     this.stunUntil = 0;
     this.speedMultiplier = 1.0;
     this.speedMultiplierUntilMs = 0;
+    this.tauntTarget = null;
+    this.tauntedUntil = 0;
+    this.bossOwnerRef = null;
     this.stepCycle = 0;
     this.bobOffset = 0;
     this._isSquashStretching = false;
@@ -374,6 +380,13 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
 
     // Trigger archetype-specific on-death behavior (splits, loot drops, score)
     this.onDeath(currentTime);
+    if (this.bossOwnerRef) {
+      const owner = this.bossOwnerRef;
+      this.bossOwnerRef = null;
+      owner.onMinionDefeated();
+    }
+    this.tauntTarget = null;
+    this.tauntedUntil = 0;
 
     if (this.overheadUI) {
       this.overheadUI.destroy();
@@ -451,9 +464,11 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
       sceneTweens.killTweensOf(this);
     }
 
-    const bodyRef = this.body as (Phaser.Physics.Arcade.Body & { stop?: () => void }) | undefined;
+    const bodyRef = this.body as
+      | (Phaser.Physics.Arcade.Body & { gameObject?: unknown; stop?: () => void })
+      | undefined;
     if (bodyRef) {
-      if (typeof bodyRef.stop === 'function' && typeof this.disableBody === 'function') {
+      if (bodyRef.gameObject && typeof bodyRef.stop === 'function' && typeof this.disableBody === 'function') {
         this.disableBody(true, true);
       } else {
         if (typeof bodyRef.setVelocity === 'function') {
@@ -516,6 +531,14 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
     if (this.speedMultiplierUntilMs > 0 && currentTime >= this.speedMultiplierUntilMs) {
       this.speedMultiplier = 1.0;
       this.speedMultiplierUntilMs = 0;
+    }
+
+    if (
+      this.tauntTarget &&
+      (currentTime >= this.tauntedUntil || !this.tauntTarget.active || this.tauntTarget.isDead)
+    ) {
+      this.tauntTarget = null;
+      this.tauntedUntil = 0;
     }
 
     const body = this.body as Phaser.Physics.Arcade.Body | undefined;

@@ -73,6 +73,7 @@ export class SteamToyTitanBoss extends BaseBoss {
   public gearShieldActive: boolean = false;
   public gearRotationAngle: number = 0; // in radians
   public gearRotationSpeed: number = 2.0; // rad/s
+  public facingAngle: number = 0; // persisted facing angle in radians
 
   // Clockwork Crisis Synergy
   public isClockworkCrisisActive: boolean = false;
@@ -215,6 +216,69 @@ export class SteamToyTitanBoss extends BaseBoss {
     this.isClockworkCrisisActive = active;
   }
 
+  public getFacingAngle(): number {
+    if (
+      Number.isFinite(this.vx) &&
+      Number.isFinite(this.vy) &&
+      (Math.abs(this.vx) > 1e-6 || Math.abs(this.vy) > 1e-6)
+    ) {
+      this.facingAngle = Math.atan2(this.vy, this.vx);
+    }
+    return this.facingAngle;
+  }
+
+  public override update(dt: number, playerX: number = 0, playerY: number = 0): void {
+    super.update(dt, playerX, playerY);
+    this.getFacingAngle();
+    if (Number.isFinite(dt) && dt > 0 && this.bossState !== BossState.DEFEATED) {
+      this.updateGearProjectiles(dt);
+    }
+  }
+
+  private updateGearProjectiles(dt: number): void {
+    const dtSec = dt / 1000;
+    for (let i = this.gearProjectilePool.activeCount - 1; i >= 0; i--) {
+      const gp = this.gearProjectilePool.getActive(i);
+      if (!gp) continue;
+      if (!Number.isFinite(gp.x) || !Number.isFinite(gp.y) || !Number.isFinite(gp.timerMs)) {
+        this.gearProjectilePool.release(gp);
+        continue;
+      }
+      gp.x += gp.vx * dtSec;
+      gp.y += gp.vy * dtSec;
+      gp.timerMs -= dt;
+      if (gp.timerMs <= 0 || gp.x < 0 || gp.x > 600 || gp.y < 0 || gp.y > 520) {
+        this.gearProjectilePool.release(gp);
+      }
+    }
+  }
+
+  public spawnDeflectedGearShard(sourceX: number, sourceY: number): BossProjectile | null {
+    const gp = this.gearProjectilePool.acquire();
+    if (!gp) return null;
+    const safeOriginX = Number.isFinite(this.x) ? this.x : 300;
+    const safeOriginY = Number.isFinite(this.y) ? this.y : 260;
+    const dx = (Number.isFinite(sourceX) ? sourceX : safeOriginX + 40) - safeOriginX;
+    const dy = (Number.isFinite(sourceY) ? sourceY : safeOriginY) - safeOriginY;
+    const dist = Math.hypot(dx, dy);
+    const speed = 180;
+    const angle = dist > 1e-4 ? Math.atan2(dy, dx) : this.getFacingAngle();
+    gp.active = true;
+    gp.type = BossProjectileType.GEAR_SHARD;
+    gp.x = safeOriginX;
+    gp.y = safeOriginY;
+    gp.vx = Math.cos(angle) * speed;
+    gp.vy = Math.sin(angle) * speed;
+    gp.radius = 10;
+    gp.damage = 1;
+    gp.timerMs = 2200;
+    gp.maxDurationMs = 2200;
+    gp.homing = false;
+    gp.targetX = 0;
+    gp.targetY = 0;
+    return gp;
+  }
+
   public override applyStun(durationSec: number): void {
     if (
       !Number.isFinite(durationSec) ||
@@ -226,6 +290,7 @@ export class SteamToyTitanBoss extends BaseBoss {
     }
     if (this.bossState === BossState.INTRO) {
       this.shockwavePool.releaseAll();
+      this.gearProjectilePool.releaseAll();
       return;
     }
     this.isMalletWindingUp = false;
@@ -237,6 +302,7 @@ export class SteamToyTitanBoss extends BaseBoss {
       this.preallocatedTelegraphs[i].active = false;
     }
     this.shockwavePool.releaseAll();
+    this.gearProjectilePool.releaseAll();
     this.vx = 0;
     this.vy = 0;
     super.applyStun(durationSec);
@@ -323,6 +389,7 @@ export class SteamToyTitanBoss extends BaseBoss {
         this.preallocatedTelegraphs[i].active = false;
       }
       this.shockwavePool.releaseAll();
+      this.gearProjectilePool.releaseAll();
       this.vx = 0;
       this.vy = 0;
     } else if (nextState === BossState.STUNNED) {
@@ -335,6 +402,7 @@ export class SteamToyTitanBoss extends BaseBoss {
         this.preallocatedTelegraphs[i].active = false;
       }
       this.shockwavePool.releaseAll();
+      this.gearProjectilePool.releaseAll();
       this.vx = 0;
       this.vy = 0;
     } else if (prevState === BossState.STUNNED) {
@@ -734,7 +802,7 @@ export class SteamToyTitanBoss extends BaseBoss {
     const dx = sourceX - this.x;
     const dy = sourceY - this.y;
     const angleToSource = Math.atan2(dy, dx);
-    const facingAngle = Math.atan2(this.vy, this.vx);
+    const facingAngle = this.getFacingAngle();
 
     let angleDiff = Math.abs(angleToSource - facingAngle);
     if (angleDiff > Math.PI) {

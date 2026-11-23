@@ -154,6 +154,10 @@ import {
   CrisisStage,
   HazardType,
   SituationLog,
+  ClockworkCrisis,
+  SolarFlareCrisis,
+  LavaCrisis,
+  RiftCrisis,
   PsychicCrisisAudio,
   VoidCrisisAudio,
   ClockworkCrisisAudio,
@@ -286,7 +290,16 @@ import {
   HazardRenderer,
   type HazardRendererContext,
 } from './hazards/index.ts';
-import { PerkTreeManager, RelicManager, WaveDirector, RelicId, type AppliedPerkBonuses, type WaveMutator } from './progression/index.ts';
+import {
+  PerkTreeManager,
+  RelicManager,
+  WaveDirector,
+  RelicId,
+  GameModeType,
+  BOSS_RUSH_SEQUENCE,
+  type AppliedPerkBonuses,
+  type WaveMutator,
+} from './progression/index.ts';
 
 import { decompressGrid, compressGrid } from './persistence/GameStatePersistence.ts';
 import type {
@@ -295,7 +308,6 @@ import type {
   SerializedBomb,
   SerializedItem,
   SerializedEntity,
-  GameModeType,
 } from './persistence/PersistenceTypes.ts';
 
 interface PooledEnemySprite extends BaseEntity {
@@ -639,7 +651,198 @@ export default class GameScene extends Phaser.Scene {
     this.cosmicEssence = (this.cosmicEssence || 0) + 25;
     this.game?.events?.emit('currency-reward', { starCandies: 50, cosmicEssence: 25 });
     this.dismissBoss();
+
+    if (this.activeGameMode === GameModeType.BOSS_RUSH && !this.isGameOver) {
+      this.currentBossIndex = Math.max(0, this.currentBossIndex) + 1;
+      if (this.currentBossIndex < BOSS_RUSH_SEQUENCE.length) {
+        const nextEntry = BOSS_RUSH_SEQUENCE[this.currentBossIndex];
+        const nextBossId =
+          nextEntry.id === 'void_devourer_avatar' ? 'boss_mutant_flora' : nextEntry.id;
+        if (this.nextBossTimer) {
+          this.nextBossTimer.remove?.(false);
+          this.nextBossTimer = null;
+        }
+        if (this.time?.delayedCall) {
+          this.nextBossTimer = this.time.delayedCall(1200, () => {
+            this.nextBossTimer = null;
+            if (!this.isGameOver && this.activeGameMode === GameModeType.BOSS_RUSH) {
+              this.startBossEncounter(nextBossId);
+            }
+          });
+        }
+      } else {
+        // Boss Rush Gauntlet Complete Bonus!
+        this.currentBossIndex = 0;
+        this.score += 10000;
+        this.starCandies = (this.starCandies || 0) + 100;
+        this.cosmicEssence = (this.cosmicEssence || 0) + 50;
+        this.game?.events?.emit('currency-reward', { starCandies: 100, cosmicEssence: 50 });
+        if (this.player) {
+          this.spawnFloatingText(
+            this.player.x,
+            this.player.y - 28,
+            '🏆 BOSS RUSH CONQUERED! +10000 SCORE',
+            '#fbbf24'
+          );
+        }
+      }
+    }
+
     this.emitStatsUpdate();
+  }
+
+  private deactivatePooledGroupSprites(group?: Phaser.Physics.Arcade.Group | null): void {
+    if (!group || typeof group.getChildren !== 'function') return;
+    const children = group.getChildren();
+    for (let i = 0; i < children.length; i++) {
+      const sp = children[i] as Phaser.Physics.Arcade.Sprite | undefined;
+      if (!sp) continue;
+      if (this.tweens?.killTweensOf) {
+        this.tweens.killTweensOf(sp);
+      }
+      const bodyRef = sp.body as
+        | (Phaser.Physics.Arcade.Body & { gameObject?: unknown; stop?: () => void })
+        | undefined;
+      if (bodyRef && bodyRef.gameObject && typeof bodyRef.stop === 'function' && typeof sp.disableBody === 'function') {
+        sp.disableBody(true, true);
+      } else {
+        if (bodyRef) {
+          if (typeof bodyRef.setVelocity === 'function') {
+            bodyRef.setVelocity(0, 0);
+          } else if (bodyRef.velocity) {
+            bodyRef.velocity.x = 0;
+            bodyRef.velocity.y = 0;
+          }
+          bodyRef.enable = false;
+        }
+        sp.setActive?.(false);
+        sp.setVisible?.(false);
+      }
+    }
+  }
+
+  private clearCrisisBonusBombs(): void {
+    if (this.crisisBonusBombSlotsApplied > 0) {
+      this.maxBombs = Math.max(BASE_MAX_BOMBS, this.maxBombs - this.crisisBonusBombSlotsApplied);
+      this.crisisBonusBombSlotsApplied = 0;
+    }
+  }
+
+  private cancelModeChainTimers(): void {
+    if (this.nextBossTimer) {
+      this.nextBossTimer.remove?.(false);
+      this.nextBossTimer = null;
+    }
+    if (this.nextCrisisTimer) {
+      this.nextCrisisTimer.remove?.(false);
+      this.nextCrisisTimer = null;
+    }
+  }
+
+  private recordBossHitBombId(bId?: string): void {
+    if (!bId) return;
+    if (this.bossHitBombIds.size >= 64) {
+      const oldest = this.bossHitBombIds.values().next().value;
+      if (oldest !== undefined) {
+        this.bossHitBombIds.delete(oldest);
+      }
+    }
+    this.bossHitBombIds.add(bId);
+    this.time?.delayedCall?.(1000, () => {
+      this.bossHitBombIds.delete(bId);
+    });
+  }
+
+  private disarmActiveBomb(bomb: Phaser.Physics.Arcade.Sprite): void {
+    if (!bomb || !bomb.active) return;
+    const owner = (bomb.getData?.('owner') as string | undefined) || 'player';
+    const isGhostBomb = Boolean(bomb.getData?.('isGhostBomb'));
+    const enemy = bomb.getData?.('enemy') as (BaseEntity | BomberEnemy) | undefined;
+    const ally = bomb.getData?.('ally') as MiniBomberAlly | undefined;
+    const bx = bomb.x;
+    const by = bomb.y;
+
+    this.resetPooledBombState(bomb);
+    const bodyRef = bomb.body as
+      | (Phaser.Physics.Arcade.Body & { gameObject?: unknown; stop?: () => void })
+      | undefined;
+    if (bodyRef && bodyRef.gameObject && typeof bodyRef.stop === 'function' && typeof bomb.disableBody === 'function') {
+      bomb.disableBody(true, true);
+    } else {
+      if (bodyRef) {
+        if (typeof bodyRef.setVelocity === 'function') bodyRef.setVelocity(0, 0);
+        bodyRef.enable = false;
+      }
+      bomb.setActive?.(false);
+      bomb.setVisible?.(false);
+    }
+
+    if (owner === 'player' && !isGhostBomb) {
+      this.activeBombs = Math.max(0, this.activeBombs - 1);
+      this.emitStatsUpdate();
+    } else if (owner === 'enemy' && enemy) {
+      if ('onBombExploded' in enemy && typeof enemy.onBombExploded === 'function') {
+        enemy.onBombExploded();
+      } else if (typeof (enemy as { activeBombs?: number }).activeBombs === 'number') {
+        (enemy as { activeBombs: number }).activeBombs = Math.max(
+          0,
+          (enemy as { activeBombs: number }).activeBombs - 1
+        );
+      }
+    } else if (owner === 'ally' && ally) {
+      if ('onBombExploded' in ally && typeof ally.onBombExploded === 'function') {
+        ally.onBombExploded();
+      } else if (typeof ally.activeBombs === 'number') {
+        ally.activeBombs = Math.max(0, ally.activeBombs - 1);
+      }
+    }
+
+    this.spawnFloatingText(bx, by - 20, '⚡ EMP DISARMED!', '#38bdf8');
+  }
+
+  private spawnGummyBossCubs(boss: GummyBearBoss, count: number): void {
+    if (!this.enemies || count <= 0) return;
+    const centerR = Math.max(1, Math.min(ROWS - 2, Math.floor(boss.y / TILE_SIZE)));
+    const centerC = Math.max(1, Math.min(COLS - 2, Math.floor(boss.x / TILE_SIZE)));
+    const children = this.enemies.getChildren();
+    let spawned = 0;
+
+    for (let ring = 1; ring <= 2 && spawned < count; ring++) {
+      for (let di = 0; di < GameScene.SPAWN_ORTHOGONAL_DIRS.length && spawned < count; di++) {
+        const dir = GameScene.SPAWN_ORTHOGONAL_DIRS[di];
+        const tr = centerR + dir.dr * ring;
+        const tc = centerC + dir.dc * ring;
+        if (tr < 1 || tr >= ROWS - 1 || tc < 1 || tc >= COLS - 1) continue;
+        if (this.map?.[tr]?.[tc] !== TILE_EMPTY) continue;
+
+        const sx = tc * TILE_SIZE + TILE_SIZE / 2;
+        const sy = tr * TILE_SIZE + TILE_SIZE / 2;
+        let cub: MiniSplitterEnemy | undefined;
+        for (let ci = 0; ci < children.length; ci++) {
+          const cand = children[ci] as unknown as MiniSplitterEnemy;
+          if (cand && !cand.active && cand.scene && cand instanceof MiniSplitterEnemy) {
+            cub = cand.reviveAt(sx, sy);
+            break;
+          }
+        }
+        if (!cub) {
+          cub = new MiniSplitterEnemy(this, sx, sy);
+          (cub as unknown as PooledEnemySprite).archetype = 'SPLITTER_MINI';
+          this.enemies.add(cub);
+        }
+        cub.bossOwnerRef = boss;
+        cub.setTint?.(0xf43f5e);
+        if (!cub.dropShadow || !cub.dropShadow.active) {
+          this.attachEntityDropShadow(cub, 0.72);
+        }
+        spawned++;
+      }
+    }
+
+    // Reconcile unspawned slots if arena was completely walled around boss
+    for (let rem = spawned; rem < count; rem++) {
+      boss.onMinionDefeated();
+    }
   }
 
   private deactivateGroupEntities(group?: Phaser.Physics.Arcade.Group | null): void {
@@ -662,9 +865,14 @@ export default class GameScene extends Phaser.Scene {
       if (ent.overheadUI && !ent.overheadUI.isDestroyed) {
         ent.overheadUI.destroy();
       }
+      ent.bossOwnerRef = null;
+      ent.tauntTarget = null;
+      ent.tauntedUntil = 0;
       ent.isDead = true;
-      const bodyRef = ent.body as (Phaser.Physics.Arcade.Body & { stop?: () => void }) | undefined;
-      if (bodyRef && typeof bodyRef.stop === 'function' && typeof ent.disableBody === 'function') {
+      const bodyRef = ent.body as
+        | (Phaser.Physics.Arcade.Body & { gameObject?: unknown; stop?: () => void })
+        | undefined;
+      if (bodyRef && bodyRef.gameObject && typeof bodyRef.stop === 'function' && typeof ent.disableBody === 'function') {
         ent.disableBody(true, true);
       } else {
         if (bodyRef) {
@@ -720,6 +928,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     if (boss instanceof SteamToyTitanBoss && boss.checkGearDeflection(tx, ty)) {
+      boss.spawnDeflectedGearShard(tx, ty);
       this.spawnFloatingText(boss.x, boss.y - 24, '⚙️ GEAR DEFLECTED!', '#f59e0b');
       return true;
     }
@@ -754,12 +963,7 @@ export default class GameScene extends Phaser.Scene {
         if (dist < bossRadius + 16) {
           const bId =
             typeof bomb.getData === 'function' ? (bomb.getData('id') as string | undefined) : undefined;
-          if (bId) {
-            this.bossHitBombIds.add(bId);
-            this.time?.delayedCall?.(1000, () => {
-              this.bossHitBombIds.delete(bId);
-            });
-          }
+          this.recordBossHitBombId(bId);
           const bCol = Math.floor(bomb.x / TILE_SIZE);
           const bRow = Math.floor(bomb.y / TILE_SIZE);
           this.explodeBomb(bomb, bRow, bCol);
@@ -783,12 +987,7 @@ export default class GameScene extends Phaser.Scene {
         if (dist < bossRadius + 16) {
           const bId =
             typeof bomb.getData === 'function' ? (bomb.getData('id') as string | undefined) : undefined;
-          if (bId) {
-            this.bossHitBombIds.add(bId);
-            this.time?.delayedCall?.(1000, () => {
-              this.bossHitBombIds.delete(bId);
-            });
-          }
+          this.recordBossHitBombId(bId);
           const bCol = Math.floor(bomb.x / TILE_SIZE);
           const bRow = Math.floor(bomb.y / TILE_SIZE);
           this.explodeBomb(bomb, bRow, bCol);
@@ -814,12 +1013,7 @@ export default class GameScene extends Phaser.Scene {
         if (dist < bossRadius + 16) {
           const bId =
             typeof bomb.getData === 'function' ? (bomb.getData('id') as string | undefined) : undefined;
-          if (bId) {
-            this.bossHitBombIds.add(bId);
-            this.time?.delayedCall?.(1000, () => {
-              this.bossHitBombIds.delete(bId);
-            });
-          }
+          this.recordBossHitBombId(bId);
           const bCol = Math.floor(bomb.x / TILE_SIZE);
           const bRow = Math.floor(bomb.y / TILE_SIZE);
           this.explodeBomb(bomb, bRow, bCol);
@@ -946,10 +1140,29 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  private readonly _clockworkRowConveyor: ConveyorConfig = { row: 6, col: 1, dirX: 1, dirY: 0 };
+  private readonly _clockworkColConveyor: ConveyorConfig = { row: 1, col: 7, dirX: 0, dirY: 1 };
+
   private getConveyorAt(row: number, col: number): ConveyorConfig | undefined {
     for (let i = 0; i < this.conveyors.length; i++) {
       const c = this.conveyors[i];
       if (c.row === row && c.col === col) return c;
+    }
+    if (
+      this.crisisManager?.isCrisisActive() &&
+      this.crisisManager.getCurrentCrisisType() === CrisisType.CLOCKWORK_REBELLION
+    ) {
+      const h = this.crisisManager.getHazardAt(row, col);
+      if (h && h.type === HazardType.CONVEYOR_BELT) {
+        if (h.data === 2) {
+          this._clockworkColConveyor.row = row;
+          this._clockworkColConveyor.col = col;
+          return this._clockworkColConveyor;
+        }
+        this._clockworkRowConveyor.row = row;
+        this._clockworkRowConveyor.col = col;
+        return this._clockworkRowConveyor;
+      }
     }
     return undefined;
   }
@@ -1030,11 +1243,17 @@ export default class GameScene extends Phaser.Scene {
   private statsTimerAccumulator: number = 0;
 
   // Crisis Subsystem & Progression Integration
+  public activeGameMode: GameModeType = GameModeType.STANDARD;
   public crisisManager: CrisisManager = new CrisisManager();
   public waveDirector: WaveDirector = new WaveDirector(this.crisisManager);
   public situationLog: SituationLog | null = null;
   public crisisGraphics: Phaser.GameObjects.Graphics | null = null;
   public hasRewardedActiveCrisis: boolean = false;
+  public hasFailedActiveCrisis: boolean = false;
+  private crisisBonusBombSlotsApplied: number = 0;
+  private lastHandledEmpPulseCount: number = 0;
+  private nextBossTimer: Phaser.Time.TimerEvent | null = null;
+  private nextCrisisTimer: Phaser.Time.TimerEvent | null = null;
 
   // Dynamic Hazard System Integration
   public dynamicHazard: DynamicHazard = new DynamicHazard();
@@ -1464,13 +1683,19 @@ export default class GameScene extends Phaser.Scene {
 
   private onModeChanged = (mode: string) => {
     const normalized = (mode || '').toLowerCase();
+    this.cancelModeChainTimers();
     if (normalized === 'boss_rush') {
+      this.activeGameMode = GameModeType.BOSS_RUSH;
+      this.currentBossIndex = 0;
       this.stopCrisisMode();
-      this.startBossEncounter('king_gummy_bear');
+      this.startBossEncounter(BOSS_RUSH_SEQUENCE[0].id);
     } else if (normalized === 'crisis_survival') {
+      this.activeGameMode = GameModeType.CRISIS_SURVIVAL;
       this.dismissBoss();
       this.startCrisisMode(CrisisType.PASTEL_VOID);
     } else {
+      this.activeGameMode =
+        normalized === 'endless_gauntlet' ? GameModeType.ENDLESS_GAUNTLET : GameModeType.STANDARD;
       if (this.activeBoss) {
         this.dismissBoss();
       }
@@ -1481,6 +1706,8 @@ export default class GameScene extends Phaser.Scene {
   public startCrisisMode(type: CrisisType = CrisisType.PASTEL_VOID): void {
     this.stopCrisisMode();
     this.hasRewardedActiveCrisis = false;
+    this.hasFailedActiveCrisis = false;
+    this.lastHandledEmpPulseCount = 0;
     this.crisisManager.triggerCrisis(type);
     if (this.situationLog) {
       this.situationLog.updateFromCrisisManager(this.crisisManager, Date.now(), true);
@@ -1492,6 +1719,13 @@ export default class GameScene extends Phaser.Scene {
 
   public stopCrisisMode(): void {
     this.hasRewardedActiveCrisis = false;
+    this.hasFailedActiveCrisis = false;
+    this.lastHandledEmpPulseCount = 0;
+    this.clearCrisisBonusBombs();
+    if (this.nextCrisisTimer) {
+      this.nextCrisisTimer.remove?.(false);
+      this.nextCrisisTimer = null;
+    }
     if (this.crisisManager) {
       this.crisisManager.stopCrisis('reset');
     }
@@ -1640,10 +1874,25 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
     const state = savedRun as Partial<SerializedRunState>;
+    this.cancelModeChainTimers();
+    this.clearCrisisBonusBombs();
 
-    // 1. Restore score
-    if (state.meta && typeof state.meta.score === 'number') {
-      this.score = state.meta.score;
+    // 1. Restore score & game mode
+    if (state.meta) {
+      if (typeof state.meta.score === 'number') {
+        this.score = state.meta.score;
+      }
+      if (typeof state.meta.gameMode === 'string') {
+        const gm = state.meta.gameMode.toUpperCase();
+        if (
+          gm === GameModeType.STANDARD ||
+          gm === GameModeType.ENDLESS_GAUNTLET ||
+          gm === GameModeType.CRISIS_SURVIVAL ||
+          gm === GameModeType.BOSS_RUSH
+        ) {
+          this.activeGameMode = gm as GameModeType;
+        }
+      }
     }
 
     // 2. Restore board
@@ -1805,11 +2054,12 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    // 4. Restore items
+    // 4. Restore items (Zero-GC in-place pooled sprite recycling)
     if (this.items && Array.isArray(state.activeItems)) {
       this.releaseAllItemShadows();
-      this.items.clear(true, true);
-      for (const it of state.activeItems) {
+      this.deactivatePooledGroupSprites(this.items);
+      for (let ii = 0; ii < state.activeItems.length; ii++) {
+        const it = state.activeItems[ii];
         if (it && typeof it.row === 'number' && typeof it.col === 'number' && it.itemType) {
           const rawType = String(it.itemType);
           const upperType = rawType.toUpperCase();
@@ -1820,21 +2070,106 @@ export default class GameScene extends Phaser.Scene {
                 ? upperType
                 : 'BOMB_UP'
           ) as ItemType;
-          this.spawnItem(it.row, it.col, resolvedType);
+          this.spawnItem(
+            it.row,
+            it.col,
+            resolvedType,
+            typeof it.spawnTime === 'number' && Number.isFinite(it.spawnTime) ? it.spawnTime : undefined
+          );
         }
       }
     }
 
-    // 4b. Restore active enemies when explicitly serialized (Zero-GC pooled entity revival)
+    // 4b. Restore active entities when explicitly serialized (Zero-GC pooled entity revival across factions)
     if (this.enemies && Array.isArray(state.activeEntities)) {
       this.deactivateGroupEntities(this.enemies);
-      const existingChildren = this.enemies.getChildren();
+      let hasExplicitAllies = false;
+      let hasExplicitNeutrals = false;
+      for (let ei = 0; ei < state.activeEntities.length; ei++) {
+        const fac = state.activeEntities[ei]?.faction;
+        if (fac === 'ally') hasExplicitAllies = true;
+        else if (fac === 'neutral') hasExplicitNeutrals = true;
+      }
+      if (hasExplicitAllies && this.allies) {
+        this.deactivateGroupEntities(this.allies);
+      }
+      if (hasExplicitNeutrals && this.neutrals) {
+        this.deactivateGroupEntities(this.neutrals);
+      }
+
+      const existingEnemies = this.enemies.getChildren();
+      const existingAllies = this.allies ? this.allies.getChildren() : [];
+      const existingNeutrals = this.neutrals ? this.neutrals.getChildren() : [];
+
       for (let ei = 0; ei < state.activeEntities.length; ei++) {
         const se = state.activeEntities[ei];
-        if (!se || (se.faction && se.faction !== 'enemy')) continue;
+        if (!se) continue;
         const sx = typeof se.x === 'number' && Number.isFinite(se.x) ? se.x : 5 * TILE_SIZE + TILE_SIZE / 2;
         const sy = typeof se.y === 'number' && Number.isFinite(se.y) ? se.y : 5 * TILE_SIZE + TILE_SIZE / 2;
         const rawArch = String(se.archetype || 'CHASER').toUpperCase();
+
+        if (se.faction === 'ally' && this.allies) {
+          const allyType: AllyType =
+            rawArch === 'PET_DRONE' || rawArch === 'SHIELD_GUARD' ? rawArch : 'MINI_BOMBER';
+          let allyEnt: BaseEntity | undefined;
+          for (let ci = 0; ci < existingAllies.length; ci++) {
+            const cand = existingAllies[ci] as unknown as BaseEntity;
+            if (cand && !cand.active && cand.scene && cand.entityType === allyType) {
+              allyEnt = cand.reviveAt(sx, sy);
+              break;
+            }
+          }
+          if (!allyEnt) {
+            allyEnt = createAlly(this, allyType, sx, sy);
+            this.allies.add(allyEnt);
+          }
+          if (typeof se.maxHp === 'number' && Number.isFinite(se.maxHp) && se.maxHp >= 1) {
+            allyEnt.maxHp = se.maxHp;
+          }
+          if (typeof se.hp === 'number' && Number.isFinite(se.hp) && se.hp >= 1) {
+            allyEnt.hp = Math.min(allyEnt.maxHp, se.hp);
+          }
+          if (allyEnt.overheadUI) {
+            allyEnt.overheadUI.maxHp = allyEnt.maxHp;
+            allyEnt.overheadUI.update(allyEnt.x, allyEnt.y, allyEnt.hp);
+          }
+          if (!allyEnt.dropShadow || !allyEnt.dropShadow.active) {
+            this.attachEntityDropShadow(allyEnt, allyEnt.dropShadowScale || 1.0);
+          }
+          continue;
+        }
+
+        if (se.faction === 'neutral' && this.neutrals) {
+          const neutralType: NeutralType = rawArch === 'MERCHANT' ? 'MERCHANT' : 'CRITTER';
+          let neutralEnt: BaseEntity | undefined;
+          for (let ci = 0; ci < existingNeutrals.length; ci++) {
+            const cand = existingNeutrals[ci] as unknown as BaseEntity;
+            if (cand && !cand.active && cand.scene && cand.entityType === neutralType) {
+              neutralEnt = cand.reviveAt(sx, sy);
+              break;
+            }
+          }
+          if (!neutralEnt) {
+            neutralEnt = createNeutral(this, neutralType, sx, sy);
+            this.neutrals.add(neutralEnt);
+          }
+          if (typeof se.maxHp === 'number' && Number.isFinite(se.maxHp) && se.maxHp >= 1) {
+            neutralEnt.maxHp = se.maxHp;
+          }
+          if (typeof se.hp === 'number' && Number.isFinite(se.hp) && se.hp >= 1) {
+            neutralEnt.hp = Math.min(neutralEnt.maxHp, se.hp);
+          }
+          if (neutralEnt.overheadUI) {
+            neutralEnt.overheadUI.maxHp = neutralEnt.maxHp;
+            neutralEnt.overheadUI.update(neutralEnt.x, neutralEnt.y, neutralEnt.hp);
+          }
+          if (!neutralEnt.dropShadow || !neutralEnt.dropShadow.active) {
+            this.attachEntityDropShadow(neutralEnt, neutralEnt.dropShadowScale || 1.0);
+          }
+          continue;
+        }
+
+        if (se.faction && se.faction !== 'enemy') continue;
         const isMini = rawArch === 'SPLITTER_MINI' || rawArch === 'MINISPLITTER';
         const targetArch = isMini
           ? 'SPLITTER_MINI'
@@ -1843,8 +2178,8 @@ export default class GameScene extends Phaser.Scene {
             : 'CHASER';
 
         let ent: PooledEnemySprite | undefined;
-        for (let ci = 0; ci < existingChildren.length; ci++) {
-          const candidate = existingChildren[ci] as unknown as PooledEnemySprite;
+        for (let ci = 0; ci < existingEnemies.length; ci++) {
+          const candidate = existingEnemies[ci] as unknown as PooledEnemySprite;
           if (
             candidate &&
             !candidate.active &&
@@ -1893,10 +2228,10 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    // 4c. Restore active bombs when explicitly serialized
+    // 4c. Restore active bombs when explicitly serialized (Zero-GC in-place pooled sprite recycling)
     if (this.bombs && Array.isArray(state.activeBombs)) {
       this.releaseAllActiveBombResources();
-      this.bombs.clear(true, true);
+      this.deactivatePooledGroupSprites(this.bombs);
       this.activeBombs = 0;
       for (let bi = 0; bi < state.activeBombs.length; bi++) {
         const sb = state.activeBombs[bi];
@@ -1977,6 +2312,26 @@ export default class GameScene extends Phaser.Scene {
     // 5. Restore crisis & situation log state
     if (state.crisis && this.crisisManager) {
       this.crisisManager.deserialize(state.crisis);
+      const restoredCrisis = this.crisisManager.getActiveCrisis();
+      this.hasRewardedActiveCrisis = Boolean(
+        state.crisis.isVictorious ||
+          state.crisis.stage === CrisisStage.RESOLVED ||
+          restoredCrisis?.getStage() === CrisisStage.RESOLVED
+      );
+      this.hasFailedActiveCrisis = Boolean(
+        state.crisis.isDefeated ||
+          state.crisis.stage === CrisisStage.FAILED ||
+          restoredCrisis?.getStage() === CrisisStage.FAILED
+      );
+      if (restoredCrisis instanceof ClockworkCrisis) {
+        this.lastHandledEmpPulseCount = restoredCrisis.totalEmpPulsesFired;
+        if (restoredCrisis.bonusBombSlotsGranted && this.crisisBonusBombSlotsApplied === 0) {
+          this.maxBombs += 3;
+          this.crisisBonusBombSlotsApplied = 3;
+        }
+      } else {
+        this.lastHandledEmpPulseCount = 0;
+      }
       if (this.situationLog) {
         if (state.situationLog) {
           this.situationLog.deserialize(state.situationLog);
@@ -1985,6 +2340,9 @@ export default class GameScene extends Phaser.Scene {
         }
       }
     } else if (state.crisis === null && this.crisisManager) {
+      this.hasRewardedActiveCrisis = false;
+      this.hasFailedActiveCrisis = false;
+      this.lastHandledEmpPulseCount = 0;
       this.crisisManager.stopCrisis('reset');
       if (this.situationLog) {
         this.situationLog.reset();
@@ -2110,6 +2468,14 @@ export default class GameScene extends Phaser.Scene {
     const sitLogState = this.situationLog ? this.situationLog.serialize() : null;
     const relicState = this.relicManager ? this.relicManager.serialize() : null;
 
+    const capturedStats = this.getStats();
+    if (this.crisisBonusBombSlotsApplied > 0) {
+      capturedStats.maxBombs = Math.max(
+        BASE_MAX_BOMBS,
+        capturedStats.maxBombs - this.crisisBonusBombSlotsApplied
+      );
+    }
+
     return {
       version: 1,
       timestamp: Date.now(),
@@ -2117,7 +2483,7 @@ export default class GameScene extends Phaser.Scene {
       meta: {
         runId: `run_${Date.now()}`,
         stageIndex: 1,
-        gameMode: 'STANDARD' as GameModeType,
+        gameMode: this.activeGameMode || GameModeType.STANDARD,
         score: this.score,
         elapsedTimeMs: 0,
         activeCrisesCount: crisisState && crisisState.stage !== CrisisStage.INACTIVE ? 1 : 0,
@@ -2129,7 +2495,7 @@ export default class GameScene extends Phaser.Scene {
         gridRow: playerRow,
         gridCol: playerCol,
         facing: this.playerFacing || 'down',
-        stats: this.getStats(),
+        stats: capturedStats,
         hp: this.extraLives + 1,
       },
       board: {
@@ -2179,6 +2545,11 @@ export default class GameScene extends Phaser.Scene {
       this.activeChronoFreezeTimer.remove?.(false);
       this.activeChronoFreezeTimer = null;
     }
+    this.cancelModeChainTimers();
+    this.clearCrisisBonusBombs();
+    this.hasRewardedActiveCrisis = false;
+    this.hasFailedActiveCrisis = false;
+    this.lastHandledEmpPulseCount = 0;
     this.activeChronoSpeedBoost = 0;
     this.crisisGraphicsDirty = false;
     this.lastFrostAudioState = FrostLifecycleState.DORMANT;
@@ -2246,6 +2617,7 @@ export default class GameScene extends Phaser.Scene {
     this.num4Key = undefined;
     this.num5Key = undefined;
 
+    this.cancelModeChainTimers();
     this.dismissBoss();
     if (this.bossAttackManager) {
       this.bossAttackManager.destroy();
@@ -3974,9 +4346,15 @@ export default class GameScene extends Phaser.Scene {
     const startX = 300;
     const startY = 260;
 
+    if (!this.bossAttackManager) {
+      this.bossAttackManager = new BossAttackManager();
+    } else {
+      this.bossAttackManager.resetAll();
+    }
     this.activeBoss = WaveDirector.createBoss(bossId, startX, startY);
     if (this.activeBoss instanceof GummyBearBoss) {
       this.activeBoss.landingBombCheck = this._gummyLandingBombCheck;
+      this.activeBoss.attackManager = this.bossAttackManager;
     }
     if (this.activeBoss instanceof HamsterBoss) {
       this.activeBoss.headOnBombCheck = this._hamsterHeadOnBombCheck;
@@ -3985,9 +4363,6 @@ export default class GameScene extends Phaser.Scene {
       this.activeBoss.diveCraterBombCheck = this._queenDiveCraterBombCheck;
     }
     if (this.activeBoss instanceof MutantFloraBoss) {
-      if (!this.bossAttackManager) {
-        this.bossAttackManager = new BossAttackManager();
-      }
       this.activeBoss.attackManager = this.bossAttackManager;
     }
     if (this.activeBoss instanceof SteamToyTitanBoss) {
@@ -4368,12 +4743,20 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    // 6. Teleport Portal warp
+    // 6. Teleport Portal & Subspace Rift warp
     if (this.portalCooldown <= 0 && this.player && this.player.active) {
       if (pRow === DEFAULT_PORTALS.portalA.row && pCol === DEFAULT_PORTALS.portalA.col) {
         this.warpPlayer(DEFAULT_PORTALS.portalB.row, DEFAULT_PORTALS.portalB.col);
       } else if (pRow === DEFAULT_PORTALS.portalB.row && pCol === DEFAULT_PORTALS.portalB.col) {
         this.warpPlayer(DEFAULT_PORTALS.portalA.row, DEFAULT_PORTALS.portalA.col);
+      } else if (this.crisisManager?.isCrisisActive()) {
+        const activeRift = this.crisisManager.getActiveCrisis();
+        if (activeRift instanceof RiftCrisis && activeRift.getStage() === CrisisStage.OUTBREAK) {
+          const dest = activeRift.teleportThroughRift(pRow, pCol, this.scratchTileCoord);
+          if (dest && (dest.r !== pRow || dest.c !== pCol)) {
+            this.warpPlayer(dest.r, dest.c);
+          }
+        }
       }
     }
 
@@ -4707,6 +5090,38 @@ export default class GameScene extends Phaser.Scene {
     if (this.solarHazard) this.persistentHazardMask.mergeHazardMask(this.solarHazard.getDangerMask());
     if (this.nebulaHazard) this.persistentHazardMask.mergeHazardMask(this.nebulaHazard.getDangerMask());
     if (this.abyssalHazard) this.persistentHazardMask.mergeHazardMask(this.abyssalHazard.getDangerMask());
+    if (this.crisisManager?.isCrisisActive()) {
+      const crisisHazards = this.crisisManager.getActiveHazardTiles();
+      for (let hi = 0; hi < crisisHazards.length; hi++) {
+        const hz = crisisHazards[hi];
+        if (
+          hz.type === HazardType.LAVA_SURFACE ||
+          hz.type === HazardType.KINETIC_CRATER ||
+          hz.type === HazardType.KINETIC_TARGET ||
+          hz.type === HazardType.SOLAR_SWEEP ||
+          hz.type === HazardType.EMP_PULSE
+        ) {
+          this.persistentHazardMask.setCoord(hz.r, hz.c, 1);
+        }
+      }
+    }
+    if (this.bossAttackManager) {
+      for (let ti = 0; ti < this.bossAttackManager.telegraphPool.activeCount; ti++) {
+        const t = this.bossAttackManager.telegraphPool.getActive(ti);
+        if (t && t.active) {
+          this.persistentHazardMask.setCoord(t.row, t.col, 1);
+        }
+      }
+    }
+    if (this.activeBoss instanceof SteamToyTitanBoss) {
+      const titanTelegraphs = this.activeBoss.getActiveTelegraphs();
+      for (let ti = 0; ti < titanTelegraphs.length; ti++) {
+        const t = titanTelegraphs[ti];
+        if (t && t.active) {
+          this.persistentHazardMask.setCoord(t.row, t.col, 1);
+        }
+      }
+    }
 
     // 10. Update enemies, neutrals, and allies with advanced AI
     const enemiesList = this.enemies.getChildren();
@@ -4714,6 +5129,16 @@ export default class GameScene extends Phaser.Scene {
       for (let ei = 0; ei < enemiesList.length; ei++) {
         const child = enemiesList[ei] as Phaser.GameObjects.GameObject;
         if (child && child.active) {
+          const enemyTarget: Phaser.Physics.Arcade.Sprite | null =
+            child instanceof BaseEntity &&
+            child.tauntTarget &&
+            child.tauntTarget.active &&
+            !child.tauntTarget.isDead &&
+            _time < child.tauntedUntil
+              ? child.tauntTarget
+              : this.isCloaked
+                ? null
+                : this.player;
           if (child instanceof ChaserEnemy) {
             const cb = ((child as unknown as { _dropBombCb?: (r: number, c: number, fuseMs?: number) => boolean })._dropBombCb ??= (r, c, fuseMs) => {
               return this.placeEnemyBomb(child, r, c, child.bombPower, fuseMs);
@@ -4721,7 +5146,7 @@ export default class GameScene extends Phaser.Scene {
             child.updateAI(
               delta,
               _time,
-              this.isCloaked ? null : this.player,
+              enemyTarget,
               this.map,
               bombTiles,
               cb
@@ -4733,7 +5158,7 @@ export default class GameScene extends Phaser.Scene {
             child.updateAI(
               delta,
               _time,
-              this.isCloaked ? null : this.player,
+              enemyTarget,
               this.map,
               bombTiles,
               cb
@@ -4744,16 +5169,16 @@ export default class GameScene extends Phaser.Scene {
             child.updateAI(
               delta,
               _time,
-              this.isCloaked ? null : this.player,
+              enemyTarget,
               this.map,
               bombTiles,
               destroyCb,
               stompCb
             );
           } else if (child instanceof GhostEnemy) {
-            child.updateAI(delta, _time, this.isCloaked ? null : this.player, this.map, bombTiles);
+            child.updateAI(delta, _time, enemyTarget, this.map, bombTiles);
           } else if (child instanceof SplitterEnemy || child instanceof MiniSplitterEnemy) {
-            child.updateAI(delta, _time, this.isCloaked ? null : this.player, this.map, bombTiles);
+            child.updateAI(delta, _time, enemyTarget, this.map, bombTiles);
           } else if (
             'updateAI' in child &&
             typeof (child as unknown as { updateAI: (delta: number, time: number, p: Phaser.Physics.Arcade.Sprite | null, m: number[][], b: Set<string>) => void }).updateAI === 'function'
@@ -4761,7 +5186,7 @@ export default class GameScene extends Phaser.Scene {
             (child as unknown as { updateAI: (delta: number, time: number, p: Phaser.Physics.Arcade.Sprite | null, m: number[][], b: Set<string>) => void }).updateAI(
               delta,
               _time,
-              this.isCloaked ? null : this.player,
+              enemyTarget,
               this.map,
               bombTiles
             );
@@ -4915,8 +5340,16 @@ export default class GameScene extends Phaser.Scene {
           )
         );
       }
-      if (this.activeBoss instanceof GummyBearBoss && !this.activeBoss.landingBombCheck) {
-        this.activeBoss.landingBombCheck = this._gummyLandingBombCheck;
+      if (this.activeBoss instanceof GummyBearBoss) {
+        if (!this.activeBoss.landingBombCheck) {
+          this.activeBoss.landingBombCheck = this._gummyLandingBombCheck;
+        }
+        if (!this.activeBoss.attackManager) {
+          if (!this.bossAttackManager) {
+            this.bossAttackManager = new BossAttackManager();
+          }
+          this.activeBoss.attackManager = this.bossAttackManager;
+        }
       }
       if (this.activeBoss instanceof HamsterBoss && !this.activeBoss.headOnBombCheck) {
         this.activeBoss.headOnBombCheck = this._hamsterHeadOnBombCheck;
@@ -4933,10 +5366,18 @@ export default class GameScene extends Phaser.Scene {
 
       this.activeBoss.update(delta, this.player.x, this.player.y);
 
+      if (this.activeBoss instanceof GummyBearBoss && this.activeBoss.pendingCubSpawns > 0) {
+        const pendingCubs = this.activeBoss.consumePendingCubSpawns();
+        this.spawnGummyBossCubs(this.activeBoss, pendingCubs);
+      }
+
       if (this.bossHUD && !this.bossHUD.getState().isStunned && this.activeBoss.bossState === BossState.STUNNED) {
         if (this.activeBoss instanceof GummyBearBoss && this.activeBoss.stunTimerMs >= 3900) {
           this.bossHUD.setHp(this.activeBoss.currentHp);
           this.bossHUD.triggerStun(4.0, '👑 Masterplay Landing Lure!');
+        } else if (this.activeBoss instanceof GummyBearBoss && this.activeBoss.stunTimerMs >= 2100) {
+          this.bossHUD.setHp(this.activeBoss.currentHp);
+          this.bossHUD.triggerStun(2.2, '🍮 Sugar Crush Pancake Stun!');
         } else if (this.activeBoss instanceof HamsterBoss && this.activeBoss.stunTimerMs >= 2900) {
           this.bossHUD.setHp(this.activeBoss.currentHp);
           this.bossHUD.triggerStun(3.0, '🐹 Head-On Bomb Trap!');
@@ -5016,6 +5457,33 @@ export default class GameScene extends Phaser.Scene {
               const bRow = Math.floor(bomb.y / TILE_SIZE);
               this.handleBombBossCollision(bomb, bRow, bCol, false);
             }
+          }
+        }
+      }
+
+      // Steam Toy Titan: Steam Vent Pressure Slow & Deflected Gear Shard Collisions
+      if (this.activeBoss instanceof SteamToyTitanBoss && !bossInCutscene) {
+        const titan = this.activeBoss;
+        if (titan.isSteamVenting) {
+          const sdx = this.player.x - titan.x;
+          const sdy = this.player.y - titan.y;
+          const steamR = (titan.config.colliderRadius || 42) + 46;
+          if (sdx * sdx + sdy * sdy <= steamR * steamR) {
+            if (!this.activeStompSlowTimer && !this.isInvulnerable && !this.isDashing) {
+              this.applyStompSlow(0.30, 800);
+            }
+          }
+        }
+        for (let gpi = titan.gearProjectilePool.activeCount - 1; gpi >= 0; gpi--) {
+          const gp = titan.gearProjectilePool.getActive(gpi);
+          if (!gp || !gp.active) continue;
+          const gdx = this.player.x - gp.x;
+          const gdy = this.player.y - gp.y;
+          if (gdx * gdx + gdy * gdy <= (gp.radius + 12) * (gp.radius + 12)) {
+            const dmg = gp.damage;
+            titan.gearProjectilePool.release(gp);
+            this._onBossAttackPlayerHit(dmg);
+            break;
           }
         }
       }
@@ -5241,6 +5709,23 @@ export default class GameScene extends Phaser.Scene {
             this.bossGraphics.lineStyle(3, 0xfbbf24, 0.85);
             this.bossGraphics.strokeCircle(sw.originX, sw.originY, Math.max(8, sw.currentRadius));
           }
+
+          if (titanBoss.isSteamVenting) {
+            const steamR = radius + 44;
+            this.bossGraphics.fillStyle(0xe2e8f0, 0.24);
+            this.bossGraphics.fillCircle(titanBoss.x, titanBoss.y, steamR);
+            this.bossGraphics.lineStyle(2, 0xf8fafc, 0.75);
+            this.bossGraphics.strokeCircle(titanBoss.x, titanBoss.y, steamR);
+          }
+
+          for (let gpi = 0; gpi < titanBoss.gearProjectilePool.activeCount; gpi++) {
+            const gp = titanBoss.gearProjectilePool.getActive(gpi);
+            if (!gp || !gp.active) continue;
+            this.bossGraphics.fillStyle(0xfbbf24, 0.92);
+            this.bossGraphics.fillCircle(gp.x, gp.y, Math.max(5, gp.radius));
+            this.bossGraphics.lineStyle(1.5, 0x92400e, 0.9);
+            this.bossGraphics.strokeCircle(gp.x, gp.y, Math.max(5, gp.radius));
+          }
         }
 
         if (floraBoss) {
@@ -5321,7 +5806,7 @@ export default class GameScene extends Phaser.Scene {
             this.bossGraphics.fillStyle(0x92400e, 0.95);
             this.bossGraphics.fillCircle(this.activeBoss.x, drawY, radius - 10);
             if (titanBoss.gearShieldActive) {
-              const facingAngle = Math.atan2(titanBoss.vy, titanBoss.vx);
+              const facingAngle = titanBoss.getFacingAngle();
               const shieldR = radius + 10;
               this.bossGraphics.lineStyle(4, 0xfbbf24, 0.95);
               let prevX = this.activeBoss.x + Math.cos(facingAngle - Math.PI / 3) * shieldR;
@@ -5450,12 +5935,14 @@ export default class GameScene extends Phaser.Scene {
       this.handleActiveBossDefeated();
     }
 
-    // 12. Update Crisis Subsystem & Visual Hazards
+    // 12. Update Crisis Subsystem & Live Arena Mechanics
     if (this.crisisManager && this.crisisManager.getActiveCrisis()) {
       const activeCrisis = this.crisisManager.getActiveCrisis();
       if (activeCrisis && activeCrisis.getStage() !== CrisisStage.INACTIVE) {
-        this.scratchPlayerPos.r = Math.floor(this.player.y / TILE_SIZE);
-        this.scratchPlayerPos.c = Math.floor(this.player.x / TILE_SIZE);
+        const pRow = Math.floor(this.player.y / TILE_SIZE);
+        const pCol = Math.floor(this.player.x / TILE_SIZE);
+        this.scratchPlayerPos.r = pRow;
+        this.scratchPlayerPos.c = pCol;
         this.scratchPlayerPos.x = this.player.x;
         this.scratchPlayerPos.y = this.player.y;
         this.crisisManager.update(delta, this.scratchPlayerPos);
@@ -5463,9 +5950,144 @@ export default class GameScene extends Phaser.Scene {
           this.situationLog.updateFromCrisisManager(this.crisisManager, Date.now());
         }
 
+        const curStage = activeCrisis.getStage();
+
+        // Live Crisis Arena Interactions (Zero-GC indexed passes)
+        if (activeCrisis instanceof ClockworkCrisis) {
+          if (
+            (curStage === CrisisStage.OUTBREAK || curStage === CrisisStage.CLIMAX) &&
+            activeCrisis.bonusBombSlotsGranted &&
+            this.crisisBonusBombSlotsApplied === 0
+          ) {
+            this.maxBombs += 3;
+            this.crisisBonusBombSlotsApplied = 3;
+            this.emitStatsUpdate();
+          } else if (
+            (!activeCrisis.bonusBombSlotsGranted ||
+              curStage === CrisisStage.RESOLVED ||
+              curStage === CrisisStage.FAILED) &&
+            this.crisisBonusBombSlotsApplied > 0
+          ) {
+            this.clearCrisisBonusBombs();
+            this.emitStatsUpdate();
+          }
+
+          if (activeCrisis.totalEmpPulsesFired < this.lastHandledEmpPulseCount) {
+            this.lastHandledEmpPulseCount = 0;
+          }
+          if (activeCrisis.totalEmpPulsesFired > this.lastHandledEmpPulseCount) {
+            this.lastHandledEmpPulseCount = activeCrisis.totalEmpPulsesFired;
+            if (this.bombs) {
+              const bChildren = this.bombs.getChildren();
+              for (let bi = 0; bi < bChildren.length; bi++) {
+                const b = bChildren[bi] as Phaser.Physics.Arcade.Sprite | undefined;
+                if (!b || !b.active) continue;
+                const ft = b.getData?.('fuseTimer') as { getRemaining?: () => number } | undefined;
+                const remMs =
+                  typeof ft?.getRemaining === 'function' ? Math.max(0, ft.getRemaining()) : 2000;
+                const empRes = activeCrisis.evaluateBombEmpInteraction(remMs);
+                if (empRes.action === 'detonate') {
+                  this.explodeBomb(b, Math.floor(b.y / TILE_SIZE), Math.floor(b.x / TILE_SIZE));
+                } else {
+                  this.disarmActiveBomb(b);
+                }
+              }
+            }
+          }
+        } else {
+          this.clearCrisisBonusBombs();
+          this.lastHandledEmpPulseCount = 0;
+        }
+
+        if (activeCrisis instanceof SolarFlareCrisis && activeCrisis.isCmeSweeping) {
+          if (this.bombs) {
+            const bChildren = this.bombs.getChildren();
+            for (let bi = 0; bi < bChildren.length; bi++) {
+              const b = bChildren[bi] as Phaser.Physics.Arcade.Sprite | undefined;
+              if (!b || !b.active) continue;
+              const br = Math.floor(b.y / TILE_SIZE);
+              const bc = Math.floor(b.x / TILE_SIZE);
+              if (activeCrisis.flashIgniteBomb(br, bc)) {
+                this.spawnFloatingText(b.x, b.y - 20, '☀️ FLASH IGNITED!', '#facc15');
+                this.explodeBomb(b, br, bc);
+              }
+            }
+          }
+          if (
+            !this.isGameOver &&
+            !this.isInvulnerable &&
+            !this.isDashing &&
+            !this.isAegisOverdriveActive &&
+            !activeCrisis.isTileShelteredFromFlare(pRow, pCol)
+          ) {
+            this.spawnFloatingText(this.player.x, this.player.y - 16, '☀️ CORONAL FLARE!', '#f59e0b');
+            this.playerDie();
+          }
+        } else if (activeCrisis instanceof LavaCrisis) {
+          if (this.items) {
+            const iChildren = this.items.getChildren();
+            const nowMs = this.time?.now ?? Date.now();
+            for (let ii = 0; ii < iChildren.length; ii++) {
+              const item = iChildren[ii] as Phaser.Physics.Arcade.Sprite | undefined;
+              if (!item || !item.active) continue;
+              const ir = Math.floor(item.y / TILE_SIZE);
+              const ic = Math.floor(item.x / TILE_SIZE);
+              if (activeCrisis.shouldIncinerateEntity(ir, ic)) {
+                const spawnTime = (item.getData?.('spawnTime') as number) || 0;
+                if (!isItemProtectedFromExplosion(spawnTime, nowMs)) {
+                  const shadow = item.getData?.('itemShadow') as Phaser.GameObjects.Sprite | null | undefined;
+                  if (shadow && shadow !== (item as unknown) && shadow.active) {
+                    this.tweens?.killTweensOf?.(shadow);
+                    this.shadowPool?.release(shadow);
+                    item.setData?.('itemShadow', null);
+                  }
+                  this.tweens?.killTweensOf?.(item);
+                  item.disableBody?.(true, true);
+                  item.setActive?.(false);
+                  item.setVisible?.(false);
+                }
+              }
+            }
+          }
+          if (this.bombs) {
+            const bChildren = this.bombs.getChildren();
+            for (let bi = 0; bi < bChildren.length; bi++) {
+              const b = bChildren[bi] as Phaser.Physics.Arcade.Sprite | undefined;
+              if (!b || !b.active) continue;
+              const br = Math.floor(b.y / TILE_SIZE);
+              const bc = Math.floor(b.x / TILE_SIZE);
+              if (activeCrisis.shouldIncinerateEntity(br, bc)) {
+                this.explodeBomb(b, br, bc);
+              }
+            }
+          }
+          if (
+            !this.isGameOver &&
+            !this.isInvulnerable &&
+            !this.isDashing &&
+            !this.isAegisOverdriveActive &&
+            activeCrisis.shouldIncinerateEntity(pRow, pCol)
+          ) {
+            this.spawnFloatingText(this.player.x, this.player.y - 16, '🌋 MOLTEN LAVA!', '#ef4444');
+            this.playerDie();
+          }
+        } else if (
+          !this.isGameOver &&
+          !this.isInvulnerable &&
+          !this.isDashing &&
+          !this.isAegisOverdriveActive
+        ) {
+          const pHazard = this.crisisManager.getHazardAt(pRow, pCol);
+          if (pHazard && pHazard.type === HazardType.KINETIC_CRATER && pHazard.intensity >= 1.0) {
+            this.spawnFloatingText(this.player.x, this.player.y - 16, '☄️ KINETIC IMPACT!', '#f43f5e');
+            this.playerDie();
+          }
+        }
+
         // Edge-triggered reward when crisis resolves
-        if (activeCrisis.getStage() === CrisisStage.RESOLVED && !this.hasRewardedActiveCrisis) {
+        if (curStage === CrisisStage.RESOLVED && !this.hasRewardedActiveCrisis) {
           this.hasRewardedActiveCrisis = true;
+          this.clearCrisisBonusBombs();
           const currentCrisisType = activeCrisis.id;
           const reward = this.crisisManager.getCrisisReward(currentCrisisType);
           this.score += reward.scoreAwarded;
@@ -5478,6 +6100,7 @@ export default class GameScene extends Phaser.Scene {
             if (this.relicManager.getEquippedCount() < this.relicManager.getMaxSlots()) {
               this.relicManager.equipRelic(reward.relicReward);
             }
+            this.lastEquippedRelicsPayload = this.relicManager.getEquippedRelics();
           }
 
           this.spawnFloatingText(
@@ -5489,22 +6112,61 @@ export default class GameScene extends Phaser.Scene {
           if (this.game && this.game.events) {
             this.game.events.emit('currency-reward', { starCandies: reward.starCandies, cosmicEssence: reward.cosmicEssence });
             if (reward.relicReward) {
-              this.game.events.emit('relic-awarded', { relicId: reward.relicReward, crisisType: currentCrisisType });
+              this.game.events.emit('relic-awarded', {
+                relicId: reward.relicReward,
+                crisisType: currentCrisisType,
+                equippedRelics: this.relicManager ? this.relicManager.getEquippedRelics() : undefined,
+              });
             }
           }
+
+          if (this.activeGameMode === GameModeType.CRISIS_SURVIVAL && !this.isGameOver) {
+            if (this.nextCrisisTimer) {
+              this.nextCrisisTimer.remove?.(false);
+              this.nextCrisisTimer = null;
+            }
+            if (this.time?.delayedCall) {
+              this.nextCrisisTimer = this.time.delayedCall(1800, () => {
+                this.nextCrisisTimer = null;
+                if (!this.isGameOver && this.activeGameMode === GameModeType.CRISIS_SURVIVAL) {
+                  this.hasRewardedActiveCrisis = false;
+                  this.hasFailedActiveCrisis = false;
+                  this.lastHandledEmpPulseCount = 0;
+                  this.crisisManager.triggerRandomCrisis(true);
+                  if (this.situationLog) {
+                    this.situationLog.updateFromCrisisManager(this.crisisManager, Date.now(), true);
+                  }
+                }
+              });
+            }
+          }
+
           this.emitStatsUpdate();
+        } else if (curStage === CrisisStage.FAILED && !this.hasFailedActiveCrisis) {
+          this.hasFailedActiveCrisis = true;
+          this.clearCrisisBonusBombs();
+          if (!this.isGameOver && !this.isInvulnerable && !this.isAegisOverdriveActive) {
+            this.spawnFloatingText(this.player.x, this.player.y - 24, '💥 CATASTROPHIC COLLAPSE!', '#ef4444');
+            this.playerDie();
+          }
         }
 
         // Render Crisis Hazard Graphics
         this.renderCrisisHazards(_time);
         this.crisisGraphicsDirty = true;
-      } else if (this.crisisGraphicsDirty && this.crisisGraphics) {
+      } else {
+        this.clearCrisisBonusBombs();
+        if (this.crisisGraphicsDirty && this.crisisGraphics) {
+          this.crisisGraphics.clear();
+          this.crisisGraphicsDirty = false;
+        }
+      }
+    } else {
+      this.clearCrisisBonusBombs();
+      if (this.crisisGraphicsDirty && this.crisisGraphics) {
         this.crisisGraphics.clear();
         this.crisisGraphicsDirty = false;
       }
-    } else if (this.crisisGraphicsDirty && this.crisisGraphics) {
-      this.crisisGraphics.clear();
-      this.crisisGraphicsDirty = false;
     }
 
     // 13. Update Dynamic Hazard System (Quantum Spire Hazard)
@@ -6079,10 +6741,10 @@ export default class GameScene extends Phaser.Scene {
       switch (hazard.type) {
         case HazardType.VOID_RIFT: {
           const pulse = 0.75 + 0.25 * Math.sin(time / 200 + hazard.idx);
-          this.crisisGraphics.fillStyle(0x8a2be2, 0.45 * pulse);
+          this.crisisGraphics.fillStyle(0x8a2be2, 0.34 * pulse);
           this.crisisGraphics.fillCircle(x, y, 22 * pulse);
 
-          this.crisisGraphics.fillStyle(0xda70d6, 0.75);
+          this.crisisGraphics.fillStyle(0xda70d6, 0.38);
           this.crisisGraphics.fillCircle(x, y, 13);
 
           this.crisisGraphics.fillStyle(0x0a0014, 0.95);
@@ -6131,25 +6793,25 @@ export default class GameScene extends Phaser.Scene {
           break;
         }
         case HazardType.VOID_CREEP: {
-          this.crisisGraphics.fillStyle(0x4c1d95, 0.6);
+          this.crisisGraphics.fillStyle(0x4c1d95, 0.36);
           this.crisisGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-          this.crisisGraphics.lineStyle(1.5, 0xa855f7, 0.75);
+          this.crisisGraphics.lineStyle(1.5, 0xa855f7, 0.8);
           this.crisisGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
           this.crisisGraphics.fillStyle(0xc084fc, 0.7);
           this.crisisGraphics.fillCircle(x, y, 3);
           break;
         }
         case HazardType.LAVA_SURFACE: {
-          this.crisisGraphics.fillStyle(0xd97706, 0.65);
+          this.crisisGraphics.fillStyle(0xd97706, 0.38);
           this.crisisGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-          this.crisisGraphics.lineStyle(2, 0xef4444, 0.85);
+          this.crisisGraphics.lineStyle(2, 0xef4444, 0.88);
           this.crisisGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
           break;
         }
         case HazardType.OBSIDIAN_BLOCK: {
-          this.crisisGraphics.fillStyle(0x1e1b4b, 0.85);
+          this.crisisGraphics.fillStyle(0x1e1b4b, 0.38);
           this.crisisGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-          this.crisisGraphics.lineStyle(1.5, 0x6366f1, 0.6);
+          this.crisisGraphics.lineStyle(1.5, 0x6366f1, 0.75);
           this.crisisGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
           break;
         }
@@ -6208,10 +6870,19 @@ export default class GameScene extends Phaser.Scene {
           this.crisisGraphics.strokeCircle(x, y, 16);
           break;
         }
-        case HazardType.SOLAR_SWEEP:
+        case HazardType.SOLAR_SWEEP: {
+          this.crisisGraphics.fillStyle(0xfacc15, 0.34);
+          this.crisisGraphics.fillRect(left + 1, top + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+          this.crisisGraphics.lineStyle(1.5, 0xf97316, 0.8);
+          this.crisisGraphics.strokeRect(left + 1, top + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+          break;
+        }
         case HazardType.THERMAL_VENT: {
-          this.crisisGraphics.fillStyle(0xfacc15, 0.45);
-          this.crisisGraphics.fillRect(left, top, TILE_SIZE, TILE_SIZE);
+          const isCooled = hazard.data === 1;
+          this.crisisGraphics.fillStyle(isCooled ? 0x38bdf8 : 0xfacc15, isCooled ? 0.26 : 0.34);
+          this.crisisGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          this.crisisGraphics.lineStyle(2, isCooled ? 0x7dd3fc : 0xf97316, 0.88);
+          this.crisisGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
           break;
         }
         case HazardType.KINETIC_TARGET:
@@ -6240,7 +6911,7 @@ export default class GameScene extends Phaser.Scene {
         }
         case HazardType.PSIONIC_DISRUPTION: {
           const pulse = 0.8 + 0.2 * Math.sin(time / 160 + hazard.idx);
-          this.crisisGraphics.fillStyle(0xec4899, 0.45 * pulse);
+          this.crisisGraphics.fillStyle(0xec4899, 0.34 * pulse);
           this.crisisGraphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
           this.crisisGraphics.lineStyle(1.5, 0xf472b6, 0.85);
           this.crisisGraphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
@@ -6249,7 +6920,7 @@ export default class GameScene extends Phaser.Scene {
         case HazardType.PSIONIC_ILLUSION:
         case HazardType.PSIONIC_MANIFESTATION: {
           const pulse = 0.8 + 0.2 * Math.sin(time / 140 + hazard.idx);
-          this.crisisGraphics.fillStyle(0xdb2777, 0.5 * pulse);
+          this.crisisGraphics.fillStyle(0xdb2777, 0.36 * pulse);
           this.crisisGraphics.fillCircle(x, y, 18 * pulse);
           this.crisisGraphics.fillStyle(0xfbcfe8, 0.9);
           this.crisisGraphics.fillCircle(x, y, 6);
@@ -8471,12 +9142,7 @@ export default class GameScene extends Phaser.Scene {
     const bId =
       typeof bomb.getData === 'function' ? (bomb.getData('id') as string | undefined) : undefined;
     if (!bId || !this.bossHitBombIds.has(bId)) {
-      if (bId) {
-        this.bossHitBombIds.add(bId);
-        this.time.delayedCall(1000, () => {
-          this.bossHitBombIds.delete(bId);
-        });
-      }
+      this.recordBossHitBombId(bId);
       const hit = this.activeBoss.takeBombDamage(1, 'bomb');
       if (hit && this.bossHUD) {
         this.bossHUD.setHp(this.activeBoss.currentHp);
@@ -9434,13 +10100,9 @@ export default class GameScene extends Phaser.Scene {
       const dist = Phaser.Math.Distance.Between(x, y, this.activeBoss.x, this.activeBoss.y);
       if (dist < (this.activeBoss.config.colliderRadius || 35) + 20) {
         if (!bombId || !this.bossHitBombIds.has(bombId)) {
-          if (bombId) {
-            this.bossHitBombIds.add(bombId);
-            this.time.delayedCall(1000, () => {
-              this.bossHitBombIds.delete(bombId);
-            });
-          }
+          this.recordBossHitBombId(bombId);
           if (this.activeBoss instanceof SteamToyTitanBoss && this.activeBoss.checkGearDeflection(x, y)) {
+            this.activeBoss.spawnDeflectedGearShard(x, y);
             this.spawnFloatingText(this.activeBoss.x, this.activeBoss.y - 24, '⚙️ GEAR DEFLECTED!', '#f59e0b');
           } else if (
             this.activeBoss instanceof QueenBeeBoss &&
@@ -9469,6 +10131,9 @@ export default class GameScene extends Phaser.Scene {
           } else if (this.activeBoss instanceof HamsterBoss && !this.activeBoss.canTakeDamage()) {
             this.activeBoss.takeBombDamage(1, 'bomb');
             this.spawnFloatingText(this.activeBoss.x, this.activeBoss.y - 24, '🐹 GYRO SHIELD DEFLECTED!', '#22d3ee');
+          } else if (this.activeBoss instanceof GummyBearBoss && !this.activeBoss.canTakeDamage()) {
+            this.activeBoss.takeBombDamage(1, 'bomb');
+            this.spawnFloatingText(this.activeBoss.x, this.activeBoss.y - 24, '🐻 GELATIN SKIN DEFLECTED!', '#f43f5e');
           } else {
             const hit = this.activeBoss.takeBombDamage(1, 'bomb');
             if (hit && this.bossHUD) {
@@ -9490,8 +10155,8 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  spawnSpecificItem(type: ItemType, row: number, col: number) {
-    this.spawnItem(row, col, type);
+  spawnSpecificItem(type: ItemType, row: number, col: number, spawnTime?: number) {
+    this.spawnItem(row, col, type, spawnTime);
   }
 
   applyStompSlow(slowPct: number = 0.30, durationMs: number = 1500) {
@@ -10469,7 +11134,7 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  spawnItem(row: number, col: number, type: ItemType) {
+  spawnItem(row: number, col: number, type: ItemType, spawnTimeOverride?: number) {
     const centerX = col * TILE_SIZE + TILE_SIZE / 2;
     const centerY = row * TILE_SIZE + TILE_SIZE / 2;
 
@@ -10492,7 +11157,11 @@ export default class GameScene extends Phaser.Scene {
     item.setDepth(RENDER_DEPTH.ITEMS);
     (item.body as Phaser.Physics.Arcade.Body)?.setSize(24, 24).setOffset(4, 4);
     item.setData('itemType', type);
-    item.setData('spawnTime', this.time.now);
+    const resolvedSpawnTime =
+      typeof spawnTimeOverride === 'number' && Number.isFinite(spawnTimeOverride)
+        ? spawnTimeOverride
+        : this.time.now;
+    item.setData('spawnTime', resolvedSpawnTime);
     item.setData('row', row);
     item.setData('col', col);
 

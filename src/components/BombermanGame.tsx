@@ -305,6 +305,13 @@ export default function BombermanGame() {
         phaserGameRef.current.events.emit('mode-changed', runState.meta.gameMode);
         phaserGameRef.current.events.emit('resume-run-state', runState);
       }
+      if (Array.isArray(runState.relicState?.equippedRelics)) {
+        setEquippedRelics(
+          runState.relicState.equippedRelics.filter(
+            (id): id is RelicId => typeof id === 'string' && id in RELIC_CATALOG
+          )
+        );
+      }
       showToast(`▶ Run resumed! Score: ${runState.meta.score}`);
     } else {
       showToast('⚠️ No valid saved run found or state corrupted.');
@@ -675,21 +682,35 @@ export default function BombermanGame() {
       };
       phaserGame.events.on('currency-reward', handleCurrencyReward);
 
-      const handleRelicAwarded = (payload: { relicId?: RelicId } | RelicId) => {
+      const handleRelicAwarded = (
+        payload: { relicId?: RelicId; equippedRelics?: RelicId[] } | RelicId
+      ) => {
         const awardedId =
           typeof payload === 'string'
             ? payload
             : payload && typeof payload === 'object'
               ? payload.relicId
               : undefined;
+        const syncedEquipped =
+          payload && typeof payload === 'object' && Array.isArray(payload.equippedRelics)
+            ? payload.equippedRelics
+            : undefined;
+        if (syncedEquipped) {
+          setEquippedRelics([...syncedEquipped]);
+        }
         if (!awardedId) return;
         const current = persistenceRef.current.loadMetaProfile();
         if (current) {
           const existingDiscovered = Array.isArray(current.discoveredRelics) ? current.discoveredRelics : [];
-          if (!existingDiscovered.includes(awardedId)) {
+          const nextDiscovered = existingDiscovered.includes(awardedId)
+            ? existingDiscovered
+            : [...existingDiscovered, awardedId];
+          const nextEquipped = syncedEquipped ?? current.equippedRelics;
+          if (nextDiscovered !== existingDiscovered || syncedEquipped) {
             persistenceRef.current.saveMetaProfile({
               ...current,
-              discoveredRelics: [...existingDiscovered, awardedId],
+              discoveredRelics: nextDiscovered,
+              equippedRelics: nextEquipped,
             });
           }
         }
