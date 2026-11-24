@@ -729,15 +729,18 @@ const scratchFilteredTierItems: Array<{ item: ItemType; weight: number }> = [];
 export function rollItemDrop(
   rng: (() => number) | number = Math.random,
   playerStats?: PlayerStats,
-  blockType: string = 'BLOCK'
+  blockType: string = 'BLOCK',
+  dropRateBonus: number = 0
 ): ItemType | null {
   const getRandom = typeof rng === 'function' ? rng : () => rng;
 
   // Chests guarantee 100% Rare or Epic drop
   const isChest = blockType === 'CHEST' || blockType === 'TILE_CHEST';
   if (!isChest) {
+    const safeBonus = Number.isFinite(dropRateBonus) ? Math.max(0, Math.min(0.50, dropRateBonus)) : 0;
+    const effectiveDropRate = Math.min(0.95, ITEM_DROP_RATE + safeBonus);
     const dropRoll = getRandom();
-    if (dropRoll >= ITEM_DROP_RATE) return null;
+    if (dropRoll >= effectiveDropRate) return null;
   }
 
   let tier: ItemRarity;
@@ -798,6 +801,13 @@ export function rollItemDrop(
   }
 
   return pool[0]?.item || 'BOMB_UP';
+}
+
+function findActiveBuff(buffs: ActiveBuff[], id: string): ActiveBuff | undefined {
+  for (let i = 0; i < buffs.length; i++) {
+    if (buffs[i].id === id) return buffs[i];
+  }
+  return undefined;
 }
 
 /**
@@ -880,7 +890,7 @@ export function applyItemEffect(
       return { upgraded: !prev, label: 'BOMB PASS!', color: def.color };
     }
     case 'TIME_FREEZE': {
-      const existing = stats.activeBuffs.find(b => b.id === 'TIME_FREEZE');
+      const existing = findActiveBuff(stats.activeBuffs, 'TIME_FREEZE');
       if (existing) {
         existing.remainingMs = 4000;
         existing.totalMs = 4000;
@@ -925,7 +935,7 @@ export function applyItemEffect(
       return { upgraded: true, label: 'SHIELD ON!', color: def.color };
     }
     case 'CLOAK': {
-      const existing = stats.activeBuffs.find(b => b.id === 'CLOAK');
+      const existing = findActiveBuff(stats.activeBuffs, 'CLOAK');
       if (existing) {
         existing.remainingMs = 6000;
         existing.totalMs = 6000;
@@ -952,7 +962,7 @@ export function applyItemEffect(
       return { upgraded: !prev, label: 'BLAST DEFLECTOR!', color: def.color };
     }
     case 'SPEED_SURGE': {
-      const existing = stats.activeBuffs.find(b => b.id === 'SPEED_SURGE');
+      const existing = findActiveBuff(stats.activeBuffs, 'SPEED_SURGE');
       if (existing) {
         existing.remainingMs = 8000;
         existing.totalMs = 8000;

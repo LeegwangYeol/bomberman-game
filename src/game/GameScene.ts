@@ -154,6 +154,8 @@ import {
   CrisisStage,
   HazardType,
   SituationLog,
+  VoidCrisis,
+  PsychicCrisis,
   ClockworkCrisis,
   SolarFlareCrisis,
   LavaCrisis,
@@ -691,6 +693,34 @@ export default class GameScene extends Phaser.Scene {
     this.emitStatsUpdate();
   }
 
+  private safeDisableSpriteBody(sp?: Phaser.GameObjects.GameObject | null): void {
+    if (!sp) return;
+    const sprite = sp as Phaser.Physics.Arcade.Sprite;
+    const bodyRef = sprite.body as
+      | (Phaser.Physics.Arcade.Body & { gameObject?: unknown; stop?: () => void })
+      | undefined;
+    if (
+      bodyRef &&
+      bodyRef.gameObject &&
+      typeof bodyRef.stop === 'function' &&
+      typeof sprite.disableBody === 'function'
+    ) {
+      sprite.disableBody(true, true);
+    } else {
+      if (bodyRef) {
+        if (typeof bodyRef.setVelocity === 'function') {
+          bodyRef.setVelocity(0, 0);
+        } else if (bodyRef.velocity) {
+          bodyRef.velocity.x = 0;
+          bodyRef.velocity.y = 0;
+        }
+        bodyRef.enable = false;
+      }
+      sprite.setActive?.(false);
+      sprite.setVisible?.(false);
+    }
+  }
+
   private deactivatePooledGroupSprites(group?: Phaser.Physics.Arcade.Group | null): void {
     if (!group || typeof group.getChildren !== 'function') return;
     const children = group.getChildren();
@@ -700,24 +730,7 @@ export default class GameScene extends Phaser.Scene {
       if (this.tweens?.killTweensOf) {
         this.tweens.killTweensOf(sp);
       }
-      const bodyRef = sp.body as
-        | (Phaser.Physics.Arcade.Body & { gameObject?: unknown; stop?: () => void })
-        | undefined;
-      if (bodyRef && bodyRef.gameObject && typeof bodyRef.stop === 'function' && typeof sp.disableBody === 'function') {
-        sp.disableBody(true, true);
-      } else {
-        if (bodyRef) {
-          if (typeof bodyRef.setVelocity === 'function') {
-            bodyRef.setVelocity(0, 0);
-          } else if (bodyRef.velocity) {
-            bodyRef.velocity.x = 0;
-            bodyRef.velocity.y = 0;
-          }
-          bodyRef.enable = false;
-        }
-        sp.setActive?.(false);
-        sp.setVisible?.(false);
-      }
+      this.safeDisableSpriteBody(sp);
     }
   }
 
@@ -763,19 +776,7 @@ export default class GameScene extends Phaser.Scene {
     const by = bomb.y;
 
     this.resetPooledBombState(bomb);
-    const bodyRef = bomb.body as
-      | (Phaser.Physics.Arcade.Body & { gameObject?: unknown; stop?: () => void })
-      | undefined;
-    if (bodyRef && bodyRef.gameObject && typeof bodyRef.stop === 'function' && typeof bomb.disableBody === 'function') {
-      bomb.disableBody(true, true);
-    } else {
-      if (bodyRef) {
-        if (typeof bodyRef.setVelocity === 'function') bodyRef.setVelocity(0, 0);
-        bodyRef.enable = false;
-      }
-      bomb.setActive?.(false);
-      bomb.setVisible?.(false);
-    }
+    this.safeDisableSpriteBody(bomb);
 
     if (owner === 'player' && !isGhostBomb) {
       this.activeBombs = Math.max(0, this.activeBombs - 1);
@@ -869,24 +870,7 @@ export default class GameScene extends Phaser.Scene {
       ent.tauntTarget = null;
       ent.tauntedUntil = 0;
       ent.isDead = true;
-      const bodyRef = ent.body as
-        | (Phaser.Physics.Arcade.Body & { gameObject?: unknown; stop?: () => void })
-        | undefined;
-      if (bodyRef && bodyRef.gameObject && typeof bodyRef.stop === 'function' && typeof ent.disableBody === 'function') {
-        ent.disableBody(true, true);
-      } else {
-        if (bodyRef) {
-          if (typeof bodyRef.setVelocity === 'function') {
-            bodyRef.setVelocity(0, 0);
-          } else if (bodyRef.velocity) {
-            bodyRef.velocity.x = 0;
-            bodyRef.velocity.y = 0;
-          }
-          bodyRef.enable = false;
-        }
-        ent.setActive?.(false);
-        ent.setVisible?.(false);
-      }
+      this.safeDisableSpriteBody(ent);
     }
   }
 
@@ -1033,6 +1017,7 @@ export default class GameScene extends Phaser.Scene {
         const target = this.scratchChainStack[sIdx];
         this.scratchChainStack[sIdx] = null;
         if (target && target.active) {
+          target.setData?.('isChainDetonated', true);
           const bCol = Math.floor(target.x / TILE_SIZE);
           const bRow = Math.floor(target.y / TILE_SIZE);
           this.explodeBomb(target, bRow, bCol);
@@ -1054,6 +1039,11 @@ export default class GameScene extends Phaser.Scene {
   private lastAbyssalRelicAudioMs: number = -9999;
   private isUltimateChronoFrozen: boolean = false;
   private crisisGraphicsDirty: boolean = false;
+  private hazardGraphicsDirty: boolean = false;
+  private readonly poisonMistRemainingMs: Float32Array = new Float32Array(ROWS * COLS);
+  private activePoisonMistCount: number = 0;
+  public poisonMistGraphics: Phaser.GameObjects.Graphics | null = null;
+  private poisonMistGraphicsDirty: boolean = false;
   private lastFrostAudioState: FrostLifecycleState = FrostLifecycleState.DORMANT;
   private readonly scratchMeteorUsedMask: Uint8Array = new Uint8Array(ROWS * COLS);
   private readonly scratchMeteorTargetsR: Int16Array = new Int16Array(32);
@@ -1544,6 +1534,12 @@ export default class GameScene extends Phaser.Scene {
     bomb.setData?.('power', BASE_BOMB_POWER);
     bomb.setData?.('type', 'REGULAR');
     bomb.setData?.('isGhostBomb', false);
+    bomb.setData?.('isClusterSubBomb', false);
+    bomb.setData?.('isLandmine', false);
+    bomb.setData?.('landmineArmed', false);
+    bomb.setData?.('armedAtMs', 0);
+    bomb.setData?.('isRemoteBomb', false);
+    bomb.setData?.('isChainDetonated', false);
     bomb.setData?.('isSliding', false);
     bomb.setData?.('slideSpeed', 0);
     bomb.setData?.('reboundsLeft', undefined);
@@ -1551,6 +1547,179 @@ export default class GameScene extends Phaser.Scene {
     bomb.setData?.('kineticPinballEnemyBonus', false);
     bomb.setData?.('fuseTimer', undefined);
     bomb.setData?.('tweenChain', undefined);
+  }
+
+  private clearPoisonMist(): void {
+    this.poisonMistRemainingMs.fill(0);
+    this.activePoisonMistCount = 0;
+    if (this.poisonMistGraphicsDirty && this.poisonMistGraphics) {
+      this.poisonMistGraphics.clear();
+      this.poisonMistGraphicsDirty = false;
+    }
+  }
+
+  private setPoisonMistTile(row: number, col: number, durationMs: number = 3500): void {
+    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return;
+    const idx = row * COLS + col;
+    const prev = this.poisonMistRemainingMs[idx];
+    if (prev <= 0) {
+      this.activePoisonMistCount++;
+    }
+    this.poisonMistRemainingMs[idx] = Math.max(prev, durationMs);
+  }
+
+  private updateAndRenderPoisonMist(delta: number): void {
+    if (this.activePoisonMistCount <= 0) {
+      if (this.poisonMistGraphicsDirty && this.poisonMistGraphics) {
+        this.poisonMistGraphics.clear();
+        this.poisonMistGraphicsDirty = false;
+      }
+      return;
+    }
+
+    const g = this.poisonMistGraphics;
+    if (g) {
+      g.clear();
+      this.poisonMistGraphicsDirty = true;
+    }
+
+    let remainingCount = 0;
+    const len = this.poisonMistRemainingMs.length;
+    for (let idx = 0; idx < len; idx++) {
+      let rem = this.poisonMistRemainingMs[idx];
+      if (rem <= 0) continue;
+      rem -= delta;
+      if (rem <= 0) {
+        this.poisonMistRemainingMs[idx] = 0;
+        continue;
+      }
+      this.poisonMistRemainingMs[idx] = rem;
+      remainingCount++;
+      if (g) {
+        const r = (idx / COLS) | 0;
+        const c = idx % COLS;
+        const fade = Math.min(1, rem / 800);
+        // Strictly clamped alpha <= 0.28 to preserve non-occlusion invariant
+        g.fillStyle(0x10b981, 0.28 * fade);
+        g.fillRect(c * TILE_SIZE + 3, r * TILE_SIZE + 3, TILE_SIZE - 6, TILE_SIZE - 6);
+        g.lineStyle(1.5, 0x34d399, 0.55 * fade);
+        g.strokeRect(c * TILE_SIZE + 3, r * TILE_SIZE + 3, TILE_SIZE - 6, TILE_SIZE - 6);
+      }
+    }
+    this.activePoisonMistCount = remainingCount;
+
+    if (remainingCount === 0) {
+      if (g) {
+        g.clear();
+      }
+      this.poisonMistGraphicsDirty = false;
+      return;
+    }
+
+    if (this.enemies && !this.isTimeFrozen) {
+      const enemiesList = this.enemies.getChildren();
+      for (let ei = 0; ei < enemiesList.length; ei++) {
+        const enemy = enemiesList[ei] as BaseEntity;
+        if (!enemy || !enemy.active || enemy.isDead) continue;
+        const er = Math.floor(enemy.y / TILE_SIZE);
+        const ec = Math.floor(enemy.x / TILE_SIZE);
+        if (er >= 0 && er < ROWS && ec >= 0 && ec < COLS) {
+          if (this.poisonMistRemainingMs[er * COLS + ec] > 0) {
+            enemy.applySpeedMultiplier?.(0.40, 250);
+          }
+        }
+      }
+    }
+  }
+
+  public detonateRemoteBombs(): number {
+    if (this.isGameOver || !this.bombs) return 0;
+    const children = this.bombs.getChildren();
+    let remoteCount = 0;
+    for (let i = 0; i < children.length; i++) {
+      const b = children[i] as Phaser.Physics.Arcade.Sprite | undefined;
+      if (b && b.active && b.getData?.('isRemoteBomb') === true) {
+        remoteCount++;
+      }
+    }
+    if (remoteCount === 0) return 0;
+
+    for (let i = 0; i < children.length; i++) {
+      const b = children[i] as Phaser.Physics.Arcade.Sprite | undefined;
+      if (b && b.active && b.getData?.('isRemoteBomb') === true) {
+        const br = Math.floor(b.y / TILE_SIZE);
+        const bc = Math.floor(b.x / TILE_SIZE);
+        this.explodeBomb(b, br, bc);
+      }
+    }
+    if (this.player?.active) {
+      this.spawnFloatingText(
+        this.player.x,
+        this.player.y - 24,
+        `📡 REMOTE DETONATED (${remoteCount})!`,
+        '#ef4444'
+      );
+    }
+    return remoteCount;
+  }
+
+  private spawnClusterSubBomb(row: number, col: number, owner: string): void {
+    if (this.isGameOver || !this.bombs || !this.map) return;
+    if (row <= 0 || row >= ROWS - 1 || col <= 0 || col >= COLS - 1) return;
+    if (this.map[row]?.[col] !== TILE_EMPTY) return;
+
+    const centerX = col * TILE_SIZE + TILE_SIZE / 2;
+    const centerY = row * TILE_SIZE + TILE_SIZE / 2;
+    if (this.hasActiveBombAtPixel(centerX, centerY)) return;
+
+    const sub = this.acquirePooledGroupSprite(this.bombs, centerX, centerY, 'bomb');
+    if (!sub) return;
+    this.resetPooledBombState(sub);
+    sub.setDepth(RENDER_DEPTH.BOMBS);
+    (sub.body as Phaser.Physics.Arcade.Body)?.setSize(32, 32).setOffset(4, 4);
+    (sub.body as Phaser.Physics.Arcade.Body)?.setImmovable(true);
+    applyPhysicsBodyInvariantGuard(sub, 32, 32, 4, 4);
+    this.populateBombIgnoringColliders(sub, this.player);
+
+    const subId = this.allocBombId('cluster');
+    sub.setData('id', subId);
+    sub.setData('owner', owner);
+    sub.setData('power', 1);
+    sub.setData('type', 'REGULAR');
+    sub.setData('isGhostBomb', true);
+    sub.setData('isClusterSubBomb', true);
+    sub.setScale?.(0.72, 0.72);
+    sub.setTint?.(0xe879f9);
+
+    if (this.time?.delayedCall) {
+      const fuseTimer = this.time.delayedCall(400, () => {
+        if (sub && sub.active) {
+          this.explodeBomb(sub, Math.floor(sub.y / TILE_SIZE), Math.floor(sub.x / TILE_SIZE));
+        }
+      });
+      if (this.isTimeFrozen) {
+        fuseTimer.paused = true;
+      }
+      sub.setData('fuseTimer', fuseTimer);
+    }
+  }
+
+  private tryDispelPsychicAtPlayerTile(r: number, c: number): boolean {
+    if (!this.crisisManager?.isCrisisActive()) return false;
+    const activeCrisis = this.crisisManager.getActiveCrisis();
+    if (!(activeCrisis instanceof PsychicCrisis)) return false;
+    if (!activeCrisis.hasIllusionAt(r, c)) return false;
+
+    const res = activeCrisis.dispelPsionicIllusion(r, c);
+    if (!res.dispelled) return false;
+
+    this.score += res.bonusScore;
+    if (this.player?.active) {
+      this.spawnFloatingText(this.player.x, this.player.y - 24, `+${res.bonusScore} PSIONIC DISPEL!`, '#ec4899');
+    }
+    this.grantDistortionBarrier(res.barrierDurationMs);
+    this.emitStatsUpdate();
+    return true;
   }
 
 
@@ -1768,6 +1937,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.hazardGraphics) {
       this.hazardGraphics.clear();
     }
+    this.hazardGraphicsDirty = false;
     this.dynamicHazardAudio?.stop();
     this.gravityHazardAudio?.stop();
     this.frostHazardAudio?.reset();
@@ -1814,6 +1984,9 @@ export default class GameScene extends Phaser.Scene {
       if (sugar > 0 || bonuses.startingShields > 0) {
         this.shieldCharges = Math.max(this.shieldCharges, bonuses.startingShields || Math.min(2, sugar));
         this.hasShield = this.shieldCharges > 0;
+      }
+      if (bonuses.extraHeartContainer > 0 && this.itemsCollectedTotal === 0) {
+        this.extraLives = Math.max(this.extraLives, bonuses.extraHeartContainer);
       }
       if (bonuses.startingBlastRadiusBonus > 0) {
         this.bombPower = Math.min(MAX_BOMB_POWER_CAP, BASE_BOMB_POWER + bonuses.startingBlastRadiusBonus);
@@ -1876,6 +2049,7 @@ export default class GameScene extends Phaser.Scene {
     const state = savedRun as Partial<SerializedRunState>;
     this.cancelModeChainTimers();
     this.clearCrisisBonusBombs();
+    this.clearPoisonMist();
 
     // 1. Restore score & game mode
     if (state.meta) {
@@ -2228,6 +2402,95 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    // 4b-extra. Restore dedicated activeAllies & activeNeutrals arrays when present (and not overridden inline)
+    let hasInlineAlly = false;
+    let hasInlineNeutral = false;
+    if (Array.isArray(state.activeEntities)) {
+      for (let ei = 0; ei < state.activeEntities.length; ei++) {
+        const ent = state.activeEntities[ei];
+        if (!ent) continue;
+        if (ent.faction === 'ally') hasInlineAlly = true;
+        else if (ent.faction === 'neutral') hasInlineNeutral = true;
+      }
+    }
+
+    if (this.allies && Array.isArray(state.activeAllies) && !hasInlineAlly) {
+      this.deactivateGroupEntities(this.allies);
+      const existingAllies = this.allies.getChildren();
+      for (let ai = 0; ai < state.activeAllies.length; ai++) {
+        const sa = state.activeAllies[ai];
+        if (!sa) continue;
+        const sx = typeof sa.x === 'number' && Number.isFinite(sa.x) ? sa.x : 2 * TILE_SIZE + TILE_SIZE / 2;
+        const sy = typeof sa.y === 'number' && Number.isFinite(sa.y) ? sa.y : 2 * TILE_SIZE + TILE_SIZE / 2;
+        const rawArch = String(sa.archetype || 'MINI_BOMBER').toUpperCase();
+        const allyType: AllyType =
+          rawArch === 'PET_DRONE' || rawArch === 'SHIELD_GUARD' ? rawArch : 'MINI_BOMBER';
+        let allyEnt: BaseEntity | undefined;
+        for (let ci = 0; ci < existingAllies.length; ci++) {
+          const cand = existingAllies[ci] as unknown as BaseEntity;
+          if (cand && !cand.active && cand.scene && cand.entityType === allyType) {
+            allyEnt = cand.reviveAt(sx, sy);
+            break;
+          }
+        }
+        if (!allyEnt) {
+          allyEnt = createAlly(this, allyType, sx, sy);
+          this.allies.add(allyEnt);
+        }
+        if (typeof sa.maxHp === 'number' && Number.isFinite(sa.maxHp) && sa.maxHp >= 1) {
+          allyEnt.maxHp = sa.maxHp;
+        }
+        if (typeof sa.hp === 'number' && Number.isFinite(sa.hp) && sa.hp >= 1) {
+          allyEnt.hp = Math.min(allyEnt.maxHp, sa.hp);
+        }
+        if (allyEnt.overheadUI) {
+          allyEnt.overheadUI.maxHp = allyEnt.maxHp;
+          allyEnt.overheadUI.update(allyEnt.x, allyEnt.y, allyEnt.hp);
+        }
+        if (!allyEnt.dropShadow || !allyEnt.dropShadow.active) {
+          this.attachEntityDropShadow(allyEnt, allyEnt.dropShadowScale || 1.0);
+        }
+      }
+    }
+
+    if (this.neutrals && Array.isArray(state.activeNeutrals) && !hasInlineNeutral) {
+      this.deactivateGroupEntities(this.neutrals);
+      const existingNeutrals = this.neutrals.getChildren();
+      for (let ni = 0; ni < state.activeNeutrals.length; ni++) {
+        const sn = state.activeNeutrals[ni];
+        if (!sn) continue;
+        const sx = typeof sn.x === 'number' && Number.isFinite(sn.x) ? sn.x : 4 * TILE_SIZE + TILE_SIZE / 2;
+        const sy = typeof sn.y === 'number' && Number.isFinite(sn.y) ? sn.y : 4 * TILE_SIZE + TILE_SIZE / 2;
+        const rawArch = String(sn.archetype || 'CRITTER').toUpperCase();
+        const neutralType: NeutralType = rawArch === 'MERCHANT' ? 'MERCHANT' : 'CRITTER';
+        let neutralEnt: BaseEntity | undefined;
+        for (let ci = 0; ci < existingNeutrals.length; ci++) {
+          const cand = existingNeutrals[ci] as unknown as BaseEntity;
+          if (cand && !cand.active && cand.scene && cand.entityType === neutralType) {
+            neutralEnt = cand.reviveAt(sx, sy);
+            break;
+          }
+        }
+        if (!neutralEnt) {
+          neutralEnt = createNeutral(this, neutralType, sx, sy);
+          this.neutrals.add(neutralEnt);
+        }
+        if (typeof sn.maxHp === 'number' && Number.isFinite(sn.maxHp) && sn.maxHp >= 1) {
+          neutralEnt.maxHp = sn.maxHp;
+        }
+        if (typeof sn.hp === 'number' && Number.isFinite(sn.hp) && sn.hp >= 1) {
+          neutralEnt.hp = Math.min(neutralEnt.maxHp, sn.hp);
+        }
+        if (neutralEnt.overheadUI) {
+          neutralEnt.overheadUI.maxHp = neutralEnt.maxHp;
+          neutralEnt.overheadUI.update(neutralEnt.x, neutralEnt.y, neutralEnt.hp);
+        }
+        if (!neutralEnt.dropShadow || !neutralEnt.dropShadow.active) {
+          this.attachEntityDropShadow(neutralEnt, neutralEnt.dropShadowScale || 1.0);
+        }
+      }
+    }
+
     // 4c. Restore active bombs when explicitly serialized (Zero-GC in-place pooled sprite recycling)
     if (this.bombs && Array.isArray(state.activeBombs)) {
       this.releaseAllActiveBombResources();
@@ -2283,6 +2546,23 @@ export default class GameScene extends Phaser.Scene {
           bomb.setTint(0xd946ef);
         } else if (resolvedOwner === 'ally') {
           bomb.setTint(0x06b6d4);
+        } else if (resolvedBombType === 'REMOTE_BOMB') {
+          bomb.setData('isRemoteBomb', true);
+          bomb.setTint(0xef4444);
+        } else if (resolvedBombType === 'LANDMINE') {
+          bomb.setData('isLandmine', true);
+          const nowMs =
+            typeof this.time?.now === 'number' && Number.isFinite(this.time.now)
+              ? this.time.now
+              : Date.now();
+          bomb.setData('armedAtMs', nowMs + 400);
+          bomb.setTint(0xf59e0b);
+        } else if (resolvedBombType === 'ICE_BOMB') {
+          bomb.setTint(0x38bdf8);
+        } else if (resolvedBombType === 'POISON_MIST') {
+          bomb.setTint(0x10b981);
+        } else if (resolvedBombType === 'CLUSTER_BOMB') {
+          bomb.setTint(0xa855f7);
         }
 
         const fuseMs =
@@ -2429,37 +2709,45 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    const serializedEntities: SerializedEntity[] = [];
-    if (this.enemies) {
-      const enemyChildren = this.enemies.getChildren();
-      for (let ei = 0; ei < enemyChildren.length; ei++) {
-        const enemy = enemyChildren[ei] as Phaser.Physics.Arcade.Sprite & {
+    const serializeGroup = (
+      group: Phaser.Physics.Arcade.Group | undefined | null,
+      fallbackFaction: 'enemy' | 'ally' | 'neutral',
+      fallbackArchetype: string
+    ): SerializedEntity[] => {
+      const out: SerializedEntity[] = [];
+      if (!group || typeof group.getChildren !== 'function') return out;
+      const children = group.getChildren();
+      for (let ei = 0; ei < children.length; ei++) {
+        const ent = children[ei] as Phaser.Physics.Arcade.Sprite & {
           id?: string | number;
           entityId?: string;
           archetype?: string;
+          entityType?: string;
           faction?: 'enemy' | 'neutral' | 'ally';
           hp?: number;
           maxHp?: number;
           aiState?: string;
         };
-        if (enemy && enemy.active) {
-          const resolvedArchetype =
-            enemy.archetype ||
-            (enemy as unknown as { entityType?: string }).entityType ||
-            'CHASER';
-          serializedEntities.push({
-            id: enemy.id || enemy.entityId || this.getStableEntityId(enemy),
+        if (ent && ent.active) {
+          const resolvedArchetype = ent.archetype || ent.entityType || fallbackArchetype;
+          out.push({
+            id: ent.id || ent.entityId || this.getStableEntityId(ent),
             archetype: resolvedArchetype,
-            faction: enemy.faction || 'enemy',
-            x: enemy.x,
-            y: enemy.y,
-            hp: typeof enemy.hp === 'number' ? enemy.hp : 1,
-            maxHp: typeof enemy.maxHp === 'number' ? enemy.maxHp : 1,
-            aiState: enemy.aiState || 'IDLE',
+            faction: ent.faction || fallbackFaction,
+            x: ent.x,
+            y: ent.y,
+            hp: typeof ent.hp === 'number' ? ent.hp : 1,
+            maxHp: typeof ent.maxHp === 'number' ? ent.maxHp : 1,
+            aiState: ent.aiState || 'IDLE',
           });
         }
       }
-    }
+      return out;
+    };
+
+    const serializedEntities = serializeGroup(this.enemies, 'enemy', 'CHASER');
+    const serializedAllies = serializeGroup(this.allies, 'ally', 'MINI_BOMBER');
+    const serializedNeutrals = serializeGroup(this.neutrals, 'neutral', 'CRITTER');
 
     const playerCol = this.player ? Math.floor(this.player.x / TILE_SIZE) : 1;
     const playerRow = this.player ? Math.floor(this.player.y / TILE_SIZE) : 1;
@@ -2506,6 +2794,8 @@ export default class GameScene extends Phaser.Scene {
       },
       activeBombs: serializedBombs,
       activeEntities: serializedEntities,
+      activeAllies: serializedAllies,
+      activeNeutrals: serializedNeutrals,
       activeItems: serializedItems,
       crisis: crisisState,
       situationLog: sitLogState,
@@ -2552,6 +2842,8 @@ export default class GameScene extends Phaser.Scene {
     this.lastHandledEmpPulseCount = 0;
     this.activeChronoSpeedBoost = 0;
     this.crisisGraphicsDirty = false;
+    this.hazardGraphicsDirty = false;
+    this.clearPoisonMist();
     this.lastFrostAudioState = FrostLifecycleState.DORMANT;
     this.scratchMeteorUsedMask.fill(0);
     this.destroyedBlocksThisTick.clear();
@@ -2729,6 +3021,10 @@ export default class GameScene extends Phaser.Scene {
       this.hazardGraphics.destroy();
       this.hazardGraphics = null;
     }
+    if (this.poisonMistGraphics) {
+      this.poisonMistGraphics.destroy();
+      this.poisonMistGraphics = null;
+    }
 
     // Teardown sound managers and hazard audio instances
     if (this.dynamicHazardAudio) {
@@ -2800,6 +3096,8 @@ export default class GameScene extends Phaser.Scene {
     this.clearMasteryAndDebuffTimers();
     this.isUltimateChronoFrozen = false;
     this.crisisGraphicsDirty = false;
+    this.hazardGraphicsDirty = false;
+    this.clearPoisonMist();
     this.lastFrostAudioState = FrostLifecycleState.DORMANT;
     this.scratchMeteorUsedMask.fill(0);
     this.lastAbyssalRelicAudioMs = -9999;
@@ -3068,6 +3366,10 @@ export default class GameScene extends Phaser.Scene {
       this.hazardGraphics.destroy();
       this.hazardGraphics = null;
     }
+    if (this.poisonMistGraphics) {
+      this.poisonMistGraphics.destroy();
+      this.poisonMistGraphics = null;
+    }
 
     if (this.player) {
       this.player.destroy();
@@ -3265,7 +3567,8 @@ export default class GameScene extends Phaser.Scene {
     this.shieldCharges = this.appliedPerkBonuses?.startingShields ?? 0;
     this.hasShield = this.shieldCharges > 0;
     this.maxShields = 1;
-    this.extraLives = 0;
+    this.extraLives = this.appliedPerkBonuses?.extraHeartContainer ?? 0;
+    this.clearPoisonMist();
     this.hasWallPass = false;
     this.hasBombPass = false;
     this.hasMagnet = false;
@@ -3629,7 +3932,9 @@ export default class GameScene extends Phaser.Scene {
         item.setData('itemShadow', null);
       }
       if (this.tweens) this.tweens.killTweensOf(item);
-      if (item.active) { item.disableBody(true, true); }
+      if (item.active) {
+        this.safeDisableSpriteBody(item);
+      }
     });
 
     // Explosions destroy items ONLY after 600ms grace period
@@ -3645,7 +3950,9 @@ export default class GameScene extends Phaser.Scene {
           item.setData('itemShadow', null);
         }
         if (this.tweens) this.tweens.killTweensOf(item);
-        if (item.active) { item.disableBody(true, true); }
+        if (item.active) {
+          this.safeDisableSpriteBody(item);
+        }
       }
     });
 
@@ -3709,7 +4016,9 @@ export default class GameScene extends Phaser.Scene {
               this.handlePlayerEnemyKillRewards(enemy, true);
             }
           } else {
-            if (enemy.active) { enemy['disableBody'](true, true); }
+            if (enemy.active) {
+              this.safeDisableSpriteBody(enemy);
+            }
             this.handlePlayerEnemyKillRewards(enemy, true);
           }
         }
@@ -3753,6 +4062,16 @@ export default class GameScene extends Phaser.Scene {
       if (owner === 'player' || owner === 'ally') {
         return;
       }
+
+      // DEFLECTOR item: Dashing through hostile explosions reflects shockwave into player-owned flame
+      if (this.hasBlastDeflector && this.isDashing) {
+        exp?.setData?.('owner', 'player');
+        exp?.setTint?.(0x2dd4bf);
+        this.addUltimateCharge(CHARGE_VALUES.CLOSE_CALL);
+        this.spawnFloatingText(this.player.x, this.player.y - 18, '🪞 BLAST DEFLECTED!', '#2dd4bf');
+        return;
+      }
+
       // Shield Guard absorption check
       let absorbed = false;
       const allies = this.allies.getChildren();
@@ -3776,6 +4095,16 @@ export default class GameScene extends Phaser.Scene {
         }
       }
       if (absorbed) return;
+
+      // BLAST_RESIST item: 50% chance to shrug off blast wave without consuming shield/life
+      if (this.hasBlastResist && !this.isInvulnerable && Math.random() < 0.5) {
+        const nowMs = this.time?.now ?? Date.now();
+        this.isInvulnerable = true;
+        this.shieldInvulnerableUntil = Math.max(this.shieldInvulnerableUntil, nowMs + 400);
+        this.spawnFloatingText(this.player.x, this.player.y - 18, '🦺 BLAST RESISTED!', '#f97316');
+        return;
+      }
+
       this.playerDie();
     });
 
@@ -3784,14 +4113,20 @@ export default class GameScene extends Phaser.Scene {
       const target = enemyObj as BaseEntity;
       const exp = expObj as Phaser.Physics.Arcade.Sprite;
       const owner = (exp?.getData('owner') as string) || 'player';
+      const expBombType = (exp?.getData?.('bombType') as string) || 'REGULAR';
       if (target && target.active) {
         if ('takeDamage' in target && typeof (target as BaseEntity).takeDamage === 'function') {
           const died = (target as BaseEntity).takeDamage(1, owner, this.time.now);
           if (died && owner === 'player') {
             this.handlePlayerEnemyKillRewards(target, true);
+          } else if (!died && target.active && !target.isDead && expBombType === 'ICE_BOMB') {
+            target.applyStun?.(3000);
+            target.applySpeedMultiplier?.(0.35, 3500);
           }
         } else {
-          if (target.active) { target['disableBody'](true, true); }
+          if (target.active) {
+            this.safeDisableSpriteBody(target);
+          }
           if (owner === 'player') {
             this.handlePlayerEnemyKillRewards(target, true);
           }
@@ -4175,6 +4510,11 @@ export default class GameScene extends Phaser.Scene {
             block.setDepth(RENDER_DEPTH.BLOCKS);
             block.setData('row', r);
             block.setData('col', c);
+            const gildedChance = this.appliedPerkBonuses?.gildedChestChance ?? 0;
+            if (gildedChance > 0 && Math.random() < gildedChance) {
+              block.setData('isChest', true);
+              block.setTint?.(0xfbbf24);
+            }
             block.refreshBody();
             if (r < ROWS - 1) {
               const ao = this.rectPool ? this.rectPool.acquire() : null;
@@ -4307,8 +4647,14 @@ export default class GameScene extends Phaser.Scene {
       this.hazardGraphics.destroy();
       this.hazardGraphics = null;
     }
+    if (this.poisonMistGraphics) {
+      this.poisonMistGraphics.destroy();
+      this.poisonMistGraphics = null;
+    }
     this.hazardGraphics = this.add.graphics();
     this.hazardGraphics.setDepth(RENDER_DEPTH.CRISIS_HAZARDS);
+    this.poisonMistGraphics = this.add.graphics();
+    this.poisonMistGraphics.setDepth(RENDER_DEPTH.CRISIS_HAZARDS);
     this.hazardRendererContext.dynamicHazard = this.dynamicHazard;
     this.hazardRendererContext.gravityHazard = this.gravityHazard;
     this.hazardRendererContext.frostHazard = this.frostHazard;
@@ -4358,9 +4704,11 @@ export default class GameScene extends Phaser.Scene {
     }
     if (this.activeBoss instanceof HamsterBoss) {
       this.activeBoss.headOnBombCheck = this._hamsterHeadOnBombCheck;
+      this.activeBoss.attackManager = this.bossAttackManager;
     }
     if (this.activeBoss instanceof QueenBeeBoss) {
       this.activeBoss.diveCraterBombCheck = this._queenDiveCraterBombCheck;
+      this.activeBoss.attackManager = this.bossAttackManager;
     }
     if (this.activeBoss instanceof MutantFloraBoss) {
       this.activeBoss.attackManager = this.bossAttackManager;
@@ -4678,6 +5026,8 @@ export default class GameScene extends Phaser.Scene {
         !this.isGameOver
       ) {
         this.ultBufferRemaining = this.ultimateLockoutRemaining + 16;
+      } else if (!this.isGameOver) {
+        this.detonateRemoteBombs();
       }
     } else if (this.ultBufferRemaining > 0) {
       this.ultBufferRemaining -= delta;
@@ -4751,10 +5101,23 @@ export default class GameScene extends Phaser.Scene {
         this.warpPlayer(DEFAULT_PORTALS.portalA.row, DEFAULT_PORTALS.portalA.col);
       } else if (this.crisisManager?.isCrisisActive()) {
         const activeRift = this.crisisManager.getActiveCrisis();
-        if (activeRift instanceof RiftCrisis && activeRift.getStage() === CrisisStage.OUTBREAK) {
-          const dest = activeRift.teleportThroughRift(pRow, pCol, this.scratchTileCoord);
-          if (dest && (dest.r !== pRow || dest.c !== pCol)) {
-            this.warpPlayer(dest.r, dest.c);
+        if (activeRift instanceof RiftCrisis) {
+          const rStage = activeRift.getStage();
+          if (rStage === CrisisStage.OUTBREAK) {
+            const dest = activeRift.teleportThroughRift(pRow, pCol, this.scratchTileCoord);
+            if (dest && (dest.r !== pRow || dest.c !== pCol)) {
+              this.warpPlayer(dest.r, dest.c);
+            }
+          }
+          if (
+            this.portalCooldown <= 0 &&
+            (rStage === CrisisStage.OUTBREAK || rStage === CrisisStage.CLIMAX) &&
+            (pRow <= 0 || pRow >= ROWS - 1 || pCol <= 0 || pCol >= COLS - 1)
+          ) {
+            const wrapped = activeRift.wrapToroidalPosition(pRow, pCol, this.scratchTileCoord);
+            if (wrapped && (wrapped.r !== pRow || wrapped.c !== pCol) && this.map?.[wrapped.r]?.[wrapped.c] === TILE_EMPTY) {
+              this.warpPlayer(wrapped.r, wrapped.c);
+            }
           }
         }
       }
@@ -5032,6 +5395,63 @@ export default class GameScene extends Phaser.Scene {
             }
           }
         }
+
+        // Landmine stealth arming & proximity detonation
+        if (bomb.getData('isLandmine') === true) {
+          const nowMs = typeof this.time?.now === 'number' && Number.isFinite(this.time.now) ? this.time.now : _time;
+          const armedAt = (bomb.getData('armedAtMs') as number) || 0;
+          if (nowMs >= armedAt) {
+            if (!bomb.getData('landmineArmed')) {
+              bomb.setData('landmineArmed', true);
+              const lmChain = bomb.getData('tweenChain') as Phaser.Tweens.TweenChain | undefined;
+              if (lmChain && lmChain !== (bomb as unknown) && typeof lmChain.stop === 'function') {
+                lmChain.stop();
+                bomb.setData('tweenChain', undefined);
+              }
+              bomb.setScale?.(0.92, 0.92);
+              bomb.setAlpha?.(0.28);
+            }
+            let mineTriggered = false;
+            if (this.enemies) {
+              const eList = this.enemies.getChildren();
+              for (let ei = 0; ei < eList.length; ei++) {
+                const enemy = eList[ei] as BaseEntity;
+                if (!enemy || !enemy.active || enemy.isDead) continue;
+                const eDist = Phaser.Math.Distance.Between(bomb.x, bomb.y, enemy.x, enemy.y);
+                const eRadius = enemy.collisionRadius || 16;
+                if (
+                  eDist < eRadius + 18 ||
+                  (Math.floor(enemy.y / TILE_SIZE) === bRow && Math.floor(enemy.x / TILE_SIZE) === bCol)
+                ) {
+                  mineTriggered = true;
+                  break;
+                }
+              }
+            }
+            if (!mineTriggered && this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED) {
+              const bossUntargetable =
+                (this.activeBoss instanceof MutantFloraBoss && this.activeBoss.isUnderground) ||
+                (this.activeBoss instanceof GummyBearBoss &&
+                  this.activeBoss.isAirborne &&
+                  this.activeBoss.leapElevation > 20) ||
+                (this.activeBoss instanceof QueenBeeBoss &&
+                  this.activeBoss.isFlying &&
+                  !this.activeBoss.isDiving &&
+                  this.activeBoss.altitude > 20);
+              if (!bossUntargetable) {
+                const bossDist = Phaser.Math.Distance.Between(bomb.x, bomb.y, this.activeBoss.x, this.activeBoss.y);
+                if (bossDist < (this.activeBoss.config.colliderRadius || 35) + 18) {
+                  mineTriggered = true;
+                }
+              }
+            }
+            if (mineTriggered) {
+              this.spawnFloatingText(bomb.x, bomb.y - 20, '💥 MINE TRIGGERED!', '#f59e0b');
+              this.explodeBomb(bomb, bRow, bCol);
+              continue;
+            }
+          }
+        }
       }
 
       // Fuse spark emission at fuse tip
@@ -5099,7 +5519,10 @@ export default class GameScene extends Phaser.Scene {
           hz.type === HazardType.KINETIC_CRATER ||
           hz.type === HazardType.KINETIC_TARGET ||
           hz.type === HazardType.SOLAR_SWEEP ||
-          hz.type === HazardType.EMP_PULSE
+          hz.type === HazardType.EMP_PULSE ||
+          hz.type === HazardType.VOID_CREEP ||
+          hz.type === HazardType.VOID_RIFT ||
+          hz.type === HazardType.PSIONIC_DISRUPTION
         ) {
           this.persistentHazardMask.setCoord(hz.r, hz.c, 1);
         }
@@ -5121,7 +5544,42 @@ export default class GameScene extends Phaser.Scene {
           this.persistentHazardMask.setCoord(t.row, t.col, 1);
         }
       }
+    } else if (this.activeBoss instanceof HamsterBoss && this.activeBoss.isReving) {
+      const baseCol = Math.max(1, Math.min(COLS - 2, Math.floor(this.activeBoss.x / TILE_SIZE)));
+      const baseRow = Math.max(1, Math.min(ROWS - 2, Math.floor(this.activeBoss.y / TILE_SIZE)));
+      for (let step = 1; step <= 4; step++) {
+        const wc = baseCol + this.activeBoss.dashDirection.x * step;
+        const wr = baseRow + this.activeBoss.dashDirection.y * step;
+        if (wr <= 0 || wr >= ROWS - 1 || wc <= 0 || wc >= COLS - 1) break;
+        this.persistentHazardMask.setCoord(wr, wc, 1);
+      }
+    } else if (this.activeBoss instanceof QueenBeeBoss && this.activeBoss.isDiving) {
+      const dr = Math.floor(this.activeBoss.targetDiveY / TILE_SIZE);
+      const dc = Math.floor(this.activeBoss.targetDiveX / TILE_SIZE);
+      if (dr >= 0 && dr < ROWS && dc >= 0 && dc < COLS) {
+        this.persistentHazardMask.setCoord(dr, dc, 1);
+      }
+    } else if (this.activeBoss instanceof GummyBearBoss && this.activeBoss.isAirborne) {
+      const lr = Math.floor(this.activeBoss.targetLandingY / TILE_SIZE);
+      const lc = Math.floor(this.activeBoss.targetLandingX / TILE_SIZE);
+      if (lr >= 0 && lr < ROWS && lc >= 0 && lc < COLS) {
+        this.persistentHazardMask.setCoord(lr, lc, 1);
+      }
+    } else if (this.activeBoss instanceof MutantFloraBoss) {
+      for (let ri = 0; ri < this.activeBoss.rootPool.activeCount; ri++) {
+        const root = this.activeBoss.rootPool.getActive(ri);
+        if (root && root.active) {
+          const rr = Math.floor(root.y / TILE_SIZE);
+          const rc = Math.floor(root.x / TILE_SIZE);
+          if (rr >= 0 && rr < ROWS && rc >= 0 && rc < COLS) {
+            this.persistentHazardMask.setCoord(rr, rc, 1);
+          }
+        }
+      }
     }
+
+    // 9b. Decay & render active Poison Mist clouds (Zero-GC Float32Array pass)
+    this.updateAndRenderPoisonMist(delta);
 
     // 10. Update enemies, neutrals, and allies with advanced AI
     const enemiesList = this.enemies.getChildren();
@@ -5351,11 +5809,27 @@ export default class GameScene extends Phaser.Scene {
           this.activeBoss.attackManager = this.bossAttackManager;
         }
       }
-      if (this.activeBoss instanceof HamsterBoss && !this.activeBoss.headOnBombCheck) {
-        this.activeBoss.headOnBombCheck = this._hamsterHeadOnBombCheck;
+      if (this.activeBoss instanceof HamsterBoss) {
+        if (!this.activeBoss.headOnBombCheck) {
+          this.activeBoss.headOnBombCheck = this._hamsterHeadOnBombCheck;
+        }
+        if (!this.activeBoss.attackManager) {
+          if (!this.bossAttackManager) {
+            this.bossAttackManager = new BossAttackManager();
+          }
+          this.activeBoss.attackManager = this.bossAttackManager;
+        }
       }
-      if (this.activeBoss instanceof QueenBeeBoss && !this.activeBoss.diveCraterBombCheck) {
-        this.activeBoss.diveCraterBombCheck = this._queenDiveCraterBombCheck;
+      if (this.activeBoss instanceof QueenBeeBoss) {
+        if (!this.activeBoss.diveCraterBombCheck) {
+          this.activeBoss.diveCraterBombCheck = this._queenDiveCraterBombCheck;
+        }
+        if (!this.activeBoss.attackManager) {
+          if (!this.bossAttackManager) {
+            this.bossAttackManager = new BossAttackManager();
+          }
+          this.activeBoss.attackManager = this.bossAttackManager;
+        }
       }
       if (this.activeBoss instanceof MutantFloraBoss && !this.activeBoss.attackManager) {
         if (!this.bossAttackManager) {
@@ -6042,9 +6516,7 @@ export default class GameScene extends Phaser.Scene {
                     item.setData?.('itemShadow', null);
                   }
                   this.tweens?.killTweensOf?.(item);
-                  item.disableBody?.(true, true);
-                  item.setActive?.(false);
-                  item.setVisible?.(false);
+                  this.safeDisableSpriteBody(item);
                 }
               }
             }
@@ -6070,6 +6542,54 @@ export default class GameScene extends Phaser.Scene {
           ) {
             this.spawnFloatingText(this.player.x, this.player.y - 16, '🌋 MOLTEN LAVA!', '#ef4444');
             this.playerDie();
+          }
+        } else if (
+          activeCrisis instanceof VoidCrisis &&
+          (curStage === CrisisStage.OUTBREAK || curStage === CrisisStage.CLIMAX)
+        ) {
+          if (
+            !this.isGameOver &&
+            !this.isInvulnerable &&
+            !this.isDashing &&
+            !this.isAegisOverdriveActive
+          ) {
+            if (
+              activeCrisis.avatarSpawned &&
+              activeCrisis.avatarHp > 0 &&
+              activeCrisis.avatarShieldActive &&
+              pRow === 6 &&
+              pCol === 7
+            ) {
+              this.spawnFloatingText(this.player.x, this.player.y - 16, '🪐 VOID AVATAR!', '#a855f7');
+              this.playerDie();
+            } else {
+              const pHazard = this.crisisManager.getHazardAt(pRow, pCol);
+              if (
+                pHazard &&
+                pHazard.type === HazardType.VOID_CREEP &&
+                !activeCrisis.isTileInSafeAura(pRow, pCol) &&
+                !this.activeStompSlowTimer
+              ) {
+                this.applyStompSlow(0.35, 900);
+              }
+            }
+          }
+        } else if (
+          activeCrisis instanceof PsychicCrisis &&
+          (curStage === CrisisStage.OUTBREAK || curStage === CrisisStage.CLIMAX)
+        ) {
+          if (this.isDashing) {
+            this.tryDispelPsychicAtPlayerTile(pRow, pCol);
+          } else if (
+            !this.isGameOver &&
+            !this.isInvulnerable &&
+            !this.isAegisOverdriveActive &&
+            !this.hasBuff('DISTORTION_BARRIER')
+          ) {
+            const pHazard = this.crisisManager.getHazardAt(pRow, pCol);
+            if (pHazard && pHazard.type === HazardType.PSIONIC_DISRUPTION) {
+              this.applyPhaseJitter(1800);
+            }
           }
         } else if (
           !this.isGameOver &&
@@ -6364,11 +6884,7 @@ export default class GameScene extends Phaser.Scene {
               const absOwner = (absorbed.getData?.('owner') as string | undefined) || 'player';
               const absGhost = Boolean(absorbed.getData?.('isGhostBomb'));
               this.resetPooledBombState(absorbed);
-              absorbed.setActive?.(false);
-              absorbed.setVisible?.(false);
-              if (typeof absorbed.disableBody === 'function') {
-                absorbed.disableBody(true, true);
-              }
+              this.safeDisableSpriteBody(absorbed);
               if (absOwner === 'player' && !absGhost) {
                 this.activeBombs = Math.max(0, this.activeBombs - 1);
                 this.emitStatsUpdate();
@@ -8009,14 +8525,45 @@ export default class GameScene extends Phaser.Scene {
     this.emitStatsUpdate();
   }
 
+  private isAnyDynamicHazardRenderable(): boolean {
+    const ctx = this.hazardRendererContext;
+    if (ctx.dynamicHazard && ctx.dynamicHazard.getState() !== HazardLifecycleState.INACTIVE) return true;
+    const fState = ctx.frostHazard?.getState();
+    if (ctx.frostHazard && fState !== FrostLifecycleState.DORMANT && fState !== FrostLifecycleState.THAW_COOLDOWN) return true;
+    const vState = ctx.voltHazard?.getState();
+    if (ctx.voltHazard && vState !== VoltLifecycleState.DORMANT && vState !== VoltLifecycleState.DISCHARGE_COOLDOWN) return true;
+    const mState = ctx.magmaHazard?.getState();
+    if (ctx.magmaHazard && mState !== MagmaLifecycleState.DORMANT && mState !== MagmaLifecycleState.OBSIDIAN_COOLDOWN) return true;
+    const miState = ctx.miasmaHazard?.getState();
+    if (ctx.miasmaHazard && miState !== MiasmaLifecycleState.DORMANT && miState !== MiasmaLifecycleState.SPORE_DISSIPATION) return true;
+    const cState = ctx.chronoHazard?.getState();
+    if (ctx.chronoHazard && cState !== ChronoLifecycleState.DORMANT && cState !== ChronoLifecycleState.TACHYON_RECOVERY) return true;
+    const gState = ctx.gravityHazard?.getState();
+    if (ctx.gravityHazard && gState !== GravityLifecycleState.DORMANT && gState !== GravityLifecycleState.COOLDOWN) return true;
+    const sState = ctx.solarHazard?.getState();
+    if (ctx.solarHazard && sState !== SolarLifecycleState.DORMANT && sState !== SolarLifecycleState.CORONA_RECOVERY) return true;
+    const nState = ctx.nebulaHazard?.getState();
+    if (ctx.nebulaHazard && nState !== NebulaLifecycleState.DORMANT && nState !== NebulaLifecycleState.STELLAR_DAWN) return true;
+    const aState = ctx.abyssalHazard?.getState();
+    if (ctx.abyssalHazard && aState !== AbyssalLifecycleState.DORMANT && aState !== AbyssalLifecycleState.OCEANIC_CALM) return true;
+    return false;
+  }
+
   private renderDynamicHazardGraphics(time: number): void {
     if (!this.hazardGraphics) return;
+    if (!this.isAnyDynamicHazardRenderable()) {
+      if (this.hazardGraphicsDirty) {
+        this.hazardGraphics.clear();
+        this.hazardGraphicsDirty = false;
+      }
+      return;
+    }
     HazardRenderer.render(
       this.hazardGraphics,
       this.hazardRendererContext,
       time
     );
-    return;
+    this.hazardGraphicsDirty = true;
   }
 
   /**
@@ -8631,9 +9178,15 @@ export default class GameScene extends Phaser.Scene {
     bomb.setData('power', this.bombPower);
     bomb.setData('type', this.activeBombType);
 
-    let fuseDuration = 2000;
+    const fuseReductionRatio = Math.max(
+      0,
+      Math.min(0.6, Number(this.appliedPerkBonuses?.bombCooldownReduction) || 0)
+    );
+    const baseFuseMs =
+      fuseReductionRatio > 0 ? Math.max(800, Math.round(2000 * (1 - fuseReductionRatio))) : 2000;
+    let fuseDuration = baseFuseMs;
     if (this.dynamicHazard) {
-      const hazardInteraction = this.dynamicHazard.onBombPlaced(bombId, row, col, this.bombPower, 2000);
+      const hazardInteraction = this.dynamicHazard.onBombPlaced(bombId, row, col, this.bombPower, baseFuseMs);
       fuseDuration = hazardInteraction.modifiedFuseMs;
 
       // Subspace Hyper-Fuse: fuse compressed to 1500ms when placed on Spire anchor
@@ -8731,6 +9284,27 @@ export default class GameScene extends Phaser.Scene {
         bomb.setTint(abyssalInteraction.bombTint ?? ABYSSAL_SUPER_BOMB_TINT);
         this.spawnFloatingText(centerX, centerY - 25, abyssalInteraction.floatingText ?? FLOATING_TEXT_ABYSSAL_FUSED, '#0ea5e9');
       }
+    }
+
+    // Apply special bomb variant properties & visual tints
+    if (this.activeBombType === 'REMOTE_BOMB') {
+      bomb.setData('isRemoteBomb', true);
+      bomb.setTint(0xef4444);
+      fuseDuration = Math.max(fuseDuration, 8000);
+    } else if (this.activeBombType === 'LANDMINE') {
+      const nowMs =
+        typeof this.time?.now === 'number' && Number.isFinite(this.time.now) ? this.time.now : Date.now();
+      bomb.setData('isLandmine', true);
+      bomb.setData('landmineArmed', false);
+      bomb.setData('armedAtMs', nowMs + 400);
+      bomb.setTint(0xf59e0b);
+      fuseDuration = Math.max(fuseDuration, 12000);
+    } else if (this.activeBombType === 'ICE_BOMB') {
+      bomb.setTint(0x38bdf8);
+    } else if (this.activeBombType === 'POISON_MIST') {
+      bomb.setTint(0x10b981);
+    } else if (this.activeBombType === 'CLUSTER_BOMB') {
+      bomb.setTint(0xa855f7);
     }
 
     const scale = fuseDuration / 2000;
@@ -9184,6 +9758,9 @@ export default class GameScene extends Phaser.Scene {
     const owner = (bomb.getData('owner') as string) || 'player';
     const bombPower = (bomb.getData('power') as number) || this.bombPower;
     const bombId = (bomb.getData('id') as string) || this.allocBombId('bomb');
+    const bombType = (bomb.getData('type') as string) || 'REGULAR';
+    const isClusterSub = Boolean(bomb.getData('isClusterSubBomb'));
+    const isChainDetonated = Boolean(bomb.getData('isChainDetonated'));
 
     // Compute dynamic detonation coordinates from sprite position (PHYS-02)
     const curCol = Math.floor(bomb.x / TILE_SIZE);
@@ -9191,12 +9768,13 @@ export default class GameScene extends Phaser.Scene {
     const actualRow = Number.isFinite(curRow) && curRow >= 0 && curRow < ROWS ? curRow : (row ?? 0);
     const actualCol = Number.isFinite(curCol) && curCol >= 0 && curCol < COLS ? curCol : (col ?? 0);
 
-    bomb.setActive?.(false);
-    bomb.setVisible?.(false);
-    if (typeof bomb.disableBody === 'function') {
-      bomb.disableBody(true, true);
-    }
+    this.safeDisableSpriteBody(bomb);
     bomb.setData('isSliding', false);
+    bomb.setData('isChainDetonated', false);
+    bomb.setData('isClusterSubBomb', false);
+    bomb.setData('isLandmine', false);
+    bomb.setData('landmineArmed', false);
+    bomb.setData('isRemoteBomb', false);
     const ignoring = bomb.getData('ignoringColliders') as Set<Phaser.GameObjects.GameObject> | undefined;
     if (ignoring instanceof Set) {
       ignoring.clear();
@@ -9229,11 +9807,34 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    // Chain Reaction Perk Bonus (+25%/+50% chain combo score & +5%/+10% ultimate charge per chained bomb)
+    if (owner === 'player' && isChainDetonated && this.appliedPerkBonuses) {
+      const rawScoreBonus = Number(this.appliedPerkBonuses.chainScoreBonus) || 0;
+      const rawUltBonus = Number(this.appliedPerkBonuses.chainUltChargeBonus) || 0;
+      const cScore =
+        rawScoreBonus > 0
+          ? rawScoreBonus <= 2
+            ? Math.round(200 * rawScoreBonus)
+            : Math.round(rawScoreBonus)
+          : 0;
+      const cUlt =
+        rawUltBonus > 0
+          ? rawUltBonus <= 1
+            ? Math.round((this.ultimateMax || 100) * rawUltBonus)
+            : rawUltBonus
+          : 0;
+      if (cScore > 0 || cUlt > 0) {
+        if (cScore > 0) this.score += cScore;
+        if (cUlt > 0) this.addUltimateCharge(cUlt);
+        this.emitStatsUpdate();
+      }
+    }
+
     // Dynamic Hazard Tactical Bomb Interactions:
     // 1. Tachyon Overcharge (+2 blast power inside active beam)
     // 2. Synchronized Entanglement Detonation
     let effectivePower = bombPower;
-    let isPiercing = bomb.getData('type') === 'PIERCING_BOMB';
+    let isPiercing = bombType === 'PIERCING_BOMB';
     const entanglementStackBase = this.scratchChainStackTop;
 
     if (this.dynamicHazard) {
@@ -9445,7 +10046,7 @@ export default class GameScene extends Phaser.Scene {
             if (sr >= 0 && sr < ROWS && sc >= 0 && sc < COLS) {
               if (this.map[sr][sc] === TILE_WALL) break;
               this.applyBlastTileHazardImpacts(sr, sc);
-              this.spawnExplosion(sr, sc, false, owner, bombId, isPiercing);
+              this.spawnExplosion(sr, sc, false, owner, bombId, isPiercing, bombType);
               if (this.map[sr][sc] === TILE_BLOCK) {
                 this.destroyedBlocksThisTick.add(TILE_KEY_LUT[sr * COLS + sc]);
                 this.destroyBlock(sr, sc);
@@ -9851,7 +10452,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // Spawn Epicenter Explosion (isCenter = true, passing bombId for PHYS-06)
-    this.spawnExplosion(actualRow, actualCol, true, owner, bombId, isPiercing);
+    this.spawnExplosion(actualRow, actualCol, true, owner, bombId, isPiercing, bombType);
 
     // Epicenter chain reaction: detonate any other active bombs stacked on the same tile (Zero-GC re-entrant stack)
     const epicenterStackBase = this.scratchChainStackTop;
@@ -9892,7 +10493,7 @@ export default class GameScene extends Phaser.Scene {
           if (this.map[nr][nc] === TILE_BLOCK) {
             this.destroyBlock(nr, nc);
           }
-          this.spawnExplosion(nr, nc, false, owner, bombId, isPiercing);
+          this.spawnExplosion(nr, nc, false, owner, bombId, isPiercing, bombType);
           if (!isPiercing || ++blocksPierced >= 3) {
             break;
           }
@@ -9900,7 +10501,7 @@ export default class GameScene extends Phaser.Scene {
         }
 
         // Empty tile, spawn explosion
-        this.spawnExplosion(nr, nc, false, owner, bombId, isPiercing);
+        this.spawnExplosion(nr, nc, false, owner, bombId, isPiercing, bombType);
 
         // Check for chain reaction with other bombs (Zero-GC re-entrant stack snapshot)
         const rayStackBase = this.scratchChainStackTop;
@@ -9916,6 +10517,14 @@ export default class GameScene extends Phaser.Scene {
           }
         }
         this.detonateStackedChainRange(rayStackBase);
+      }
+    }
+
+    // Cluster Bomb secondary sub-munitions (non-recursive 4-cardinal scatter)
+    if (bombType === 'CLUSTER_BOMB' && !isClusterSub) {
+      for (let dIdx = 0; dIdx < CARDINAL_DIRECTIONS.length; dIdx++) {
+        const dir = CARDINAL_DIRECTIONS[dIdx];
+        this.spawnClusterSubBomb(actualRow + dir.dr, actualCol + dir.dc, owner);
       }
     }
   }
@@ -10057,15 +10666,21 @@ export default class GameScene extends Phaser.Scene {
     isCenter: boolean = false,
     owner: string = 'player',
     bombId?: string,
-    isOverchargedPiercing: boolean = false
+    isOverchargedPiercing: boolean = false,
+    bombType: string = 'REGULAR'
   ) {
     const x = col * TILE_SIZE + TILE_SIZE / 2;
     const y = row * TILE_SIZE + TILE_SIZE / 2;
 
     const exp = this.createExplosionSprite(x, y, owner);
     if (exp) {
+      exp.setData('bombType', bombType);
       // Center core has bright brilliant tint, arms have hot orange tint, tachyon overcharge has electric cyan tint
-      if (isOverchargedPiercing) {
+      if (bombType === 'ICE_BOMB') {
+        exp.setTint(0x7dd3fc);
+      } else if (bombType === 'POISON_MIST') {
+        exp.setTint(0x34d399);
+      } else if (isOverchargedPiercing) {
         exp.setTint(0x00ffff);
       } else if (isCenter) {
         exp.setTint(0xffffcc);
@@ -10077,7 +10692,7 @@ export default class GameScene extends Phaser.Scene {
       exp.setScale(0.7);
       const releaseExp = () => {
         if (exp.active) {
-          exp.disableBody(true, true);
+          this.safeDisableSpriteBody(exp);
         }
       };
       this.tweens.add({
@@ -10090,6 +10705,23 @@ export default class GameScene extends Phaser.Scene {
         onComplete: releaseExp,
         onStop: releaseExp,
       });
+    }
+
+    if (bombType === 'POISON_MIST') {
+      this.setPoisonMistTile(row, col, 3500);
+    } else if (bombType === 'ICE_BOMB' && this.enemies) {
+      const enemiesList = this.enemies.getChildren();
+      for (let ei = 0; ei < enemiesList.length; ei++) {
+        const enemy = enemiesList[ei] as BaseEntity;
+        if (!enemy || !enemy.active || enemy.isDead) continue;
+        const er = Math.floor(enemy.y / TILE_SIZE);
+        const ec = Math.floor(enemy.x / TILE_SIZE);
+        if (er === row && ec === col) {
+          enemy.applyStun?.(3000);
+          enemy.applySpeedMultiplier?.(0.35, 3500);
+          enemy.setTint?.(0x38bdf8);
+        }
+      }
     }
 
     // Check hit on active boss (PHYS-06: exactly 1 hit per bombId)
@@ -10250,8 +10882,13 @@ export default class GameScene extends Phaser.Scene {
       this.triggerHitStop(45);
     }
 
-    // 45% drop chance with anti-snowballing (or 100% Rare/Epic guaranteed for gilded chests)
-    const droppedItem = rollItemDrop(Math.random, this.getStats(), isChest ? 'CHEST' : 'BLOCK');
+    // 45% drop chance with anti-snowballing (+ sweet_tooth perk bonus, or 100% Rare/Epic guaranteed for gilded chests)
+    const droppedItem = rollItemDrop(
+      Math.random,
+      this.getStats(),
+      isChest ? 'CHEST' : 'BLOCK',
+      this.appliedPerkBonuses?.itemDropRateBonus ?? 0
+    );
     if (droppedItem) {
       this.spawnItem(row, col, droppedItem);
     }
@@ -10658,7 +11295,7 @@ export default class GameScene extends Phaser.Scene {
                             this.handlePlayerEnemyKillRewards(e as unknown as BaseEntity, true);
                           }
                         } else {
-                          if (e.active) { e['disableBody'](true, true); }
+                          if (e.active) { this.safeDisableSpriteBody(e); }
                           this.handlePlayerEnemyKillRewards(e as unknown as BaseEntity, true);
                         }
                       }
@@ -10750,7 +11387,7 @@ export default class GameScene extends Phaser.Scene {
                         this.handlePlayerEnemyKillRewards(enemy as unknown as BaseEntity, true);
                       }
                     } else {
-                      if (enemy.active) { enemy['disableBody'](true, true); }
+                      if (enemy.active) { this.safeDisableSpriteBody(enemy); }
                       this.handlePlayerEnemyKillRewards(enemy as unknown as BaseEntity, true);
                     }
                   }
@@ -10909,7 +11546,7 @@ export default class GameScene extends Phaser.Scene {
                     this.handlePlayerEnemyKillRewards(enemy as unknown as BaseEntity, true);
                   }
                 } else {
-                  if (enemy.active) { enemy['disableBody'](true, true); }
+                  if (enemy.active) { this.safeDisableSpriteBody(enemy); }
                   this.handlePlayerEnemyKillRewards(enemy as unknown as BaseEntity, true);
                 }
               }
@@ -10920,7 +11557,7 @@ export default class GameScene extends Phaser.Scene {
           if (exp) {
             const cleanupTimer = this.time.delayedCall(280, () => {
               exp.setData?.('expCleanupTimer', undefined);
-              if (exp.active) { exp.disableBody(true, true); }
+              if (exp.active) { this.safeDisableSpriteBody(exp); }
             });
             exp.setData?.('expCleanupTimer', cleanupTimer);
           }
@@ -11014,6 +11651,62 @@ export default class GameScene extends Phaser.Scene {
     if (this.abyssalHazard && this.abyssalHazard.state !== AbyssalLifecycleState.DORMANT && this.abyssalHazard.state !== AbyssalLifecycleState.OCEANIC_CALM) {
       if (this.abyssalHazard.isPointInAbyss(this.player.x, this.player.y) || this.abyssalHazard.isPointLethal(this.player.x, this.player.y)) {
         this.grantAquaGlide();
+      }
+    }
+
+    // Player Mastery: Dispel Psychic Invasion illusions on dash origin tile
+    const dashOriginRow = Math.floor(this.player.y / TILE_SIZE);
+    const dashOriginCol = Math.floor(this.player.x / TILE_SIZE);
+    this.tryDispelPsychicAtPlayerTile(dashOriginRow, dashOriginCol);
+
+    // Perk: Dash Decoy (spawns pooled cyan hologram decoy at dash origin & dazzles nearby enemies)
+    if (this.appliedPerkBonuses?.hasDashDecoy) {
+      const decoyOriginX = this.player.x;
+      const decoyOriginY = this.player.y;
+      const decoySpritePool = this.spritePool;
+      const decoy = decoySpritePool ? decoySpritePool.acquire() : null;
+      if (decoy) {
+        decoy.setActive(true).setVisible(true).setPosition(decoyOriginX, decoyOriginY);
+        if (typeof decoy.setTexture === 'function') {
+          decoy.setTexture('player', this.player.frame?.name);
+        }
+        decoy.setFlipX(this.player.flipX);
+        decoy.setAlpha(0.85);
+        decoy.setScale(1.06);
+        decoy.setTint(0x22d3ee);
+        decoy.setDepth(RENDER_DEPTH.ENTITY_Y_BASE + decoyOriginY * RENDER_DEPTH.ENTITY_Y_SCALE);
+        let decoyReleased = false;
+        const releaseDecoy = () => {
+          if (!decoyReleased && this.spritePool === decoySpritePool) {
+            decoyReleased = true;
+            decoySpritePool?.release(decoy);
+          }
+        };
+        if (this.tweens?.add) {
+          this.tweens.add({
+            targets: decoy,
+            alpha: 0,
+            scale: 1.22,
+            duration: 650,
+            onComplete: releaseDecoy,
+            onStop: releaseDecoy,
+          });
+        } else {
+          releaseDecoy();
+        }
+      }
+      if (this.enemies) {
+        const dazzleRadiusSq = (TILE_SIZE * 2.5) * (TILE_SIZE * 2.5);
+        const enemiesList = this.enemies.getChildren();
+        for (let ei = 0; ei < enemiesList.length; ei++) {
+          const enemy = enemiesList[ei] as BaseEntity;
+          if (!enemy || !enemy.active || enemy.isDead) continue;
+          const dx = enemy.x - decoyOriginX;
+          const dy = enemy.y - decoyOriginY;
+          if (dx * dx + dy * dy <= dazzleRadiusSq) {
+            enemy.applyStun?.(650);
+          }
+        }
       }
     }
 

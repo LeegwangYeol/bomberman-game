@@ -6,6 +6,7 @@
  */
 
 import { BaseBoss, type BossConfig } from './BaseBoss.ts';
+import type { BossAttackManager } from './BossAttackManager.ts';
 import { BossState } from './BossTypes.ts';
 import { QueenBeeAudio } from './QueenBeeAudio.ts';
 
@@ -22,6 +23,7 @@ export class QueenBeeBoss extends BaseBoss {
   public flightTimeSec: number = 0;
   public timeUntilNextDiveMs: number = 5000;
   public diveCraterBombCheck?: () => boolean;
+  public attackManager?: BossAttackManager | null = null;
   public audio: QueenBeeAudio;
 
   constructor(startX: number = 300, startY: number = 260) {
@@ -266,6 +268,9 @@ export class QueenBeeBoss extends BaseBoss {
       this.groundBoss(3.5);
       this.takeBombDamage(1, 'bomb');
     } else {
+      if (this.attackManager) {
+        this.attackManager.spawnShockwave(this.x, this.y, 92, 210);
+      }
       this.groundBoss(2.5); // 2.5s Sugar Coma crater stun
       this.audio.playDazedStars();
     }
@@ -342,6 +347,7 @@ export class QueenBeeBoss extends BaseBoss {
   public override destroy(): void {
     this.isDiving = false;
     this.diveTimerMs = 0;
+    this.attackManager = null;
     this.audio.destroy();
     super.destroy();
   }

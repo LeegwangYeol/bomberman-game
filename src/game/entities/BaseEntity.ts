@@ -126,8 +126,11 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
     if (this._lastEntityTimeMs >= 0 && Number.isFinite(this._lastEntityTimeMs)) {
       return this._lastEntityTimeMs;
     }
+    const lastFrame = (this.scene as unknown as { lastFrameTimeMs?: number })?.lastFrameTimeMs;
     const sceneNow = this.scene?.time?.now;
-    return typeof sceneNow === 'number' && Number.isFinite(sceneNow) ? sceneNow : 0;
+    const validFrame = typeof lastFrame === 'number' && Number.isFinite(lastFrame) && lastFrame >= 0 ? lastFrame : 0;
+    const validSceneNow = typeof sceneNow === 'number' && Number.isFinite(sceneNow) ? sceneNow : 0;
+    return Math.max(validFrame, validSceneNow);
   }
 
   public override setVelocity(x?: number, y?: number): this {

@@ -111,6 +111,8 @@ export interface SerializedRunState {
   board: SerializedBoard;
   activeBombs: SerializedBomb[];
   activeEntities: SerializedEntity[];
+  activeAllies?: SerializedEntity[];
+  activeNeutrals?: SerializedEntity[];
   activeItems: SerializedItem[];
   progression?: RunProgressionState;
   crisis?: SerializedCrisisState | null;

@@ -3003,3 +3003,22 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - `tests/daily_cycle47_zerogc_crisis_arena_titan_gummy_taunt_modes.test.mjs` 신규 구축 (8대 통합 회귀 시나리오 및 10,000프레임 활성 위기 순환·`SteamToyTitanBoss`·`GummyBearBoss`·`ShieldGuardAlly` 연속 Zero-GC 소크 테스트 전수 통과 — `Set` 할당 `0`건, 풀 누수 `0`건, 힙 증가 한계 검증).
     - 전체 테스트 스위트: **2,397 / 2,397 PASS (100% 통과, 0 실패, 0 스킵, +8 테스트 순증)**.
     - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 1332ms 컴파일, 4/4 정적 라우트 사전 렌더링)**.
+
+
+### 48) 일일 정기 무한 진화(단일 에이전트 경량 유지보수): `BaseCrisis`·`SolarFlareCrisis` 역직렬화 및 `renderMeteorStreak`·`applyItemEffect` Zero-GC 무할당화, `renderScorchDecal` 비차폐 알파(`<= 0.40`) 클램핑, 유휴 프레임 `hazardGraphics.clear()` 원천 차단 및 `safeDisableSpriteBody`·`getEntityClockNow` 방어화, 7대 위기(`Void`·`Psychic`·`Rift` 토로이달 래핑) 전수 실전 연동, `QueenBeeBoss`·`HamsterBoss` 풀링 충격파, 16대 특성·방어구·특수 폭탄 5종 전투 완결 및 `activeAllies`/`activeNeutrals` 세이브 복원 완결 (Daily Auto-Maintenance: 2026-11-25 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 세션명: `[세션명: 봄버맨 일일 무한 진화]` (스케줄 백그라운드 단일 에이전트 자율 유지보수, 서브에이전트 스웜 미사용).
+  - **핵심 성능·Zero-GC 풀링 및 무결성 수리 내역**:
+    1. **`BaseCrisis`·`SolarFlareCrisis`·`ultimate_skills`·`gameplay_mechanics` Zero-GC 무할당화 및 유휴 프레임 `clear()` 차단 (`BaseCrisis.ts`, `SolarFlareCrisis.ts`, `ultimate_skills.ts`, `gameplay_mechanics.ts`, `BaseEntity.ts`, `GameScene.ts`)**:
+       - `BaseCrisis.deserialize()`의 `.filter(...).map(...)`·`for...of` 할당을 기존 `objectives`·`activeAlert` 슬롯 인플레이스 재사용 및 `hazardTiles` 인덱스 루프로 치환하고, `state.extraState` 생략 시에도 동결된 `EMPTY_EXTRA_STATE`로 `applyExtraSerializedState()`가 항상 호출되도록 보강(`SolarFlareCrisis.resetVentsInPlace()` 잔류 냉각 플래그 누수 원천 차단).
+       - `renderMeteorStreak()`의 매 유성 `[meteor, corona]` 배열 할당을 제거하고 단일 타겟 트윈 + `onUpdate` 좌표 동기화 및 `typeof onTouchdown === 'function'` 안전 가드를 적용하였으며, `renderScorchDecal()` 바닥 그을음 알파를 `0.75`에서 `0.38 / 0.28`(`<= 0.40` 비차폐 불변성)로 클램핑하고 `applyItemEffect()`의 클로저 `.find(...)`를 인덱스 기반 `findActiveBuff()`로 치환.
+       - `GameScene.renderDynamicHazardGraphics()`에 `isAnyDynamicHazardRenderable()` + `hazardGraphicsDirty` 게이팅을 도입하여 10대 동적 해저드가 모두 비활성/휴면 상태인 유휴 프레임에서 불필요한 `hazardGraphics.clear()` 드로우 콜을 `0`건으로 제거하였으며, 전 스프라이트 비활성화 경로를 `safeDisableSpriteBody()`로 일원화하고 `BaseEntity.getEntityClockNow()`가 `scene.lastFrameTimeMs`를 우선 참조하도록 보강하여 부활/소환 직후 부여된 기절·둔화가 동일 프레임 `updateAI`에서 조기 만료되던 시계 도메인 불일치를 수정.
+    2. **7대 위기 아레나 완결 연동, `QueenBeeBoss`·`HamsterBoss` 풀링 충격파, 미연동 특성·방어구·특수 폭탄 5종 실전 구현 (`QueenBeeBoss.ts`, `HamsterBoss.ts`, `gameplay_mechanics.ts`, `GameScene.ts`)**:
+       - `VoidCrisis`(`VOID_CREEP` 둔화 및 충전된 정화 프리즘 `3x3` 성역 오라 면역 + 클라이맥스 `(6, 7)` 실드 아바타 접촉 피격), `PsychicCrisis`(대시 시 환영 타일 정화 `+150`점 및 `DISTORTION_BARRIER` 부여 vs 무방비 `PSIONIC_DISRUPTION` 진입 시 `Phase Jitter`), `RiftCrisis` 외곽 회랑 토로이달 에지 워프(`wrapToroidalPosition()`)를 실전 연결하고, AI 회피용 `persistentHazardMask`에 `VOID_CREEP`·`VOID_RIFT`·`PSIONIC_DISRUPTION` 및 `HamsterBoss` 돌진 예고선·`QueenBeeBoss` 다이브 타겟·`GummyBearBoss` 착지점·`MutantFloraBoss` 가시뿌리 타일을 병합.
+       - `QueenBeeBoss.onDiveImpact(false)`(`maxRadius: 92`) 및 `HamsterBoss.onWallImpact()` 페이즈 2/광폭화 벽 반동(`maxRadius: 76`)에 `BossAttackManager` 풀링 충격파를 연결하고, 미연동 특성 6종(`titan_heart` 시작 추가 생명, `golden_touch` 황금 상자 변환, `sweet_tooth` 아이템 드롭률 보너스, `quick_wick` 신관 단축, `chain_reaction` 연쇄 기폭 점수·궁극기 보너스, `dash_decoy` 풀링 홀로그램 분신 및 반경 2.5타일 적 현혹 스턴), 방어 아이템 2종(`DEFLECTOR` 대시 중 적 폭발 반사, `BLAST_RESIST` 50% 폭발 저항), 특수 폭탄 5종(`ICE_BOMB` 3초 빙결 스턴, `POISON_MIST` `Float32Array(195)` 기반 Zero-GC 3.5초 60% 독안개 감속 및 `alpha <= 0.28` 렌더링, `CLUSTER_BOMB` 슬롯 미소모 비재귀 4방향 풀링 자탄, `LANDMINE` 0.4초 은신 장전 및 근접 기폭, `REMOTE_BOMB` 수동 기폭)을 완결.
+    3. **동맹·중립 엔티티 및 특수 폭탄 세이브/로드 무결성 완성 (`PersistenceTypes.ts`, `GameScene.ts`)**:
+       - `SerializedRunState`에 선택적 `activeAllies`·`activeNeutrals` 필드를 추가하여 기존 `activeEntities`(적군 전용 및 인라인 오버라이드 하위호환 100% 보존)를 침범하지 않고 아군 컴패니언·중립 NPC의 생사 및 체력 상태와 특수 폭탄 속성/틴트를 인플레이스 `reviveAt()`으로 정밀 복원.
+  - **신규 영구 방어 테스트 및 검증 지표**:
+    - `tests/daily_cycle48_zerogc_all_crises_perks_bombs_resume.test.mjs` 신규 구축 (7대 통합 회귀 시나리오 및 10,000프레임 `VoidCrisis`·`PsychicCrisis`·`RiftCrisis`·`POISON_MIST`·`HamsterBoss` 충격파 연속 Zero-GC 소크 테스트 전수 통과 — 전 오브젝트 풀 `verifyInvariants() === true`, 풀 누수 `0`건, 힙 증가 한계 검증).
+    - 전체 테스트 스위트: **2,404 / 2,404 PASS (100% 통과, 0 실패, 0 스킵, +7 테스트 순증)**.
+    - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 1279ms 컴파일, 4/4 정적 라우트 사전 렌더링)**.

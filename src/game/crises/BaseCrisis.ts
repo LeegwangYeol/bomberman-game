@@ -626,38 +626,92 @@ export abstract class BaseCrisis implements ICrisis {
     this.cachedSummary = `${this.name} (${this.stage})`;
 
     if (Array.isArray(state.objectives)) {
-      this.objectives = state.objectives
-        .filter((o): o is NonNullable<typeof o> => Boolean(o && typeof o === 'object'))
-        .map((o) => ({
-          id: String(o.id || ''),
-          title: String(o.title || ''),
-          description: String(o.description || ''),
-          targetCount: typeof o.targetCount === 'number' && Number.isFinite(o.targetCount) ? Math.max(0, o.targetCount) : 0,
-          currentCount: typeof o.currentCount === 'number' && Number.isFinite(o.currentCount) ? Math.max(0, o.currentCount) : 0,
-          isCompleted: Boolean(o.isCompleted),
-          isFailed: Boolean(o.isFailed),
-          timeLimitMs: typeof o.timeLimitMs === 'number' && Number.isFinite(o.timeLimitMs) ? o.timeLimitMs : undefined,
-          remainingTimeMs: typeof o.remainingTimeMs === 'number' && Number.isFinite(o.remainingTimeMs) ? o.remainingTimeMs : undefined,
-        }));
+      let writeIdx = 0;
+      for (let oi = 0; oi < state.objectives.length; oi++) {
+        const o = state.objectives[oi];
+        if (!o || typeof o !== 'object') continue;
+        const targetCount =
+          typeof o.targetCount === 'number' && Number.isFinite(o.targetCount)
+            ? Math.max(0, o.targetCount)
+            : 0;
+        const currentCount =
+          typeof o.currentCount === 'number' && Number.isFinite(o.currentCount)
+            ? Math.max(0, o.currentCount)
+            : 0;
+        const timeLimitMs =
+          typeof o.timeLimitMs === 'number' && Number.isFinite(o.timeLimitMs)
+            ? o.timeLimitMs
+            : undefined;
+        const remainingTimeMs =
+          typeof o.remainingTimeMs === 'number' && Number.isFinite(o.remainingTimeMs)
+            ? o.remainingTimeMs
+            : undefined;
+
+        const existingSlot = this.objectives[writeIdx];
+        if (existingSlot) {
+          existingSlot.id = String(o.id || '');
+          existingSlot.title = String(o.title || '');
+          existingSlot.description = String(o.description || '');
+          existingSlot.targetCount = targetCount;
+          existingSlot.currentCount = currentCount;
+          existingSlot.isCompleted = Boolean(o.isCompleted);
+          existingSlot.isFailed = Boolean(o.isFailed);
+          existingSlot.timeLimitMs = timeLimitMs;
+          existingSlot.remainingTimeMs = remainingTimeMs;
+        } else {
+          this.objectives[writeIdx] = {
+            id: String(o.id || ''),
+            title: String(o.title || ''),
+            description: String(o.description || ''),
+            targetCount,
+            currentCount,
+            isCompleted: Boolean(o.isCompleted),
+            isFailed: Boolean(o.isFailed),
+            timeLimitMs,
+            remainingTimeMs,
+          };
+        }
+        writeIdx++;
+      }
+      this.objectives.length = writeIdx;
     }
 
     if (state.activeAlert && typeof state.activeAlert === 'object') {
-      this.activeAlert = {
-        id: String(state.activeAlert.id || ''),
-        title: String(state.activeAlert.title || ''),
-        message: String(state.activeAlert.message || ''),
-        level: state.activeAlert.level || 'warning',
-        icon: String(state.activeAlert.icon || '⚠️'),
-        durationMs: typeof state.activeAlert.durationMs === 'number' && Number.isFinite(state.activeAlert.durationMs) ? state.activeAlert.durationMs : 3500,
-        remainingMs: typeof state.activeAlert.remainingMs === 'number' && Number.isFinite(state.activeAlert.remainingMs) ? state.activeAlert.remainingMs : 3500,
-      };
+      const durMs =
+        typeof state.activeAlert.durationMs === 'number' && Number.isFinite(state.activeAlert.durationMs)
+          ? state.activeAlert.durationMs
+          : 3500;
+      const remMs =
+        typeof state.activeAlert.remainingMs === 'number' && Number.isFinite(state.activeAlert.remainingMs)
+          ? state.activeAlert.remainingMs
+          : 3500;
+      if (this.activeAlert) {
+        this.activeAlert.id = String(state.activeAlert.id || '');
+        this.activeAlert.title = String(state.activeAlert.title || '');
+        this.activeAlert.message = String(state.activeAlert.message || '');
+        this.activeAlert.level = state.activeAlert.level || 'warning';
+        this.activeAlert.icon = String(state.activeAlert.icon || '⚠️');
+        this.activeAlert.durationMs = durMs;
+        this.activeAlert.remainingMs = remMs;
+      } else {
+        this.activeAlert = {
+          id: String(state.activeAlert.id || ''),
+          title: String(state.activeAlert.title || ''),
+          message: String(state.activeAlert.message || ''),
+          level: state.activeAlert.level || 'warning',
+          icon: String(state.activeAlert.icon || '⚠️'),
+          durationMs: durMs,
+          remainingMs: remMs,
+        };
+      }
     } else {
       this.activeAlert = null;
     }
 
     this.clearAllHazards();
     if (Array.isArray(state.hazardTiles)) {
-      for (const h of state.hazardTiles) {
+      for (let hi = 0; hi < state.hazardTiles.length; hi++) {
+        const h = state.hazardTiles[hi];
         if (
           h &&
           typeof h.r === 'number' && typeof h.c === 'number' &&
@@ -669,10 +723,16 @@ export abstract class BaseCrisis implements ICrisis {
       }
     }
 
-    if (state.extraState && typeof state.extraState === 'object' && this.applyExtraSerializedState) {
-      this.applyExtraSerializedState(state.extraState);
+    if (this.applyExtraSerializedState) {
+      const extraObj =
+        state.extraState && typeof state.extraState === 'object'
+          ? state.extraState
+          : BaseCrisis.EMPTY_EXTRA_STATE;
+      this.applyExtraSerializedState(extraObj);
     }
   }
+
+  private static readonly EMPTY_EXTRA_STATE: Record<string, unknown> = Object.freeze({});
 
   protected getExtraSerializedState?(): Record<string, unknown>;
   protected applyExtraSerializedState?(extra: Record<string, unknown>): void;

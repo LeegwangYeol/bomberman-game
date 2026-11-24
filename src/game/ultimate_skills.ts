@@ -879,11 +879,8 @@ export function renderMeteorStreak(
     if (typeof corona.setDepth === 'function') corona.setDepth(RENDER_DEPTH.EXPLOSIONS + 5);
   }
 
-  const targets: Phaser.GameObjects.Arc[] = [];
-  if (meteor) targets.push(meteor);
-  if (corona) targets.push(corona);
-
-  if (targets.length === 0) {
+  const primaryTarget = meteor ?? corona;
+  if (!primaryTarget) {
     if (onTouchdown && !(scene as unknown as { isGameOver?: boolean }).isGameOver) {
       onTouchdown();
     }
@@ -912,12 +909,16 @@ export function renderMeteorStreak(
   };
 
   scene.tweens.add({
-    targets,
+    targets: primaryTarget,
     x: targetX,
     y: targetY,
     duration: 280,
     ease: 'Quad.easeIn',
     onUpdate: () => {
+      if (meteor && corona) {
+        corona.x = meteor.x;
+        corona.y = meteor.y;
+      }
       // Spawn trail ember
       if (scene.tweens && Math.random() < 0.7 && meteor) {
         const ember = cPool ? cPool.acquire() : null;
@@ -953,7 +954,7 @@ export function renderMeteorStreak(
     },
     onComplete: () => {
       releaseStreak();
-      if (onTouchdown && !(scene as unknown as { isGameOver?: boolean }).isGameOver) {
+      if (typeof onTouchdown === 'function' && !(scene as unknown as { isGameOver?: boolean }).isGameOver) {
         onTouchdown();
       }
     },
@@ -1118,11 +1119,11 @@ export function renderScorchDecal(
   decal.setDepth(2); // Just above floor tiles
   decal.clear();
   decal.setAlpha(1);
-  decal.fillStyle(0x18181b, 0.75);
+  decal.fillStyle(0x18181b, 0.38);
   decal.fillCircle(x, y, 16);
 
-  // Inner charred crackle
-  decal.fillStyle(0x7f1d1d, 0.4);
+  // Inner charred crackle (clamped <= 0.40 to prevent floor occlusion)
+  decal.fillStyle(0x7f1d1d, 0.28);
   decal.fillCircle(x, y, 9);
 
   let decalReleased = false;

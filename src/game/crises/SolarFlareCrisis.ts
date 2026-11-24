@@ -356,6 +356,7 @@ export class SolarFlareCrisis extends BaseCrisis {
     if (typeof extra.sweepsSurvivedCount === 'number' && Number.isFinite(extra.sweepsSurvivedCount)) {
       this.sweepsSurvivedCount = Math.max(0, extra.sweepsSurvivedCount);
     }
+    this.resetVentsInPlace();
     if (Array.isArray(extra.vents)) {
       for (let ri = 0; ri < extra.vents.length; ri++) {
         const raw = extra.vents[ri];

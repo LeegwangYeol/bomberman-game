@@ -13,6 +13,7 @@
  */
 
 import { BaseBoss, type BossConfig } from './BaseBoss.ts';
+import type { BossAttackManager } from './BossAttackManager.ts';
 import { BossState } from './BossTypes.ts';
 import { HamsterAudio } from './HamsterAudio.ts';
 
@@ -27,6 +28,7 @@ export class HamsterBoss extends BaseBoss {
   public laserAngleRad: number = 0;
   public isLaserSweeping: boolean = false;
   public headOnBombCheck?: () => boolean;
+  public attackManager?: BossAttackManager | null = null;
   public audio: HamsterAudio;
 
   constructor(startX: number = 300, startY: number = 260) {
@@ -244,6 +246,12 @@ export class HamsterBoss extends BaseBoss {
     if (!this.isDashing) return;
 
     this.audio.playWallRebound();
+    if (
+      this.attackManager &&
+      (this.bossState === BossState.PHASE_2 || this.bossState === BossState.ENRAGED)
+    ) {
+      this.attackManager.spawnShockwave(this.x, this.y, 76, 220);
+    }
 
     if (this.remainingRebounds > 0) {
       this.remainingRebounds--;
@@ -336,6 +344,7 @@ export class HamsterBoss extends BaseBoss {
     this.isReving = false;
     this.vx = 0;
     this.vy = 0;
+    this.attackManager = null;
     this.audio.destroy();
     super.destroy();
   }
