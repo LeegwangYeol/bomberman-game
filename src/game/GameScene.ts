@@ -133,6 +133,7 @@ export * from './ultimate_skills';
 import {
   BaseBoss,
   BossAttackManager,
+  BossProjectileType,
   BossState,
   type BossId,
   GummyBearBoss,
@@ -310,6 +311,8 @@ import type {
   SerializedBomb,
   SerializedItem,
   SerializedEntity,
+  SerializedBossState,
+  SerializedPoisonMistTile,
 } from './persistence/PersistenceTypes.ts';
 
 interface PooledEnemySprite extends BaseEntity {
@@ -598,17 +601,117 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  private static readonly EMPTY_PERK_BONUSES: AppliedPerkBonuses = Object.freeze(
+    PerkTreeManager.calculateAppliedBonuses({})
+  );
+
+  public tryAwardRolledRelic(
+    isBoss: boolean,
+    isChest: boolean,
+    x: number,
+    y: number,
+    seed?: number
+  ): RelicId | null {
+    if (!this.relicManager) return null;
+    const resolvedSeed =
+      typeof seed === 'number' && Number.isFinite(seed) && seed > 0
+        ? Math.floor(seed)
+        : Math.floor((this.lastFrameTimeMs > 0 ? this.lastFrameTimeMs : Date.now()) + Math.random() * 1000);
+    const rolled = RelicManager.rollRelicDrop(
+      isBoss,
+      isChest,
+      this.appliedPerkBonuses ?? GameScene.EMPTY_PERK_BONUSES,
+      resolvedSeed
+    );
+    if (!rolled) return null;
+
+    this.relicManager.discoverRelic(rolled);
+    if (this.relicManager.getEquippedCount() < this.relicManager.getMaxSlots()) {
+      this.relicManager.equipRelic(rolled);
+    }
+    this.lastEquippedRelicsPayload = this.relicManager.getEquippedRelics();
+    this.spawnFloatingText(x, y - 26, `🎁 RELIC: ${rolled}`, '#c084fc');
+    this.game?.events?.emit('relic-awarded', {
+      relicId: rolled,
+      source: isBoss ? 'boss' : isChest ? 'chest' : 'elite',
+      equippedRelics: this.relicManager.getEquippedRelics(),
+    });
+    this.emitStatsUpdate();
+    return rolled;
+  }
+
+  public tryTradeWithNearbyMerchant(seed?: number): boolean {
+    if (this.isGameOver || !this.player?.active || !this.neutrals) return false;
+    const discountRatio = Math.max(
+      0,
+      Math.min(0.8, Number(this.appliedPerkBonuses?.shopDiscountRatio) || 0)
+    );
+    const cost = Math.max(1, Math.round(20 * (1 - discountRatio)));
+    if ((this.starCandies || 0) < cost) return false;
+
+    const pr = Math.floor(this.player.y / TILE_SIZE);
+    const pc = Math.floor(this.player.x / TILE_SIZE);
+    const neutralsList = this.neutrals.getChildren();
+    let merchant: MerchantNPC | null = null;
+    for (let i = 0; i < neutralsList.length; i++) {
+      const cand = neutralsList[i];
+      if (cand && cand.active && cand instanceof MerchantNPC && !cand.isDead && cand.tradeCooldownMs <= 0) {
+        const mr = Math.floor(cand.y / TILE_SIZE);
+        const mc = Math.floor(cand.x / TILE_SIZE);
+        if (cand.isPlayerInTradeRange || Math.abs(mr - pr) + Math.abs(mc - pc) <= 1) {
+          merchant = cand;
+          break;
+        }
+      }
+    }
+    if (!merchant) return false;
+
+    this.starCandies -= cost;
+    merchant.tradeCooldownMs = 3000;
+    const rng =
+      typeof seed === 'number' && Number.isFinite(seed)
+        ? () => (((Math.floor(seed) % 1000) + 1000) % 1000) / 1000
+        : Math.random;
+    const itemType =
+      rollItemDrop(
+        rng,
+        this.getStats(),
+        'CHEST',
+        this.appliedPerkBonuses?.itemDropRateBonus ?? 0
+      ) ?? 'SHIELD';
+    this.collectItem(itemType, this.player.x, this.player.y);
+    this.spawnFloatingText(merchant.x, merchant.y - 24, `🛒 TRADED (-${cost} ⭐)!`, '#fbbf24');
+    this.game?.events?.emit('merchant-traded', {
+      cost,
+      itemType,
+      remainingStarCandies: this.starCandies,
+    });
+    this.emitStatsUpdate();
+    return true;
+  }
+
   private handlePlayerEnemyKillRewards(
     target?: BaseEntity | Phaser.GameObjects.GameObject | null,
     grantUltimateCharge: boolean = true
   ): void {
+    const targetEntity = target as unknown as {
+      isTracker?: boolean;
+      archetype?: string;
+      entityType?: string;
+      x?: number;
+      y?: number;
+    } | null | undefined;
+    const isTracker = Boolean(
+      targetEntity &&
+        (targetEntity.isTracker || targetEntity.archetype === 'TANK' || targetEntity.entityType === 'TANK')
+    );
     if (grantUltimateCharge) {
-      const targetEntity = target as unknown as { isTracker?: boolean; archetype?: string; entityType?: string } | null | undefined;
-      const isTracker = Boolean(
-        targetEntity &&
-          (targetEntity.isTracker || targetEntity.archetype === 'TANK' || targetEntity.entityType === 'TANK')
-      );
       this.addUltimateCharge(isTracker ? CHARGE_VALUES.TRACKER_DEFEATED : CHARGE_VALUES.ENEMY_DEFEATED);
+    }
+    if (isTracker && (this.appliedPerkBonuses?.relicDropChanceBonus ?? 0) > 0) {
+      const tx = typeof targetEntity?.x === 'number' ? targetEntity.x : (this.player?.x ?? 300);
+      const ty = typeof targetEntity?.y === 'number' ? targetEntity.y : (this.player?.y ?? 260);
+      this.tryAwardRolledRelic(false, false, tx, ty);
     }
     const nowMs =
       typeof this.time?.now === 'number' && Number.isFinite(this.time.now)
@@ -648,10 +751,13 @@ export default class GameScene extends Phaser.Scene {
   };
 
   private handleActiveBossDefeated(): void {
+    const bossX = this.activeBoss?.x ?? (this.player?.x ?? 300);
+    const bossY = this.activeBoss?.y ?? (this.player?.y ?? 260);
     this.score += 5000;
     this.starCandies = (this.starCandies || 0) + 50;
     this.cosmicEssence = (this.cosmicEssence || 0) + 25;
     this.game?.events?.emit('currency-reward', { starCandies: 50, cosmicEssence: 25 });
+    this.tryAwardRolledRelic(true, false, bossX, bossY);
     this.dismissBoss();
 
     if (this.activeGameMode === GameModeType.BOSS_RUSH && !this.isGameOver) {
@@ -1051,6 +1157,13 @@ export default class GameScene extends Phaser.Scene {
   private static readonly CHRONO_TICK_DELAYS_MS: readonly number[] = Object.freeze([2000, 3000, 4000, 4500]);
   private activeStompSlowDelta: number = 0;
   private activeStompSlowTimer: Phaser.Time.TimerEvent | null = null;
+  public readonly dashDecoyTarget: { x: number; y: number; active: boolean; isDead: boolean } = {
+    x: 0,
+    y: 0,
+    active: false,
+    isDead: false,
+  };
+  private dashDecoyTimer: Phaser.Time.TimerEvent | null = null;
   private nextFallbackEntityUid: number = 1;
   private readonly scratchSeparationOptions: SpatialSeparationOptions = {
     iterations: 1,
@@ -2051,10 +2164,16 @@ export default class GameScene extends Phaser.Scene {
     this.clearCrisisBonusBombs();
     this.clearPoisonMist();
 
-    // 1. Restore score & game mode
+    // 1. Restore score, currencies & game mode
     if (state.meta) {
-      if (typeof state.meta.score === 'number') {
+      if (typeof state.meta.score === 'number' && Number.isFinite(state.meta.score)) {
         this.score = state.meta.score;
+      }
+      if (typeof state.meta.starCandies === 'number' && Number.isFinite(state.meta.starCandies)) {
+        this.starCandies = Math.max(0, Math.floor(state.meta.starCandies));
+      }
+      if (typeof state.meta.cosmicEssence === 'number' && Number.isFinite(state.meta.cosmicEssence)) {
+        this.cosmicEssence = Math.max(0, Math.floor(state.meta.cosmicEssence));
       }
       if (typeof state.meta.gameMode === 'string') {
         const gm = state.meta.gameMode.toUpperCase();
@@ -2641,6 +2760,81 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    // 7. Restore lingering poison mist tiles
+    if (Array.isArray(state.activePoisonMist)) {
+      for (let pi = 0; pi < state.activePoisonMist.length; pi++) {
+        const pm = state.activePoisonMist[pi];
+        if (
+          pm &&
+          typeof pm.row === 'number' &&
+          typeof pm.col === 'number' &&
+          typeof pm.remainingMs === 'number' &&
+          Number.isFinite(pm.remainingMs) &&
+          pm.remainingMs > 0
+        ) {
+          this.setPoisonMistTile(Math.floor(pm.row), Math.floor(pm.col), pm.remainingMs);
+        }
+      }
+    }
+
+    // 8. Restore active boss encounter state
+    if (state.activeBoss && typeof state.activeBoss === 'object' && typeof state.activeBoss.bossId === 'string') {
+      const sb = state.activeBoss;
+      if (typeof sb.bossRushIndex === 'number' && Number.isFinite(sb.bossRushIndex) && sb.bossRushIndex >= 0) {
+        this.currentBossIndex = Math.floor(sb.bossRushIndex);
+      }
+      this.startBossEncounter(sb.bossId);
+      if (this.activeBoss) {
+        if (typeof sb.x === 'number' && Number.isFinite(sb.x)) {
+          this.activeBoss.x = sb.x;
+        }
+        if (typeof sb.y === 'number' && Number.isFinite(sb.y)) {
+          this.activeBoss.y = sb.y;
+        }
+        this.activeBoss.clampPosition();
+        if (typeof sb.maxHp === 'number' && Number.isFinite(sb.maxHp) && sb.maxHp >= 1) {
+          this.activeBoss.maxHp = sb.maxHp;
+        }
+        if (typeof sb.currentHp === 'number' && Number.isFinite(sb.currentHp) && sb.currentHp > 0) {
+          this.activeBoss.currentHp = Math.min(this.activeBoss.maxHp, sb.currentHp);
+        }
+        if (typeof sb.phase === 'number' && (sb.phase === 1 || sb.phase === 2 || sb.phase === 3)) {
+          this.activeBoss.phase = sb.phase;
+        }
+        if (typeof sb.enrageGauge === 'number' && Number.isFinite(sb.enrageGauge)) {
+          this.activeBoss.enrageGauge = Math.max(0, Math.min(100, sb.enrageGauge));
+        }
+        const validStates = Object.values(BossState) as string[];
+        if (typeof sb.bossState === 'string' && validStates.includes(sb.bossState)) {
+          this.activeBoss.bossState = sb.bossState as BossState;
+          this.activeBoss.isInvulnerable =
+            sb.bossState === BossState.INTRO || sb.bossState === BossState.INTERMISSION;
+          if (sb.bossState === BossState.STUNNED && this.activeBoss.stunTimerMs <= 0) {
+            this.activeBoss.stunTimerMs = 1500;
+          }
+        }
+        if (this.activeBoss instanceof QueenBeeBoss) {
+          if (typeof sb.activeShieldCount === 'number' && Number.isFinite(sb.activeShieldCount)) {
+            this.activeBoss.shieldsRemaining = sb.activeShieldCount;
+          }
+          this.activeBoss.isGrounded = this.activeBoss.bossState === BossState.STUNNED;
+          this.activeBoss.altitude = this.activeBoss.isGrounded ? 0 : 40;
+        }
+        if (this.activeBoss instanceof SteamToyTitanBoss) {
+          this.activeBoss.gearShieldActive =
+            this.activeBoss.phase >= 2 && this.activeBoss.bossState !== BossState.STUNNED;
+        }
+        if (this.bossHUD) {
+          this.bossHUD.initBoss(this.activeBoss.config.id as BossId, this.activeBoss.maxHp);
+          this.bossHUD.setHp(this.activeBoss.currentHp);
+          this.bossHUD.setBossState(this.activeBoss.bossState);
+          this.bossHUD.setEnrageGauge(this.activeBoss.enrageGauge);
+        }
+      }
+    } else if (state.activeBoss === null && this.activeBoss) {
+      this.dismissBoss();
+    }
+
     this.emitStatsUpdate();
   };
 
@@ -2756,6 +2950,38 @@ export default class GameScene extends Phaser.Scene {
     const sitLogState = this.situationLog ? this.situationLog.serialize() : null;
     const relicState = this.relicManager ? this.relicManager.serialize() : null;
 
+    const serializedBoss: SerializedBossState | null =
+      this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED
+        ? {
+            bossId: this.activeBoss.config.id,
+            x: this.activeBoss.x,
+            y: this.activeBoss.y,
+            currentHp: this.activeBoss.currentHp,
+            maxHp: this.activeBoss.maxHp,
+            bossState: this.activeBoss.bossState,
+            phase: this.activeBoss.phase,
+            enrageGauge: this.activeBoss.enrageGauge,
+            bossRushIndex: this.currentBossIndex,
+            ...(this.activeBoss instanceof QueenBeeBoss
+              ? { activeShieldCount: this.activeBoss.activeShieldCount }
+              : {}),
+          }
+        : null;
+
+    const serializedPoisonMist: SerializedPoisonMistTile[] = [];
+    if (this.activePoisonMistCount > 0) {
+      for (let idx = 0; idx < this.poisonMistRemainingMs.length; idx++) {
+        const rem = this.poisonMistRemainingMs[idx];
+        if (rem > 0) {
+          serializedPoisonMist.push({
+            row: (idx / COLS) | 0,
+            col: idx % COLS,
+            remainingMs: Math.round(rem),
+          });
+        }
+      }
+    }
+
     const capturedStats = this.getStats();
     if (this.crisisBonusBombSlotsApplied > 0) {
       capturedStats.maxBombs = Math.max(
@@ -2775,7 +3001,9 @@ export default class GameScene extends Phaser.Scene {
         score: this.score,
         elapsedTimeMs: 0,
         activeCrisesCount: crisisState && crisisState.stage !== CrisisStage.INACTIVE ? 1 : 0,
-        bossEncounterActive: Boolean(this.activeBoss),
+        bossEncounterActive: Boolean(serializedBoss),
+        starCandies: this.starCandies || 0,
+        cosmicEssence: this.cosmicEssence || 0,
       },
       player: {
         x: this.player ? this.player.x : 60,
@@ -2797,6 +3025,8 @@ export default class GameScene extends Phaser.Scene {
       activeAllies: serializedAllies,
       activeNeutrals: serializedNeutrals,
       activeItems: serializedItems,
+      activeBoss: serializedBoss,
+      activePoisonMist: serializedPoisonMist,
       crisis: crisisState,
       situationLog: sitLogState,
       relicState,
@@ -2847,6 +3077,16 @@ export default class GameScene extends Phaser.Scene {
     this.lastFrostAudioState = FrostLifecycleState.DORMANT;
     this.scratchMeteorUsedMask.fill(0);
     this.destroyedBlocksThisTick.clear();
+    if (this.dashDecoyTimer) {
+      this.dashDecoyTimer.remove?.(false);
+      this.dashDecoyTimer = null;
+    }
+    this.dashDecoyTarget.active = false;
+    if (this.activeStompSlowTimer) {
+      this.activeStompSlowTimer.remove?.(false);
+      this.activeStompSlowTimer = null;
+    }
+    this.activeStompSlowDelta = 0;
     this.bossHitBombIds.clear();
     this.nextBombUid = 0;
     this.dashElapsedMs = 0;
@@ -3101,6 +3341,16 @@ export default class GameScene extends Phaser.Scene {
     this.lastFrostAudioState = FrostLifecycleState.DORMANT;
     this.scratchMeteorUsedMask.fill(0);
     this.lastAbyssalRelicAudioMs = -9999;
+    if (this.dashDecoyTimer) {
+      this.dashDecoyTimer.remove?.(false);
+      this.dashDecoyTimer = null;
+    }
+    this.dashDecoyTarget.active = false;
+    if (this.activeStompSlowTimer) {
+      this.activeStompSlowTimer.remove?.(false);
+      this.activeStompSlowTimer = null;
+    }
+    this.activeStompSlowDelta = 0;
     this.bossHitBombIds.clear();
     this.nextBombUid = 0;
     this.dashElapsedMs = 0;
@@ -3625,6 +3875,16 @@ export default class GameScene extends Phaser.Scene {
     this.cornerSlideTolerance = this.appliedPerkBonuses?.cornerSlideTolerance || 8;
     this.baseSpeedBonus = this.appliedPerkBonuses?.baseSpeedBonus || 0;
     this.destroyedBlocksThisTick.clear();
+    if (this.dashDecoyTimer) {
+      this.dashDecoyTimer.remove?.(false);
+      this.dashDecoyTimer = null;
+    }
+    this.dashDecoyTarget.active = false;
+    if (this.activeStompSlowTimer) {
+      this.activeStompSlowTimer.remove?.(false);
+      this.activeStompSlowTimer = null;
+    }
+    this.activeStompSlowDelta = 0;
     this.bossHitBombIds.clear();
     this.nextBombUid = 0;
     this.statsTimerAccumulator = 0;
@@ -4965,9 +5225,14 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    // 2. Dash skill trigger check (with 250ms input buffer)
+    // 2. Merchant trade interaction ('E' hotkey when near Pops with Star Candies) & Dash skill trigger check
     const mInput = window.mobileInput || DEFAULT_MOBILE_INPUT;
-    const dashPressed = Boolean(this.shiftKey?.isDown || this.eKey?.isDown || mInput.dash);
+    const eJustDown = Boolean(this.eKey && Phaser.Input.Keyboard.JustDown(this.eKey));
+    const tradedWithMerchant =
+      eJustDown && !this.isGameOver && (this.starCandies || 0) > 0 && this.tryTradeWithNearbyMerchant();
+    const dashPressed = Boolean(
+      this.shiftKey?.isDown || (!tradedWithMerchant && this.eKey?.isDown) || mInput.dash
+    );
     if (mInput.dash) mInput.dash = false; // consume mobile dash
 
     if (dashPressed) {
@@ -6120,7 +6385,17 @@ export default class GameScene extends Phaser.Scene {
           for (let pi = 0; pi < this.bossAttackManager.projectilePool.activeCount; pi++) {
             const proj = this.bossAttackManager.projectilePool.getActive(pi);
             if (!proj || !proj.active) continue;
-            this.bossGraphics.fillStyle(0xa3e635, 0.9);
+            const projColor =
+              proj.type === BossProjectileType.GATLING_SEED
+                ? 0xfbbf24
+                : proj.type === BossProjectileType.CANDY_STINGER
+                  ? 0xf472b6
+                  : proj.type === BossProjectileType.EMP_MINE
+                    ? 0x38bdf8
+                    : proj.type === BossProjectileType.GEAR_SHARD
+                      ? 0xf59e0b
+                      : 0xa3e635;
+            this.bossGraphics.fillStyle(projColor, 0.9);
             this.bossGraphics.fillCircle(proj.x, proj.y, Math.max(4, proj.radius));
           }
         }
@@ -10792,7 +11067,12 @@ export default class GameScene extends Phaser.Scene {
   }
 
   applyStompSlow(slowPct: number = 0.30, durationMs: number = 1500) {
-    const clampedPct = Math.max(0, Math.min(0.8, Number.isFinite(slowPct) ? slowPct : 0.3));
+    const rawClampedPct = Math.max(0, Math.min(0.8, Number.isFinite(slowPct) ? slowPct : 0.3));
+    const slowReduction = Math.max(
+      0,
+      Math.min(0.9, Number(this.appliedPerkBonuses?.groundSlowdownReduction) || 0)
+    );
+    const clampedPct = rawClampedPct * (1 - slowReduction);
     if (this.activeStompSlowTimer) {
       this.activeStompSlowTimer.remove?.(false);
       this.activeStompSlowTimer = null;
@@ -10891,6 +11171,9 @@ export default class GameScene extends Phaser.Scene {
     );
     if (droppedItem) {
       this.spawnItem(row, col, droppedItem);
+    }
+    if (isChest) {
+      this.tryAwardRolledRelic(false, true, centerX, centerY);
     }
   }
 
@@ -11659,10 +11942,25 @@ export default class GameScene extends Phaser.Scene {
     const dashOriginCol = Math.floor(this.player.x / TILE_SIZE);
     this.tryDispelPsychicAtPlayerTile(dashOriginRow, dashOriginCol);
 
-    // Perk: Dash Decoy (spawns pooled cyan hologram decoy at dash origin & dazzles nearby enemies)
+    // Perk: Dash Decoy (spawns pooled cyan hologram decoy at dash origin, dazzles adjacent enemies, & taunts nearby enemies for 1.5s)
     if (this.appliedPerkBonuses?.hasDashDecoy) {
       const decoyOriginX = this.player.x;
       const decoyOriginY = this.player.y;
+      const decoyNowMs = this.lastFrameTimeMs >= 0 ? this.lastFrameTimeMs : (this.time?.now ?? 0);
+      this.dashDecoyTarget.x = decoyOriginX;
+      this.dashDecoyTarget.y = decoyOriginY;
+      this.dashDecoyTarget.active = true;
+      this.dashDecoyTarget.isDead = false;
+      if (this.dashDecoyTimer) {
+        this.dashDecoyTimer.remove?.(false);
+        this.dashDecoyTimer = null;
+      }
+      if (this.time?.delayedCall) {
+        this.dashDecoyTimer = this.time.delayedCall(1500, () => {
+          this.dashDecoyTarget.active = false;
+          this.dashDecoyTimer = null;
+        });
+      }
       const decoySpritePool = this.spritePool;
       const decoy = decoySpritePool ? decoySpritePool.acquire() : null;
       if (decoy) {
@@ -11697,14 +11995,20 @@ export default class GameScene extends Phaser.Scene {
       }
       if (this.enemies) {
         const dazzleRadiusSq = (TILE_SIZE * 2.5) * (TILE_SIZE * 2.5);
+        const tauntRadiusSq = (TILE_SIZE * 4.5) * (TILE_SIZE * 4.5);
         const enemiesList = this.enemies.getChildren();
         for (let ei = 0; ei < enemiesList.length; ei++) {
           const enemy = enemiesList[ei] as BaseEntity;
           if (!enemy || !enemy.active || enemy.isDead) continue;
           const dx = enemy.x - decoyOriginX;
           const dy = enemy.y - decoyOriginY;
-          if (dx * dx + dy * dy <= dazzleRadiusSq) {
+          const distSq = dx * dx + dy * dy;
+          if (distSq <= dazzleRadiusSq) {
             enemy.applyStun?.(650);
+          }
+          if (distSq <= tauntRadiusSq) {
+            enemy.tauntTarget = this.dashDecoyTarget as unknown as BaseEntity;
+            enemy.tauntedUntil = Math.max(enemy.tauntedUntil || 0, decoyNowMs + 1500);
           }
         }
       }

@@ -83,6 +83,25 @@ export interface SerializedItem {
   spawnTime: number;
 }
 
+export interface SerializedBossState {
+  bossId: string;
+  x: number;
+  y: number;
+  currentHp: number;
+  maxHp: number;
+  bossState: string;
+  phase: number;
+  enrageGauge: number;
+  bossRushIndex?: number;
+  activeShieldCount?: number;
+}
+
+export interface SerializedPoisonMistTile {
+  row: number;
+  col: number;
+  remainingMs: number;
+}
+
 export interface SerializedRunMeta {
   runId: string;
   stageIndex: number;
@@ -91,6 +110,8 @@ export interface SerializedRunMeta {
   elapsedTimeMs: number;
   activeCrisesCount?: number;
   bossEncounterActive?: boolean;
+  starCandies?: number;
+  cosmicEssence?: number;
 }
 
 export interface SerializedRelicRuntimeState {
@@ -114,6 +135,8 @@ export interface SerializedRunState {
   activeAllies?: SerializedEntity[];
   activeNeutrals?: SerializedEntity[];
   activeItems: SerializedItem[];
+  activeBoss?: SerializedBossState | null;
+  activePoisonMist?: SerializedPoisonMistTile[];
   progression?: RunProgressionState;
   crisis?: SerializedCrisisState | null;
   situationLog?: SituationLogState | null;

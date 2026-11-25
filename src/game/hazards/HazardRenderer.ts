@@ -163,7 +163,7 @@ export class HazardRenderer {
           graphics.strokeRect(left + 1, top + 1, TILE_SIZE - 2, TILE_SIZE - 2);
         } else if (code === 3) {
           const goldPulse = 0.8 + 0.2 * Math.sin(time / 120);
-          graphics.fillStyle(0xfacc15, 0.45 * goldPulse);
+          graphics.fillStyle(0xfacc15, 0.38 * goldPulse); // strictly clamped <= 0.38 to prevent UI/bomb occlusion
           graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
           graphics.lineStyle(2, 0xffe066, 0.85);
           graphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
@@ -297,7 +297,7 @@ export class HazardRenderer {
         const code = dangerMask[idx];
 
         if (code === 3) {
-          graphics.fillStyle(0x312e81, 0.65);
+          graphics.fillStyle(0x312e81, 0.38); // strictly clamped <= 0.38 to prevent UI/bomb occlusion
           graphics.fillRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);
           graphics.lineStyle(2, 0x6366f1, 0.85);
           graphics.strokeRect(left + 2, top + 2, TILE_SIZE - 4, TILE_SIZE - 4);

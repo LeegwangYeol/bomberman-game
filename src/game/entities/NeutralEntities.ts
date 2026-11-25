@@ -57,7 +57,12 @@ export class MerchantNPC extends BaseEntity {
   private currentDirection: { x: number; y: number } = { x: 1, y: 0 };
   private pauseTimer: number = 0;
   private isTrading: boolean = false;
+  public tradeCooldownMs: number = 0;
   private fleePath: GridCoord[] = [];
+
+  public get isPlayerInTradeRange(): boolean {
+    return this.isTrading;
+  }
 
   constructor(scene: Phaser.Scene, x: number, y: number, texture: string = 'player') {
     super(
@@ -86,6 +91,7 @@ export class MerchantNPC extends BaseEntity {
     this.currentDirection = CARDINAL_STEP_DIRS[0];
     this.pauseTimer = 0;
     this.isTrading = false;
+    this.tradeCooldownMs = 0;
     this.fleePath = clearCoordPathInPlace(this.fleePath);
     this.setTint(0xf59e0b);
     this.overheadUI.setIntent('🛒', true);
@@ -133,6 +139,9 @@ export class MerchantNPC extends BaseEntity {
   ) {
     if (this.isDead || !this.active) return;
     this.updateEntity(delta, currentTime);
+    if (this.tradeCooldownMs > 0) {
+      this.tradeCooldownMs = Math.max(0, this.tradeCooldownMs - delta);
+    }
 
     if (this.isStunned) {
       this.setVelocity(0, 0);

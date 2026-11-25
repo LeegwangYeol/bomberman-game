@@ -66,6 +66,27 @@ const MINI_SPLITTER_CONFIG = Object.freeze({
   name: 'Splitter: Mini',
 });
 
+function steerAlongPath(entity: BaseEntity, path: GridCoord[], speed: number): boolean {
+  while (path.length > 0) {
+    const next = path[0];
+    const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
+    const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
+    const dx = targetX - entity.x;
+    const dy = targetY - entity.y;
+    if (Math.abs(dx) < 4 && Math.abs(dy) < 4) {
+      shiftCoordPathInPlace(path);
+      continue;
+    }
+    if (Math.abs(dx) > Math.abs(dy)) {
+      entity.setVelocity(Math.sign(dx) * speed, 0);
+    } else {
+      entity.setVelocity(0, Math.sign(dy) * speed);
+    }
+    return true;
+  }
+  return false;
+}
+
 const sharedEnemyPosScratch: GridCoord = { r: 0, c: 0 };
 const sharedEnemyTargetScratch: GridCoord = { r: 0, c: 0 };
 const sharedTrapTileScratch: GridCoord = { r: 0, c: 0 };
@@ -383,16 +404,8 @@ export class ChaserEnemy extends BaseEntity {
           }
 
           if (this.currentPath.length > 0) {
-            const next = this.currentPath[0];
-            const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
-            const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
-            const dx = targetX - this.x;
-            const dy = targetY - this.y;
-
-            if (Math.abs(dx) > Math.abs(dy)) {
-              this.setVelocity(Math.sign(dx) * this.config.trackSpeed, 0);
-            } else {
-              this.setVelocity(0, Math.sign(dy) * this.config.trackSpeed);
+            if (!steerAlongPath(this, this.currentPath, this.config.trackSpeed)) {
+              this.setVelocity(0, 0);
             }
           }
         } else {
@@ -417,17 +430,9 @@ export class ChaserEnemy extends BaseEntity {
             !isTileInHazardMask(bombTiles, this.approachPath[0].r, this.approachPath[0].c);
 
           if (canReuseCachedApproach) {
-            const next = this.approachPath[0];
-            const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
-            const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
-            const dx = targetX - this.x;
-            const dy = targetY - this.y;
-            if (Math.abs(dx) > Math.abs(dy)) {
-              this.setVelocity(Math.sign(dx) * this.config.trackSpeed, 0);
-            } else {
-              this.setVelocity(0, Math.sign(dy) * this.config.trackSpeed);
+            if (steerAlongPath(this, this.approachPath, this.config.trackSpeed)) {
+              return;
             }
-            return;
           }
 
           sharedEnemyPosScratch.r = er;
@@ -497,17 +502,9 @@ export class ChaserEnemy extends BaseEntity {
                   );
                   if (pathToAlt.length > 0 && pathToAlt[pathToAlt.length - 1].r === alt.r && pathToAlt[pathToAlt.length - 1].c === alt.c) {
                     this.approachPath = copyCoordPathInPlace(this.approachPath, pathToAlt);
-                    const next = this.approachPath[0];
-                    const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
-                    const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
-                    const dx = targetX - this.x;
-                    const dy = targetY - this.y;
-                    if (Math.abs(dx) > Math.abs(dy)) {
-                      this.setVelocity(Math.sign(dx) * this.config.trackSpeed, 0);
-                    } else {
-                      this.setVelocity(0, Math.sign(dy) * this.config.trackSpeed);
+                    if (steerAlongPath(this, this.approachPath, this.config.trackSpeed)) {
+                      return;
                     }
-                    return;
                   }
                 }
               }
@@ -525,18 +522,7 @@ export class ChaserEnemy extends BaseEntity {
                 undefined,
                 this.approachPath
               );
-              if (pathToApproach.length > 0) {
-                const next = pathToApproach[0];
-                const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
-                const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
-                const dx = targetX - this.x;
-                const dy = targetY - this.y;
-
-                if (Math.abs(dx) > Math.abs(dy)) {
-                  this.setVelocity(Math.sign(dx) * this.config.trackSpeed, 0);
-                } else {
-                  this.setVelocity(0, Math.sign(dy) * this.config.trackSpeed);
-                }
+              if (pathToApproach.length > 0 && steerAlongPath(this, this.approachPath, this.config.trackSpeed)) {
                 return;
               }
             } else {
@@ -548,18 +534,8 @@ export class ChaserEnemy extends BaseEntity {
             this.approachPath = clearPathInPlace(this.approachPath);
           }
 
-          if (this.currentPath.length > 0) {
-            const next = this.currentPath[0];
-            const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
-            const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
-            const dx = targetX - this.x;
-            const dy = targetY - this.y;
-
-            if (Math.abs(dx) > Math.abs(dy)) {
-              this.setVelocity(Math.sign(dx) * this.config.trackSpeed, 0);
-            } else {
-              this.setVelocity(0, Math.sign(dy) * this.config.trackSpeed);
-            }
+          if (this.currentPath.length > 0 && steerAlongPath(this, this.currentPath, this.config.trackSpeed)) {
+            // Followed remaining waypoints along currentPath
           } else {
             // Anti-freeze fallback patrol: wander/patrol to an adjacent open tile
             let moved = false;
@@ -895,17 +871,9 @@ export class BomberEnemy extends BaseEntity {
 
       // Follow direct path towards player
       if (this.currentPath.length > 0) {
-        const next = this.currentPath[0];
-        const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
-        const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
-        const dx = targetX - this.x;
-        const dy = targetY - this.y;
-
         const currentSpeed = this.hp === 1 ? this.config.enragedSpeed : this.config.trackSpeed;
-        if (Math.abs(dx) > Math.abs(dy)) {
-          this.setVelocity(Math.sign(dx) * currentSpeed, 0);
-        } else {
-          this.setVelocity(0, Math.sign(dy) * currentSpeed);
+        if (!steerAlongPath(this, this.currentPath, currentSpeed)) {
+          this.setVelocity(0, 0);
         }
       }
     } else {
@@ -930,18 +898,10 @@ export class BomberEnemy extends BaseEntity {
         !isTileInHazardMask(bombTiles, this.approachPath[0].r, this.approachPath[0].c);
 
       if (canReuseCachedApproach) {
-        const next = this.approachPath[0];
-        const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
-        const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
-        const dx = targetX - this.x;
-        const dy = targetY - this.y;
         const currentSpeed = this.hp === 1 ? this.config.enragedSpeed : this.config.trackSpeed;
-        if (Math.abs(dx) > Math.abs(dy)) {
-          this.setVelocity(Math.sign(dx) * currentSpeed, 0);
-        } else {
-          this.setVelocity(0, Math.sign(dy) * currentSpeed);
+        if (steerAlongPath(this, this.approachPath, currentSpeed)) {
+          return;
         }
-        return;
       }
 
       sharedEnemyPosScratch.r = er;
@@ -1012,18 +972,10 @@ export class BomberEnemy extends BaseEntity {
               );
               if (pathToAlt.length > 0 && pathToAlt[pathToAlt.length - 1].r === alt.r && pathToAlt[pathToAlt.length - 1].c === alt.c) {
                 this.approachPath = copyCoordPathInPlace(this.approachPath, pathToAlt);
-                const next = this.approachPath[0];
-                const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
-                const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
-                const dx = targetX - this.x;
-                const dy = targetY - this.y;
                 const currentSpeed = this.hp === 1 ? this.config.enragedSpeed : this.config.trackSpeed;
-                if (Math.abs(dx) > Math.abs(dy)) {
-                  this.setVelocity(Math.sign(dx) * currentSpeed, 0);
-                } else {
-                  this.setVelocity(0, Math.sign(dy) * currentSpeed);
+                if (steerAlongPath(this, this.approachPath, currentSpeed)) {
+                  return;
                 }
-                return;
               }
             }
           }
@@ -1041,19 +993,8 @@ export class BomberEnemy extends BaseEntity {
             undefined,
             this.approachPath
           );
-          if (pathToApproach.length > 0) {
-            const next = pathToApproach[0];
-            const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
-            const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
-            const dx = targetX - this.x;
-            const dy = targetY - this.y;
-
-            const currentSpeed = this.hp === 1 ? this.config.enragedSpeed : this.config.trackSpeed;
-            if (Math.abs(dx) > Math.abs(dy)) {
-              this.setVelocity(Math.sign(dx) * currentSpeed, 0);
-            } else {
-              this.setVelocity(0, Math.sign(dy) * currentSpeed);
-            }
+          const currentSpeed = this.hp === 1 ? this.config.enragedSpeed : this.config.trackSpeed;
+          if (pathToApproach.length > 0 && steerAlongPath(this, this.approachPath, currentSpeed)) {
             return;
           }
         } else {
@@ -1066,19 +1007,9 @@ export class BomberEnemy extends BaseEntity {
       }
 
       // Fallback: move along whatever currentPath exists
-      if (this.currentPath.length > 0) {
-        const next = this.currentPath[0];
-        const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
-        const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
-        const dx = targetX - this.x;
-        const dy = targetY - this.y;
-
-        const currentSpeed = this.hp === 1 ? this.config.enragedSpeed : this.config.trackSpeed;
-        if (Math.abs(dx) > Math.abs(dy)) {
-          this.setVelocity(Math.sign(dx) * currentSpeed, 0);
-        } else {
-          this.setVelocity(0, Math.sign(dy) * currentSpeed);
-        }
+      const fallbackSpeed = this.hp === 1 ? this.config.enragedSpeed : this.config.trackSpeed;
+      if (this.currentPath.length > 0 && steerAlongPath(this, this.currentPath, fallbackSpeed)) {
+        // Followed remaining waypoints along currentPath
       } else {
         // Anti-freeze fallback patrol: wander/patrol to an adjacent open tile
         let moved = false;
@@ -1254,18 +1185,8 @@ export class TankEnemy extends BaseEntity {
       );
     }
 
-    if (this.currentPath.length > 0) {
-      const next = this.currentPath[0];
-      const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
-      const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
-      const dx = targetX - this.x;
-      const dy = targetY - this.y;
-
-      if (Math.abs(dx) > Math.abs(dy)) {
-        this.setVelocity(Math.sign(dx) * this.config.walkSpeed, 0);
-      } else {
-        this.setVelocity(0, Math.sign(dy) * this.config.walkSpeed);
-      }
+    if (!steerAlongPath(this, this.currentPath, this.config.walkSpeed)) {
+      this.setVelocity(0, 0);
     }
   }
 }
@@ -1413,20 +1334,8 @@ export class GhostEnemy extends BaseEntity {
       }
     }
 
-    if (this.currentPath.length > 0) {
-      const next = this.currentPath[0];
-      const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
-      const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
-      const dx = targetX - this.x;
-      const dy = targetY - this.y;
-
-      const speed = this.isMaterialized ? this.config.phaseSpeed * 0.7 : this.config.phaseSpeed;
-      if (Math.abs(dx) > Math.abs(dy)) {
-        this.setVelocity(Math.sign(dx) * speed, 0);
-      } else {
-        this.setVelocity(0, Math.sign(dy) * speed);
-      }
-    } else {
+    const speed = this.isMaterialized ? this.config.phaseSpeed * 0.7 : this.config.phaseSpeed;
+    if (!steerAlongPath(this, this.currentPath, speed)) {
       this.setVelocity(0, 0);
     }
   }
@@ -1606,19 +1515,7 @@ export class SplitterEnemy extends BaseEntity {
       );
     }
 
-    if (this.currentPath.length > 0) {
-      const next = this.currentPath[0];
-      const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
-      const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
-      const dx = targetX - this.x;
-      const dy = targetY - this.y;
-
-      if (Math.abs(dx) > Math.abs(dy)) {
-        this.setVelocity(Math.sign(dx) * this.config.parentSpeed, 0);
-      } else {
-        this.setVelocity(0, Math.sign(dy) * this.config.parentSpeed);
-      }
-    } else {
+    if (!steerAlongPath(this, this.currentPath, this.config.parentSpeed)) {
       this.setVelocity(0, 0);
     }
   }
@@ -1709,19 +1606,7 @@ export class MiniSplitterEnemy extends BaseEntity {
       );
     }
 
-    if (this.currentPath.length > 0) {
-      const next = this.currentPath[0];
-      const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
-      const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
-      const dx = targetX - this.x;
-      const dy = targetY - this.y;
-
-      if (Math.abs(dx) > Math.abs(dy)) {
-        this.setVelocity(Math.sign(dx) * this.config.trackSpeed, 0);
-      } else {
-        this.setVelocity(0, Math.sign(dy) * this.config.trackSpeed);
-      }
-    } else {
+    if (!steerAlongPath(this, this.currentPath, this.config.trackSpeed)) {
       this.setVelocity(0, 0);
     }
   }

@@ -784,12 +784,7 @@ export class MultiTouchPointerTracker {
           );
         }
       } else if (record.target === 'joystick') {
-        const remainingPointers = Array.from(targetSet);
-        const lastActiveId = remainingPointers[remainingPointers.length - 1];
-        const lastRecord = this.activePointers.get(lastActiveId);
-        if (lastRecord && lastRecord.currentX !== undefined && lastRecord.currentY !== undefined) {
-          this.onPointerMove(lastActiveId, { x: lastRecord.currentX, y: lastRecord.currentY }, state);
-        }
+        this.resyncRemainingJoystickPointer(targetSet, state);
       }
     }
   }
@@ -816,12 +811,7 @@ export class MultiTouchPointerTracker {
           cancelMobileAction(state, record.target);
         }
       } else if (record.target === 'joystick') {
-        const remainingPointers = Array.from(targetSet);
-        const lastActiveId = remainingPointers[remainingPointers.length - 1];
-        const lastRecord = this.activePointers.get(lastActiveId);
-        if (lastRecord && lastRecord.currentX !== undefined && lastRecord.currentY !== undefined) {
-          this.onPointerMove(lastActiveId, { x: lastRecord.currentX, y: lastRecord.currentY }, state);
-        }
+        this.resyncRemainingJoystickPointer(targetSet, state);
       }
     }
   }
@@ -878,12 +868,7 @@ export class MultiTouchPointerTracker {
               cancelMobileAction(state, record.target);
             }
           } else if (record.target === 'joystick') {
-            const remainingPointers = Array.from(targetSet);
-            const lastActiveId = remainingPointers[remainingPointers.length - 1];
-            const lastRecord = this.activePointers.get(lastActiveId);
-            if (lastRecord && lastRecord.currentX !== undefined && lastRecord.currentY !== undefined) {
-              this.onPointerMove(lastActiveId, { x: lastRecord.currentX, y: lastRecord.currentY }, state);
-            }
+            this.resyncRemainingJoystickPointer(targetSet, state);
           }
         }
         recoveredCount++;
@@ -927,6 +912,27 @@ export class MultiTouchPointerTracker {
     return this.activePointers.has(pointerId);
   }
 
+  private readonly _moveCoordsScratch: { x: number; y: number } = { x: 0, y: 0 };
+
+  private getLastPointerId(targetSet: Set<number>): number | undefined {
+    let lastId: number | undefined;
+    for (const id of targetSet) {
+      lastId = id;
+    }
+    return lastId;
+  }
+
+  private resyncRemainingJoystickPointer(targetSet: Set<number>, state: MobileInputState): void {
+    const lastActiveId = this.getLastPointerId(targetSet);
+    if (lastActiveId === undefined) return;
+    const lastRecord = this.activePointers.get(lastActiveId);
+    if (lastRecord && lastRecord.currentX !== undefined && lastRecord.currentY !== undefined) {
+      this._moveCoordsScratch.x = lastRecord.currentX;
+      this._moveCoordsScratch.y = lastRecord.currentY;
+      this.onPointerMove(lastActiveId, this._moveCoordsScratch, state, undefined, lastRecord.timestamp);
+    }
+  }
+
   private releasePointerFromTarget(
     pointerId: number,
     target: TouchControlTarget,
@@ -943,12 +949,7 @@ export class MultiTouchPointerTracker {
           cancelMobileAction(state, target);
         }
       } else if (target === 'joystick') {
-        const remainingPointers = Array.from(targetSet);
-        const lastActiveId = remainingPointers[remainingPointers.length - 1];
-        const lastRecord = this.activePointers.get(lastActiveId);
-        if (lastRecord && lastRecord.currentX !== undefined && lastRecord.currentY !== undefined) {
-          this.onPointerMove(lastActiveId, { x: lastRecord.currentX, y: lastRecord.currentY }, state);
-        }
+        this.resyncRemainingJoystickPointer(targetSet, state);
       }
     }
   }

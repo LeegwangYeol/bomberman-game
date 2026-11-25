@@ -34,6 +34,22 @@ export class OrbitalCrisis extends BaseCrisis {
   public macrocannonCharge: number = 0; // 0 to 100%
   public pendingCraters: { r: number; c: number; remainingMs: number }[] = [];
   private readonly craterPool: { r: number; c: number; remainingMs: number }[] = [];
+  private readonly _obj0 = {
+    id: 'dodge_salvos',
+    title: 'Kinetic Evacuation',
+    description: 'Evade patterned orbital kinetic slug bombardments',
+    targetCount: 4,
+    currentCount: 0,
+    isCompleted: false,
+  };
+  private readonly _obj1 = {
+    id: 'override_uplinks',
+    title: 'Planetary Defense Uplinks',
+    description: 'Detonate bombs on 3 Planetary Defense Uplinks to trigger counter-barrage (0/3)',
+    targetCount: 3,
+    currentCount: 0,
+    isCompleted: false,
+  };
 
   constructor() {
     super(CrisisType.ORBITAL_BOMBARDMENT);
@@ -41,6 +57,25 @@ export class OrbitalCrisis extends BaseCrisis {
       this.craterPool.push({ r: 0, c: 0, remainingMs: 0 });
     }
     this.resetUplinksInPlace();
+  }
+
+  private resetDefaultObjectives(): void {
+    this._obj0.id = 'dodge_salvos';
+    this._obj0.title = 'Kinetic Evacuation';
+    this._obj0.description = 'Evade patterned orbital kinetic slug bombardments';
+    this._obj0.targetCount = 4;
+    this._obj0.currentCount = 0;
+    this._obj0.isCompleted = false;
+
+    this._obj1.id = 'override_uplinks';
+    this._obj1.title = 'Planetary Defense Uplinks';
+    this._obj1.description = 'Detonate bombs on 3 Planetary Defense Uplinks to trigger counter-barrage (0/3)';
+    this._obj1.targetCount = 3;
+    this._obj1.currentCount = 0;
+    this._obj1.isCompleted = false;
+
+    this.objectives.length = 0;
+    this.objectives.push(this._obj0, this._obj1);
   }
 
   private clearPendingCratersToPool(): void {
@@ -77,25 +112,7 @@ export class OrbitalCrisis extends BaseCrisis {
     this.macrocannonCharge = 0;
     this.clearPendingCratersToPool();
     this.resetUplinksInPlace();
-
-    this.objectives = [
-      {
-        id: 'dodge_salvos',
-        title: 'Kinetic Evacuation',
-        description: 'Evade patterned orbital kinetic slug bombardments',
-        targetCount: 4,
-        currentCount: 0,
-        isCompleted: false,
-      },
-      {
-        id: 'override_uplinks',
-        title: 'Planetary Defense Uplinks',
-        description: 'Detonate bombs on 3 Planetary Defense Uplinks to trigger counter-barrage (0/3)',
-        targetCount: 3,
-        currentCount: 0,
-        isCompleted: false,
-      },
-    ];
+    this.resetDefaultObjectives();
   }
 
   protected onStageEnter(stage: CrisisStage): void {
@@ -309,15 +326,18 @@ export class OrbitalCrisis extends BaseCrisis {
   }
 
   protected override applyExtraSerializedState(extra: Record<string, unknown>): void {
-    if (typeof extra.salvoTimerMs === 'number' && Number.isFinite(extra.salvoTimerMs)) {
-      this.salvoTimerMs = Math.max(0, extra.salvoTimerMs);
-    }
-    if (typeof extra.salvosEvadedCount === 'number' && Number.isFinite(extra.salvosEvadedCount)) {
-      this.salvosEvadedCount = Math.max(0, Math.floor(extra.salvosEvadedCount));
-    }
-    if (typeof extra.macrocannonCharge === 'number' && Number.isFinite(extra.macrocannonCharge)) {
-      this.macrocannonCharge = Math.max(0, Math.min(100, extra.macrocannonCharge));
-    }
+    this.salvoTimerMs =
+      typeof extra.salvoTimerMs === 'number' && Number.isFinite(extra.salvoTimerMs)
+        ? Math.max(0, extra.salvoTimerMs)
+        : 0;
+    this.salvosEvadedCount =
+      typeof extra.salvosEvadedCount === 'number' && Number.isFinite(extra.salvosEvadedCount)
+        ? Math.max(0, Math.floor(extra.salvosEvadedCount))
+        : 0;
+    this.macrocannonCharge =
+      typeof extra.macrocannonCharge === 'number' && Number.isFinite(extra.macrocannonCharge)
+        ? Math.max(0, Math.min(100, extra.macrocannonCharge))
+        : 0;
     this.resetUplinksInPlace();
     if (Array.isArray(extra.uplinks)) {
       const len = Math.min(this.uplinks.length, extra.uplinks.length);

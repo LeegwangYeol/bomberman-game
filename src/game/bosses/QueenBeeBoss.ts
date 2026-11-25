@@ -7,10 +7,11 @@
 
 import { BaseBoss, type BossConfig } from './BaseBoss.ts';
 import type { BossAttackManager } from './BossAttackManager.ts';
-import { BossState } from './BossTypes.ts';
+import { BossProjectileType, BossState } from './BossTypes.ts';
 import { QueenBeeAudio } from './QueenBeeAudio.ts';
 
 export class QueenBeeBoss extends BaseBoss {
+  private static readonly ENRAGED_STINGER_SPREAD: readonly number[] = Object.freeze([-0.24, 0, 0.24]);
   public isGrounded: boolean = false;
   public altitude: number = 40; // 40px flight height
   public activeShieldCount: number = 4;
@@ -22,6 +23,7 @@ export class QueenBeeBoss extends BaseBoss {
   public targetDiveY: number = 0;
   public flightTimeSec: number = 0;
   public timeUntilNextDiveMs: number = 5000;
+  public stingerTimerMs: number = 2800;
   public diveCraterBombCheck?: () => boolean;
   public attackManager?: BossAttackManager | null = null;
   public audio: QueenBeeAudio;
@@ -185,6 +187,60 @@ export class QueenBeeBoss extends BaseBoss {
     this.x = centerX + Math.cos(this.flightTimeSec * 0.8) * 120;
     this.y = centerY + Math.sin(this.flightTimeSec * 1.6) * 60;
     this.clampPosition();
+
+    if (
+      this.attackManager &&
+      (this.bossState === BossState.PHASE_2 || this.bossState === BossState.ENRAGED)
+    ) {
+      if (!Number.isFinite(this.stingerTimerMs)) {
+        this.stingerTimerMs = this.bossState === BossState.ENRAGED ? 1900 : 2800;
+      }
+      this.stingerTimerMs -= safeDt;
+      if (this.stingerTimerMs <= 0) {
+        this.stingerTimerMs = this.bossState === BossState.ENRAGED ? 1900 : 2800;
+        this.fireStingerSalvo(playerX, playerY);
+      }
+    }
+  }
+
+  public fireStingerSalvo(targetX?: number, targetY?: number): number {
+    if (!this.attackManager || this.isGrounded) return 0;
+    const tx =
+      typeof targetX === 'number' && Number.isFinite(targetX) ? targetX : this.x;
+    const ty =
+      typeof targetY === 'number' && Number.isFinite(targetY) ? targetY : this.y + 80;
+    const dx = tx - this.x;
+    const dy = ty - this.y;
+    const baseAngle = dx === 0 && dy === 0 ? Math.PI / 2 : Math.atan2(dy, dx);
+
+    if (this.bossState === BossState.ENRAGED) {
+      let spawned = 0;
+      for (let i = 0; i < QueenBeeBoss.ENRAGED_STINGER_SPREAD.length; i++) {
+        const angle = baseAngle + QueenBeeBoss.ENRAGED_STINGER_SPREAD[i];
+        const proj = this.attackManager.spawnProjectile(
+          BossProjectileType.CANDY_STINGER,
+          this.x,
+          this.y,
+          Math.cos(angle) * 205,
+          Math.sin(angle) * 205,
+          6,
+          2600
+        );
+        if (proj) spawned++;
+      }
+      return spawned;
+    }
+
+    const single = this.attackManager.spawnProjectile(
+      BossProjectileType.CANDY_STINGER,
+      this.x,
+      this.y,
+      Math.cos(baseAngle) * 175,
+      Math.sin(baseAngle) * 175,
+      6,
+      2600
+    );
+    return single ? 1 : 0;
   }
 
   /**
@@ -323,6 +379,7 @@ export class QueenBeeBoss extends BaseBoss {
       this.isGrounded = false;
       this.altitude = 40;
       this.timeUntilNextDiveMs = nextState === BossState.ENRAGED ? 3500 : 5000;
+      this.stingerTimerMs = nextState === BossState.ENRAGED ? 1900 : 2800;
     }
     if (
       nextState === BossState.INTERMISSION ||

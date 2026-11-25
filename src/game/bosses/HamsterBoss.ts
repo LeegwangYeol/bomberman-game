@@ -14,10 +14,11 @@
 
 import { BaseBoss, type BossConfig } from './BaseBoss.ts';
 import type { BossAttackManager } from './BossAttackManager.ts';
-import { BossState } from './BossTypes.ts';
+import { BossProjectileType, BossState } from './BossTypes.ts';
 import { HamsterAudio } from './HamsterAudio.ts';
 
 export class HamsterBoss extends BaseBoss {
+  private static readonly GATLING_SPREAD_ANGLES: readonly number[] = Object.freeze([-0.22, 0, 0.22]);
   public isDashing: boolean = false;
   public dashDirection: { x: number; y: number } = { x: 1, y: 0 };
   public dashSpeed: number = 200;
@@ -152,6 +153,17 @@ export class HamsterBoss extends BaseBoss {
     const validPy = Number.isFinite(playerY) ? playerY : this.y;
     const dx = validPx - this.x;
     const dy = validPy - this.y;
+    if (
+      this.attackManager &&
+      (this.bossState === BossState.PHASE_2 || this.bossState === BossState.ENRAGED)
+    ) {
+      const gatlingInterval = this.bossState === BossState.ENRAGED ? 1800 : 2600;
+      this.gatlingTimerMs = (Number.isFinite(this.gatlingTimerMs) ? this.gatlingTimerMs : 0) + safeDt;
+      if (this.gatlingTimerMs >= gatlingInterval) {
+        this.gatlingTimerMs = 0;
+        this.fireSunflowerGatling(validPx, validPy);
+      }
+    }
     if (Math.abs(dx) < 20 || Math.abs(dy) < 20) {
       this.startDashWindup(dx, dy);
     } else {
@@ -284,8 +296,34 @@ export class HamsterBoss extends BaseBoss {
     }
   }
 
-  public fireSunflowerGatling(): void {
+  public fireSunflowerGatling(targetX?: number, targetY?: number): number {
     this.audio.playSunflowerGatling();
+    if (!this.attackManager) return 0;
+    const tx =
+      typeof targetX === 'number' && Number.isFinite(targetX)
+        ? targetX
+        : this.x + (this.dashDirection.x || 1) * 80;
+    const ty =
+      typeof targetY === 'number' && Number.isFinite(targetY)
+        ? targetY
+        : this.y + this.dashDirection.y * 80;
+    const baseAngle = Math.atan2(ty - this.y, tx - this.x);
+    const speed = this.bossState === BossState.ENRAGED ? 195 : 165;
+    let spawned = 0;
+    for (let i = 0; i < HamsterBoss.GATLING_SPREAD_ANGLES.length; i++) {
+      const angle = baseAngle + HamsterBoss.GATLING_SPREAD_ANGLES[i];
+      const proj = this.attackManager.spawnProjectile(
+        BossProjectileType.GATLING_SEED,
+        this.x,
+        this.y,
+        Math.cos(angle) * speed,
+        Math.sin(angle) * speed,
+        6,
+        2400
+      );
+      if (proj) spawned++;
+    }
+    return spawned;
   }
 
   public executeGyroLaserSweep(): void {

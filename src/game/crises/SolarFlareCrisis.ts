@@ -34,9 +34,44 @@ export class SolarFlareCrisis extends BaseCrisis {
   public sweepsSurvivedCount: number = 0;
 
   public vents: ThermalVent[] = [];
+  private readonly _obj0 = {
+    id: 'shelter_flares',
+    title: 'Coronal Shielding',
+    description: 'Take cover behind indestructible pillars during CME sweeps',
+    targetCount: 3,
+    currentCount: 0,
+    isCompleted: false,
+  };
+  private readonly _obj1 = {
+    id: 'cool_thermal_vents',
+    title: 'Thermal Coolant Vents',
+    description: 'Detonate bombs at 4 Thermal Coolant Vents to relieve core pressure (0/4)',
+    targetCount: 4,
+    currentCount: 0,
+    isCompleted: false,
+  };
 
   constructor() {
     super(CrisisType.SOLAR_FLARES);
+  }
+
+  private resetDefaultObjectives(): void {
+    this._obj0.id = 'shelter_flares';
+    this._obj0.title = 'Coronal Shielding';
+    this._obj0.description = 'Take cover behind indestructible pillars during CME sweeps';
+    this._obj0.targetCount = 3;
+    this._obj0.currentCount = 0;
+    this._obj0.isCompleted = false;
+
+    this._obj1.id = 'cool_thermal_vents';
+    this._obj1.title = 'Thermal Coolant Vents';
+    this._obj1.description = 'Detonate bombs at 4 Thermal Coolant Vents to relieve core pressure (0/4)';
+    this._obj1.targetCount = 4;
+    this._obj1.currentCount = 0;
+    this._obj1.isCompleted = false;
+
+    this.objectives.length = 0;
+    this.objectives.push(this._obj0, this._obj1);
   }
 
   private resetVentsInPlace(): void {
@@ -66,25 +101,7 @@ export class SolarFlareCrisis extends BaseCrisis {
     this.sweepsSurvivedCount = 0;
 
     this.resetVentsInPlace();
-
-    this.objectives = [
-      {
-        id: 'shelter_flares',
-        title: 'Coronal Shielding',
-        description: 'Take cover behind indestructible pillars during CME sweeps',
-        targetCount: 3,
-        currentCount: 0,
-        isCompleted: false,
-      },
-      {
-        id: 'cool_thermal_vents',
-        title: 'Thermal Coolant Vents',
-        description: 'Detonate bombs at 4 Thermal Coolant Vents to relieve core pressure (0/4)',
-        targetCount: 4,
-        currentCount: 0,
-        isCompleted: false,
-      },
-    ];
+    this.resetDefaultObjectives();
   }
 
   protected onStageEnter(stage: CrisisStage): void {
@@ -345,17 +362,20 @@ export class SolarFlareCrisis extends BaseCrisis {
   }
 
   protected override applyExtraSerializedState(extra: Record<string, unknown>): void {
-    if (typeof extra.cmeTimerMs === 'number' && Number.isFinite(extra.cmeTimerMs)) {
-      this.cmeTimerMs = Math.max(0, extra.cmeTimerMs);
-    }
+    this.cmeTimerMs =
+      typeof extra.cmeTimerMs === 'number' && Number.isFinite(extra.cmeTimerMs)
+        ? Math.max(0, extra.cmeTimerMs)
+        : 0;
     this.isCmeWarningActive = Boolean(extra.isCmeWarningActive);
     this.isCmeSweeping = Boolean(extra.isCmeSweeping);
-    if (typeof extra.cmeSweepRemainingMs === 'number' && Number.isFinite(extra.cmeSweepRemainingMs)) {
-      this.cmeSweepRemainingMs = Math.max(0, extra.cmeSweepRemainingMs);
-    }
-    if (typeof extra.sweepsSurvivedCount === 'number' && Number.isFinite(extra.sweepsSurvivedCount)) {
-      this.sweepsSurvivedCount = Math.max(0, extra.sweepsSurvivedCount);
-    }
+    this.cmeSweepRemainingMs =
+      typeof extra.cmeSweepRemainingMs === 'number' && Number.isFinite(extra.cmeSweepRemainingMs)
+        ? Math.max(0, extra.cmeSweepRemainingMs)
+        : 0;
+    this.sweepsSurvivedCount =
+      typeof extra.sweepsSurvivedCount === 'number' && Number.isFinite(extra.sweepsSurvivedCount)
+        ? Math.max(0, Math.floor(extra.sweepsSurvivedCount))
+        : 0;
     this.resetVentsInPlace();
     if (Array.isArray(extra.vents)) {
       for (let ri = 0; ri < extra.vents.length; ri++) {

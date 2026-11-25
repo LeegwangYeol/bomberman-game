@@ -39,6 +39,41 @@ export class RiftCrisis extends BaseCrisis {
     { r: 1, c: 1 },
   ];
   private _coordRingCursor: number = 0;
+  private readonly _obj0 = {
+    id: 'navigate_rifts',
+    title: 'Subspace Navigation',
+    description: 'Navigate toroidal warp corridors and survive reality distortion',
+    targetCount: 3,
+    currentCount: 0,
+    isCompleted: false,
+  };
+  private readonly _obj1 = {
+    id: 'quantum_sync',
+    title: 'Quantum Synchronization',
+    description: 'Polarize all 3 Dimensional Spires with bomb blasts within 2.0s (0/3)',
+    targetCount: 3,
+    currentCount: 0,
+    isCompleted: false,
+  };
+
+  private resetDefaultObjectives(): void {
+    this._obj0.id = 'navigate_rifts';
+    this._obj0.title = 'Subspace Navigation';
+    this._obj0.description = 'Navigate toroidal warp corridors and survive reality distortion';
+    this._obj0.targetCount = 3;
+    this._obj0.currentCount = 0;
+    this._obj0.isCompleted = false;
+
+    this._obj1.id = 'quantum_sync';
+    this._obj1.title = 'Quantum Synchronization';
+    this._obj1.description = 'Polarize all 3 Dimensional Spires with bomb blasts within 2.0s (0/3)';
+    this._obj1.targetCount = 3;
+    this._obj1.currentCount = 0;
+    this._obj1.isCompleted = false;
+
+    this.objectives.length = 0;
+    this.objectives.push(this._obj0, this._obj1);
+  }
 
   private writeCoordResult(r: number, c: number, out?: { r: number; c: number }): { r: number; c: number } {
     const slot = out ?? this._coordResultRing[this._coordRingCursor++ & 3];
@@ -87,25 +122,7 @@ export class RiftCrisis extends BaseCrisis {
     this.warpsPerformedCount = 0;
 
     this.resetRiftsAndSpiresInPlace();
-
-    this.objectives = [
-      {
-        id: 'navigate_rifts',
-        title: 'Subspace Navigation',
-        description: 'Navigate toroidal warp corridors and survive reality distortion',
-        targetCount: 3,
-        currentCount: 0,
-        isCompleted: false,
-      },
-      {
-        id: 'quantum_sync',
-        title: 'Quantum Synchronization',
-        description: 'Polarize all 3 Dimensional Spires with bomb blasts within 2.0s (0/3)',
-        targetCount: 3,
-        currentCount: 0,
-        isCompleted: false,
-      },
-    ];
+    this.resetDefaultObjectives();
   }
 
   protected onStageEnter(stage: CrisisStage): void {
@@ -430,11 +447,19 @@ export class RiftCrisis extends BaseCrisis {
         this.rifts.length = restoredRiftCount;
       }
     }
-    if (restoredRiftCount === 0 && this.rifts.length === 0) {
+    if (restoredRiftCount === 0) {
       const initial = RiftCrisis.INITIAL_RIFT_POSITIONS;
       for (let i = 0; i < initial.length; i++) {
-        this.rifts.push({ r: initial[i].r, c: initial[i].c });
+        let slot = this.rifts[i];
+        if (!slot) {
+          slot = { r: initial[i].r, c: initial[i].c };
+          this.rifts.push(slot);
+        } else {
+          slot.r = initial[i].r;
+          slot.c = initial[i].c;
+        }
       }
+      this.rifts.length = initial.length;
     }
 
     // 4. Dimensional Spires Restoration (Zero-GC indexed in-place reuse)
@@ -475,15 +500,25 @@ export class RiftCrisis extends BaseCrisis {
       }
     }
 
-    if (restoredSpireCount === 0 && this.spires.length === 0) {
+    if (restoredSpireCount === 0) {
       for (let i = 0; i < this.rifts.length; i++) {
-        this.spires.push({
-          r: this.rifts[i].r,
-          c: this.rifts[i].c,
-          isPolarized: false,
-          hitTimestampMs: 0,
-        });
+        let slot = this.spires[i];
+        if (!slot) {
+          slot = {
+            r: this.rifts[i].r,
+            c: this.rifts[i].c,
+            isPolarized: false,
+            hitTimestampMs: 0,
+          };
+          this.spires.push(slot);
+        } else {
+          slot.r = this.rifts[i].r;
+          slot.c = this.rifts[i].c;
+          slot.isPolarized = false;
+          slot.hitTimestampMs = 0;
+        }
       }
+      this.spires.length = this.rifts.length;
     }
 
     // 5. Quantum Sync Active & Timer
@@ -513,7 +548,7 @@ export class RiftCrisis extends BaseCrisis {
       if (o.id === 'quantum_sync') syncObj = o;
       else if (o.id === 'navigate_rifts') navObj = o;
     }
-    if (syncObj) {
+    if (syncObj && restoredSpireCount > 0) {
       syncObj.currentCount = polarizedCount;
       syncObj.isCompleted = polarizedCount >= syncObj.targetCount;
     }
@@ -545,13 +580,17 @@ export class RiftCrisis extends BaseCrisis {
     }
   }
 
-  public override reset(): void {
-    super.reset();
+  protected override onReset(): void {
     RiftCrisisAudio.getInstance().reset();
     this.isQuantumSyncActive = false;
     this.quantumSyncTimerMs = 0;
     this.phantomsActive = false;
     this.warpsPerformedCount = 0;
     this.resetRiftsAndSpiresInPlace();
+    this.objectives.length = 0;
+  }
+
+  public override reset(): void {
+    super.reset();
   }
 }

@@ -53,10 +53,45 @@ export class ClockworkCrisis extends BaseCrisis {
   public overloadWindowTimerMs: number = 0;
   public isOverloadWindowActive: boolean = false;
   public bonusBombSlotsGranted: boolean = false;
+  private readonly _obj0 = {
+    id: 'survive_emp',
+    title: 'Mechanical Overhaul',
+    description: 'Survive conveyor belts and EMP pulses',
+    targetCount: 3,
+    currentCount: 0,
+    isCompleted: false,
+  };
+  private readonly _obj1 = {
+    id: 'dynamo_overload',
+    title: 'Dynamo Overload',
+    description: 'Execute synchronized 4-bomb blast across all 4 Dynamo conduits within 1.5s (0/4)',
+    targetCount: 4,
+    currentCount: 0,
+    isCompleted: false,
+  };
 
   constructor() {
     super(CrisisType.CLOCKWORK_REBELLION);
     this.resetConduitsInPlace();
+  }
+
+  private resetDefaultObjectives(): void {
+    this._obj0.id = 'survive_emp';
+    this._obj0.title = 'Mechanical Overhaul';
+    this._obj0.description = 'Survive conveyor belts and EMP pulses';
+    this._obj0.targetCount = 3;
+    this._obj0.currentCount = 0;
+    this._obj0.isCompleted = false;
+
+    this._obj1.id = 'dynamo_overload';
+    this._obj1.title = 'Dynamo Overload';
+    this._obj1.description = 'Execute synchronized 4-bomb blast across all 4 Dynamo conduits within 1.5s (0/4)';
+    this._obj1.targetCount = 4;
+    this._obj1.currentCount = 0;
+    this._obj1.isCompleted = false;
+
+    this.objectives.length = 0;
+    this.objectives.push(this._obj0, this._obj1);
   }
 
   private resetConduitsInPlace(): void {
@@ -89,25 +124,7 @@ export class ClockworkCrisis extends BaseCrisis {
 
     ClockworkCrisisAudio.getInstance().reset();
     this.resetConduitsInPlace();
-
-    this.objectives = [
-      {
-        id: 'survive_emp',
-        title: 'Mechanical Overhaul',
-        description: 'Survive conveyor belts and EMP pulses',
-        targetCount: 3,
-        currentCount: 0,
-        isCompleted: false,
-      },
-      {
-        id: 'dynamo_overload',
-        title: 'Dynamo Overload',
-        description: 'Execute synchronized 4-bomb blast across all 4 Dynamo conduits within 1.5s (0/4)',
-        targetCount: 4,
-        currentCount: 0,
-        isCompleted: false,
-      },
-    ];
+    this.resetDefaultObjectives();
   }
 
   protected onStageEnter(stage: CrisisStage): void {
@@ -367,24 +384,24 @@ export class ClockworkCrisis extends BaseCrisis {
   }
 
   protected override applyExtraSerializedState(extra: Record<string, unknown>): void {
-    if (typeof extra.empTimerMs === 'number' && Number.isFinite(extra.empTimerMs)) {
-      this.empTimerMs = Math.max(0, extra.empTimerMs);
-    }
-    if (typeof extra.isEmpWarningActive === 'boolean') {
-      this.isEmpWarningActive = extra.isEmpWarningActive;
-    }
-    if (typeof extra.totalEmpPulsesFired === 'number' && Number.isFinite(extra.totalEmpPulsesFired)) {
-      this.totalEmpPulsesFired = Math.max(0, Math.floor(extra.totalEmpPulsesFired));
-    }
-    if (typeof extra.overloadWindowTimerMs === 'number' && Number.isFinite(extra.overloadWindowTimerMs)) {
-      this.overloadWindowTimerMs = Math.max(0, extra.overloadWindowTimerMs);
-    }
-    if (typeof extra.isOverloadWindowActive === 'boolean') {
-      this.isOverloadWindowActive = extra.isOverloadWindowActive;
-    }
-    if (typeof extra.bonusBombSlotsGranted === 'boolean') {
-      this.bonusBombSlotsGranted = extra.bonusBombSlotsGranted;
-    }
+    this.empTimerMs =
+      typeof extra.empTimerMs === 'number' && Number.isFinite(extra.empTimerMs)
+        ? Math.max(0, extra.empTimerMs)
+        : 0;
+    this.isEmpWarningActive = Boolean(extra.isEmpWarningActive);
+    this.totalEmpPulsesFired =
+      typeof extra.totalEmpPulsesFired === 'number' && Number.isFinite(extra.totalEmpPulsesFired)
+        ? Math.max(0, Math.floor(extra.totalEmpPulsesFired))
+        : 0;
+    this.overloadWindowTimerMs =
+      typeof extra.overloadWindowTimerMs === 'number' && Number.isFinite(extra.overloadWindowTimerMs)
+        ? Math.max(0, extra.overloadWindowTimerMs)
+        : 0;
+    this.isOverloadWindowActive = Boolean(extra.isOverloadWindowActive);
+    this.bonusBombSlotsGranted =
+      typeof extra.bonusBombSlotsGranted === 'boolean'
+        ? extra.bonusBombSlotsGranted
+        : this.stage === CrisisStage.CLIMAX;
     this.resetConduitsInPlace();
     if (Array.isArray(extra.conduits)) {
       const len = Math.min(this.conduits.length, extra.conduits.length);

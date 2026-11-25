@@ -45,10 +45,45 @@ export class VoidCrisis extends BaseCrisis {
   public avatarHp: number = 3;
   public avatarShieldActive: boolean = true;
   public supernovaCleansed: boolean = false;
+  private readonly _obj0 = {
+    id: 'charge_prisms',
+    title: 'Purification Prisms',
+    description: 'Charge both corner Purification Prisms with bomb blasts (0/2)',
+    targetCount: 2,
+    currentCount: 0,
+    isCompleted: false,
+  };
+  private readonly _obj1 = {
+    id: 'defeat_avatar',
+    title: 'Void Avatar',
+    description: 'Shatter Iridescent Sugar Shield via Supernova Cleanse & defeat Avatar',
+    targetCount: 1,
+    currentCount: 0,
+    isCompleted: false,
+  };
 
   constructor() {
     super(CrisisType.PASTEL_VOID);
     this.resetPrismsInPlace();
+  }
+
+  private resetDefaultObjectives(): void {
+    this._obj0.id = 'charge_prisms';
+    this._obj0.title = 'Purification Prisms';
+    this._obj0.description = 'Charge both corner Purification Prisms with bomb blasts (0/2)';
+    this._obj0.targetCount = 2;
+    this._obj0.currentCount = 0;
+    this._obj0.isCompleted = false;
+
+    this._obj1.id = 'defeat_avatar';
+    this._obj1.title = 'Void Avatar';
+    this._obj1.description = 'Shatter Iridescent Sugar Shield via Supernova Cleanse & defeat Avatar';
+    this._obj1.targetCount = 1;
+    this._obj1.currentCount = 0;
+    this._obj1.isCompleted = false;
+
+    this.objectives.length = 0;
+    this.objectives.push(this._obj0, this._obj1);
   }
 
   private resetPrismsInPlace(): void {
@@ -83,25 +118,7 @@ export class VoidCrisis extends BaseCrisis {
 
     VoidCrisisAudio.getInstance().reset();
     this.resetPrismsInPlace();
-
-    this.objectives = [
-      {
-        id: 'charge_prisms',
-        title: 'Purification Prisms',
-        description: 'Charge both corner Purification Prisms with bomb blasts (0/2)',
-        targetCount: 2,
-        currentCount: 0,
-        isCompleted: false,
-      },
-      {
-        id: 'defeat_avatar',
-        title: 'Void Avatar',
-        description: 'Shatter Iridescent Sugar Shield via Supernova Cleanse & defeat Avatar',
-        targetCount: 1,
-        currentCount: 0,
-        isCompleted: false,
-      },
-    ];
+    this.resetDefaultObjectives();
   }
 
   protected onStageEnter(stage: CrisisStage): void {
@@ -549,24 +566,25 @@ export class VoidCrisis extends BaseCrisis {
   }
 
   protected override applyExtraSerializedState(extra: Record<string, unknown>): void {
-    if (typeof extra.voidCreepCount === 'number' && Number.isFinite(extra.voidCreepCount)) {
-      this.voidCreepCount = Math.max(0, Math.floor(extra.voidCreepCount));
-    }
-    if (typeof extra.creepTimerMs === 'number' && Number.isFinite(extra.creepTimerMs)) {
-      this.creepTimerMs = Math.max(0, extra.creepTimerMs);
-    }
-    if (typeof extra.avatarSpawned === 'boolean') {
-      this.avatarSpawned = extra.avatarSpawned;
-    }
-    if (typeof extra.avatarHp === 'number' && Number.isFinite(extra.avatarHp)) {
-      this.avatarHp = Math.max(0, Math.floor(extra.avatarHp));
-    }
-    if (typeof extra.avatarShieldActive === 'boolean') {
-      this.avatarShieldActive = extra.avatarShieldActive;
-    }
-    if (typeof extra.supernovaCleansed === 'boolean') {
-      this.supernovaCleansed = extra.supernovaCleansed;
-    }
+    this.voidCreepCount =
+      typeof extra.voidCreepCount === 'number' && Number.isFinite(extra.voidCreepCount)
+        ? Math.max(0, Math.floor(extra.voidCreepCount))
+        : 0;
+    this.creepTimerMs =
+      typeof extra.creepTimerMs === 'number' && Number.isFinite(extra.creepTimerMs)
+        ? Math.max(0, extra.creepTimerMs)
+        : 0;
+    this.avatarSpawned =
+      typeof extra.avatarSpawned === 'boolean'
+        ? extra.avatarSpawned
+        : this.stage === CrisisStage.CLIMAX;
+    this.avatarHp =
+      typeof extra.avatarHp === 'number' && Number.isFinite(extra.avatarHp)
+        ? Math.max(0, Math.floor(extra.avatarHp))
+        : 3;
+    this.avatarShieldActive =
+      typeof extra.avatarShieldActive === 'boolean' ? extra.avatarShieldActive : true;
+    this.supernovaCleansed = Boolean(extra.supernovaCleansed);
     this.resetPrismsInPlace();
     if (Array.isArray(extra.prisms)) {
       const len = Math.min(this.prisms.length, extra.prisms.length);

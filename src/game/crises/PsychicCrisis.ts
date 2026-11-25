@@ -141,6 +141,17 @@ export class PsychicCrisis extends BaseCrisis {
         ? Math.max(0, extra.pulseTimerMs)
         : 0;
 
+    for (let i = 0; i < this.manifestationPool.length; i++) {
+      const target = this.manifestationPool[i];
+      const defaultPos = PsychicCrisis.MANIFESTATION_POSITIONS[i];
+      target.id = i + 1;
+      target.r = defaultPos.r;
+      target.c = defaultPos.c;
+      target.hp = 1;
+      target.maxHp = 1;
+      target.isDestroyed = false;
+    }
+
     if (Array.isArray(extra.manifestations)) {
       const len = Math.min(this.manifestationPool.length, extra.manifestations.length);
       for (let i = 0; i < len; i++) {

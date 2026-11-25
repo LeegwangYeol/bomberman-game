@@ -21,9 +21,44 @@ export class LavaCrisis extends BaseCrisis {
   public lavaTilesCount: number = 0;
   public obsidianSolidifiedCount: number = 0;
   public isCalderaSealed: boolean = false;
+  private readonly _obj0 = {
+    id: 'solidify_lava',
+    title: 'Obsidian Bridges',
+    description: 'Solidify advancing magma channels into obsidian with bomb blasts',
+    targetCount: 4,
+    currentCount: 0,
+    isCompleted: false,
+  };
+  private readonly _obj1 = {
+    id: 'seal_caldera',
+    title: 'Caldera Pressure Valve',
+    description: 'Detonate a bomb at the Central Pressure Valve (6, 7) to relieve tectonic pressure',
+    targetCount: 1,
+    currentCount: 0,
+    isCompleted: false,
+  };
 
   constructor() {
     super(CrisisType.CREEPING_LAVA);
+  }
+
+  private resetDefaultObjectives(): void {
+    this._obj0.id = 'solidify_lava';
+    this._obj0.title = 'Obsidian Bridges';
+    this._obj0.description = 'Solidify advancing magma channels into obsidian with bomb blasts';
+    this._obj0.targetCount = 4;
+    this._obj0.currentCount = 0;
+    this._obj0.isCompleted = false;
+
+    this._obj1.id = 'seal_caldera';
+    this._obj1.title = 'Caldera Pressure Valve';
+    this._obj1.description = 'Detonate a bomb at the Central Pressure Valve (6, 7) to relieve tectonic pressure';
+    this._obj1.targetCount = 1;
+    this._obj1.currentCount = 0;
+    this._obj1.isCompleted = false;
+
+    this.objectives.length = 0;
+    this.objectives.push(this._obj0, this._obj1);
   }
 
   protected onInit(): void {
@@ -33,25 +68,7 @@ export class LavaCrisis extends BaseCrisis {
     this.lavaTilesCount = 0;
     this.obsidianSolidifiedCount = 0;
     this.isCalderaSealed = false;
-
-    this.objectives = [
-      {
-        id: 'solidify_lava',
-        title: 'Obsidian Bridges',
-        description: 'Solidify advancing magma channels into obsidian with bomb blasts',
-        targetCount: 4,
-        currentCount: 0,
-        isCompleted: false,
-      },
-      {
-        id: 'seal_caldera',
-        title: 'Caldera Pressure Valve',
-        description: 'Detonate a bomb at the Central Pressure Valve (6, 7) to relieve tectonic pressure',
-        targetCount: 1,
-        currentCount: 0,
-        isCompleted: false,
-      },
-    ];
+    this.resetDefaultObjectives();
   }
 
   protected onStageEnter(stage: CrisisStage): void {
@@ -249,18 +266,22 @@ export class LavaCrisis extends BaseCrisis {
   }
 
   protected override applyExtraSerializedState(extra: Record<string, unknown>): void {
-    if (typeof extra.lavaAdvanceTimerMs === 'number' && Number.isFinite(extra.lavaAdvanceTimerMs)) {
-      this.lavaAdvanceTimerMs = Math.max(0, extra.lavaAdvanceTimerMs);
-    }
-    if (typeof extra.currentLavaRing === 'number' && Number.isFinite(extra.currentLavaRing)) {
-      this.currentLavaRing = Math.max(1, Math.min(this.maxLavaRing, Math.floor(extra.currentLavaRing)));
-    }
-    if (typeof extra.lavaTilesCount === 'number' && Number.isFinite(extra.lavaTilesCount)) {
-      this.lavaTilesCount = Math.max(0, Math.floor(extra.lavaTilesCount));
-    }
-    if (typeof extra.obsidianSolidifiedCount === 'number' && Number.isFinite(extra.obsidianSolidifiedCount)) {
-      this.obsidianSolidifiedCount = Math.max(0, Math.floor(extra.obsidianSolidifiedCount));
-    }
+    this.lavaAdvanceTimerMs =
+      typeof extra.lavaAdvanceTimerMs === 'number' && Number.isFinite(extra.lavaAdvanceTimerMs)
+        ? Math.max(0, extra.lavaAdvanceTimerMs)
+        : 0;
+    this.currentLavaRing =
+      typeof extra.currentLavaRing === 'number' && Number.isFinite(extra.currentLavaRing)
+        ? Math.max(1, Math.min(this.maxLavaRing, Math.floor(extra.currentLavaRing)))
+        : 1;
+    this.lavaTilesCount =
+      typeof extra.lavaTilesCount === 'number' && Number.isFinite(extra.lavaTilesCount)
+        ? Math.max(0, Math.floor(extra.lavaTilesCount))
+        : 0;
+    this.obsidianSolidifiedCount =
+      typeof extra.obsidianSolidifiedCount === 'number' && Number.isFinite(extra.obsidianSolidifiedCount)
+        ? Math.max(0, Math.floor(extra.obsidianSolidifiedCount))
+        : 0;
     this.isCalderaSealed = Boolean(extra.isCalderaSealed);
   }
 
