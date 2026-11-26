@@ -496,6 +496,7 @@ export default class GameScene extends Phaser.Scene {
   public persistentHazardMask: FlatHazardMask = new FlatHazardMask();
   public lastSurvivalTickMs: number = 0;
   public matchSecondsRemaining: number = 60;
+  public chronoBonusSecondsGranted: number = 0;
   public isAegisOverdriveActive: boolean = false;
   public aegisDurationMs: number = 0;
   private aegisDomeVisual: { update: (remainingMs: number) => void; destroy: () => void } | null = null;
@@ -541,10 +542,21 @@ export default class GameScene extends Phaser.Scene {
   public destroyedBlocksThisTick: Set<string> = new Set();
   public bossHitBombIds: Set<string> = new Set();
   private nextBombUid: number = 0;
+  private static readonly VALID_BOSS_STATE_SET: ReadonlySet<string> = new Set<string>(
+    Object.values(BossState)
+  );
 
   private allocBombId(prefix: string = 'bomb'): string {
     this.nextBombUid = (this.nextBombUid + 1) >>> 0;
     return `${prefix}_${this.nextBombUid}`;
+  }
+
+  private hasRadiantLeechShield(): boolean {
+    return Boolean(
+      this.relicManager &&
+        this.relicManager.hasSolarShield &&
+        this.relicManager.hasSynergy(RelicId.SOLAR_CAPACITOR, RelicId.VAMPIRIC_CONFECTION)
+    );
   }
 
   // Scratch vectors & buffers for Zero-GC hot loops
@@ -2096,6 +2108,7 @@ export default class GameScene extends Phaser.Scene {
       const sugar = typeof perks['sugar_coating'] === 'number' ? perks['sugar_coating'] : 0;
       if (sugar > 0 || bonuses.startingShields > 0) {
         this.shieldCharges = Math.max(this.shieldCharges, bonuses.startingShields || Math.min(2, sugar));
+        this.maxShields = Math.max(this.maxShields, this.shieldCharges);
         this.hasShield = this.shieldCharges > 0;
       }
       if (bonuses.extraHeartContainer > 0 && this.itemsCollectedTotal === 0) {
@@ -2804,12 +2817,13 @@ export default class GameScene extends Phaser.Scene {
         if (typeof sb.enrageGauge === 'number' && Number.isFinite(sb.enrageGauge)) {
           this.activeBoss.enrageGauge = Math.max(0, Math.min(100, sb.enrageGauge));
         }
-        const validStates = Object.values(BossState) as string[];
-        if (typeof sb.bossState === 'string' && validStates.includes(sb.bossState)) {
+        if (typeof sb.bossState === 'string' && GameScene.VALID_BOSS_STATE_SET.has(sb.bossState)) {
           this.activeBoss.bossState = sb.bossState as BossState;
           this.activeBoss.isInvulnerable =
             sb.bossState === BossState.INTRO || sb.bossState === BossState.INTERMISSION;
-          if (sb.bossState === BossState.STUNNED && this.activeBoss.stunTimerMs <= 0) {
+          if (typeof sb.stunTimerMs === 'number' && Number.isFinite(sb.stunTimerMs) && sb.stunTimerMs > 0) {
+            this.activeBoss.stunTimerMs = sb.stunTimerMs;
+          } else if (sb.bossState === BossState.STUNNED && this.activeBoss.stunTimerMs <= 0) {
             this.activeBoss.stunTimerMs = 1500;
           }
         }
@@ -2821,8 +2835,65 @@ export default class GameScene extends Phaser.Scene {
           this.activeBoss.altitude = this.activeBoss.isGrounded ? 0 : 40;
         }
         if (this.activeBoss instanceof SteamToyTitanBoss) {
+          if (typeof sb.facingAngle === 'number' && Number.isFinite(sb.facingAngle)) {
+            this.activeBoss.facingAngle = sb.facingAngle;
+          }
           this.activeBoss.gearShieldActive =
             this.activeBoss.phase >= 2 && this.activeBoss.bossState !== BossState.STUNNED;
+        }
+        if (this.activeBoss instanceof MutantFloraBoss) {
+          this.activeBoss.isUnderground = Boolean(sb.isUnderground);
+          this.activeBoss.undergroundTimerMs =
+            typeof sb.undergroundTimerMs === 'number' && Number.isFinite(sb.undergroundTimerMs)
+              ? Math.max(0, sb.undergroundTimerMs)
+              : 0;
+          if (Array.isArray(sb.activeRoots)) {
+            this.activeBoss.rootPool.releaseAll();
+            for (let ri = 0; ri < sb.activeRoots.length; ri++) {
+              const sr = sb.activeRoots[ri];
+              if (!sr) continue;
+              const root = this.activeBoss.rootPool.acquire();
+              if (!root) break;
+              root.active = true;
+              root.x = typeof sr.x === 'number' && Number.isFinite(sr.x) ? sr.x : 300;
+              root.y = typeof sr.y === 'number' && Number.isFinite(sr.y) ? sr.y : 260;
+              root.col = typeof sr.col === 'number' && Number.isFinite(sr.col) ? Math.floor(sr.col) : Math.floor(root.x / TILE_SIZE);
+              root.row = typeof sr.row === 'number' && Number.isFinite(sr.row) ? Math.floor(sr.row) : Math.floor(root.y / TILE_SIZE);
+              root.radius = typeof sr.radius === 'number' && Number.isFinite(sr.radius) ? sr.radius : 28;
+              root.timerMs = typeof sr.timerMs === 'number' && Number.isFinite(sr.timerMs) ? Math.max(0, sr.timerMs) : 0;
+              root.durationMs = typeof sr.durationMs === 'number' && Number.isFinite(sr.durationMs) ? Math.max(200, sr.durationMs) : 3500;
+              root.damage = typeof sr.damage === 'number' && Number.isFinite(sr.damage) ? sr.damage : 1;
+              root.isTelegraph = Boolean(sr.isTelegraph);
+            }
+            this.activeBoss.activeRoots = this.activeBoss.rootPool.activeCount;
+          }
+        }
+        if (this.activeBoss instanceof GummyBearBoss) {
+          if (typeof sb.leapCount === 'number' && Number.isFinite(sb.leapCount) && sb.leapCount >= 0) {
+            this.activeBoss.leapCount = Math.floor(sb.leapCount);
+          }
+          this.activeBoss.isSquashedPancake =
+            typeof sb.isSquashedPancake === 'boolean'
+              ? sb.isSquashedPancake
+              : this.activeBoss.bossState === BossState.STUNNED;
+          let linkedCubs = 0;
+          if (this.enemies) {
+            const enemyList = this.enemies.getChildren();
+            for (let ei = 0; ei < enemyList.length; ei++) {
+              const ent = enemyList[ei] as unknown as BaseEntity;
+              if (ent instanceof MiniSplitterEnemy && ent.active && !ent.isDead) {
+                ent.bossOwnerRef = this.activeBoss;
+                ent.setTint?.(0xf43f5e);
+                linkedCubs++;
+              }
+            }
+          }
+          this.activeBoss.activeCubCount =
+            linkedCubs > 0
+              ? Math.min(this.activeBoss.maxCubs, linkedCubs)
+              : typeof sb.activeCubCount === 'number' && Number.isFinite(sb.activeCubCount)
+                ? Math.max(0, Math.min(this.activeBoss.maxCubs, Math.floor(sb.activeCubCount)))
+                : 0;
         }
         if (this.bossHUD) {
           this.bossHUD.initBoss(this.activeBoss.config.id as BossId, this.activeBoss.maxHp);
@@ -2952,20 +3023,62 @@ export default class GameScene extends Phaser.Scene {
 
     const serializedBoss: SerializedBossState | null =
       this.activeBoss && this.activeBoss.bossState !== BossState.DEFEATED
-        ? {
-            bossId: this.activeBoss.config.id,
-            x: this.activeBoss.x,
-            y: this.activeBoss.y,
-            currentHp: this.activeBoss.currentHp,
-            maxHp: this.activeBoss.maxHp,
-            bossState: this.activeBoss.bossState,
-            phase: this.activeBoss.phase,
-            enrageGauge: this.activeBoss.enrageGauge,
-            bossRushIndex: this.currentBossIndex,
-            ...(this.activeBoss instanceof QueenBeeBoss
-              ? { activeShieldCount: this.activeBoss.activeShieldCount }
-              : {}),
-          }
+        ? (() => {
+            let serializedFloraRoots: SerializedBossState['activeRoots'] | undefined;
+            if (this.activeBoss instanceof MutantFloraBoss && this.activeBoss.rootPool.activeCount > 0) {
+              serializedFloraRoots = [];
+              for (let ri = 0; ri < this.activeBoss.rootPool.activeCount; ri++) {
+                const root = this.activeBoss.rootPool.getActive(ri);
+                if (root && root.active) {
+                  serializedFloraRoots.push({
+                    x: root.x,
+                    y: root.y,
+                    col: root.col,
+                    row: root.row,
+                    radius: root.radius,
+                    timerMs: Math.round(root.timerMs),
+                    durationMs: Math.round(root.durationMs),
+                    damage: root.damage,
+                    isTelegraph: root.isTelegraph,
+                  });
+                }
+              }
+            }
+            return {
+              bossId: this.activeBoss.config.id,
+              x: this.activeBoss.x,
+              y: this.activeBoss.y,
+              currentHp: this.activeBoss.currentHp,
+              maxHp: this.activeBoss.maxHp,
+              bossState: this.activeBoss.bossState,
+              phase: this.activeBoss.phase,
+              enrageGauge: this.activeBoss.enrageGauge,
+              bossRushIndex: this.currentBossIndex,
+              ...(this.activeBoss.stunTimerMs > 0
+                ? { stunTimerMs: Math.round(this.activeBoss.stunTimerMs) }
+                : {}),
+              ...(this.activeBoss instanceof QueenBeeBoss
+                ? { activeShieldCount: this.activeBoss.activeShieldCount }
+                : {}),
+              ...(this.activeBoss instanceof SteamToyTitanBoss
+                ? { facingAngle: this.activeBoss.facingAngle }
+                : {}),
+              ...(this.activeBoss instanceof MutantFloraBoss
+                ? {
+                    isUnderground: this.activeBoss.isUnderground,
+                    undergroundTimerMs: Math.round(this.activeBoss.undergroundTimerMs),
+                    ...(serializedFloraRoots ? { activeRoots: serializedFloraRoots } : {}),
+                  }
+                : {}),
+              ...(this.activeBoss instanceof GummyBearBoss
+                ? {
+                    isSquashedPancake: this.activeBoss.isSquashedPancake,
+                    leapCount: this.activeBoss.leapCount,
+                    activeCubCount: this.activeBoss.activeCubCount,
+                  }
+                : {}),
+            };
+          })()
         : null;
 
     const serializedPoisonMist: SerializedPoisonMistTile[] = [];
@@ -3071,6 +3184,7 @@ export default class GameScene extends Phaser.Scene {
     this.hasFailedActiveCrisis = false;
     this.lastHandledEmpPulseCount = 0;
     this.activeChronoSpeedBoost = 0;
+    this.chronoBonusSecondsGranted = 0;
     this.crisisGraphicsDirty = false;
     this.hazardGraphicsDirty = false;
     this.clearPoisonMist();
@@ -3816,7 +3930,8 @@ export default class GameScene extends Phaser.Scene {
     this.hasKick = false;
     this.shieldCharges = this.appliedPerkBonuses?.startingShields ?? 0;
     this.hasShield = this.shieldCharges > 0;
-    this.maxShields = 1;
+    this.maxShields = Math.max(1, this.shieldCharges);
+    this.chronoBonusSecondsGranted = 0;
     this.extraLives = this.appliedPerkBonuses?.extraHeartContainer ?? 0;
     this.clearPoisonMist();
     this.hasWallPass = false;
@@ -4283,6 +4398,24 @@ export default class GameScene extends Phaser.Scene {
           }
         }
         return;
+      }
+      if (!this.isInvulnerable && this.hasRadiantLeechShield()) {
+        const enemy = enemyObj as BaseEntity;
+        if (enemy && enemy.active && !enemy.isDead) {
+          const shockNowMs =
+            typeof this.time?.now === 'number' && Number.isFinite(this.time.now)
+              ? this.time.now
+              : Date.now();
+          if (typeof enemy.takeDamage === 'function') {
+            const died = Boolean(enemy.takeDamage(1, 'player', shockNowMs));
+            if (died || enemy.isDead || !enemy.active) {
+              this.handlePlayerEnemyKillRewards(enemy, true);
+            }
+          }
+          if (this.player) {
+            this.spawnFloatingText(this.player.x, this.player.y - 24, '☀️🩸 RADIANT SHOCK!', '#fbbf24');
+          }
+        }
       }
       this.playerDie();
     });
@@ -8127,7 +8260,8 @@ export default class GameScene extends Phaser.Scene {
       this.isInvulnerable ||
       this.isDashing ||
       this.hasBuff('MAGMA_SURF') ||
-      this.hasBuff('THERMAL_BREAK')
+      this.hasBuff('THERMAL_BREAK') ||
+      this.hasRadiantLeechShield()
     ) {
       return;
     }
@@ -8440,7 +8574,14 @@ export default class GameScene extends Phaser.Scene {
   applySunstroke(): void {
     if (this.isGameOver || !this.player || !this.player.active) return;
     const now = this.time?.now ?? Date.now();
-    if (this.isInvulnerable || this.isDashing || this.hasBuff('SOLAR_SURF')) return;
+    if (
+      this.isInvulnerable ||
+      this.isDashing ||
+      this.hasBuff('SOLAR_SURF') ||
+      this.hasRadiantLeechShield()
+    ) {
+      return;
+    }
 
     const existing = this.findBuff('SUNSTROKE');
     const prevRemaining = existing ? existing.remainingMs : 0;
@@ -10313,6 +10454,8 @@ export default class GameScene extends Phaser.Scene {
       this.scratchTileCoord.c = actualCol;
       const relicExp = this.relicManager.onBombExploded(this.scratchTileCoord, detNowMs);
       if (relicExp.spawnDiagonalShards) {
+        const shardStackBase = this.scratchChainStackTop;
+        const shardActiveBombs = this.bombs ? this.bombs.getChildren() : [];
         for (let si = 0; si < relicExp.shards.length; si++) {
           const shard = relicExp.shards[si];
           for (let step = 1; step <= shard.maxDist; step++) {
@@ -10321,15 +10464,32 @@ export default class GameScene extends Phaser.Scene {
             if (sr >= 0 && sr < ROWS && sc >= 0 && sc < COLS) {
               if (this.map[sr][sc] === TILE_WALL) break;
               this.applyBlastTileHazardImpacts(sr, sc);
+              if (this.crisisManager && this.crisisManager.getActiveCrisis()) {
+                this.crisisManager.handleBombBlast(sr, sc, 0);
+              }
               this.spawnExplosion(sr, sc, false, owner, bombId, isPiercing, bombType);
-              if (this.map[sr][sc] === TILE_BLOCK) {
-                this.destroyedBlocksThisTick.add(TILE_KEY_LUT[sr * COLS + sc]);
-                this.destroyBlock(sr, sc);
+              const shardKey = TILE_KEY_LUT[sr * COLS + sc];
+              if (this.map[sr][sc] === TILE_BLOCK || this.destroyedBlocksThisTick.has(shardKey)) {
+                this.destroyedBlocksThisTick.add(shardKey);
+                if (this.map[sr][sc] === TILE_BLOCK) {
+                  this.destroyBlock(sr, sc);
+                }
                 break;
+              }
+              for (let bIdx = 0; bIdx < shardActiveBombs.length; bIdx++) {
+                const otherBomb = shardActiveBombs[bIdx] as Phaser.Physics.Arcade.Sprite;
+                if (otherBomb && otherBomb.active) {
+                  const bCol = Math.floor(otherBomb.x / TILE_SIZE);
+                  const bRow = Math.floor(otherBomb.y / TILE_SIZE);
+                  if (bRow === sr && bCol === sc) {
+                    this.scratchChainStack[this.scratchChainStackTop++] = otherBomb;
+                  }
+                }
               }
             }
           }
         }
+        this.detonateStackedChainRange(shardStackBase);
       }
 
       if (this.relicManager.hasAnyDetonationEnemyRelic()) {
@@ -10399,9 +10559,14 @@ export default class GameScene extends Phaser.Scene {
               if (died || e.isDead || !e.active) {
                 warpKilledAny = true;
                 this.handlePlayerEnemyKillRewards(e, false);
-              } else if (warpProc.singularityPull && e.active && !e.isDead) {
-                const angle = Phaser.Math.Angle.Between(e.x, e.y, cX, cY);
-                e.setVelocity(Math.cos(angle) * 180, Math.sin(angle) * 180);
+              } else if (e.active && !e.isDead) {
+                if (warpProc.phaseDurationMs > 0 && typeof e.applySpeedMultiplier === 'function') {
+                  e.applySpeedMultiplier(0.55, warpProc.phaseDurationMs);
+                }
+                if (warpProc.singularityPull) {
+                  const angle = Phaser.Math.Angle.Between(e.x, e.y, cX, cY);
+                  e.setVelocity(Math.cos(angle) * 180, Math.sin(angle) * 180);
+                }
               }
             }
           }
@@ -10664,16 +10829,44 @@ export default class GameScene extends Phaser.Scene {
           }
         }
         if (validTileCount > 0 && this.time?.delayedCall) {
+          const strikeDamage = orbitalProc.damage;
+          const strikeBombId = this.allocBombId('orbital');
           this.time.delayedCall(orbitalProc.delayMs, () => {
             if (this.isGameOver || (this.scene && typeof this.scene.isActive === 'function' && !this.scene.isActive())) {
               return;
             }
+            const strikeNowMs =
+              typeof this.time?.now === 'number' && Number.isFinite(this.time.now)
+                ? this.time.now
+                : Date.now();
+            const liveEnemies = this.enemies ? this.enemies.getChildren() : [];
             for (let ti = 0; ti < validTileCount; ti++) {
               const packed = ti === 0 ? t0 : ti === 1 ? t1 : ti === 2 ? t2 : ti === 3 ? t3 : t4;
               if (packed >= 0) {
                 const tr = Math.floor(packed / COLS);
                 const tc = packed % COLS;
-                this.spawnExplosion(tr, tc, false, 'player', bombId, true);
+                if (this.map[tr]?.[tc] === TILE_WALL) continue;
+                this.applyBlastTileHazardImpacts(tr, tc);
+                if (this.crisisManager && this.crisisManager.getActiveCrisis()) {
+                  this.crisisManager.handleBombBlast(tr, tc, 0);
+                }
+                if (this.map[tr]?.[tc] === TILE_BLOCK) {
+                  this.destroyedBlocksThisTick.add(TILE_KEY_LUT[tr * COLS + tc]);
+                  this.destroyBlock(tr, tc);
+                }
+                this.spawnExplosion(tr, tc, ti === 0, 'player', strikeBombId, true);
+                for (let ei = 0; ei < liveEnemies.length; ei++) {
+                  const e = liveEnemies[ei] as BaseEntity;
+                  if (!e || !e.active || e.isDead) continue;
+                  if (Math.floor(e.y / TILE_SIZE) === tr && Math.floor(e.x / TILE_SIZE) === tc) {
+                    if (typeof e.takeDamage === 'function') {
+                      const died = Boolean(e.takeDamage(strikeDamage, 'player', strikeNowMs));
+                      if (died || e.isDead || !e.active) {
+                        this.handlePlayerEnemyKillRewards(e, true);
+                      }
+                    }
+                  }
+                }
               }
             }
           });
@@ -11181,9 +11374,10 @@ export default class GameScene extends Phaser.Scene {
     if (this.isGameOver) return;
     if (this.isInvulnerable) return;
 
+    const hadSolarShield = Boolean(this.relicManager?.hasSolarShield);
     this.relicManager?.onPlayerDamaged();
 
-    if (this.hasShield) {
+    if (this.hasShield || hadSolarShield) {
       if (this.shieldCharges > 1) {
         this.shieldCharges--;
         this.hasShield = true;
@@ -12098,7 +12292,7 @@ export default class GameScene extends Phaser.Scene {
           const bRow = Math.floor(b.y / TILE_SIZE);
           if (bRow === toRow && bCol === toCol) {
             let ignoring = b.getData('ignoringColliders') as Set<Phaser.GameObjects.GameObject> | undefined;
-            if (!ignoring) {
+            if (!(ignoring instanceof Set)) {
               ignoring = new Set();
               b.setData('ignoringColliders', ignoring);
             }
@@ -12261,6 +12455,17 @@ export default class GameScene extends Phaser.Scene {
     this.itemsCollectedTotal = currentStats.itemsCollectedTotal;
     this.itemsCollected = currentStats.itemsCollected;
     this.score = currentStats.score;
+
+    // Relic Synergy: Chrono Attraction (Magnetron Dial + Pocket Chronometer)
+    if (
+      this.relicManager &&
+      this.relicManager.hasSynergy(RelicId.MAGNETRON_DIAL, RelicId.POCKET_CHRONOMETER) &&
+      this.chronoBonusSecondsGranted < 15
+    ) {
+      this.chronoBonusSecondsGranted++;
+      this.matchSecondsRemaining = (this.matchSecondsRemaining ?? 60) + 1;
+      this.spawnFloatingText(x, y - 24, '⏱️ +1s CHRONO!', '#38bdf8');
+    }
 
     this.spawnFloatingText(x, y - 8, result.label, result.color);
     this.spawnPickupParticles(x, y, result.color);

@@ -521,6 +521,10 @@ export class RelicManager {
     };
   }
 
+  private static readonly VALID_RELIC_ID_SET: ReadonlySet<string> = new Set<string>(
+    Object.values(RelicId)
+  );
+
   public deserialize(saved: unknown): boolean {
     if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return false;
     const s = saved as Record<string, unknown>;
@@ -530,7 +534,7 @@ export class RelicManager {
       this.setMaxSlots(s.maxSlots);
     }
 
-    const validRelicIds = new Set<string>(Object.values(RelicId));
+    const validRelicIds = RelicManager.VALID_RELIC_ID_SET;
 
     if (Array.isArray(s.discoveredRelics)) {
       for (const r of s.discoveredRelics) {

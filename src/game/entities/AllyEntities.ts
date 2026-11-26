@@ -169,7 +169,8 @@ export class MiniBomberAlly extends BaseEntity {
         );
 
         if (escape && escape.length > 0) {
-          const placed = dropBombCallback ? dropBombCallback(ar, ac, this.bombPower) : false;
+          const placed =
+            typeof dropBombCallback === 'function' ? dropBombCallback(ar, ac, this.bombPower) : false;
           if (placed) {
             this.activeBombs++;
             this.bombCooldownTimer = 4500;
@@ -209,20 +210,32 @@ export class MiniBomberAlly extends BaseEntity {
         );
       }
 
-      if (this.currentPath.length > 0) {
+      let steered = false;
+      while (this.currentPath.length > 0) {
         const next = this.currentPath[0];
         const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
         const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
         const dx = targetX - this.x;
         const dy = targetY - this.y;
 
+        if (Math.abs(dx) < 4 && Math.abs(dy) < 4) {
+          shiftCoordPathInPlace(this.currentPath);
+          continue;
+        }
+
         if (Math.abs(dx) > Math.abs(dy)) {
           this.setVelocity(Math.sign(dx) * speed, 0);
         } else {
           this.setVelocity(0, Math.sign(dy) * speed);
         }
+        steered = true;
+        break;
+      }
+      if (!steered) {
+        this.setVelocity(0, 0);
       }
     } else {
+      clearCoordPathInPlace(this.currentPath);
       this.setVelocity(0, 0);
     }
   }
@@ -560,21 +573,24 @@ export class ShieldGuardAlly extends BaseEntity {
           const ring = cPool.acquire();
           if (ring) {
             if (typeof ring.setStrokeStyle === 'function') {
-              ring.setStrokeStyle(0, 0, 0);
+              ring.setStrokeStyle(2, 0x93c5fd, 0.40);
             }
             ring
               .setActive(true)
               .setVisible(true)
               .setPosition(this.x, this.y)
               .setRadius(8)
-              .setFillStyle(0x60a5fa, 0.6)
-              .setAlpha(0.6)
+              .setFillStyle(0x60a5fa, 0.34)
+              .setAlpha(0.34)
               .setScale(1)
               .setDepth(12);
             let ringReleased = false;
             const releaseRing = () => {
               if (!ringReleased && sceneWithPool.circlePool === cPool) {
                 ringReleased = true;
+                if (typeof ring.setStrokeStyle === 'function') {
+                  ring.setStrokeStyle(0, 0, 0);
+                }
                 cPool.release(ring);
               }
             };
@@ -588,7 +604,7 @@ export class ShieldGuardAlly extends BaseEntity {
             });
           }
         } else if (this.scene.add?.circle) {
-          const ring = this.scene.add.circle(this.x, this.y, 8, 0x60a5fa, 0.6);
+          const ring = this.scene.add.circle(this.x, this.y, 8, 0x60a5fa, 0.34);
           ring.setDepth(12);
           this.scene.tweens.add({
             targets: ring,

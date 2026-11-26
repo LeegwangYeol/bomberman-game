@@ -251,6 +251,10 @@ export class ScalingEngine {
     return Math.min(Math.floor(safeBase * 2.5), scaled);
   }
 
+  private static readonly ALL_MUTATOR_IDS: readonly WaveMutatorId[] = Object.freeze(
+    Object.keys(WAVE_MUTATOR_CATALOG) as WaveMutatorId[]
+  );
+
   /**
    * Deterministically or pseudo-randomly pick 1-2 mutators for wave W.
    * Ensures no conflicting mutators (e.g. Glass Cannon + Dense Fortification).
@@ -259,7 +263,7 @@ export class ScalingEngine {
     const safeWave = this.sanitizeWave(wave);
     if (safeWave < 3) return []; // Waves 1 and 2 are vanilla training waves
 
-    const allKeys = Object.keys(WAVE_MUTATOR_CATALOG) as WaveMutatorId[];
+    const allKeys = this.ALL_MUTATOR_IDS;
     const s = seed !== undefined && Number.isFinite(seed) ? Math.floor(Math.abs(seed)) : safeWave * 104729;
 
     // Pick first mutator

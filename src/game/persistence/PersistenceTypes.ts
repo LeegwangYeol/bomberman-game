@@ -83,6 +83,18 @@ export interface SerializedItem {
   spawnTime: number;
 }
 
+export interface SerializedFloraRootState {
+  x: number;
+  y: number;
+  col: number;
+  row: number;
+  radius: number;
+  timerMs: number;
+  durationMs: number;
+  damage: number;
+  isTelegraph: boolean;
+}
+
 export interface SerializedBossState {
   bossId: string;
   x: number;
@@ -94,6 +106,14 @@ export interface SerializedBossState {
   enrageGauge: number;
   bossRushIndex?: number;
   activeShieldCount?: number;
+  stunTimerMs?: number;
+  isSquashedPancake?: boolean;
+  leapCount?: number;
+  activeCubCount?: number;
+  facingAngle?: number;
+  isUnderground?: boolean;
+  undergroundTimerMs?: number;
+  activeRoots?: SerializedFloraRootState[];
 }
 
 export interface SerializedPoisonMistTile {

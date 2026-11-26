@@ -200,19 +200,29 @@ export class GameModeManager {
     this.unlockedCheckpoints = [1];
   }
 
+  // Pre-allocated scratch return object for Zero-GC 60 FPS update ticks
+  private readonly _scratchUpdateEvents: {
+    triggerCrisis?: boolean;
+    spawnDropPod?: boolean;
+    restStopExpired?: boolean;
+  } = {
+    triggerCrisis: undefined,
+    spawnDropPod: undefined,
+    restStopExpired: undefined,
+  };
+
   /**
-   * Main simulation tick
+   * Main simulation tick (Zero-GC: reuses pre-allocated scratch event record)
    */
   public update(deltaMs: number): {
     triggerCrisis?: boolean;
     spawnDropPod?: boolean;
     restStopExpired?: boolean;
   } {
-    const events: {
-      triggerCrisis?: boolean;
-      spawnDropPod?: boolean;
-      restStopExpired?: boolean;
-    } = {};
+    const events = this._scratchUpdateEvents;
+    events.triggerCrisis = undefined;
+    events.spawnDropPod = undefined;
+    events.restStopExpired = undefined;
 
     if (this.currentMode === GameModeType.CRISIS_SURVIVAL) {
       this.survivalElapsedMs += deltaMs;

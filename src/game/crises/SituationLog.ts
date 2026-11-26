@@ -155,6 +155,12 @@ export class SituationLog {
     return JSON.stringify(this.serialize());
   }
 
+  private static readonly VALID_CRISIS_STAGES: ReadonlySet<CrisisStage> = new Set<CrisisStage>(
+    Object.values(CrisisStage)
+  );
+  private static readonly VALID_THREAT_TRENDS: ReadonlySet<'stable' | 'rising' | 'critical' | 'declining'> =
+    new Set(['stable', 'rising', 'critical', 'declining'] as const);
+
   public deserialize(input: Partial<SituationLogState> | string): boolean {
     if (!input) {
       this.reset();
@@ -175,10 +181,10 @@ export class SituationLog {
       return false;
     }
 
-    const validStages = new Set(Object.values(CrisisStage));
+    const validStages = SituationLog.VALID_CRISIS_STAGES;
     const stage = parsed.stage && validStages.has(parsed.stage) ? parsed.stage : CrisisStage.INACTIVE;
 
-    const validTrends = new Set(['stable', 'rising', 'critical', 'declining'] as const);
+    const validTrends = SituationLog.VALID_THREAT_TRENDS;
     const trend = parsed.threatTrend && validTrends.has(parsed.threatTrend) ? parsed.threatTrend : 'stable';
 
     const safeNumber = (val: unknown, fallback: number = 0): number =>

@@ -3022,3 +3022,29 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - `tests/daily_cycle48_zerogc_all_crises_perks_bombs_resume.test.mjs` 신규 구축 (7대 통합 회귀 시나리오 및 10,000프레임 `VoidCrisis`·`PsychicCrisis`·`RiftCrisis`·`POISON_MIST`·`HamsterBoss` 충격파 연속 Zero-GC 소크 테스트 전수 통과 — 전 오브젝트 풀 `verifyInvariants() === true`, 풀 누수 `0`건, 힙 증가 한계 검증).
     - 전체 테스트 스위트: **2,404 / 2,404 PASS (100% 통과, 0 실패, 0 스킵, +7 테스트 순증)**.
     - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 1279ms 컴파일, 4/4 정적 라우트 사전 렌더링)**.
+
+
+### 49) 일일 정기 무한 진화(단일 에이전트 경량 유지보수): 멀티터치 포인터 재동기화 Zero-GC 및 타임스탬프 보존, 7대 위기 목표 슬롯 재사용·`extraState` 누락 스크러빙, `HazardRenderer` 비차폐 알파(`<= 0.40`) 클램핑, 적군 6종 경유점 즉시 전진(`steerAlongPath`), 잔여 특성·상인 거래·유물 드롭 및 보스 풀링 투사체·`activeBoss`/`activePoisonMist` 세이브 복원 완결 (Daily Auto-Maintenance: 2026-11-26 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 세션명: `[세션명: 봄버맨 일일 무한 진화]` (스케줄 백그라운드 단일 에이전트 자율 유지보수, 서브에이전트 스웜 미사용).
+  - 핵심 내역: `MultiTouchPointerTracker`의 `Array.from(targetSet)` 및 `{ x, y }` 할당 제거 + 포인터 나이(`lastRecord.timestamp`) 보존, 7대 위기 `_obj0`/`_obj1` 목표 슬롯 재사용 및 `extraState` 누락 시 스칼라·첨탑·환영 풀 초기화, `HazardRenderer` 성역/흑요석 지각 알파 `<= 0.38` 클램핑, 적군 6종 `steerAlongPath()` 경유점 전진으로 재계산 주기 내 진동 제거, `hazard_buffer`·`dash_decoy`·`merchant_discount`(`tryTradeWithNearbyMerchant`)·`relic_resonance`(`tryAwardRolledRelic`) 실전 연동, `HamsterBoss`/`QueenBeeBoss` 풀링 투사체(`GATLING_SEED`/`CANDY_STINGER`) 및 `activeBoss`·`activePoisonMist` 세이브 복원, `tests/daily_cycle49_zerogc_input_crises_perks_boss_resume.test.mjs` 검증(`2,411 / 2,411 PASS`).
+
+
+### 50) 일일 정기 무한 진화(단일 에이전트 경량 유지보수): `GameModeManager.update`·`ScalingEngine`·역직렬화 검증 `Set` Zero-GC 정적화, `MiniBomberAlly` 경유점 전진 및 `ShieldGuardAlly` 도발 오라 비차폐(`alpha <= 0.34`), 유물·시너지·특성 전투 연동(`ORBITAL_TARGETING_CORE`·`PYROCLASTIC_PRISM`·`QUANTUM_WARP_PRISM`·`Radiant Leech`·`Chrono Attraction`·`sugar_coating`·`Solar Shield` 피격 흡수) 및 5대 보스 무손실 세이브 복원 완결 (Daily Auto-Maintenance: 2026-11-27 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 세션명: `[세션명: 봄버맨 일일 무한 진화]` (스케줄 백그라운드 단일 에이전트 자율 유지보수, 서브에이전트 스웜 미사용).
+  - **핵심 성능·Zero-GC 풀링 및 무결성 수리 내역**:
+    1. **60FPS 모드 루프·웨이브 변이자·역직렬화 Zero-GC 정적화 및 방어 가드 (`GameModes.ts`, `ScalingEngine.ts`, `RelicSystem.ts`, `SituationLog.ts`, `GameScene.ts`, `AllyEntities.ts`)**:
+       - `GameModeManager.update()`가 매 프레임 할당하던 `{}` 반환 객체를 사전 할당된 `_scratchUpdateEvents` 인플레이스 리셋으로 교체하고, `ScalingEngine.ALL_MUTATOR_IDS`·`RelicManager.VALID_RELIC_ID_SET`·`SituationLog.VALID_CRISIS_STAGES`/`VALID_THREAT_TRENDS`·`GameScene.VALID_BOSS_STATE_SET`을 정적 상수로 호이스팅하여 반복적인 `Object.keys()`/`Object.values()`/`new Set()` 할당을 제거.
+       - `GameScene.warpPlayer()`의 목적지 폭탄 통과 집합 검사를 `!(ignoring instanceof Set)`으로, `MiniBomberAlly.updateAI()`의 폭탄 설치 콜백 검사를 `typeof dropBombCallback === 'function'`으로 강화하여 비정상 센티넬 유입 시 런타임 `TypeError`를 원천 차단.
+    2. **아군 AI 경유점 전진 및 도발 파동 비차폐(`alpha <= 0.40`) 강제 (`AllyEntities.ts`)**:
+       - `MiniBomberAlly.updateAI()`가 `< 4px` 도달 경유점을 `shiftCoordPathInPlace()`로 즉시 소비하고 `leashMinTiles` 재진입 시 `clearCoordPathInPlace()`로 잔류 경로를 비우도록 개선하여 220ms 재계산 주기 내 역방향 진동 현상을 제거.
+       - `ShieldGuardAlly.updateAI()`의 `circlePool` 기반 도발 파동(`200px` 반경 확장) 채우기·초기 알파를 `0.60`에서 `0.34`(`<= 0.40` 비차폐 불변성, 외곽선 `0.40` 및 반환 시 `setStrokeStyle(0, 0, 0)` 초기화)로 클램핑하여 폭탄·아이템·텍스트 가독성을 보장.
+    3. **유물·시너지·특성 전투 정합성 및 5종 보스 무손실 세이브 복원 (`GameScene.ts`, `PersistenceTypes.ts`)**:
+       - `ORBITAL_TARGETING_CORE` 지연 폭격(`1200ms`)에 전용 `allocBombId('orbital')`, 소프트 블록 파괴, 동적 해저드/위기 폭풍 타격(`handleBombBlast`), 적군 `150` 직격 피해 및 처치 보상을 완결하고, `PYROCLASTIC_PRISM` 대각선 파편에 폭탄 연쇄 기폭(`scratchChainStack`) 및 위기 타일 정화를 연결하였으며, `QUANTUM_WARP_PRISM` 생존 적군에 `phaseDurationMs` 기반 `0.55x` 위상 둔화를 적용.
+       - `playerDie()`에서 `relicManager.hasSolarShield`가 단독 활성화된 상태(세이브 복원 직후 등)에서도 치명타를 정상 흡수하도록 수정하고, `Radiant Leech`(`SOLAR_CAPACITOR` + `VAMPIRIC_CONFECTION`) 열기 디버프(`Thermal Singe`/`Sunstroke`) 면역 및 적 충돌 시 `1` 광휘 감전 반사 피해, `Chrono Attraction`(`MAGNETRON_DIAL` + `POCKET_CHRONOMETER`) 아이템 획득 시 `+1초` 시간 연장(런당 최대 `+15초`), `sugar_coating` 2레벨 `maxShields` 동기화(`2/2`)를 완결.
+       - `SerializedBossState`에 선택적 `stunTimerMs`, `MutantFloraBoss`(`isUnderground`, `undergroundTimerMs`, 풀링된 `activeRoots`), `SteamToyTitanBoss`(`facingAngle`), `GummyBearBoss`(`isSquashedPancake`, `leapCount`, `activeCubCount` 및 부활한 `MiniSplitterEnemy` 젤리 컵의 `bossOwnerRef` 자동 재바인딩) 필드를 확장하여 5종 보스 교전 중 세이브·이어하기 무결성을 무손실로 완성.
+  - **신규 영구 방어 테스트 및 검증 지표**:
+    - `tests/daily_cycle50_zerogc_modes_allies_relics_boss_resume.test.mjs` 신규 구축 (6대 통합 회귀 시나리오 및 10,000프레임 `GameModeManager`·`MiniBomberAlly`·`ShieldGuardAlly`·`MutantFloraBoss`·`RelicManager` 연속 Zero-GC 소크 테스트 `25.9ms` 전수 통과 — `circlePool`·`rootPool` `verifyInvariants() === true`, 풀 누수 `0`건, 힙 증가 한계 검증).
+    - 전체 테스트 스위트: **2,417 / 2,417 PASS (100% 통과, 0 실패, 0 스킵, +6 테스트 순증)**.
+    - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 1410ms 컴파일, 4/4 정적 라우트 사전 렌더링)**.
