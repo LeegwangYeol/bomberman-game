@@ -370,6 +370,12 @@ export default function BombermanGame() {
         if (res.metaProfile.equippedRelics) {
           setEquippedRelics(res.metaProfile.equippedRelics);
         }
+        if (phaserGameRef.current) {
+          phaserGameRef.current.events.emit('currencies-updated', {
+            starCandies: res.metaProfile.starCandies,
+            cosmicEssence: res.metaProfile.cosmicEssence,
+          });
+        }
       }
       if (res.runState) {
         setHasSavedRun(true);
@@ -682,6 +688,21 @@ export default function BombermanGame() {
       };
       phaserGame.events.on('currency-reward', handleCurrencyReward);
 
+      const handleMerchantTraded = (payload: { remainingStarCandies?: number }) => {
+        if (payload && typeof payload.remainingStarCandies === 'number' && Number.isFinite(payload.remainingStarCandies)) {
+          const nextCandies = Math.max(0, Math.floor(payload.remainingStarCandies));
+          setStarCandies(nextCandies);
+          const current = persistenceRef.current.loadMetaProfile();
+          if (current) {
+            persistenceRef.current.saveMetaProfile({
+              ...current,
+              starCandies: nextCandies,
+            });
+          }
+        }
+      };
+      phaserGame.events.on('merchant-traded', handleMerchantTraded);
+
       const handleRelicAwarded = (
         payload: { relicId?: RelicId; equippedRelics?: RelicId[] } | RelicId
       ) => {
@@ -751,6 +772,10 @@ export default function BombermanGame() {
           equipped: bootEquipped,
           maxSlots: bootBonuses.maxRelicSlots,
         });
+        phaserGame.events.emit('currencies-updated', {
+          starCandies: bootProfile?.starCandies ?? 50,
+          cosmicEssence: bootProfile?.cosmicEssence ?? 100,
+        });
       };
       phaserGame.events.once('ready', syncInitialProgressionToScene);
     }
@@ -781,6 +806,7 @@ export default function BombermanGame() {
           phaserGameRef.current.events.off('situation-log-update', handleSituationLogUpdate);
         }
         phaserGameRef.current.events.off('currency-reward');
+        phaserGameRef.current.events.off('merchant-traded');
         phaserGameRef.current.events.off('relic-awarded');
         phaserGameRef.current.events.off('ready');
         phaserGameRef.current.destroy(true);

@@ -232,21 +232,30 @@ export class MerchantNPC extends BaseEntity {
       }
 
       if (this.fleePath.length > 0) {
-        const next = this.fleePath[0];
-        const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
-        const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
-        const dx = targetX - this.x;
-        const dy = targetY - this.y;
-
         const fleeSpeed = 80;
-        if (Math.abs(dx) > Math.abs(dy)) {
-          this.setVelocity(Math.sign(dx) * fleeSpeed, 0);
-        } else {
-          this.setVelocity(0, Math.sign(dy) * fleeSpeed);
-        }
+        let steeredFlee = false;
+        while (this.fleePath.length > 0) {
+          const next = this.fleePath[0];
+          const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
+          const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
+          const dx = targetX - this.x;
+          const dy = targetY - this.y;
 
-        if (Math.abs(dx) < 4 && Math.abs(dy) < 4) {
-          shiftCoordPathInPlace(this.fleePath);
+          if (Math.abs(dx) < 4 && Math.abs(dy) < 4) {
+            shiftCoordPathInPlace(this.fleePath);
+            continue;
+          }
+
+          if (Math.abs(dx) > Math.abs(dy)) {
+            this.setVelocity(Math.sign(dx) * fleeSpeed, 0);
+          } else {
+            this.setVelocity(0, Math.sign(dy) * fleeSpeed);
+          }
+          steeredFlee = true;
+          break;
+        }
+        if (!steeredFlee) {
+          this.setVelocity(0, 0);
         }
         return;
       }

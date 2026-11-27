@@ -349,6 +349,7 @@ export class RelicManager {
   private readonly _scratchBombPlaced = {
     pulledEnemyIds: this._scratchBombPlacedIds,
     pullRadius: 0,
+    rootDurationMs: 0,
   };
   private readonly _scratchWallBounceIds: string[] = [];
   private readonly _scratchWallBounce = {
@@ -357,6 +358,7 @@ export class RelicManager {
   };
   private readonly _scratchPsionicIds: string[] = [];
   private readonly _scratchPsionicPulse = {
+    triggered: false,
     affectedEnemyIds: this._scratchPsionicIds,
     pulseRadius: 0,
     confusedDurationMs: 0,
@@ -763,10 +765,11 @@ export class RelicManager {
     bombTile: { r: number; c: number },
     enemies: { id: string; r: number; c: number }[],
     nowMs: number
-  ): { pulledEnemyIds: string[]; pullRadius: number } {
+  ): { pulledEnemyIds: string[]; pullRadius: number; rootDurationMs: number } {
     const out = this._scratchBombPlaced;
     out.pulledEnemyIds.length = 0;
     out.pullRadius = 0;
+    out.rootDurationMs = 0;
 
     if (!this.isEquipped(RelicId.VOID_SINGULARITY_LENS)) {
       return out;
@@ -780,8 +783,11 @@ export class RelicManager {
       return out;
     }
 
-    const radius = this.hasSynergy(RelicId.VOID_SINGULARITY_LENS, RelicId.PYROCLASTIC_PRISM) ? 2.5 : 1.5;
+    const hasCosmicSupernova = this.hasSynergy(RelicId.VOID_SINGULARITY_LENS, RelicId.PYROCLASTIC_PRISM);
+    const hasEventHorizon = this.hasSynergy(RelicId.VOID_SINGULARITY_LENS, RelicId.QUANTUM_WARP_PRISM);
+    const radius = hasCosmicSupernova || hasEventHorizon ? 2.5 : 1.5;
     out.pullRadius = radius;
+    out.rootDurationMs = hasCosmicSupernova ? 1000 : 0;
 
     for (let i = 0; i < enemies.length; i++) {
       const enemy = enemies[i];
@@ -917,8 +923,15 @@ export class RelicManager {
     isCrisisActive: boolean,
     matchSecondsRemaining: number,
     nowMs: number
-  ): { affectedEnemyIds: string[]; pulseRadius: number; confusedDurationMs: number; isStunned: boolean } {
+  ): {
+    triggered: boolean;
+    affectedEnemyIds: string[];
+    pulseRadius: number;
+    confusedDurationMs: number;
+    isStunned: boolean;
+  } {
     const out = this._scratchPsionicPulse;
+    out.triggered = false;
     out.affectedEnemyIds.length = 0;
     out.pulseRadius = 0;
     out.confusedDurationMs = 0;
@@ -949,6 +962,7 @@ export class RelicManager {
       }
     }
 
+    out.triggered = true;
     out.pulseRadius = radius;
     out.confusedDurationMs = 1500;
     out.isStunned = isEmpowered;

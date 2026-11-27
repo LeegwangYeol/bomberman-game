@@ -114,6 +114,31 @@ export interface SerializedBossState {
   isUnderground?: boolean;
   undergroundTimerMs?: number;
   activeRoots?: SerializedFloraRootState[];
+  isDashing?: boolean;
+  isReving?: boolean;
+  revWindupTimerMs?: number;
+  dashDirectionX?: number;
+  dashDirectionY?: number;
+  dashSpeed?: number;
+  remainingRebounds?: number;
+  gatlingTimerMs?: number;
+  isGrounded?: boolean;
+  altitude?: number;
+  shieldRotationRad?: number;
+  isDiving?: boolean;
+  diveTimerMs?: number;
+  targetDiveX?: number;
+  targetDiveY?: number;
+  flightTimeSec?: number;
+  timeUntilNextDiveMs?: number;
+  stingerTimerMs?: number;
+  isAirborne?: boolean;
+  leapElevation?: number;
+  leapTimerMs?: number;
+  leapDurationMs?: number;
+  targetLandingX?: number;
+  targetLandingY?: number;
+  attackCooldownMs?: number;
 }
 
 export interface SerializedPoisonMistTile {
@@ -132,6 +157,8 @@ export interface SerializedRunMeta {
   bossEncounterActive?: boolean;
   starCandies?: number;
   cosmicEssence?: number;
+  matchSecondsRemaining?: number;
+  chronoBonusSecondsGranted?: number;
 }
 
 export interface SerializedRelicRuntimeState {

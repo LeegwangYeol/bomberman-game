@@ -274,26 +274,7 @@ export class ChaserEnemy extends BaseEntity {
         return;
       }
 
-      if (this.escapePath.length > 0) {
-        const next = this.escapePath[0];
-        const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
-        const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
-        const dx = targetX - this.x;
-        const dy = targetY - this.y;
-
-        if (Math.abs(dx) > Math.abs(dy)) {
-          this.setVelocity(Math.sign(dx) * this.config.trackSpeed, 0);
-        } else {
-          this.setVelocity(0, Math.sign(dy) * this.config.trackSpeed);
-        }
-
-        if (Math.abs(dx) < 4 && Math.abs(dy) < 4) {
-          shiftCoordPathInPlace(this.escapePath);
-          if (this.escapePath.length === 0) {
-            this.setVelocity(0, 0);
-          }
-        }
-      } else {
+      if (!steerAlongPath(this, this.escapePath, this.config.trackSpeed)) {
         this.setVelocity(0, 0);
       }
       return;
@@ -746,6 +727,23 @@ export class BomberEnemy extends BaseEntity {
 
     this.bombCooldownTimer -= delta;
 
+    // Prioritize active bomb evasion BEFORE player cloak/null checks so Bomber never freezes on its own bomb
+    if (this.aiState === EnemyState.EVADING) {
+      // AI-04: Watchdog timeout to prevent evasion deadlock
+      this.evadeTimeoutMs -= delta;
+      if (this.evadeTimeoutMs <= 0) {
+        this.escapePath = clearPathInPlace(this.escapePath);
+        this.changeState(this.hp === 1 ? EnemyState.ENRAGED : EnemyState.HUNTING);
+        return;
+      }
+
+      const currentSpeed = this.hp === 1 ? this.config.enragedSpeed : this.config.evadeSpeed;
+      if (!steerAlongPath(this, this.escapePath, currentSpeed)) {
+        this.setVelocity(0, 0);
+      }
+      return;
+    }
+
     if (!player || !player.active) {
       this.setVelocity(0, 0);
       return;
@@ -756,42 +754,6 @@ export class BomberEnemy extends BaseEntity {
     const pr = Math.floor(player.y / TILE_SIZE);
     const pc = Math.floor(player.x / TILE_SIZE);
     const dist = Math.abs(er - pr) + Math.abs(ec - pc);
-
-    if (this.aiState === EnemyState.EVADING) {
-      // AI-04: Watchdog timeout to prevent evasion deadlock
-      this.evadeTimeoutMs -= delta;
-      if (this.evadeTimeoutMs <= 0) {
-        this.escapePath = clearPathInPlace(this.escapePath);
-        this.changeState(this.hp === 1 ? EnemyState.ENRAGED : EnemyState.HUNTING);
-        return;
-      }
-
-      // Follow escape path to safety
-      if (this.escapePath.length > 0) {
-        const next = this.escapePath[0];
-        const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
-        const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
-        const dx = targetX - this.x;
-        const dy = targetY - this.y;
-
-        const currentSpeed = this.hp === 1 ? this.config.enragedSpeed : this.config.evadeSpeed;
-        if (Math.abs(dx) > Math.abs(dy)) {
-          this.setVelocity(Math.sign(dx) * currentSpeed, 0);
-        } else {
-          this.setVelocity(0, Math.sign(dy) * currentSpeed);
-        }
-
-        if (Math.abs(dx) < 4 && Math.abs(dy) < 4) {
-          shiftCoordPathInPlace(this.escapePath);
-          if (this.escapePath.length === 0) {
-            this.setVelocity(0, 0);
-          }
-        }
-      } else {
-        this.setVelocity(0, 0);
-      }
-      return;
-    }
 
     // Update pathfinding towards player (Zero-GC in-place path buffer)
     this.pathRecalcTimer -= delta;

@@ -121,24 +121,31 @@ export class MiniBomberAlly extends BaseEntity {
       }
 
       this.overheadUI.setIntent('💨', true);
-      const next = this.escapePath[0];
-      const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
-      const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
-      const dx = targetX - this.x;
-      const dy = targetY - this.y;
-
       const evadeSpeed = 110;
-      if (Math.abs(dx) > Math.abs(dy)) {
-        this.setVelocity(Math.sign(dx) * evadeSpeed, 0);
-      } else {
-        this.setVelocity(0, Math.sign(dy) * evadeSpeed);
-      }
+      let steeredEscape = false;
+      while (this.escapePath.length > 0) {
+        const next = this.escapePath[0];
+        const targetX = next.c * TILE_SIZE + TILE_SIZE / 2;
+        const targetY = next.r * TILE_SIZE + TILE_SIZE / 2;
+        const dx = targetX - this.x;
+        const dy = targetY - this.y;
 
-      if (Math.abs(dx) < 4 && Math.abs(dy) < 4) {
-        shiftCoordPathInPlace(this.escapePath);
-        if (this.escapePath.length === 0) {
-          this.overheadUI.setIntent('🛡️', true);
+        if (Math.abs(dx) < 4 && Math.abs(dy) < 4) {
+          shiftCoordPathInPlace(this.escapePath);
+          continue;
         }
+
+        if (Math.abs(dx) > Math.abs(dy)) {
+          this.setVelocity(Math.sign(dx) * evadeSpeed, 0);
+        } else {
+          this.setVelocity(0, Math.sign(dy) * evadeSpeed);
+        }
+        steeredEscape = true;
+        break;
+      }
+      if (!steeredEscape) {
+        this.setVelocity(0, 0);
+        this.overheadUI.setIntent('🛡️', true);
       }
       return;
     }
@@ -407,15 +414,19 @@ export class PetDroneAlly extends BaseEntity {
       if (targetEnemy) {
         this.shotIntentTimerMs = 400;
         this.overheadUI.setIntent('🎯', true);
-        targetEnemy.isStunned = true;
-        targetEnemy.stunUntil = Math.max(
-          targetEnemy.stunUntil || 0,
-          currentTime + this.config.stunDurationMs
-        );
-        if (typeof targetEnemy.setVelocity === 'function') {
-          targetEnemy.setVelocity(0, 0);
+        if (typeof targetEnemy.applyStun === 'function') {
+          targetEnemy.applyStun(this.config.stunDurationMs, currentTime);
+        } else {
+          targetEnemy.isStunned = true;
+          targetEnemy.stunUntil = Math.max(
+            targetEnemy.stunUntil || 0,
+            currentTime + this.config.stunDurationMs
+          );
+          if (typeof targetEnemy.setVelocity === 'function') {
+            targetEnemy.setVelocity(0, 0);
+          }
+          targetEnemy.overheadUI.setIntent('💫', true);
         }
-        targetEnemy.overheadUI.setIntent('💫', true);
 
         // Visual plasma projectile (Zero-GC pooled via scene.circlePool)
         if (this.scene && this.scene.tweens) {

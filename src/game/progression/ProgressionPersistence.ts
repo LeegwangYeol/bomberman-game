@@ -18,6 +18,10 @@ import type {
 import { WAVE_MUTATOR_CATALOG } from './ScalingEngine.ts';
 import { PerkTreeManager } from './PerkTree.ts';
 
+const VALID_GAME_MODES: ReadonlySet<string> = new Set<string>(Object.values(GameModeType));
+const VALID_RELIC_IDS: ReadonlySet<string> = new Set<string>(Object.values(RelicId));
+const VALID_MUTATOR_IDS: ReadonlySet<string> = new Set<string>(Object.values(WaveMutatorId));
+
 /**
  * Creates a clean default RunProgressionState for the given GameModeType.
  */
@@ -63,8 +67,7 @@ export function sanitizeRunProgressionState(input: unknown): RunProgressionState
   const p = input as Record<string, unknown>;
 
   // 1. Game Mode
-  const validModes = new Set(Object.values(GameModeType));
-  const mode = typeof p.mode === 'string' && validModes.has(p.mode as GameModeType)
+  const mode = typeof p.mode === 'string' && VALID_GAME_MODES.has(p.mode)
     ? (p.mode as GameModeType)
     : defaults.mode;
 
@@ -114,21 +117,19 @@ export function sanitizeRunProgressionState(input: unknown): RunProgressionState
   };
 
   // 4. Equipped Relics
-  const validRelics = new Set(Object.values(RelicId));
   const equippedRelics: RelicId[] = Array.isArray(p.equippedRelics)
     ? (p.equippedRelics as unknown[])
-        .filter((r): r is RelicId => typeof r === 'string' && validRelics.has(r as RelicId))
+        .filter((r): r is RelicId => typeof r === 'string' && VALID_RELIC_IDS.has(r))
         .slice(0, appliedPerks.maxRelicSlots)
     : [];
 
   // 5. Mutators
-  const validMutators = new Set(Object.values(WaveMutatorId));
   const activeMutators: WaveMutator[] = [];
   if (Array.isArray(p.activeMutators)) {
     for (const m of p.activeMutators) {
       if (m && typeof m === 'object' && typeof (m as WaveMutator).id === 'string') {
         const mId = (m as WaveMutator).id;
-        if (validMutators.has(mId) && WAVE_MUTATOR_CATALOG[mId]) {
+        if (VALID_MUTATOR_IDS.has(mId) && WAVE_MUTATOR_CATALOG[mId]) {
           activeMutators.push(WAVE_MUTATOR_CATALOG[mId]);
         }
       }

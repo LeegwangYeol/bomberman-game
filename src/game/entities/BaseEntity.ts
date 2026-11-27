@@ -143,10 +143,13 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
     return super.setVelocity(sx, sy);
   }
 
-  public applyStun(durationMs: number): void {
+  public applyStun(durationMs: number, nowOverrideMs?: number): void {
     if (!Number.isFinite(durationMs) || durationMs <= 0 || this.isDead) return;
     this.isStunned = true;
-    const now = this.getEntityClockNow();
+    const now =
+      typeof nowOverrideMs === 'number' && Number.isFinite(nowOverrideMs) && nowOverrideMs >= 0
+        ? (this._lastEntityTimeMs = nowOverrideMs)
+        : this.getEntityClockNow();
     this.stunUntil = Math.max(this.stunUntil, now + durationMs);
     super.setVelocity(0, 0);
     if (this.overheadUI) {

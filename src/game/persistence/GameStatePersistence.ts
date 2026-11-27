@@ -28,6 +28,13 @@ import { CONFECTIONERY_PERKS } from '../progression/PerkTree.ts';
 import { sanitizeRunProgressionState } from '../progression/ProgressionPersistence.ts';
 import { APIQuotaCircuitBreaker } from './CircuitBreaker.ts';
 
+const VALID_GAME_MODES_CASE_INSENSITIVE: ReadonlySet<string> = new Set<string>([
+  ...Object.values(GameModeType),
+  ...Object.values(GameModeType).map((v) => v.toLowerCase()),
+]);
+const VALID_RELIC_IDS_SET: ReadonlySet<string> = new Set<string>(Object.values(RelicId));
+const isStringValue = (m: unknown): m is string => typeof m === 'string';
+
 /* ==============================================================================
  * STORAGE ADAPTERS (IN-MEMORY & BROWSER WEB STORAGE)
  * ============================================================================== */
@@ -567,27 +574,21 @@ export class GameStatePersistence {
       return fallback;
     };
 
-    const isString = (m: unknown): m is string => typeof m === 'string';
-    const validGameModes = new Set<string>([
-      ...Object.values(GameModeType),
-      ...Object.values(GameModeType).map((v) => v.toLowerCase()),
-    ]);
-    const validRelicIds = new Set<string>(Object.values(RelicId));
     const MAX_RELIC_SLOTS = 2;
 
     const sanitizedUnlockedModes = Array.isArray(p.unlockedModes)
       ? (p.unlockedModes as unknown[]).filter(
-          (m): m is GameModeType => typeof m === 'string' && validGameModes.has(m)
+          (m): m is GameModeType => typeof m === 'string' && VALID_GAME_MODES_CASE_INSENSITIVE.has(m)
         )
       : defaultProfile.unlockedModes;
 
     const sanitizedDiscoveredRelics = Array.isArray(p.discoveredRelics)
-      ? (p.discoveredRelics as unknown[]).filter(isString) as RelicId[]
+      ? (p.discoveredRelics as unknown[]).filter(isStringValue) as RelicId[]
       : defaultProfile.discoveredRelics;
 
     const sanitizedEquippedRelics = Array.isArray(p.equippedRelics)
       ? (p.equippedRelics as unknown[])
-          .filter((r): r is RelicId => typeof r === 'string' && validRelicIds.has(r))
+          .filter((r): r is RelicId => typeof r === 'string' && VALID_RELIC_IDS_SET.has(r))
           .slice(0, MAX_RELIC_SLOTS)
       : defaultProfile.equippedRelics;
 
@@ -603,7 +604,7 @@ export class GameStatePersistence {
       highestWaveReached: typeof p.highestWaveReached === 'object' && p.highestWaveReached !== null ? p.highestWaveReached as Record<GameModeType, number> : defaultProfile.highestWaveReached,
       bestSurvivalTimesSeconds: typeof p.bestSurvivalTimesSeconds === 'object' && p.bestSurvivalTimesSeconds !== null ? p.bestSurvivalTimesSeconds as Record<string, number> : defaultProfile.bestSurvivalTimesSeconds,
       bestBossRushTimeSeconds: typeof p.bestBossRushTimeSeconds === 'number' && Number.isFinite(p.bestBossRushTimeSeconds) ? Math.max(0, p.bestBossRushTimeSeconds) : null,
-      trophiesUnlocked: Array.isArray(p.trophiesUnlocked) ? (p.trophiesUnlocked as unknown[]).filter(isString) : defaultProfile.trophiesUnlocked,
+      trophiesUnlocked: Array.isArray(p.trophiesUnlocked) ? (p.trophiesUnlocked as unknown[]).filter(isStringValue) : defaultProfile.trophiesUnlocked,
     };
   }
 

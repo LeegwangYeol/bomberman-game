@@ -121,6 +121,8 @@ export function determineChamberType(chamberNumber: number): ChamberType {
  * GAME MODE CONTROLLER
  * ============================================================================== */
 
+const VALID_GAME_MODE_SET: ReadonlySet<string> = new Set<string>(Object.values(GameModeType));
+
 export class GameModeManager {
   public currentMode: GameModeType;
   public wave: number = 1;
@@ -346,19 +348,29 @@ export class GameModeManager {
     return true;
   }
 
+  private readonly _scratchBoonPoolIndices: Int32Array = new Int32Array(ROGUELITE_BOONS_CATALOG.length);
+
   /**
-   * Generate 3 random unique boons
+   * Generate 3 random unique boons without cloning or splicing ROGUELITE_BOONS_CATALOG
    */
   public generateBoonDraft(seed: number = 0): BoonOption[] {
-    const catalog = [...ROGUELITE_BOONS_CATALOG];
+    const indices = this._scratchBoonPoolIndices;
+    let remaining = ROGUELITE_BOONS_CATALOG.length;
+    for (let i = 0; i < remaining; i++) {
+      indices[i] = i;
+    }
     const draft: BoonOption[] = [];
 
     const safeSeed = typeof seed === 'number' && Number.isFinite(seed) ? Math.abs(Math.floor(seed)) : Date.now();
     let s = safeSeed % 100000;
-    while (draft.length < 3 && catalog.length > 0) {
+    while (draft.length < 3 && remaining > 0) {
       s = (s * 9301 + 49297) % 233280;
-      const idx = Math.floor((s / 233280) * catalog.length);
-      draft.push(catalog.splice(idx, 1)[0]);
+      const idx = Math.floor((s / 233280) * remaining);
+      draft.push(ROGUELITE_BOONS_CATALOG[indices[idx]]);
+      for (let k = idx; k < remaining - 1; k++) {
+        indices[k] = indices[k + 1];
+      }
+      remaining--;
     }
 
     return draft;
@@ -413,8 +425,8 @@ export class GameModeManager {
   public deserialize(saved: Partial<RunProgressionState>): boolean {
     if (!saved || typeof saved !== 'object') return false;
 
-    if (saved.mode && Object.values(GameModeType).includes(saved.mode)) {
-      this.currentMode = saved.mode;
+    if (typeof saved.mode === 'string' && VALID_GAME_MODE_SET.has(saved.mode)) {
+      this.currentMode = saved.mode as GameModeType;
     }
 
     const safeInt = (val: unknown, fallback: number = 1): number =>

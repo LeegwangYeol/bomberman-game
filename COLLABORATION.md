@@ -3048,3 +3048,23 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - `tests/daily_cycle50_zerogc_modes_allies_relics_boss_resume.test.mjs` 신규 구축 (6대 통합 회귀 시나리오 및 10,000프레임 `GameModeManager`·`MiniBomberAlly`·`ShieldGuardAlly`·`MutantFloraBoss`·`RelicManager` 연속 Zero-GC 소크 테스트 `25.9ms` 전수 통과 — `circlePool`·`rootPool` `verifyInvariants() === true`, 풀 누수 `0`건, 힙 증가 한계 검증).
     - 전체 테스트 스위트: **2,417 / 2,417 PASS (100% 통과, 0 실패, 0 스킵, +6 테스트 순증)**.
     - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 1410ms 컴파일, 4/4 정적 라우트 사전 렌더링)**.
+
+
+### 51) 일일 정기 무한 진화(단일 에이전트 경량 유지보수): `generateBoonDraft` 무복제 `Int32Array` 치환 및 영속성 검증 `Set` Zero-GC 정적화, `spawnItem` 황금 오라 비차폐(`alpha <= 0.36`), `BomberEnemy` 은신 중 자폭 결함 수정·`<4px` 회피 경유점 즉시 전진·`PetDroneAlly` 스턴 시계 동기화, 유물·시너지 실전 완결(`PSIONIC_FEEDBACK_CRYSTAL`·`GELATINOUS_CORE`·`Cosmic Supernova`·`Quantum Event Horizon`), `MerchantNPC` 스타 캔디 동기화 및 3대 기동 보스 공격 도중 무손실 세이브 복원 완결 (Daily Auto-Maintenance: 2026-11-28 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 세션명: `[세션명: 봄버맨 일일 무한 진화]` (스케줄 백그라운드 단일 에이전트 자율 유지보수, 서브에이전트 스웜 미사용).
+  - **핵심 성능·Zero-GC 풀링 및 무결성 수리 내역**:
+    1. **은총 드래프트·세이브 정화기 Zero-GC 정적화 및 아이템 오라 비차폐(`alpha <= 0.40`) 강제 (`GameModes.ts`, `ProgressionPersistence.ts`, `GameStatePersistence.ts`, `GameScene.ts`)**:
+       - `GameModeManager.generateBoonDraft()`의 `[...ROGUELITE_BOONS_CATALOG]` 복제 + `.splice()` 할당을 사전 할당된 `_scratchBoonPoolIndices`(`Int32Array`) 인덱스 시프팅으로 교체(동일 시드 결정론 100% 보존)하고, `GameModeManager.VALID_GAME_MODE_SET`·`ProgressionPersistence`(`VALID_GAME_MODES`/`VALID_RELIC_IDS`/`VALID_MUTATOR_IDS`)·`GameStatePersistence`(`VALID_GAME_MODES_CASE_INSENSITIVE`/`VALID_RELIC_IDS_SET`)를 모듈 상수로 호이스팅하여 반복적인 `Object.values()`/`.map()`/`new Set()` 할당을 제거.
+       - `GameScene.spawnItem()`의 `circlePool` 기반 600ms 황금 보호 오라 채우기·초기 알파를 `0.45`에서 `0.36`(`<= 0.40` 비차폐 불변성, 외곽선 `0.40` 및 반환 시 `setStrokeStyle(0, 0, 0)` 초기화)로 클램핑.
+    2. **`BomberEnemy` 플레이어 은신(`CLOAK`) 중 자폭 결함 해결 및 아군·상인 회피 경유점 전진·스턴 시계 정렬 (`EnemyEntities.ts`, `AllyEntities.ts`, `NeutralEntities.ts`, `BaseEntity.ts`)**:
+       - `BomberEnemy.updateAI()`에서 `EnemyState.EVADING` 분기를 `if (!player || !player.active)` 조기 반환 앞으로 이동하여 플레이어 `CLOAK` 발동(`enemyTarget === null`) 시 자신의 시한폭탄 위에서 정지해 자폭하던 결함을 수정하고, `ChaserEnemy`·`BomberEnemy`의 `EVADING` 조향을 `steerAlongPath()`로 고도화.
+       - `MiniBomberAlly`(`escapePath`)와 `MerchantNPC`(`fleePath`)가 `< 4px` 도달 경유점을 `while` 루프로 즉시 소비하도록 개선하고, `BaseEntity.applyStun(durationMs, nowOverrideMs?)`에 프레임 시각 동기화를 추가하여 `PetDroneAlly` 스턴 볼트가 다음 프레임에 조기 해제되지 않도록 수정.
+    3. **유물·시너지 전투 정합성, 상인 재화 브리지 및 3대 보스 공격 도중 무손실 세이브 복원 (`RelicSystem.ts`, `PersistenceTypes.ts`, `GameScene.ts`, `BombermanGame.tsx`)**:
+       - `PSIONIC_FEEDBACK_CRYSTAL` 기폭 시 적군이 `0`명인 상황에서도 `pulseRadius`(`2.0`/`3.5` 타일) 내 대각선 포함 `PsychicCrisis` 환영 타일을 방사형 정화(`+150`점 + `DISTORTION_BARRIER` 부여)하도록 연결하고, `GELATINOUS_CORE`/`Kinetic Pinball` 벽 바운스 탄성 넉백(`18px`/`28px`, 통과 가능 타일 검증), `Quantum Event Horizon` `2.5`타일 인력 확장, `Cosmic Supernova`(`VOID_SINGULARITY_LENS` + `PYROCLASTIC_PRISM`) 폭탄 설치 시 `2.5`타일 흡인 + `1.0s` 속박 및 대각선 파편 `2`배 피해를 완결.
+       - `BombermanGame.tsx` $\leftrightarrow$ `GameScene.ts` 간 `'currencies-updated'`(부팅·세이브 임포트 동기화 및 `shutdown()` 해제) 및 `'merchant-traded'` 브리지를 연결하여 `MerchantNPC` 거래 시 스타 캔디 차감이 HUD와 `MetaProfile`에 영구 반영되도록 보강.
+       - `SerializedRunMeta`(`matchSecondsRemaining`, `chronoBonusSecondsGranted`) 및 `SerializedBossState`의 `QueenBeeBoss`(`flightTimeSec`, `isDiving`, `diveTimerMs`, `targetDiveX/Y`, `isGrounded`, `altitude`, `shieldRotationRad`, `timeUntilNextDiveMs`, `stingerTimerMs`)·`HamsterBoss`(`isDashing`, `isReving`, `revWindupTimerMs`, `dashDirectionX/Y`, `dashSpeed`, `remainingRebounds`, `gatlingTimerMs`)·`GummyBearBoss`(`isAirborne`, `leapElevation`, `leapTimerMs`, `leapDurationMs`, `targetLandingX/Y`, `attackCooldownMs`) 공격 도중 기구학 필드를 직렬화·복원하여 텔레포트나 패턴 증발 없는 무손실 이어하기를 달성.
+  - **신규 영구 방어 테스트 및 검증 지표**:
+    - `tests/daily_cycle51_zerogc_evasion_relics_merchant_boss_resume.test.mjs` 신규 구축 (7대 통합 회귀 시나리오 및 10,000프레임 `BomberEnemy`·`MerchantNPC`·`PetDroneAlly`·`QueenBeeBoss`·`HamsterBoss`·`GameModeManager` 연속 Zero-GC 소크 테스트 `45.5ms` 전수 통과 — 전 오브젝트 풀 `verifyInvariants() === true`, 풀 누수 `0`건, 힙 증가 한계 검증).
+    - 전체 테스트 스위트: **2,424 / 2,424 PASS (100% 통과, 0 실패, 0 스킵, +7 테스트 순증)**.
+    - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 1125ms 컴파일, 4/4 정적 라우트 사전 렌더링)**.
