@@ -157,10 +157,13 @@ export abstract class BaseEntity extends Phaser.Physics.Arcade.Sprite {
     }
   }
 
-  public applySpeedMultiplier(multiplier: number, durationMs: number): void {
+  public applySpeedMultiplier(multiplier: number, durationMs: number, nowOverrideMs?: number): void {
     if (!Number.isFinite(multiplier) || multiplier <= 0 || !Number.isFinite(durationMs) || durationMs <= 0 || this.isDead) return;
     this.speedMultiplier = Math.min(this.speedMultiplier, multiplier);
-    const now = this.getEntityClockNow();
+    const now =
+      typeof nowOverrideMs === 'number' && Number.isFinite(nowOverrideMs) && nowOverrideMs >= 0
+        ? (this._lastEntityTimeMs = nowOverrideMs)
+        : this.getEntityClockNow();
     this.speedMultiplierUntilMs = Math.max(this.speedMultiplierUntilMs, now + durationMs);
   }
 

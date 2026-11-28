@@ -567,6 +567,66 @@ export class SteamToyTitanBoss extends BaseBoss {
     this.executeMalletSlam(impactX, impactY);
   }
 
+  /**
+   * Reconstructs pooled mallet floor telegraphs or active shockwave in-place (Zero-GC)
+   * after restoring mid-attack fields from a saved run snapshot.
+   */
+  public restoreMidAttackVisualsFromState(): void {
+    for (let i = 0; i < this.preallocatedTelegraphs.length; i++) {
+      this.preallocatedTelegraphs[i].active = false;
+    }
+    this.shockwavePool.releaseAll();
+
+    if (
+      this.bossState === BossState.INTRO ||
+      this.bossState === BossState.INTERMISSION ||
+      this.bossState === BossState.STUNNED ||
+      this.bossState === BossState.DEFEATED
+    ) {
+      this.isMalletWindingUp = false;
+      this.malletImpactActive = false;
+      this.isSteamVenting = false;
+      this.steamVentDurationTimerMs = 0;
+      return;
+    }
+
+    const safeImpactX = Number.isFinite(this.malletImpactX)
+      ? Math.max(60, Math.min(this.malletImpactX, 540))
+      : this.x;
+    const safeImpactY = Number.isFinite(this.malletImpactY)
+      ? Math.max(60, Math.min(this.malletImpactY, 460))
+      : this.y;
+    this.malletImpactX = safeImpactX;
+    this.malletImpactY = safeImpactY;
+
+    if (this.isMalletWindingUp && this.malletWindupTimerMs > 0) {
+      this.malletImpactActive = false;
+      this.populateMalletTelegraphs(safeImpactX, safeImpactY);
+      const rem = Math.min(SteamToyTitanBoss.MALLET_WINDUP_MS, Math.max(1, this.malletWindupTimerMs));
+      const tier: 1 | 2 | 3 = rem <= 500 ? 3 : 2;
+      for (let i = 0; i < this.preallocatedTelegraphs.length; i++) {
+        const t = this.preallocatedTelegraphs[i];
+        if (!t.active) break;
+        t.timerMs = rem;
+        t.tier = tier;
+      }
+    } else if (this.malletImpactActive && this.malletImpactTimerMs > 0) {
+      this.isMalletWindingUp = false;
+      const sw = this.shockwavePool.acquire();
+      if (sw) {
+        sw.active = true;
+        sw.originX = safeImpactX;
+        sw.originY = safeImpactY;
+        sw.currentRadius = SteamToyTitanBoss.MALLET_RADIUS_PX;
+        sw.maxRadius = SteamToyTitanBoss.MALLET_RADIUS_PX;
+        sw.damage = 1;
+      }
+    } else {
+      this.isMalletWindingUp = false;
+      this.malletImpactActive = false;
+    }
+  }
+
   public getActiveShockwaves(): readonly BossShockwave[] {
     this._scratchActiveShockwaves.length = 0;
     const count = this.shockwavePool.activeCount;

@@ -280,6 +280,41 @@ export class ChaserEnemy extends BaseEntity {
       return;
     }
 
+    // Committed corridor windup/dash completes even if player cloaks mid-charge
+    if (this.aiState === EnemyState.WINDUP) {
+      this.setVelocity(0, 0);
+      this.stateTimer -= delta;
+      if (this.stateTimer <= 0) {
+        this.changeState(EnemyState.ATTACK);
+      }
+      return;
+    }
+
+    if (this.aiState === EnemyState.ATTACK) {
+      this.stateTimer -= delta;
+      const er = Math.floor(this.y / TILE_SIZE);
+      const ec = Math.floor(this.x / TILE_SIZE);
+      const nextR = er + this.attackDir.y;
+      const nextC = ec + this.attackDir.x;
+      const hitWall =
+        nextR < 0 ||
+        nextR >= ROWS ||
+        nextC < 0 ||
+        nextC >= COLS ||
+        map[nextR][nextC] === TILE_WALL ||
+        map[nextR][nextC] === TILE_BLOCK;
+
+      if (this.stateTimer <= 0 || hitWall) {
+        this.changeState(EnemyState.COOLDOWN);
+      } else {
+        this.setVelocity(
+          this.attackDir.x * this.config.dashSpeed,
+          this.attackDir.y * this.config.dashSpeed
+        );
+      }
+      return;
+    }
+
     if (!player || !player.active) {
       this.setVelocity(0, 0);
       return;
@@ -545,31 +580,6 @@ export class ChaserEnemy extends BaseEntity {
               this.setVelocity(0, 0);
             }
           }
-        }
-        break;
-      }
-
-      case EnemyState.WINDUP:
-        this.stateTimer -= delta;
-        if (this.stateTimer <= 0) {
-          this.changeState(EnemyState.ATTACK);
-        }
-        break;
-
-      case EnemyState.ATTACK: {
-        this.stateTimer -= delta;
-        const nextR = er + this.attackDir.y;
-        const nextC = ec + this.attackDir.x;
-        const hitWall =
-          nextR < 0 ||
-          nextR >= ROWS ||
-          nextC < 0 ||
-          nextC >= COLS ||
-          map[nextR][nextC] === TILE_WALL ||
-          map[nextR][nextC] === TILE_BLOCK;
-
-        if (this.stateTimer <= 0 || hitWall) {
-          this.changeState(EnemyState.COOLDOWN);
         }
         break;
       }
@@ -1232,6 +1242,17 @@ export class GhostEnemy extends BaseEntity {
 
     this.dashCooldownTimer -= delta;
 
+    // AI-05: Maintain dash velocity across entire dash duration (even if player cloaks mid-dash)
+    if (this.isDashing) {
+      this.dashRemainingMs -= delta;
+      if (this.dashRemainingMs <= 0) {
+        this.isDashing = false;
+      } else {
+        this.setVelocity(this.dashDir.x * this.config.dashSpeed, this.dashDir.y * this.config.dashSpeed);
+        return;
+      }
+    }
+
     if (!player || !player.active) {
       this.setVelocity(0, 0);
       return;
@@ -1283,17 +1304,6 @@ export class GhostEnemy extends BaseEntity {
       }
       this.setVelocity(this.dashDir.x * this.config.dashSpeed, this.dashDir.y * this.config.dashSpeed);
       return;
-    }
-
-    // AI-05: Maintain dash velocity across entire dash duration
-    if (this.isDashing) {
-      this.dashRemainingMs -= delta;
-      if (this.dashRemainingMs <= 0) {
-        this.isDashing = false;
-      } else {
-        this.setVelocity(this.dashDir.x * this.config.dashSpeed, this.dashDir.y * this.config.dashSpeed);
-        return;
-      }
     }
 
     const speed = this.isMaterialized ? this.config.phaseSpeed * 0.7 : this.config.phaseSpeed;

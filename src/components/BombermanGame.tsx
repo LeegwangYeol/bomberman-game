@@ -305,6 +305,12 @@ export default function BombermanGame() {
         phaserGameRef.current.events.emit('mode-changed', runState.meta.gameMode);
         phaserGameRef.current.events.emit('resume-run-state', runState);
       }
+      if (typeof runState.meta.starCandies === 'number' && Number.isFinite(runState.meta.starCandies)) {
+        setStarCandies(Math.max(0, Math.floor(runState.meta.starCandies)));
+      }
+      if (typeof runState.meta.cosmicEssence === 'number' && Number.isFinite(runState.meta.cosmicEssence)) {
+        setCosmicEssence(Math.max(0, Math.floor(runState.meta.cosmicEssence)));
+      }
       if (Array.isArray(runState.relicState?.equippedRelics)) {
         setEquippedRelics(
           runState.relicState.equippedRelics.filter(

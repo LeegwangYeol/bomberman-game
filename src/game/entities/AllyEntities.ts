@@ -100,18 +100,7 @@ export class MiniBomberAlly extends BaseEntity {
 
     this.bombCooldownTimer -= delta;
 
-    if (!player || !player.active) {
-      this.setVelocity(0, 0);
-      return;
-    }
-
-    const ar = Math.floor(this.y / TILE_SIZE);
-    const ac = Math.floor(this.x / TILE_SIZE);
-    const pr = Math.floor(player.y / TILE_SIZE);
-    const pc = Math.floor(player.x / TILE_SIZE);
-    const distToPlayer = Math.abs(ar - pr) + Math.abs(ac - pc);
-
-    // Evasion handling with watchdog timer
+    // Evasion handling with watchdog timer (completes self-bomb escape even if player is inactive)
     if (this.escapePath.length > 0) {
       this.evadeTimeoutMs -= delta;
       if (this.evadeTimeoutMs <= 0) {
@@ -149,6 +138,17 @@ export class MiniBomberAlly extends BaseEntity {
       }
       return;
     }
+
+    if (!player || !player.active) {
+      this.setVelocity(0, 0);
+      return;
+    }
+
+    const ar = Math.floor(this.y / TILE_SIZE);
+    const ac = Math.floor(this.x / TILE_SIZE);
+    const pr = Math.floor(player.y / TILE_SIZE);
+    const pc = Math.floor(player.x / TILE_SIZE);
+    const distToPlayer = Math.abs(ar - pr) + Math.abs(ac - pc);
 
     // Bomb placement evaluation with strict friendly fire immunity invariant (Zero-GC FlatHazardMask):
     if (this.bombCooldownTimer <= 0 && this.activeBombs < this.maxBombs) {

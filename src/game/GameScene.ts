@@ -471,6 +471,7 @@ export default class GameScene extends Phaser.Scene {
   public dashSpeedBurstRemaining: number = 0;
   public dashSpeedBurstMultiplier: number = 1.0;
   public appliedPerkBonuses: AppliedPerkBonuses | null = null;
+  public secondWindConsumed: boolean = false;
   public dashStartTime: number = 0;
   public dashElapsedMs: number = 0;
   private lastFrameTimeMs: number = -1;
@@ -569,6 +570,74 @@ export default class GameScene extends Phaser.Scene {
   private readonly scratchActiveItems: Phaser.Physics.Arcade.Sprite[] = [];
   private readonly scratchChainStack: (Phaser.Physics.Arcade.Sprite | null)[] = [];
   private scratchChainStackTop: number = 0;
+  private readonly scratchDropStats: PlayerStats = createInitialPlayerStats();
+  private static readonly ITEM_TYPE_KEYS: readonly ItemType[] = Object.freeze(
+    Object.keys(ITEM_DEFINITIONS) as ItemType[]
+  );
+
+  private resetInventoryInPlace(): void {
+    const keys = GameScene.ITEM_TYPE_KEYS;
+    for (let i = 0; i < keys.length; i++) {
+      this.inventory[keys[i]] = 0;
+    }
+  }
+
+  private applySavedInventoryInPlace(saved: Partial<Record<ItemType, number>>): void {
+    const keys = GameScene.ITEM_TYPE_KEYS;
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      const v = saved[k];
+      this.inventory[k] = typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0;
+    }
+  }
+
+  private populateScratchDropStats(): PlayerStats {
+    const s = this.scratchDropStats;
+    s.speed = this.playerSpeed;
+    s.speedLevel = this.speedLevel;
+    s.maxBombs = this.maxBombs;
+    s.activeBombs = this.activeBombs;
+    s.bombPower = this.bombPower;
+    s.hasKick = this.hasKick;
+    s.hasShield = this.hasShield;
+    s.shieldCharges = this.shieldCharges;
+    s.maxShields = this.maxShields;
+    s.extraLives = this.extraLives;
+    s.hasWallPass = this.hasWallPass;
+    s.hasBombPass = this.hasBombPass;
+    s.hasMagnet = this.hasMagnet;
+    s.hasBlastDeflector = this.hasBlastDeflector;
+    s.hasBlastResist = this.hasBlastResist;
+    s.hasVampiric = this.hasVampiric;
+    s.activeBombType = this.activeBombType;
+    s.dashCooldownRemaining = Math.max(0, Math.ceil(this.dashCooldownRemaining));
+    s.activeBuffs = this.activeBuffs;
+    s.inventory = this.inventory;
+    s.itemsCollectedTotal = this.itemsCollectedTotal;
+    s.itemsCollected = this.itemsCollected;
+    s.ultimateGauge = this.ultimateGauge;
+    s.ultimateMax = this.ultimateMax;
+    s.isUltimateReady = this.isUltimateReady;
+    s.ultimateLockoutRemaining = Math.max(0, Math.ceil(this.ultimateLockoutRemaining));
+    s.activeUltimate = this.activeUltimate;
+    s.score = this.score;
+    s.isGameOver = this.isGameOver;
+    return s;
+  }
+
+  private bindDefaultPerkManager(): void {
+    this.perkManager = {
+      triggerSecondWind: () => {
+        if (!this.appliedPerkBonuses) return false;
+        const res = PerkTreeManager.triggerSecondWind(this.appliedPerkBonuses, this.secondWindConsumed);
+        if (res.saved) {
+          this.secondWindConsumed = true;
+          return true;
+        }
+        return false;
+      },
+    };
+  }
 
   private releaseGroupAoShadows(group?: Phaser.Physics.Arcade.StaticGroup | null): void {
     if (!group || typeof group.getChildren !== 'function') return;
@@ -687,7 +756,7 @@ export default class GameScene extends Phaser.Scene {
     const itemType =
       rollItemDrop(
         rng,
-        this.getStats(),
+        this.populateScratchDropStats(),
         'CHEST',
         this.appliedPerkBonuses?.itemDropRateBonus ?? 0
       ) ?? 'SHIELD';
@@ -2088,17 +2157,8 @@ export default class GameScene extends Phaser.Scene {
     if (perks) {
       const bonuses = PerkTreeManager.calculateAppliedBonuses(perks);
       this.appliedPerkBonuses = bonuses;
-      let secondWindConsumed = false;
-      this.perkManager = {
-        triggerSecondWind: () => {
-          const res = PerkTreeManager.triggerSecondWind(bonuses, secondWindConsumed);
-          if (res.saved) {
-            secondWindConsumed = true;
-            return true;
-          }
-          return false;
-        },
-      };
+      this.secondWindConsumed = false;
+      this.bindDefaultPerkManager();
       const cornerLvl = typeof perks['corner_magnet'] === 'number' ? perks['corner_magnet'] : 0;
       this.cornerSlideTolerance = bonuses.cornerSlideTolerance || (cornerLvl === 1 ? 11 : cornerLvl >= 2 ? 14 : 8);
       const bouncy = typeof perks['bouncy_soles'] === 'number' ? perks['bouncy_soles'] : 0;
@@ -2290,6 +2350,7 @@ export default class GameScene extends Phaser.Scene {
       if (state.player.facing) {
         this.playerFacing = state.player.facing;
       }
+      this.secondWindConsumed = Boolean(state.player.secondWindConsumed);
       if (state.player.stats) {
         const s = state.player.stats;
         if (typeof s.speed === 'number' && Number.isFinite(s.speed) && s.speed > 0) {
@@ -2339,7 +2400,7 @@ export default class GameScene extends Phaser.Scene {
           this.itemsCollectedTotal = Math.max(0, s.itemsCollectedTotal);
         }
         if (s.inventory && typeof s.inventory === 'object') {
-          this.inventory = { ...createInitialPlayerStats().inventory, ...s.inventory };
+          this.applySavedInventoryInPlace(s.inventory);
         }
         if (s.itemsCollected && typeof s.itemsCollected === 'object') {
           this.itemsCollected = {
@@ -2916,15 +2977,60 @@ export default class GameScene extends Phaser.Scene {
           if (typeof sb.facingAngle === 'number' && Number.isFinite(sb.facingAngle)) {
             this.activeBoss.facingAngle = sb.facingAngle;
           }
+          if (typeof sb.malletCooldownTimerMs === 'number' && Number.isFinite(sb.malletCooldownTimerMs)) {
+            this.activeBoss.malletCooldownTimerMs = Math.max(0, sb.malletCooldownTimerMs);
+          }
+          if (typeof sb.malletWindupTimerMs === 'number' && Number.isFinite(sb.malletWindupTimerMs)) {
+            this.activeBoss.malletWindupTimerMs = Math.max(0, sb.malletWindupTimerMs);
+          }
+          if (typeof sb.malletImpactTimerMs === 'number' && Number.isFinite(sb.malletImpactTimerMs)) {
+            this.activeBoss.malletImpactTimerMs = Math.max(0, sb.malletImpactTimerMs);
+          }
+          if (typeof sb.malletImpactX === 'number' && Number.isFinite(sb.malletImpactX)) {
+            this.activeBoss.malletImpactX = sb.malletImpactX;
+          }
+          if (typeof sb.malletImpactY === 'number' && Number.isFinite(sb.malletImpactY)) {
+            this.activeBoss.malletImpactY = sb.malletImpactY;
+          }
+          if (typeof sb.steamVentCooldownTimerMs === 'number' && Number.isFinite(sb.steamVentCooldownTimerMs)) {
+            this.activeBoss.steamVentCooldownTimerMs = Math.max(0, sb.steamVentCooldownTimerMs);
+          }
+          if (typeof sb.steamVentDurationTimerMs === 'number' && Number.isFinite(sb.steamVentDurationTimerMs)) {
+            this.activeBoss.steamVentDurationTimerMs = Math.max(0, sb.steamVentDurationTimerMs);
+          }
+          if (typeof sb.gearRotationAngle === 'number' && Number.isFinite(sb.gearRotationAngle)) {
+            this.activeBoss.gearRotationAngle = sb.gearRotationAngle;
+          }
+          this.activeBoss.isMalletWindingUp = Boolean(sb.isMalletWindingUp);
+          this.activeBoss.malletImpactActive = !this.activeBoss.isMalletWindingUp && Boolean(sb.malletImpactActive);
+          this.activeBoss.isSteamVenting =
+            this.activeBoss.bossState !== BossState.STUNNED &&
+            Boolean(sb.isSteamVenting) &&
+            this.activeBoss.steamVentDurationTimerMs > 0;
+          this.activeBoss.gearRotationSpeed =
+            this.activeBoss.bossState === BossState.ENRAGED || this.activeBoss.phase >= 3 ? 3.5 : 2.0;
           this.activeBoss.gearShieldActive =
             this.activeBoss.phase >= 2 && this.activeBoss.bossState !== BossState.STUNNED;
+          this.activeBoss.restoreMidAttackVisualsFromState();
         }
         if (this.activeBoss instanceof MutantFloraBoss) {
           this.activeBoss.isUnderground = Boolean(sb.isUnderground);
+          if (this.activeBoss.isUnderground) {
+            this.activeBoss.isInvulnerable = true;
+          }
           this.activeBoss.undergroundTimerMs =
             typeof sb.undergroundTimerMs === 'number' && Number.isFinite(sb.undergroundTimerMs)
               ? Math.max(0, sb.undergroundTimerMs)
               : 0;
+          if (typeof sb.rootTimerMs === 'number' && Number.isFinite(sb.rootTimerMs)) {
+            this.activeBoss.rootTimerMs = Math.max(0, sb.rootTimerMs);
+          }
+          if (typeof sb.pollenTimerMs === 'number' && Number.isFinite(sb.pollenTimerMs)) {
+            this.activeBoss.pollenTimerMs = Math.max(0, sb.pollenTimerMs);
+          }
+          if (typeof sb.vineWhipCooldownMs === 'number' && Number.isFinite(sb.vineWhipCooldownMs)) {
+            this.activeBoss.vineWhipCooldownMs = Math.max(0, sb.vineWhipCooldownMs);
+          }
           if (Array.isArray(sb.activeRoots)) {
             this.activeBoss.rootPool.releaseAll();
             for (let ri = 0; ri < sb.activeRoots.length; ri++) {
@@ -3188,12 +3294,28 @@ export default class GameScene extends Phaser.Scene {
                   }
                 : {}),
               ...(this.activeBoss instanceof SteamToyTitanBoss
-                ? { facingAngle: this.activeBoss.facingAngle }
+                ? {
+                    facingAngle: this.activeBoss.facingAngle,
+                    malletCooldownTimerMs: Math.round(this.activeBoss.malletCooldownTimerMs),
+                    isMalletWindingUp: this.activeBoss.isMalletWindingUp,
+                    malletWindupTimerMs: Math.round(this.activeBoss.malletWindupTimerMs),
+                    malletImpactActive: this.activeBoss.malletImpactActive,
+                    malletImpactTimerMs: Math.round(this.activeBoss.malletImpactTimerMs),
+                    malletImpactX: this.activeBoss.malletImpactX,
+                    malletImpactY: this.activeBoss.malletImpactY,
+                    steamVentCooldownTimerMs: Math.round(this.activeBoss.steamVentCooldownTimerMs),
+                    isSteamVenting: this.activeBoss.isSteamVenting,
+                    steamVentDurationTimerMs: Math.round(this.activeBoss.steamVentDurationTimerMs),
+                    gearRotationAngle: this.activeBoss.gearRotationAngle,
+                  }
                 : {}),
               ...(this.activeBoss instanceof MutantFloraBoss
                 ? {
                     isUnderground: this.activeBoss.isUnderground,
                     undergroundTimerMs: Math.round(this.activeBoss.undergroundTimerMs),
+                    rootTimerMs: Math.round(this.activeBoss.rootTimerMs),
+                    pollenTimerMs: Math.round(this.activeBoss.pollenTimerMs),
+                    vineWhipCooldownMs: Math.round(this.activeBoss.vineWhipCooldownMs),
                     ...(serializedFloraRoots ? { activeRoots: serializedFloraRoots } : {}),
                   }
                 : {}),
@@ -3262,6 +3384,7 @@ export default class GameScene extends Phaser.Scene {
         facing: this.playerFacing || 'down',
         stats: capturedStats,
         hp: this.extraLives + 1,
+        ...(this.secondWindConsumed ? { secondWindConsumed: true } : {}),
       },
       board: {
         rows: ROWS,
@@ -3340,6 +3463,7 @@ export default class GameScene extends Phaser.Scene {
     this.activeStompSlowDelta = 0;
     this.bossHitBombIds.clear();
     this.nextBombUid = 0;
+    this.secondWindConsumed = false;
     this.dashElapsedMs = 0;
     this.lastFrameTimeMs = -1;
     this.scratchActiveEntities.length = 0;
@@ -3605,6 +3729,7 @@ export default class GameScene extends Phaser.Scene {
     this.activeStompSlowDelta = 0;
     this.bossHitBombIds.clear();
     this.nextBombUid = 0;
+    this.secondWindConsumed = false;
     this.dashElapsedMs = 0;
     this.lastFrameTimeMs = -1;
     this.destroyedBlocksThisTick.clear();
@@ -4048,6 +4173,10 @@ export default class GameScene extends Phaser.Scene {
       this.physics.world.setBounds(0, 0, 600, 520);
     }
     this.relicManager = new RelicManager(this.appliedPerkBonuses?.maxRelicSlots ?? 1);
+    this.secondWindConsumed = false;
+    if (this.appliedPerkBonuses && !this.perkManager) {
+      this.bindDefaultPerkManager();
+    }
     if (this.lastEquippedRelicsPayload.length > 0) {
       for (let ri = 0; ri < this.lastEquippedRelicsPayload.length; ri++) {
         this.relicManager.equipRelic(this.lastEquippedRelicsPayload[ri]);
@@ -4101,7 +4230,7 @@ export default class GameScene extends Phaser.Scene {
     this.isCloaked = false;
     this.clearMasteryAndDebuffTimers();
     this.activeBuffs = [];
-    this.inventory = { ...createInitialPlayerStats().inventory };
+    this.resetInventoryInPlace();
     this.itemsCollectedTotal = 0;
     this.ultimateGauge = 0;
     this.ultimateMax = 100;
@@ -4676,8 +4805,12 @@ export default class GameScene extends Phaser.Scene {
           if (died && owner === 'player') {
             this.handlePlayerEnemyKillRewards(target, true);
           } else if (!died && target.active && !target.isDead && expBombType === 'ICE_BOMB') {
-            target.applyStun?.(3000);
-            target.applySpeedMultiplier?.(0.35, 3500);
+            const iceNowMs =
+              typeof this.time?.now === 'number' && Number.isFinite(this.time.now)
+                ? this.time.now
+                : undefined;
+            target.applyStun?.(3000, iceNowMs);
+            target.applySpeedMultiplier?.(0.35, 3500, iceNowMs);
           }
         } else {
           if (target.active) {
@@ -10757,7 +10890,7 @@ export default class GameScene extends Phaser.Scene {
                   e.applyStun(1000, detNowMs);
                 }
               } else if (typeof e.applySpeedMultiplier === 'function') {
-                e.applySpeedMultiplier(0.5, 1500);
+                e.applySpeedMultiplier(0.5, 1500, detNowMs);
               }
             }
           }
@@ -10794,7 +10927,7 @@ export default class GameScene extends Phaser.Scene {
                 this.handlePlayerEnemyKillRewards(e, false);
               } else if (e.active && !e.isDead) {
                 if (warpProc.phaseDurationMs > 0 && typeof e.applySpeedMultiplier === 'function') {
-                  e.applySpeedMultiplier(0.55, warpProc.phaseDurationMs);
+                  e.applySpeedMultiplier(0.55, warpProc.phaseDurationMs, detNowMs);
                 }
                 if (warpProc.singularityPull) {
                   const angle = Phaser.Math.Angle.Between(e.x, e.y, cX, cY);
@@ -10834,13 +10967,13 @@ export default class GameScene extends Phaser.Scene {
                 died = Boolean(e.takeDamage(cryoProc.damage, 'player', detNowMs));
               }
               const slowable = e as unknown as {
-                applySpeedMultiplier?: (ratio: number, durationMs: number) => void;
+                applySpeedMultiplier?: (ratio: number, durationMs: number, nowOverrideMs?: number) => void;
               };
               if (died || e.isDead || !e.active) {
                 cryoKilledAny = true;
                 this.handlePlayerEnemyKillRewards(e, false);
               } else if (e.active && !e.isDead && typeof slowable.applySpeedMultiplier === 'function') {
-                slowable.applySpeedMultiplier(1.0 - cryoProc.slowRatio, cryoProc.chillDurationMs);
+                slowable.applySpeedMultiplier(1.0 - cryoProc.slowRatio, cryoProc.chillDurationMs, detNowMs);
               }
             }
           }
@@ -10883,10 +11016,10 @@ export default class GameScene extends Phaser.Scene {
                 this.handlePlayerEnemyKillRewards(e, false);
               } else if (e.active && !e.isDead) {
                 if (typeof e.applySpeedMultiplier === 'function') {
-                  e.applySpeedMultiplier(1.0 - teslaProc.slowRatio, teslaProc.shockDurationMs);
+                  e.applySpeedMultiplier(1.0 - teslaProc.slowRatio, teslaProc.shockDurationMs, detNowMs);
                 }
                 if (typeof e.applyStun === 'function') {
-                  e.applyStun(teslaProc.isSuperconductor ? 2000 : 1000);
+                  e.applyStun(teslaProc.isSuperconductor ? 2000 : 1000, detNowMs);
                 }
               }
             }
@@ -10930,10 +11063,10 @@ export default class GameScene extends Phaser.Scene {
                 this.handlePlayerEnemyKillRewards(e, false);
               } else if (e.active && !e.isDead) {
                 if (typeof e.applySpeedMultiplier === 'function') {
-                  e.applySpeedMultiplier(1.0 - miasmaProc.slowRatio, miasmaProc.poisonDurationMs);
+                  e.applySpeedMultiplier(1.0 - miasmaProc.slowRatio, miasmaProc.poisonDurationMs, detNowMs);
                 }
                 if (miasmaProc.isNeuroOverload && typeof e.applyStun === 'function') {
-                  e.applyStun(2000);
+                  e.applyStun(2000, detNowMs);
                 }
               }
             }
@@ -11021,10 +11154,10 @@ export default class GameScene extends Phaser.Scene {
                 this.handlePlayerEnemyKillRewards(e, false);
               } else if (e.active && !e.isDead) {
                 if (typeof e.applySpeedMultiplier === 'function') {
-                  e.applySpeedMultiplier(1.0 - abyssalProc.slowRatio, abyssalProc.undertowDurationMs);
+                  e.applySpeedMultiplier(1.0 - abyssalProc.slowRatio, abyssalProc.undertowDurationMs, detNowMs);
                 }
                 if (abyssalProc.stunDurationMs > 0 && typeof e.applyStun === 'function') {
-                  e.applyStun(abyssalProc.stunDurationMs);
+                  e.applyStun(abyssalProc.stunDurationMs, detNowMs);
                 }
               }
             }
@@ -11073,6 +11206,8 @@ export default class GameScene extends Phaser.Scene {
                 ? this.time.now
                 : Date.now();
             const liveEnemies = this.enemies ? this.enemies.getChildren() : [];
+            const liveBombs = this.bombs ? this.bombs.getChildren() : [];
+            const orbitalStackBase = this.scratchChainStackTop;
             for (let ti = 0; ti < validTileCount; ti++) {
               const packed = ti === 0 ? t0 : ti === 1 ? t1 : ti === 2 ? t2 : ti === 3 ? t3 : t4;
               if (packed >= 0) {
@@ -11100,8 +11235,19 @@ export default class GameScene extends Phaser.Scene {
                     }
                   }
                 }
+                for (let bi = 0; bi < liveBombs.length; bi++) {
+                  const otherBomb = liveBombs[bi] as Phaser.Physics.Arcade.Sprite;
+                  if (otherBomb && otherBomb.active) {
+                    const bCol = Math.floor(otherBomb.x / TILE_SIZE);
+                    const bRow = Math.floor(otherBomb.y / TILE_SIZE);
+                    if (bRow === tr && bCol === tc) {
+                      this.scratchChainStack[this.scratchChainStackTop++] = otherBomb;
+                    }
+                  }
+                }
               }
             }
+            this.detonateStackedChainRange(orbitalStackBase);
           });
         }
       }
@@ -11411,6 +11557,10 @@ export default class GameScene extends Phaser.Scene {
     if (bombType === 'POISON_MIST') {
       this.setPoisonMistTile(row, col, 3500);
     } else if (bombType === 'ICE_BOMB' && this.enemies) {
+      const iceNowMs =
+        typeof this.time?.now === 'number' && Number.isFinite(this.time.now)
+          ? this.time.now
+          : undefined;
       const enemiesList = this.enemies.getChildren();
       for (let ei = 0; ei < enemiesList.length; ei++) {
         const enemy = enemiesList[ei] as BaseEntity;
@@ -11418,8 +11568,8 @@ export default class GameScene extends Phaser.Scene {
         const er = Math.floor(enemy.y / TILE_SIZE);
         const ec = Math.floor(enemy.x / TILE_SIZE);
         if (er === row && ec === col) {
-          enemy.applyStun?.(3000);
-          enemy.applySpeedMultiplier?.(0.35, 3500);
+          enemy.applyStun?.(3000, iceNowMs);
+          enemy.applySpeedMultiplier?.(0.35, 3500, iceNowMs);
           enemy.setTint?.(0x38bdf8);
         }
       }
@@ -11591,7 +11741,7 @@ export default class GameScene extends Phaser.Scene {
     // 45% drop chance with anti-snowballing (+ sweet_tooth perk bonus, or 100% Rare/Epic guaranteed for gilded chests)
     const droppedItem = rollItemDrop(
       Math.random,
-      this.getStats(),
+      this.populateScratchDropStats(),
       isChest ? 'CHEST' : 'BLOCK',
       this.appliedPerkBonuses?.itemDropRateBonus ?? 0
     );
@@ -11713,9 +11863,12 @@ export default class GameScene extends Phaser.Scene {
 
     // Check Second Wind perk (ARCH-PERK-01)
     if (this.perkManager?.triggerSecondWind()) {
+      this.secondWindConsumed = true;
       this.isInvulnerable = true;
       const secondWindGrace = this.isMobileDevice() ? 3300 : 3000;
       this.shieldInvulnerableUntil = updateInvulnerabilityExpiry(this.shieldInvulnerableUntil, secondWindGrace, this.time.now);
+      this.dashSpeedBurstRemaining = Math.max(this.dashSpeedBurstRemaining, secondWindGrace);
+      this.dashSpeedBurstMultiplier = Math.max(this.dashSpeedBurstMultiplier, 1.5);
       this.hasShield = true;
       this.shieldCharges = 1;
       this.spawnFloatingText(this.player.x, this.player.y - 12, 'SECOND WIND!', '#fbbf24');
@@ -12431,7 +12584,7 @@ export default class GameScene extends Phaser.Scene {
           const dy = enemy.y - decoyOriginY;
           const distSq = dx * dx + dy * dy;
           if (distSq <= dazzleRadiusSq) {
-            enemy.applyStun?.(650);
+            enemy.applyStun?.(650, decoyNowMs);
           }
           if (distSq <= tauntRadiusSq) {
             enemy.tauntTarget = this.dashDecoyTarget as unknown as BaseEntity;
@@ -12664,7 +12817,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   collectItem(type: ItemType, x: number, y: number) {
-    const currentStats = this.getStats();
+    const currentStats = this.populateScratchDropStats();
     const result = applyItemEffect(type, currentStats, this);
 
     // Sync instance variables

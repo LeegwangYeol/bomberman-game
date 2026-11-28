@@ -50,6 +50,7 @@ export interface SerializedPlayer {
   stats: PlayerStats;
   hp: number;
   invulnerableRemainingMs?: number;
+  secondWindConsumed?: boolean;
 }
 
 export interface SerializedBomb {
@@ -139,6 +140,20 @@ export interface SerializedBossState {
   targetLandingX?: number;
   targetLandingY?: number;
   attackCooldownMs?: number;
+  malletCooldownTimerMs?: number;
+  isMalletWindingUp?: boolean;
+  malletWindupTimerMs?: number;
+  malletImpactActive?: boolean;
+  malletImpactTimerMs?: number;
+  malletImpactX?: number;
+  malletImpactY?: number;
+  steamVentCooldownTimerMs?: number;
+  isSteamVenting?: boolean;
+  steamVentDurationTimerMs?: number;
+  gearRotationAngle?: number;
+  rootTimerMs?: number;
+  pollenTimerMs?: number;
+  vineWhipCooldownMs?: number;
 }
 
 export interface SerializedPoisonMistTile {

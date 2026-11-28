@@ -3068,3 +3068,26 @@ Architect-4 및 VictoryAuditor-1 감사를 통해 발견된 과거 물리 및 �
     - `tests/daily_cycle51_zerogc_evasion_relics_merchant_boss_resume.test.mjs` 신규 구축 (7대 통합 회귀 시나리오 및 10,000프레임 `BomberEnemy`·`MerchantNPC`·`PetDroneAlly`·`QueenBeeBoss`·`HamsterBoss`·`GameModeManager` 연속 Zero-GC 소크 테스트 `45.5ms` 전수 통과 — 전 오브젝트 풀 `verifyInvariants() === true`, 풀 누수 `0`건, 힙 증가 한계 검증).
     - 전체 테스트 스위트: **2,424 / 2,424 PASS (100% 통과, 0 실패, 0 스킵, +7 테스트 순증)**.
     - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 1125ms 컴파일, 4/4 정적 라우트 사전 렌더링)**.
+
+
+### 52) 일일 정기 무한 진화(단일 에이전트 경량 유지보수): `destroyBlock`·`collectItem`·`tryTradeWithNearbyMerchant` Zero-GC `scratchDropStats` 및 인플레이스 인벤토리 변이, 은신(`CLOAK`) 중 적 돌진(`ChaserEnemy`/`GhostEnemy`)·아군 폭탄 회피(`MiniBomberAlly`) 동결 방지, `Second Wind` 재시작(`scene.restart()`) 수명주기·`+50%` 가속·세이브 악용 차단, 시계 도메인 디버프 정렬, `ORBITAL_TARGETING_CORE` 폭탄 연쇄 기폭 및 `SteamToyTitanBoss`·`MutantFloraBoss` 공격 도중 무손실 세이브 복원 완결 (Daily Auto-Maintenance: 2026-11-29 — 100% COMPLETE & VERIFIED)
+- **작업 개요 및 목적**:
+  - 세션명: `[세션명: 봄버맨 일일 무한 진화]` (스케줄 백그라운드 단일 에이전트 자율 유지보수, 서브에이전트 스웜 미사용).
+  - **핵심 성능·Zero-GC 풀링 및 무결성 수리 내역**:
+    1. **블록 파괴·아이템 획득·상인 거래 Zero-GC `scratchDropStats` 및 인벤토리 인플레이스 갱신 (`GameScene.ts`)**:
+       - `destroyBlock()`, `collectItem()`, `tryTradeWithNearbyMerchant()`가 매 호출마다 `this.getStats()`를 통해 임시 객체·배열 4개(`PlayerStats`, `[...activeBuffs]`, `{ ...inventory }`, `{ ...itemsCollected }`)를 힙에 복제하던 경로를 사전 할당된 `populateScratchDropStats()` 인플레이스 뮤테이터로 일원화하여 연쇄 폭발 및 궁극기 광역 타격 시 임시 스탯 복제 할당을 `0`건으로 제거.
+       - 정적 `ITEM_TYPE_KEYS` 기반 `resetInventoryInPlace()` 및 `applySavedInventoryInPlace()`를 도입하여 `create()` 및 `onResumeRunState()` 실행 시 불필요한 `createInitialPlayerStats()` 객체 생성을 제거하고 `this.inventory` 참조 동일성을 유지.
+    2. **플레이어 은신(`CLOAK`)·비활성 시 적군 확정 돌진 및 아군 자폭 회피 동결 결함 해결 (`EnemyEntities.ts`, `AllyEntities.ts`)**:
+       - `ChaserEnemy.updateAI()`의 확정 복도 돌진(`EnemyState.WINDUP` $\rightarrow$ `EnemyState.ATTACK` $\rightarrow$ `EnemyState.COOLDOWN`) 및 `GhostEnemy.updateAI()`의 에테르 대시(`this.isDashing`) 감쇠 루틴을 `if (!player || !player.active)` 조기 반환 앞으로 배치하여 플레이어가 돌진 도중 `CLOAK`(`enemyTarget === null`)을 발동해도 타이머가 영구 동결되지 않고 돌진을 자연 종료하도록 보강.
+       - `MiniBomberAlly.updateAI()`의 `escapePath` 회피 조향을 `if (!player || !player.active)` 조기 반환보다 우선 처리하여 아군 폭탄병이 자신이 설치한 폭탄 반경에서 멈추지 않고 안전 타일까지 이탈을 완수하도록 개선.
+    3. **`Second Wind` 특성 `scene.restart()` 수명주기 복구·`+50%` 이동 가속 적용 및 세이브 리로드 악용 방지 (`GameScene.ts`, `PersistenceTypes.ts`)**:
+       - 기존 클로저 변수 `secondWindConsumed` 및 `shutdown()` 시 소실되던 `this.perkManager` 구조를 `GameScene.secondWindConsumed` 인스턴스 상태와 `bindDefaultPerkManager()` 재바인딩으로 개편하여 사망 후 `scene.restart()`(`shutdown()` $\rightarrow$ `init()` $\rightarrow$ `create()`) 시 별도의 `'perks-updated'` 재발행 없이도 새 런에서 `Second Wind`가 정상 작동하도록 수리.
+       - `playerDie()`에서 `Second Wind` 발동 시 `PerkTreeManager.triggerSecondWind()` 명세에 정의된 3.0초 `+50%` 이동 속도 폭발(`dashSpeedBurstMultiplier = 1.5`, `dashSpeedBurstRemaining`)을 실제 물리 이동에 반영하고, `SerializedPlayer.secondWindConsumed` 직렬화·복원을 연결해 세이브 리로드를 통한 무한 부활 악용을 차단.
+    4. **동일 틱 스폰 엔티티 시계 도메인 정렬, `ORBITAL_TARGETING_CORE` 폭탄 연쇄 기폭 및 `SteamToyTitanBoss`·`MutantFloraBoss` 무손실 세이브 복원 (`BaseEntity.ts`, `SteamToyTitanBoss.ts`, `GameScene.ts`, `BombermanGame.tsx`)**:
+       - `BaseEntity.applySpeedMultiplier(multiplier, durationMs, nowOverrideMs?)`에 시각 오버라이드를 확장하고 `ICE_BOMB`, `dash_decoy`, 6종 기폭 유물 발동 경로에 명시적 프레임/기폭 시각을 전달하여 동일 폭발 틱에 분열·부활한 엔티티(`_lastEntityTimeMs === -1`)에서도 스턴과 둔화 지속시간이 조기 만료되지 않도록 정렬.
+       - `ORBITAL_TARGETING_CORE` 1.2초 지연 궤도 랜스 타격 콜백에 `scratchChainStack` + `detonateStackedChainRange` 기반 Zero-GC 폭탄 연쇄 기폭을 연결.
+       - `SteamToyTitanBoss`(`malletCooldownTimerMs`, `isMalletWindingUp`, `malletWindupTimerMs`, `malletImpactActive`, `malletImpactTimerMs`, `malletImpactX/Y`, `steamVentCooldownTimerMs`, `isSteamVenting`, `steamVentDurationTimerMs`, `gearRotationAngle` 및 `restoreMidAttackVisualsFromState()`를 통한 풀링된 바닥 예고 타일·충격파 즉시 재구성), `MutantFloraBoss`(잠복 중 `isInvulnerable` 보존 및 `rootTimerMs`, `pollenTimerMs`, `vineWhipCooldownMs` 공격 주기 타이머), `BombermanGame.handleResumeRun()`의 `starCandies`·`cosmicEssence` React 상태 동기화를 완결.
+  - **신규 영구 방어 테스트 및 검증 지표**:
+    - `tests/daily_cycle52_zerogc_cloak_charge_second_wind_titan_resume.test.mjs` 신규 구축 (7대 통합 회귀 시나리오 및 10,000프레임 `SteamToyTitanBoss`·`ChaserEnemy`·`GhostEnemy`·`MiniBomberAlly`·은신 전환·블록 파괴 연속 Zero-GC 소크 테스트 전수 통과 — 10개 전 오브젝트 풀 `verifyInvariants() === true`, 풀 누수 `0`건).
+    - 전체 테스트 스위트: **2,431 / 2,431 PASS (100% 통과, 0 실패, 0 스킵, +7 테스트 순증)**.
+    - 정적 분석 및 빌드: `npx tsc --noEmit` **0 에러**, `npm run lint` **0 에러 / 0 경고**, `npm run build` **성공 (Exit code 0, 1139ms 컴파일, 4/4 정적 라우트 사전 렌더링)**.

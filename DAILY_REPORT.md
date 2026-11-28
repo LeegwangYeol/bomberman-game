@@ -1,33 +1,36 @@
 # Bomberman Daily Evolution & Zero-GC Maintenance Report
-**Date:** 2026-11-28  
+**Date:** 2026-11-29  
 **Session:** `[세션명: 봄버맨 일일 무한 진화]`  
 **Environment:** Next.js 16.3.5 (Turbopack) | React 19.2.8 | Phaser 4.2.1 | TypeScript 5.8 | Node.js 25  
 **Authorization:** Absolute Autonomy Mode ("알아서 해" / "절대 허용")  
 **Execution Mode:** Lightweight Focused Single-Agent Auto-Maintenance (No Multi-Agent Swarm)  
-**Overall Status:** **100% PASS — ZERO-GC BOON DRAFT & PERSISTENCE SANITIZERS, `spawnItem` GLOW NON-OCCLUSION (`alpha <= 0.36`), `BomberEnemy` CLOAK-EVASION SAFETY & IMMEDIATE `<4px` WAYPOINT ADVANCEMENT, RELIC/SYNERGY COMBAT COMPLETION (`PSIONIC_FEEDBACK_CRYSTAL`, `GELATINOUS_CORE`, `Cosmic Supernova`, `Quantum Event Horizon`), `MerchantNPC` CURRENCY SYNC, AND LOSSLESS MID-ATTACK BOSS SAVE-RESUME (2,424/2,424 PASS)**
+**Overall Status:** **100% PASS — ZERO-GC `scratchDropStats` & IN-PLACE INVENTORY MUTATION (`destroyBlock`, `collectItem`, `tryTradeWithNearbyMerchant`), CLOAK-SAFE COMMITTED ENEMY CHARGE & ALLY BOMB EVASION, `Second Wind` RESTART/SPEED-BURST/SAVE-RESUME INTEGRITY, CLOCK-DOMAIN DEBUFF ALIGNMENT, `ORBITAL_TARGETING_CORE` BOMB CHAINING, AND `SteamToyTitanBoss` / `MutantFloraBoss` LOSSLESS MID-ATTACK SAVE-RESUME (2,431/2,431 PASS)**
 
 ---
 
 ## 1. Executive Summary
 
-Executed scheduled unattended daily maintenance directly as a focused single agent across `ProgressionPersistence.ts`, `GameStatePersistence.ts`, `GameModes.ts`, `BaseEntity.ts`, `AllyEntities.ts`, `NeutralEntities.ts`, `EnemyEntities.ts`, `RelicSystem.ts`, `PersistenceTypes.ts`, `GameScene.ts`, and `BombermanGame.tsx`:
+Executed scheduled unattended daily maintenance directly as a focused single agent across `BaseEntity.ts`, `EnemyEntities.ts`, `AllyEntities.ts`, `SteamToyTitanBoss.ts`, `PersistenceTypes.ts`, `GameScene.ts`, `BombermanGame.tsx`, and `tests/daily_cycle52_zerogc_cloak_charge_second_wind_titan_resume.test.mjs`:
 
-1. **Zero-GC Boon Draft, Static Persistence Sanitizers & Non-Occlusion Compliance (`alpha <= 0.40`):**
-   - **Zero-Clone `GameModeManager.generateBoonDraft()` (`src/game/progression/GameModes.ts`):** Hoisted `VALID_GAME_MODE_SET` for `deserialize()` and replaced `[...ROGUELITE_BOONS_CATALOG]` array cloning + `.splice()` with pre-allocated `_scratchBoonPoolIndices` (`Int32Array`) index shifting, preserving 100% deterministic LCG selection order with zero temporary array allocations.
-   - **Static Validation Sets (`src/game/progression/ProgressionPersistence.ts`, `src/game/persistence/GameStatePersistence.ts`):** Hoisted `VALID_GAME_MODES`, `VALID_RELIC_IDS`, `VALID_MUTATOR_IDS`, `VALID_GAME_MODES_CASE_INSENSITIVE`, `VALID_RELIC_IDS_SET`, and `isStringValue` at module scope to eliminate repeated `Object.values()`, `.map()`, and `new Set()` allocations across run/profile sanitization.
-   - **`spawnItem()` Grace Glow Non-Occlusion (`src/game/GameScene.ts`):** Clamped the pooled `circlePool` 600ms golden grace glow fill/initial alpha from `0.45` down to `0.36` (with `0.40` stroke alpha and `setStrokeStyle(0, 0, 0)` reset on release), strictly enforcing the `<= 0.40` floor/aura non-occlusion invariant.
+1. **Zero-GC Item Drop, Pickup & Inventory Reset Optimization (`src/game/GameScene.ts`):**
+   - **Zero-Clone `populateScratchDropStats()`:** Replaced per-block/per-pickup `this.getStats()` calls inside `destroyBlock()`, `collectItem()`, and `tryTradeWithNearbyMerchant()` with an in-place `scratchDropStats` mutator bound directly to live scene state, eliminating 4 temporary object/array clones (`PlayerStats`, `[...activeBuffs]`, `{ ...inventory }`, `{ ...itemsCollected }`) per destroyed block or collected item during bomb cascades and ultimate waves.
+   - **In-Place Inventory Reset & Restore:** Added static `ITEM_TYPE_KEYS` with `resetInventoryInPlace()` and `applySavedInventoryInPlace()`, eliminating throwaway `createInitialPlayerStats()` allocations during `create()` and `onResumeRunState()` while preserving `scene.inventory` reference identity.
 
-2. **AI Cloak-Evasion Safety, Immediate `<4px` Waypoint Advancement & Stun Clock Alignment:**
-   - **`BomberEnemy` Cloak-Evasion Fix (`src/game/entities/EnemyEntities.ts`):** Evaluated `EnemyState.EVADING` **before** the `if (!player || !player.active)` early return so `BomberEnemy` never freezes on top of its own ticking bomb when the player activates `CLOAK` (`enemyTarget === null`), and upgraded both `ChaserEnemy` and `BomberEnemy` `EVADING` blocks to `steerAlongPath()`.
-   - **Zero-Oscillation Escape/Flee Steering (`src/game/entities/AllyEntities.ts`, `src/game/entities/NeutralEntities.ts`, `src/game/entities/BaseEntity.ts`):** Upgraded `MiniBomberAlly` `escapePath` and `MerchantNPC` `fleePath` to shift `< 4px` waypoints in-place via `while` loops before computing velocity, and extended `BaseEntity.applyStun(durationMs, nowOverrideMs?)` so `PetDroneAlly` stun bolts synchronize `_lastEntityTimeMs` without premature next-frame expiration.
+2. **Cloak-Safe Committed Enemy Charge & Ally Self-Bomb Evasion (`src/game/entities/EnemyEntities.ts`, `src/game/entities/AllyEntities.ts`):**
+   - **`ChaserEnemy` & `GhostEnemy` Mid-Charge Cloak Resilience:** Evaluated `ChaserEnemy` committed `EnemyState.WINDUP` / `EnemyState.ATTACK` states and `GhostEnemy` active `isDashing` ether-dash decay **before** the `if (!player || !player.active)` early return so enemies never freeze indefinitely mid-windup or mid-dash when the player activates `CLOAK` (`enemyTarget === null`).
+   - **`MiniBomberAlly` Bomb Escape Priority:** Evaluated active `escapePath` evasion before `if (!player || !player.active)` so Pom-Pom always finishes steering clear of its own ticking bomb blast even if the player sprite is temporarily inactive.
 
-3. **Relic/Synergy Combat Completion, Merchant Currency Bridge & Mid-Attack Boss Save-Resume:**
-   - **Relic & Synergy Wiring (`src/game/progression/RelicSystem.ts`, `src/game/GameScene.ts`):** Wired `PSIONIC_FEEDBACK_CRYSTAL` radial `PsychicCrisis` illusion dispel (`dispelPsionicIllusionAt` within `pulseRadius` `2.0`/`3.5`, awarding `+150` score + `DISTORTION_BARRIER` even with `0` enemies); wired `GELATINOUS_CORE` / `Kinetic Pinball` outward elastic wall-bounce knockback (`18px` / `28px`, tile-passability guarded); expanded `Quantum Event Horizon` pull radius to `2.5` tiles; and wired `Cosmic Supernova` (`VOID_SINGULARITY_LENS` + `PYROCLASTIC_PRISM`) `2.5`-tile inward pull + `1.0s` root on bomb placement and `2` (double) diagonal spark shard damage.
-   - **Merchant Currency Sync (`src/game/GameScene.ts`, `src/components/BombermanGame.tsx`):** Wired `'currencies-updated'` on boot/import (with `shutdown()` listener cleanup) and `'merchant-traded'` synchronization so trading Star Candies with `MerchantNPC` updates both React HUD state and persistent `MetaProfile.starCandies`.
-   - **Lossless Mid-Attack Boss & Match Timer Save-Resume (`src/game/persistence/PersistenceTypes.ts`, `src/game/GameScene.ts`):** Persisted and restored `matchSecondsRemaining`, `chronoBonusSecondsGranted`, and active attack kinematics for `QueenBeeBoss` (`flightTimeSec`, `isDiving`, `diveTimerMs`, `targetDiveX/Y`, `isGrounded`, `altitude`, `shieldRotationRad`, `timeUntilNextDiveMs`, `stingerTimerMs`), `HamsterBoss` (`isDashing`, `isReving`, `revWindupTimerMs`, `dashDirectionX/Y`, `dashSpeed`, `remainingRebounds`, `gatlingTimerMs`), and `GummyBearBoss` (`isAirborne`, `leapElevation`, `leapTimerMs`, `leapDurationMs`, `targetLandingX/Y`, `attackCooldownMs`).
+3. **`Second Wind` Restart Lifecycle, Speed Burst & Exploit-Proof Save-Resume (`src/game/GameScene.ts`, `src/game/persistence/PersistenceTypes.ts`):**
+   - **`scene.restart()` Rebinding:** Replaced the closure-scoped `secondWindConsumed` flag with `public secondWindConsumed` on `GameScene` and `bindDefaultPerkManager()` in `create()` whenever `appliedPerkBonuses` is present, ensuring `Second Wind` works across subsequent runs after `shutdown()` $\rightarrow$ `init()` $\rightarrow$ `create()` without requiring a fresh `'perks-updated'` event.
+   - **`+50%` Speed Burst & Checksummed Persistence:** Applied the `+50%` 3.0s speed burst (`dashSpeedBurstMultiplier = 1.5`, `dashSpeedBurstRemaining`) defined by `PerkTreeManager.triggerSecondWind()` inside `playerDie()`, and serialized `secondWindConsumed` in `SerializedPlayer` so save-reloading cannot exploit infinite revives.
 
-4. **Permanent 7-Part Regression & 10,000-Frame Zero-GC Soak Suite (`tests/daily_cycle51_zerogc_evasion_relics_merchant_boss_resume.test.mjs`):**
-   - Verified zero-clone `generateBoonDraft` determinism, static sanitizer Sets, `spawnItem` `alpha <= 0.40` non-occlusion & `circlePool` reclamation, `BomberEnemy` cloak-evasion safety, `<4px` escape/flee waypoint advancement, `PetDroneAlly` stun clock alignment, `PSIONIC_FEEDBACK_CRYSTAL` / `GELATINOUS_CORE` / `Quantum Event Horizon` / `Cosmic Supernova`, `MerchantNPC` currency sync, checksum-verified mid-attack boss save-resume, and a 10,000-frame continuous Zero-GC soak (`45.5ms`, `verifyInvariants() === true`, bounded heap delta).
+4. **Clock-Domain Debuff Alignment, `ORBITAL_TARGETING_CORE` Bomb Chaining & `SteamToyTitanBoss` / `MutantFloraBoss` Mid-Attack Save-Resume:**
+   - **Same-Tick Entity Clock Alignment (`src/game/entities/BaseEntity.ts`, `src/game/GameScene.ts`):** Extended `BaseEntity.applySpeedMultiplier(multiplier, durationMs, nowOverrideMs?)` and passed explicit frame/detonation timestamps across `ICE_BOMB`, `dash_decoy`, and all 6 detonation relic procs so newly spawned/split entities (`_lastEntityTimeMs === -1`) never suffer premature debuff expiry.
+   - **`ORBITAL_TARGETING_CORE` Chain Detonation (`src/game/GameScene.ts`):** Wired Zero-GC `scratchChainStack` + `detonateStackedChainRange` into the 1.2s delayed kinetic lance callback so active bombs on target tiles chain-detonate cleanly.
+   - **Lossless `SteamToyTitanBoss` & `MutantFloraBoss` Mid-Attack Save-Resume (`src/game/bosses/SteamToyTitanBoss.ts`, `src/game/GameScene.ts`, `src/components/BombermanGame.tsx`):** Persisted and restored `SteamToyTitanBoss` mallet windup/impact/steam-vent/gear-angle state (reconstructing pooled `preallocatedTelegraphs` at exact urgency tier or pooled `shockwavePool` waves via `restoreMidAttackVisualsFromState()`), `MutantFloraBoss` burrowed `isInvulnerable` guard + attack cadence timers (`rootTimerMs`, `pollenTimerMs`, `vineWhipCooldownMs`), and React HUD `starCandies` / `cosmicEssence` sync in `handleResumeRun()`.
+
+5. **Permanent 7-Part Regression & 10,000-Frame Zero-GC Soak Suite (`tests/daily_cycle52_zerogc_cloak_charge_second_wind_titan_resume.test.mjs`):**
+   - Verified cloak-safe `ChaserEnemy` / `GhostEnemy` / `MiniBomberAlly` transitions, `Second Wind` restart/speed-burst/save-resume guards, `0` non-HUD `getStats()` calls across `destroyBlock` / `collectItem` / `tryTradeWithNearbyMerchant`, same-tick clock-domain debuff alignment, `ORBITAL_TARGETING_CORE` bomb chain detonation, checksum-verified `SteamToyTitanBoss` & `MutantFloraBoss` mid-attack save-resume, and a 10,000-frame continuous Zero-GC soak (`verifyInvariants() === true` across all 10 scene & boss pools).
 
 ---
 
@@ -35,8 +38,8 @@ Executed scheduled unattended daily maintenance directly as a focused single age
 
 | Metric | Target | Measured Result | Verdict |
 | :--- | :---: | :---: | :---: |
-| **Automated Test Suite (`npm test`)** | 100% Pass | **2,424 / 2,424 Passed (0 Failures, 0 Skips, +7 New Tests)** | ✅ **PASS** |
+| **Automated Test Suite (`npm test`)** | 100% Pass | **2,431 / 2,431 Passed (0 Failures, 0 Skips, +7 New Tests)** | ✅ **PASS** |
 | **TypeScript Static Check (`npx tsc --noEmit`)** | 0 Errors | **0 Errors (Exit Code 0)** | ✅ **PASS** |
 | **ESLint Quality Gate (`npm run lint`)** | 0 Errors | **0 Errors, 0 Warnings (Exit Code 0)** | ✅ **PASS** |
-| **Production Build (`npm run build`)** | Exit 0 | **Compiled Cleanly in 1125ms, 4/4 Static Routes Prerendered** | ✅ **PASS** |
+| **Production Build (`npm run build`)** | Exit 0 | **Compiled Cleanly in 1139ms, 4/4 Static Routes Prerendered** | ✅ **PASS** |
 | **Delivery Quota Protection** | `[skip ci]` | **Single `[skip ci]` commit pushed to `origin/main`** | ✅ **SAFE** |
